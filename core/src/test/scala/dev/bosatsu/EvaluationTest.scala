@@ -373,6 +373,26 @@ main = 6.gcd_Int(3)
       "Foo",
       VInt(3)
     )
+
+    evalTest(
+      List("""
+package Foo
+
+main = popcount_Int(7)
+"""),
+      "Foo",
+      VInt(3)
+    )
+
+    evalTest(
+      List("""
+package Foo
+
+main = popcount_Int(-1)
+"""),
+      "Foo",
+      VInt(0)
+    )
   }
 
   test("test Float64 functions") {
@@ -396,7 +416,7 @@ def classify(x):
 test = TestSuite("float", [
   Assertion(eqf(addf(1.25, 2.5), 3.75), "addf"),
   Assertion(eqf(subf(5.5, 2.25), 3.25), "subf"),
-  Assertion(eqf(timesf(1.5, 2.0), 3.0), "timesf"),
+  Assertion(eqf(mulf(1.5, 2.0), 3.0), "mulf"),
   Assertion(eqf(divf(7.5, 2.5), 3.0), "divf"),
   Assertion(eqf(.NaN, nan0), "nan equality"),
   Assertion(eqf(∞, inf0), "literal infinity"),
@@ -493,6 +513,149 @@ test = TestSuite("float64_to_String", [
     )
   }
 
+  test("test Int64 functions and Rand outputs") {
+    val float64Pack = Predef.loadFileInCompile("test_workspace/Float64.bosatsu")
+    val int64Pack = Predef.loadFileInCompile("test_workspace/Int64.bosatsu")
+    val randPack = Predef.loadFileInCompile("test_workspace/Rand.bosatsu")
+    val natPack = Predef.loadFileInCompile("test_workspace/Nat.bosatsu")
+    val binNatPack = Predef.loadFileInCompile("test_workspace/BinNat.bosatsu")
+
+    runBosatsuTest(
+      List(
+        float64Pack,
+        int64Pack,
+        natPack,
+        binNatPack,
+        randPack,
+        """
+package Foo
+
+from Bosatsu/Num/Int64 import (
+  cmp_Int64,
+  div_Int64,
+  float64_to_Int64,
+  int64_to_Int,
+  int_low_bits_to_Int64,
+  int_to_Int64,
+  max_i64,
+  min_i64,
+  shift_right_Int64,
+)
+from Bosatsu/Rand import (
+  bool_Rand,
+  geometric_Int,
+  int_range,
+  run_Rand,
+  sequence_Rand,
+)
+
+def eq_i64_opt(opt, expected: Int) -> Bool:
+  match opt:
+    case Some(v): cmp_Int(int64_to_Int(v), expected) matches EQ
+    case None: False
+
+bools_42 = run_Rand(sequence_Rand(replicate_List(bool_Rand, 10)), 42)
+range_42 = run_Rand(sequence_Rand(replicate_List(int_range(1000), 5)), 42)
+range_neg_5 = run_Rand(sequence_Rand(replicate_List(int_range(1000), 5)), -5)
+# The Xoshiro state transition is unchanged. These expected sequences changed
+# because bool_Rand now computes parity with popcount_Int64(i) & 1 instead of
+# the old recursive xor-based parity helper, so the derived Bool stream differs.
+geometric_42 = run_Rand(sequence_Rand(replicate_List(geometric_Int, 10)), 42)
+
+test = TestSuite("int64-eval", [
+  Assertion(eq_i64_opt(int_to_Int64(9223372036854775807), 9223372036854775807), "checked conversion max"),
+  Assertion(int_to_Int64(9223372036854775808) matches None, "checked conversion out of range"),
+  Assertion(float64_to_Int64(9223372036854775808.0) matches None, "float conversion rejects 2^63"),
+  Assertion(eq_i64_opt(float64_to_Int64(-9223372036854775808.0), -9223372036854775808),
+    "float conversion accepts -2^63"),
+  Assertion(int64_to_Int(div_Int64(min_i64, int_low_bits_to_Int64(-1))) matches -9223372036854775808,
+    "division overflow wraps to min_i64"),
+  Assertion(int64_to_Int(shift_right_Int64(int_low_bits_to_Int64(1), -63)) matches -9223372036854775808,
+    "negative right shift becomes wrapped left shift"),
+  Assertion(eq_i64_opt(float64_to_Int64(2.5), 2), "float conversion uses ties-to-even"),
+  Assertion(cmp_Int64(min_i64, max_i64) matches LT, "signed comparison"),
+  Assertion(bools_42 matches [False, False, True, True, False, False, False, True, True, True],
+    "bool_Rand deterministic sequence after popcount parity change"),
+  Assertion(range_42 matches [891, 934, 750, 416, 109],
+    "int_range deterministic sequence"),
+  Assertion(range_neg_5 matches [108, 345, 489, 216, 813],
+    "int_range deterministic negative-seed sequence"),
+  Assertion(geometric_42 matches [2, 0, 3, 0, 0, 3, 1, 2, 0, 2],
+    "geometric_Int deterministic sequence after popcount parity change"),
+])
+"""
+      ),
+      "Foo",
+      12
+    )
+  }
+
+  test("comparison observations preserve semantics across Int, Float64, and Int64") {
+    val float64Pack = Predef.loadFileInCompile("test_workspace/Float64.bosatsu")
+    val int64Pack = Predef.loadFileInCompile("test_workspace/Int64.bosatsu")
+
+    runBosatsuTest(
+      List(
+        float64Pack,
+        int64Pack,
+        """
+package Foo
+
+from Bosatsu/Num/Int64 import (
+  cmp_Int64,
+  eq_Int64,
+  int_low_bits_to_Int64,
+  int_to_Int64,
+)
+
+nan0 = divf(0.0, 0.0)
+
+def let_cmp():
+  cmp = cmp_Int(add(1, 2), sub(10, 7))
+  match cmp:
+    case LT | EQ: True
+    case GT: False
+
+test = TestSuite("comparison-lowering", [
+  Assertion(cmp_Int(-1, 0) matches LT | EQ, "int <= 0"),
+  Assertion(cmp_Int(7, 7) matches GT | EQ, "int >= dynamic"),
+  Assertion(
+    (
+      match cmp_Int(4, 5):
+        case LT: True
+        case GT: True
+        case _: False
+    ),
+    "explicit bool match"
+  ),
+  Assertion(eq_Int(0, 0), "eq_Int"),
+  Assertion(let_cmp(), "let-bound cmp observation"),
+  Assertion(eq_Float64(nan0, .NaN), "float equality keeps NaN behavior"),
+  Assertion(cmp_Float64(-0.0, 0.0) matches EQ, "float signed zero"),
+  Assertion(
+    eq_Int64(int_low_bits_to_Int64(-1), int_low_bits_to_Int64(-1)),
+    "Int64 equality"
+  ),
+  Assertion(
+    cmp_Int64(int_low_bits_to_Int64(-1), int_low_bits_to_Int64(0)) matches LT | EQ,
+    "Int64 comparison"
+  ),
+  Assertion(
+    (
+      match int_to_Int64(9223372036854775808):
+        case None: True
+        case Some(_): False
+    ),
+    "Int64 literal conversion fallback"
+  ),
+])
+"""
+      ),
+      "Foo",
+      10
+    )
+  }
+
   test("use range") {
     evalTest(
       List("""
@@ -557,6 +720,17 @@ main = 1
       List("""
 package Foo
 
+def range_fold(inclusiveLower: Int, exclusiveUpper: Int, init: a, fn: (a, Int) -> a) -> a:
+  def go(diff0: Int, acc: a) -> a:
+    loop diff0:
+      case _ if cmp_Int(diff0, 0) matches GT:
+        idx = exclusiveUpper.sub(diff0)
+        go(diff0.sub(1), fn(acc, idx))
+      case _:
+        acc
+
+  go(exclusiveUpper.sub(inclusiveLower), init)
+
 main = range_fold(0, 10, 0, add)
 """),
       "Foo",
@@ -567,6 +741,17 @@ main = range_fold(0, 10, 0, add)
       List("""
 package Foo
 
+def range_fold(inclusiveLower: Int, exclusiveUpper: Int, init: a, fn: (a, Int) -> a) -> a:
+  def go(diff0: Int, acc: a) -> a:
+    loop diff0:
+      case _ if cmp_Int(diff0, 0) matches GT:
+        idx = exclusiveUpper.sub(diff0)
+        go(diff0.sub(1), fn(acc, idx))
+      case _:
+        acc
+
+  go(exclusiveUpper.sub(inclusiveLower), init)
+
 main = range_fold(0, 10, 0, (_, y) -> y)
 """),
       "Foo",
@@ -576,6 +761,17 @@ main = range_fold(0, 10, 0, (_, y) -> y)
     evalTest(
       List("""
 package Foo
+
+def range_fold(inclusiveLower: Int, exclusiveUpper: Int, init: a, fn: (a, Int) -> a) -> a:
+  def go(diff0: Int, acc: a) -> a:
+    loop diff0:
+      case _ if cmp_Int(diff0, 0) matches GT:
+        idx = exclusiveUpper.sub(diff0)
+        go(diff0.sub(1), fn(acc, idx))
+      case _:
+        acc
+
+  go(exclusiveUpper.sub(inclusiveLower), init)
 
 main = range_fold(0, 10, 100, (x, _) -> x)
 """),
@@ -619,6 +815,92 @@ test = TestSuite("exists", [
 """),
       "Foo",
       5
+    )
+
+    runBosatsuTest(
+      List("""
+package GuardedMatches
+
+def exists(as, pred):
+  as matches [*_, x, *_] if pred(x)
+
+test = TestSuite("guarded matches", [
+  Assertion(exists([2], x -> x matches 2), "guarded true"),
+  Assertion(exists([2], x -> x matches 4) matches False, "guarded false"),
+  Assertion([3] matches [*_, x, *_] if x matches 3, "direct true"),
+  Assertion(([3] matches [*_, x, *_] if x matches 9) matches False, "direct false"),
+  ])
+"""),
+      "GuardedMatches",
+      4
+    )
+
+    runBosatsuTest(
+      List("""
+package GuardedListSearch
+
+def not(x): False if x else True
+
+def exists(as, pred):
+  as matches [*_, x, *_] if pred(x)
+
+def forall(as, pred):
+  match as:
+    case [*_, x, *_] if not(pred(x)): False
+    case _: True
+
+test = TestSuite("guarded list search", [
+  Assertion(exists([1, 2, 3], x -> x matches 2), "exists middle hit"),
+  Assertion(exists([2, 1, 3], x -> x matches 2), "exists head hit"),
+  Assertion(not(exists([1, 3], x -> x matches 2)), "exists miss"),
+  Assertion(forall([1, 2, 3], x -> x matches (1 | 2 | 3)), "forall all true"),
+  Assertion(forall([], _ -> False), "forall empty"),
+  Assertion(not(forall([1, 2, 3], x -> x matches (1 | 3))), "forall middle failure"),
+  ])
+"""),
+      "GuardedListSearch",
+      6
+    )
+
+    runBosatsuTest(
+      List("""
+package GuardedMatchesCoherence
+
+def not(x): False if x else True
+def eq_Bool(a, b): b if a else not(b)
+
+test = TestSuite("guarded matches coherence", [
+  Assertion(eq_Bool(2 matches 2 if True else False, (2 matches 2) if True else False), "binding-free guard groups like ternary"),
+  Assertion(eq_Bool(2 matches 3 if True else False, (2 matches 3) if True else False), "binding-free guard groups like ternary no match"),
+  Assertion(eq_Bool(True if (2 matches 2) else False, (2 matches 2) if True else False), "commuted and when both true"),
+  Assertion(eq_Bool(True if (2 matches 3) else False, (2 matches 3) if True else False), "commuted and when match is false"),
+  Assertion(eq_Bool(False if (2 matches 2) else False, (2 matches 2) if False else False), "commuted and when pred is false"),
+  Assertion(eq_Bool([1] matches [x] if x matches 1 else True, True if ([1] matches [x] if x matches 1) else True), "normalized form with bindings true"),
+  Assertion(eq_Bool([2] matches [x] if x matches 1 else False, True if ([2] matches [x] if x matches 1) else False), "normalized form with bindings false"),
+  ])
+"""),
+      "GuardedMatchesCoherence",
+      7
+    )
+
+    runBosatsuTest(
+      List("""
+package GuardedMatchesParens
+
+def not(x): False if x else True
+def eq_Bool(a, b): b if a else not(b)
+
+p1 = [0] matches [1] if ([0] matches [1] if True) else True
+p2 = [0] matches [1] if ([0] matches [1] if True else True)
+
+test = TestSuite("guarded matches parens", [
+  Assertion(p1, "outer else grouping"),
+  Assertion(p2 matches False, "inner else grouping"),
+  Assertion(not(eq_Bool(p1, p2)), "explicit parens pick different meanings"),
+  ])
+"""),
+      "GuardedMatchesParens",
+      3
     )
 
     evalTest(
@@ -1029,7 +1311,10 @@ def getValue(v):
     case IsInt(i, _): i
 
 main = getValue(int)
-""")) { case _: PackageError.TypeErrorIn => () }
+""")) {
+      case _: PackageError.KindInferenceError => ()
+      case _: PackageError.TypeErrorIn        => ()
+    }
 
   }
 
@@ -1051,7 +1336,7 @@ main = plus(1, 2)
 package A
 
 def len(lst, acc):
-  recur lst:
+  loop lst:
     case []: acc
     case [_, *tail]: len(tail, acc.add(1))
 
@@ -1157,7 +1442,7 @@ main = sum(Succ(Succ(Succ(Zero))))
 package A
 
 def len(lst, acc):
-  recur lst:
+  loop lst:
     case EmptyList: acc
     case [_, *tail]: len(tail, acc.add(1))
 
@@ -1171,7 +1456,7 @@ main = len([1, 2, 3], 0)
 package A
 
 def len(lst, acc):
-  recur lst:
+  loop lst:
     case []: acc
     case NonEmptyList(_, tail): len(tail, acc.add(1))
 
@@ -1238,7 +1523,7 @@ main = [*[x, x] for x in range(4) if x.eq_Int(2)].foldl_List(0, add)
 package A
 
 def eq_List(lst1, lst2):
-  recur lst1:
+  loop lst1:
     case []:
       match lst2:
         case []: True
@@ -1384,6 +1669,9 @@ package A
 
 struct TwoVar(one, two)
 
+def uncurry2(f: t1 -> t2 -> r) -> (t1, t2) -> r:
+  (x1, x2) -> f(x1)(x2)
+
 constructed = uncurry2(x -> y -> TwoVar(x, y))(1, "two")
 
 main = match constructed:
@@ -1400,6 +1688,9 @@ main = match constructed:
 package A
 
 struct ThreeVar(one, two, three)
+
+def uncurry3(f: t1 -> t2 -> t3 -> r) -> (t1, t2, t3) -> r:
+  (x1, x2, x3) -> f(x1)(x2)(x3)
 
 constructed = uncurry3(x -> y -> z -> ThreeVar(x, y, z))(1, "two", 3)
 
@@ -2402,7 +2693,7 @@ enum Thing:
   Thing1, Thing2(a: Int, t: Thing)
 
 def bar(y, _: String, x):
-  recur x:
+  loop x:
     case Thing1: y
     case Thing2(i, t): bar(i, "boom", t)
 """),
@@ -2592,7 +2883,7 @@ enum NEList[a: +*]:
   Many(head: a, tail: NEList[a])  
 
 def last(nel: NEList[a]) -> a:
-  recur nel:
+  loop nel:
     case One(a): a
     case Many(_, tail): last(tail)
 
@@ -2612,7 +2903,7 @@ enum NEList[a: +*]:
   Many(head: a, tail: NEList[a])  
 
 def last[a](nel: NEList[a]) -> a:
-  recur nel:
+  loop nel:
     case One(a): a
     case Many(_, tail): last(tail)
 
@@ -2962,50 +3253,185 @@ test = Assertion(fn(False), "")
     )
   }
 
-  test("array externals evaluate") {
+  test("conditional matches in if/elif and ternary evaluate like explicit matches") {
     runBosatsuTest(
       List("""
+package Foo
+
+def pick(left, right, flag):
+  if left matches Some(x):
+    x
+  elif right matches Some(y):
+    y
+  elif flag:
+    99
+  else:
+    0
+
+def guarded(opt):
+  if opt matches Some(x) if x.mod_Int(2) matches 0:
+    x
+  else:
+    77
+
+test = TestSuite("conditional matches", [
+  Assertion(pick(Some(1), Some(2), False) matches 1, "first arm"),
+  Assertion(pick(None, Some(2), False) matches 2, "elif binding arm"),
+  Assertion(pick(None, None, True) matches 99, "boolean fallback arm"),
+  Assertion(pick(None, None, False) matches 0, "else arm"),
+  Assertion(guarded(Some(4)) matches 4, "guard pass"),
+  Assertion(guarded(Some(3)) matches 77, "guard fail"),
+  Assertion(guarded(None) matches 77, "pattern fail"),
+  Assertion((int_to_String(v) if Some(5) matches Some(v) else "miss") matches "5", "ternary true"),
+  Assertion((int_to_String(v) if None matches Some(v) else "miss") matches "miss", "ternary false")
+])
+"""),
+      "Foo",
+      9
+    )
+  }
+
+  test("array externals evaluate") {
+    runBosatsuTest(
+      List(
+        """
+package Bosatsu/Num/Int64
+
+export Int64, int_low_bits_to_Int64, int64_to_Int, eq_Int64
+
+external struct Int64
+external def int_low_bits_to_Int64(i: Int) -> Int64
+external def int64_to_Int(i: Int64) -> Int
+external def eq_Int64(a: Int64, b: Int64) -> Bool
+""",
+        """
+package Bosatsu/Num/Float64
+
+from Bosatsu/Predef import eq_Float64 as eq_Float64_predef
+
+export eq_Float64, float64_bits_to_Int, int_to_Float64, is_nan
+
+external def float64_bits_to_Int(x: Float64) -> Int
+external def int_to_Float64(i: Int) -> Float64
+external def is_nan(x: Float64) -> Bool
+
+def eq_Float64(a, b): eq_Float64_predef(a, b)
+""",
+        """
 package Bosatsu/Collection/Array
+
+from Bosatsu/Num/Float64 import (
+  eq_Float64,
+  float64_bits_to_Int,
+  int_to_Float64,
+  is_nan,
+)
+from Bosatsu/Num/Int64 import (
+  Int64,
+  eq_Int64,
+  int64_to_Int,
+  int_low_bits_to_Int64,
+)
 
 external struct Array[a: +*]
 
 external empty_Array: forall a. Array[a]
-external def tabulate_Array[a](n: Int, fn: Int -> a) -> Array[a]
+external def tabulate_Array[a](n: Int64, fn: Int64 -> a) -> Array[a]
 external def from_List_Array[a](xs: List[a]) -> Array[a]
 external def to_List_Array[a](ary: Array[a]) -> List[a]
-external def size_Array[a](ary: Array[a]) -> Int
-external def get_map_Array[a, b](ary: Array[a], idx: Int, default: Unit -> b, fn: a -> b) -> b
-external def get_or_Array[a](ary: Array[a], idx: Int, default: Unit -> a) -> a
+external def size_Array[a](ary: Array[a]) -> Int64
+external def get_or_Array[a](ary: Array[a], idx: Int64, default: Int64 -> a) -> a
 external def foldl_Array[a, b](ary: Array[a], init: b, fn: (b, a) -> b) -> b
+external def foldl_with_index_Array[a, b](ary: Array[a], init: b, fn: (b, a, Int64) -> b) -> b
+external def foldr_Array[a, b](ary: Array[a], init: b, fn: (a, b) -> b) -> b
 external def map_Array[a, b](ary: Array[a], fn: a -> b) -> Array[b]
-external def set_or_self_Array[a](ary: Array[a], idx: Int, value: a) -> Array[a]
+external def map_with_index_Array[a, b](ary: Array[a], fn: (a, Int64) -> b) -> Array[b]
+external def filter_Array[a](ary: Array[a], fn: a -> Bool) -> Array[a]
+external def flat_map_Array[a, b](ary: Array[a], fn: a -> Array[b]) -> Array[b]
+external def zip_map_Array[a, b, c](left: Array[a], right: Array[b], fn: (a, b) -> c) -> Array[c]
+external def zip_foldl_Array[a, b, c](left: Array[a], right: Array[b], init: c, fn: (c, a, b) -> c) -> c
+external def zip_sumf_Array[a, b](left: Array[a], right: Array[b], fn: (a, b) -> Float64) -> Float64
+external def sumf_Array(ary: Array[Float64]) -> Float64
+external def sumsqf_Array(ary: Array[Float64]) -> Float64
+external def dotf_Array(left: Array[Float64], right: Array[Float64]) -> Float64
+external def set_or_self_Array[a](ary: Array[a], idx: Int64, value: a) -> Array[a]
 external def sort_Array[a](ary: Array[a], fn: (a, a) -> Comparison) -> Array[a]
 external def concat_all_Array[a](arrays: List[Array[a]]) -> Array[a]
-external def slice_Array[a](ary: Array[a], start: Int, end: Int) -> Array[a]
+external def slice_Array[a](ary: Array[a], start: Int64, end: Int64) -> Array[a]
 
-def get_Array[a](ary: Array[a], idx: Int) -> Option[a]:
-  get_map_Array(ary, idx, _ -> None, x -> Some(x))
+def i64(i: Int) -> Int64:
+  int_low_bits_to_Int64(i)
+
+def range_from_Array(start: Int, n: Int) -> Array[Int]:
+  tabulate_Array(i64(n), idx -> add(start, int64_to_Int(idx)))
 
 def cmp_pair(left: (Int, String), right: (Int, String)) -> Comparison:
   (li, _) = left
   (ri, _) = right
   cmp_Int(li, ri)
 
-a5 = tabulate_Array(5, i -> i)
+a5 = tabulate_Array(i64(5), int64_to_Int)
+a5_tail = slice_Array(a5, i64(2), i64(5))
+f5 = map_Array(a5, int_to_Float64)
+f3 = map_Array(range_from_Array(10, 3), int_to_Float64)
 
 tests = TestSuite("array eval", [
   Assertion(to_List_Array(a5) matches [0, 1, 2, 3, 4], "tabulate"),
-  Assertion(size_Array(a5) matches 5, "size"),
-  Assertion(get_Array(a5, 2) matches Some(2), "get some"),
-  Assertion(get_Array(a5, -1) matches None, "get none"),
-  Assertion(get_or_Array(a5, 20, _ -> 10) matches 10, "get_or"),
+  Assertion(eq_Int64(size_Array(a5), i64(5)), "size"),
+  Assertion(to_List_Array(tabulate_Array(i64(-3), int64_to_Int)) matches [], "tabulate negative"),
+  Assertion(
+    to_List_Array(tabulate_Array(i64(2147483648), int64_to_Int)) matches [],
+    "tabulate oversized"
+  ),
+  Assertion(get_or_Array(a5, i64(20), int64_to_Int) matches 20, "get_or forwards miss idx"),
+  Assertion(get_or_Array(a5_tail, i64(0), int64_to_Int) matches 2, "slice index is relative"),
   Assertion(foldl_Array(a5, 0, add) matches 10, "fold"),
-  Assertion(to_List_Array(map_Array(a5, x -> x.add(1))) matches [1, 2, 3, 4, 5], "map"),
-  Assertion(to_List_Array(set_or_self_Array(a5, 1, 9)) matches [0, 9, 2, 3, 4], "set in range"),
-  Assertion(to_List_Array(slice_Array(a5, 1, 4)) matches [1, 2, 3], "slice"),
-  Assertion(to_List_Array(slice_Array(a5, -2, 2)) matches [0, 1], "slice clamp"),
-  Assertion(to_List_Array(slice_Array(a5, 4, 1)) matches [], "slice invalid"),
-  Assertion(to_List_Array(concat_all_Array([a5, tabulate_Array(2, i -> i)])) matches [0, 1, 2, 3, 4, 0, 1], "concat"),
+  Assertion(
+    foldl_with_index_Array(
+      a5_tail,
+      0,
+      (acc, x, idx) -> add(acc, add(x, int64_to_Int(idx)))
+    ) matches 12,
+    "foldl_with_index"
+  ),
+  Assertion(foldr_Array(a5, 0, (x, acc) -> sub(x, acc)) matches 2, "foldr"),
+  Assertion(
+    to_List_Array(map_with_index_Array(a5_tail, (x, idx) -> sub(x, int64_to_Int(idx)))) matches [2, 2, 2],
+    "map_with_index"
+  ),
+  Assertion(to_List_Array(filter_Array(a5, x -> x.mod_Int(2) matches 0)) matches [0, 2, 4], "filter"),
+  Assertion(
+    to_List_Array(flat_map_Array(a5_tail, x -> from_List_Array([x, x.add(20)]))) matches [2, 22, 3, 23, 4, 24],
+    "flat_map slice"
+  ),
+  Assertion(
+    to_List_Array(zip_map_Array(a5, range_from_Array(10, 3), (x, y) -> add(x, y))) matches [10, 12, 14],
+    "zip_map"
+  ),
+  Assertion(
+    zip_foldl_Array(a5, range_from_Array(10, 3), 0, (acc, x, y) -> add(acc, add(x, y))) matches 36,
+    "zip_foldl"
+  ),
+  Assertion(
+    zip_foldl_Array(empty_Array, a5, 99, (acc, x, y) -> add(acc, add(x, y))) matches 99,
+    "zip_foldl empty prefix"
+  ),
+  Assertion(
+    eq_Float64(zip_sumf_Array(a5, range_from_Array(10, 3), (x, y) -> int_to_Float64(mul(x, y))), 35.0),
+    "zip_sumf"
+  ),
+  Assertion(eq_Float64(sumf_Array(empty_Array), 0.0), "sumf empty"),
+  Assertion(eq_Float64(sumsqf_Array(empty_Array), 0.0), "sumsqf empty"),
+  Assertion(eq_Float64(dotf_Array(empty_Array, f3), 0.0), "dotf empty prefix"),
+  Assertion(eq_Float64(sumf_Array(f5), 10.0), "sumf"),
+  Assertion(eq_Float64(sumsqf_Array(f5), 30.0), "sumsqf"),
+  Assertion(eq_Float64(dotf_Array(f5, f3), 35.0), "dotf"),
+  Assertion(eq_Float64(dotf_Array(from_List_Array([∞]), from_List_Array([1.0, .NaN])), ∞), "dotf truncates"),
+  Assertion(float64_bits_to_Int(sumf_Array(from_List_Array([-0.0]))) matches 0x8000_0000_0000_0000, "negative zero"),
+  Assertion(is_nan(sumf_Array(from_List_Array([.NaN, 1.0]))), "nan propagates"),
+  Assertion(to_List_Array(set_or_self_Array(a5, i64(1), 9)) matches [0, 9, 2, 3, 4], "set in range"),
+  Assertion(to_List_Array(slice_Array(a5, i64(1), i64(4))) matches [1, 2, 3], "slice"),
+  Assertion(to_List_Array(concat_all_Array([a5, tabulate_Array(i64(2), int64_to_Int)])) matches [0, 1, 2, 3, 4, 0, 1], "concat"),
   Assertion(
     to_List_Array(
       sort_Array(
@@ -3016,9 +3442,10 @@ tests = TestSuite("array eval", [
     "sort"
   ),
 ])
-"""),
+"""
+      ),
       "Bosatsu/Collection/Array",
-      13
+      29
     )
   }
 
@@ -3159,8 +3586,136 @@ tests = TestSuite("lazy eval", [
     assertEquals(calls, 2)
   }
 
+  test("prog constructors right-associate flat_map and recover") {
+    val pureFn = FnValue { case NonEmptyList(a, _) =>
+      PredefImpl.prog_pure(a)
+    }
+    val raiseFn = FnValue { case NonEmptyList(a, _) =>
+      PredefImpl.prog_raise_error(a)
+    }
+
+    val startFlat = PredefImpl.prog_pure(VInt(1))
+    val assocFlat =
+      PredefImpl
+        .prog_flat_map(PredefImpl.prog_flat_map(startFlat, pureFn), pureFn)
+        .asSum
+    assertEquals(assocFlat.variant, 2)
+    assertEquals(assocFlat.value.get(0), startFlat)
+
+    val flatComposed = assocFlat.value.get(1)
+    val flatArg = VInt(9)
+    val flatApplied = flatComposed.asFn(NonEmptyList(flatArg, Nil)).asSum
+    assertEquals(flatApplied.variant, 2)
+    assertEquals(flatApplied.value.get(1), pureFn)
+    val flatLeft = flatApplied.value.get(0).asSum
+    assertEquals(flatLeft.variant, 0)
+    assertEquals(flatLeft.value.get(0), flatArg)
+
+    val startRecover = PredefImpl.prog_raise_error(Str("boom"))
+    val assocRecover =
+      PredefImpl
+        .prog_recover(PredefImpl.prog_recover(startRecover, raiseFn), raiseFn)
+        .asSum
+    assertEquals(assocRecover.variant, 3)
+    assertEquals(assocRecover.value.get(0), startRecover)
+
+    val recoverComposed = assocRecover.value.get(1)
+    val recoverArg = Str("e")
+    val recoverApplied =
+      recoverComposed.asFn(NonEmptyList(recoverArg, Nil)).asSum
+    assertEquals(recoverApplied.variant, 3)
+    assertEquals(recoverApplied.value.get(1), raiseFn)
+    val recoverLeft = recoverApplied.value.get(0).asSum
+    assertEquals(recoverLeft.variant, 1)
+    assertEquals(recoverLeft.value.get(0), recoverArg)
+  }
+
+  test("prog observe evaluates to unit and composes with flat_map") {
+    val observed = PredefImpl.prog_observe(VInt(123))
+    assertEquals(PredefImpl.runProg(observed).result, Right(UnitValue))
+
+    val continueWith = FnValue { case NonEmptyList(_, _) =>
+      PredefImpl.prog_pure(VInt(99))
+    }
+    val chained = PredefImpl.prog_flat_map(observed, continueWith)
+    assertEquals(PredefImpl.runProg(chained).result, Right(VInt(99)))
+  }
+
+  test("prog var allocates on run and preserves sequential semantics") {
+    val alloc = PredefImpl.prog_new_var(VInt(1))
+
+    val firstCell = PredefImpl.runProg(alloc).result match {
+      case Right(value) => value
+      case Left(err)    => fail(s"unexpected error allocating first var: $err")
+    }
+    val secondCell = PredefImpl.runProg(alloc).result match {
+      case Right(value) => value
+      case Left(err)    => fail(s"unexpected error allocating second var: $err")
+    }
+
+    assertNotEquals(firstCell.asExternal.toAny, secondCell.asExternal.toAny)
+    assertEquals(PredefImpl.runProg(PredefImpl.prog_var_get(firstCell)).result, Right(VInt(1)))
+    assertEquals(
+      PredefImpl.runProg(PredefImpl.prog_var_set(firstCell, VInt(2))).result,
+      Right(UnitValue)
+    )
+    assertEquals(
+      PredefImpl.runProg(PredefImpl.prog_var_swap(firstCell, VInt(5))).result,
+      Right(VInt(2))
+    )
+
+    val updateFn = FnValue { case NonEmptyList(current, _) =>
+      Tuple(PredefImpl.add(current, VInt(1)), PredefImpl.mul(current, VInt(10)))
+    }
+    assertEquals(
+      PredefImpl.runProg(PredefImpl.prog_var_update(firstCell, updateFn)).result,
+      Right(VInt(50))
+    )
+    assertEquals(PredefImpl.runProg(PredefImpl.prog_var_get(firstCell)).result, Right(VInt(6)))
+  }
+
+  test("prog var helper functions compose in Bosatsu code") {
+    val progPack = Predef.loadFileInCompile("test_workspace/Prog.bosatsu")
+    val progVarPack = """
+package ProgVarEval
+
+from Bosatsu/Prog import ProgTest, await, get, get_and_update, modify, new_var, pure, set, swap, update, update_and_get
+
+tests = ProgTest(_ -> (
+    v <- new_var(1).await()
+    initial <- get(v).await()
+    _ <- set(v, 2).await()
+    after_set <- get(v).await()
+    swapped <- swap(v, 5).await()
+    update_result <- update(v, current -> (add(current, 1), mul(current, 10))).await()
+    old_value <- get_and_update(v, current -> add(current, 3)).await()
+    new_value <- update_and_get(v, current -> mul(current, 2)).await()
+    _ <- modify(v, current -> sub(current, 1)).await()
+    final <- get(v).await()
+    pure(
+      TestSuite(
+        "prog var",
+        [
+          Assertion(initial matches 1, "initial"),
+          Assertion(after_set matches 2, "get after set"),
+          Assertion(swapped matches 2, "swap returns old value"),
+          Assertion(update_result matches 50, "update returns projection"),
+          Assertion(old_value matches 6, "get_and_update returns old value"),
+          Assertion(new_value matches 18, "update_and_get returns new value"),
+          Assertion(final matches 17, "modify updates final state")
+        ]
+      )
+    )
+  ))
+"""
+
+    runBosatsuTest(List(progPack, progVarPack), "ProgVarEval", 7)
+  }
+
   if (Platform.isScalaJvm)
     test("prog and io/std externals evaluate and run recursively") {
+      // These fixtures are embedded at compile time so exposes-header updates
+      // in test_workspace must flow through this source file as well.
       val progPack = Predef.loadFileInCompile("test_workspace/Prog.bosatsu")
       val charPack = Predef.loadFileInCompile("test_workspace/Char.bosatsu")
       val ioErrorPack =
@@ -3182,7 +3737,7 @@ external struct Bytes
       val progRunPack = """
 package ProgRun
 
-from Bosatsu/Prog import Prog, Main, pure, recover, await, recursive
+from Bosatsu/Prog import Prog, Main, pure, recover, await, recursive, observe
 from Bosatsu/IO/Std import println, print, print_err, print_errln, read_stdin_utf8_bytes
 from Bosatsu/IO/Error import IOError
 
@@ -3205,6 +3760,7 @@ main = Main(args -> (
     _ <- print_err("args=").await()
     _ <- print_errln(int_to_String(arg_count)).await()
     s <- sum_to((10000, 0)).await()
+    _ <- observe(s).await()
     _ <- println("sum=${int_to_String(s)}").await()
     pure(0)
   ).recover(_ -> pure(0))
@@ -3246,6 +3802,152 @@ main = Main(args -> (
             "start|stdin=\u00E9|bad=<bad>\nsum=50005000\n"
           )
           assertEquals(run.stderr, "args=2\n")
+        }
+      )
+    }
+
+  if (Platform.isScalaJvm)
+    test("mkdir_with_mode and stat externals are registered for JVM evaluation") {
+      val progPack = Predef.loadFileInCompile("test_workspace/Prog.bosatsu")
+      val charPack = Predef.loadFileInCompile("test_workspace/Char.bosatsu")
+      // Keep this call site recompiling when the Bosatsu Array test workspace changes test helpers.
+      val arrayPack =
+        Predef.loadFileInCompile("test_workspace/Bosatsu/Collection/Array.bosatsu")
+      val listPack = Predef.loadFileInCompile("test_workspace/List.bosatsu")
+      val optionPack = Predef.loadFileInCompile("test_workspace/Option.bosatsu")
+      val propertiesPack =
+        Predef.loadFileInCompile("test_workspace/Properties.bosatsu")
+      val float64Pack = Predef.loadFileInCompile("test_workspace/Float64.bosatsu")
+      val int64Pack = Predef.loadFileInCompile("test_workspace/Int64.bosatsu")
+      val randPack = Predef.loadFileInCompile("test_workspace/Rand.bosatsu")
+      val natPack = Predef.loadFileInCompile("test_workspace/Nat.bosatsu")
+      val binNatPack =
+        Predef.loadFileInCompile("test_workspace/BinNat.bosatsu")
+      val ioErrorPack =
+        Predef.loadFileInCompile("test_workspace/Bosatsu/IO/Error.bosatsu")
+      val bytesPack =
+        Predef.loadFileInCompile("test_workspace/Bosatsu/IO/Bytes.bosatsu")
+      val ioCorePack =
+        Predef.loadFileInCompile("test_workspace/Bosatsu/IO/Core.bosatsu")
+
+      val mkdirEvalPack = """
+package MkdirWithModeEval
+
+from Bosatsu/Prog import Main, Prog, pure, recover, await
+from Bosatsu/IO/Error import IOError, Unsupported
+from Bosatsu/IO/Core import (
+  Path,
+  PosixMode,
+  FileStat,
+  string_to_Path,
+  path_join,
+  create_temp_dir,
+  stat,
+  mkdir_with_mode,
+  remove,
+  posix_mode,
+  posix_mode_to_Int,
+)
+
+def stat_mode_bits(stat_res: Option[FileStat]) -> Int:
+  match stat_res:
+    case Some(FileStat { kind: _, size_bytes: _, mtime: _, posix_mode: Some(mode) }):
+      posix_mode_to_Int(mode)
+    case _:
+      -1
+
+def stat_has_mode(stat_res: Option[FileStat]) -> Bool:
+  stat_mode_bits(stat_res).eq_Int(-1) matches False
+
+def is_unsupported_error(err: IOError) -> Bool:
+  match err:
+    case Unsupported(_): True
+    case _: False
+
+def mkdir_unsupported(path: Path, mode: PosixMode) -> Prog[IOError, Bool]:
+  recover(
+    (
+      _ <- mkdir_with_mode(path, False, mode).await()
+      pure(False)
+    ),
+    err -> pure(is_unsupported_error(err))
+  )
+
+main = Main(_ ->
+  match (string_to_Path("leaf"), posix_mode(488)):
+    case (Some(leaf_name), Some(mode)):
+      recover(
+        (
+          root <- create_temp_dir(None, "bosatsu_eval_mkdir_mode").await()
+          root_stat <- stat(root).await()
+          leaf = path_join(root, leaf_name)
+          exit_code <- (if stat_has_mode(root_stat):
+            (
+              _ <- mkdir_with_mode(leaf, False, mode).await()
+              leaf_stat <- stat(leaf).await()
+              _ <- remove(root, True).await()
+              exit_code = if stat_mode_bits(leaf_stat).eq_Int(488):
+                0
+              else:
+                1
+              pure(exit_code)
+            )
+          else:
+            (
+              unsupported <- mkdir_unsupported(leaf, mode).await()
+              _ <- remove(root, True).await()
+              exit_code = if unsupported:
+                0
+              else:
+                1
+              pure(exit_code)
+            )).await()
+          pure(exit_code)
+        ),
+        _ -> pure(1)
+      )
+    case _:
+      pure(1)
+)
+"""
+
+      testInferred(
+        List(
+          progPack,
+          charPack,
+          arrayPack,
+          listPack,
+          optionPack,
+          propertiesPack,
+          float64Pack,
+          int64Pack,
+          randPack,
+          natPack,
+          binNatPack,
+          ioErrorPack,
+          bytesPack,
+          ioCorePack,
+          mkdirEvalPack
+        ),
+        "MkdirWithModeEval",
+        { (pm, mainPack) =>
+          val ev =
+            library.LibraryEvaluation.fromPackageMap(pm, Predef.jvmExternals)
+          val (mainEval, _) =
+            ev.evaluateMainValue(mainPack)
+              .fold(err => fail(err.toString), identity)
+
+          val run =
+            PredefImpl.runProgMain(
+              mainEval.value,
+              Nil,
+              ""
+            )
+
+          run.result match {
+            case Right(VInt(i)) => assertEquals(i.intValue, 0)
+            case other          => fail(s"unexpected prog result: $other")
+          }
         }
       )
     }

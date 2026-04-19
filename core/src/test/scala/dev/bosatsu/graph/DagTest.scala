@@ -2,6 +2,7 @@ package dev.bosatsu.graph
 
 import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
+import dev.bosatsu.Platform
 import dev.bosatsu.MonadGen.genMonad
 import dev.bosatsu.ListOrdering
 import scala.collection.immutable.SortedSet
@@ -11,7 +12,9 @@ import cats.syntax.all._
 class DagTest extends munit.ScalaCheckSuite {
   override def scalaCheckTestParameters =
     // PropertyCheckConfiguration(minSuccessful = 5000)
-    super.scalaCheckTestParameters.withMinSuccessfulTests(400)
+    super.scalaCheckTestParameters.withMinSuccessfulTests(
+      if (Platform.isScalaJvm) 400 else 80
+    )
 
   val genDag: Gen[Map[Int, Set[Int]]] =
     Gen

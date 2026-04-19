@@ -97,9 +97,27 @@ trait SetOps[A] extends Relatable[A] {
       }
     val normB = clearSubs(branches, Nil)
     given Eq[A] = Eq.instance(equiv)
-    val missing = SetOps.greedySearch(lookahead, top, unifyUnion(normB))(
-      differenceAll(_, _)
-    )(using superSetIsSmaller)
+    val normalizedBranches = unifyUnion(normB)
+
+    def greedyMissing(diffs: List[A]): List[A] =
+      SetOps.greedySearch(lookahead, top, diffs)(differenceAll(_, _))(using
+        superSetIsSmaller
+      )
+
+    @annotation.tailrec
+    def closeMissing(
+        current: List[A],
+        remainingRounds: Int
+    ): List[A] =
+      if (remainingRounds <= 0) current
+      else {
+        val next = greedyMissing(unifyUnion(normalizedBranches ::: current))
+        val additional = differenceAll(next, current)
+        if (additional.isEmpty) current
+        else closeMissing(unifyUnion(current ::: additional), remainingRounds - 1)
+      }
+
+    val missing = closeMissing(greedyMissing(normalizedBranches), 8)
 
     // filter any unreachable, which can happen when earlier items shadow later
     // ones

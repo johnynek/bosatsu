@@ -103,7 +103,7 @@ def contains(ord: Order[a], tree: Tree[a], item: a) -> Option[a]:
     Order(fn) = ord
 
     def loop(tree: Tree[a]) -> Option[a]:
-        recur tree:
+        loop tree:
             case Empty: None
             case Branch { key, left, right, ... }:
                 match fn(item, key):
@@ -114,7 +114,7 @@ def contains(ord: Order[a], tree: Tree[a], item: a) -> Option[a]:
     loop(tree)
 
 def min(tree: Tree[a]) -> Option[a]:
-    recur tree:
+    loop tree:
         case Empty: None
         case Branch { key, left: Empty, ... }: Some(key)
         case Branch { left, ... }: min(left)
@@ -190,8 +190,6 @@ Module { add: add_i, contains: contains_i_opt, single: single_i, remove: rem_i .
 
 contains_i = (tree, i) -> (contains_i_opt(tree, i) matches Some(_))
 
-def not(x): False if x else True
-
 contains_test = (
     def add_law(t, i, msg):
         Assertion(t.add_i(i).contains_i(i), msg)
@@ -234,9 +232,13 @@ size_tests = (
 )
 
 def log2(i):
-     int_loop(i, 0, (n, cnt) ->
-        rr = n.div(2)
-        (rr, cnt.add(1)))
+    def loop_log2(n, cnt):
+        loop n:
+            case _ if cmp_Int(n, 0) matches GT:
+                loop_log2(n.div(2), cnt.add(1))
+            case _:
+                cnt
+    loop_log2(i, 0)
 
 def all_n(n): range(n).foldl_List(Empty, add_i)
 

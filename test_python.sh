@@ -26,7 +26,6 @@ check_create_mode_output() {
 
 ./bosatsuj tool transpile \
   --input test_workspace/Issue1633.bosatsu \
-  --package_root test_workspace/ \
   python --outdir "$tmp_dir"
 
 python3 -m unittest discover "$tmp_dir" -v --pattern "*.py"
@@ -39,7 +38,6 @@ python3 -m unittest discover "$tmp_dir" -v --pattern "*.py"
   --input test_workspace/Bosatsu/IO/Bytes.bosatsu \
   --input test_workspace/Bosatsu/IO/Std.bosatsu \
   --input test_workspace/Bosatsu/IO/CreateModeMain.bosatsu \
-  --package_root test_workspace/ \
   python --outdir "$tmp_dir" \
   --externals test_workspace/Prog.bosatsu_externals \
   --evaluators test_workspace/Prog.bosatsu_eval

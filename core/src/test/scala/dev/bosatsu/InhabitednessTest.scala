@@ -522,8 +522,8 @@ class InhabitednessTest extends munit.ScalaCheckSuite {
       Type.forAll(List((a, Kind.Type)), Type.apply1(Type.ListType, Type.TyVar(a)))
     val listUnknownExists =
       Type.exists(List((a, Kind.Type)), Type.apply1(Type.ListType, Type.TyVar(a)))
-    assertState(Inhabitedness.check(listUnknownForAll, edgeNoPredefEnv), State.Unknown)
-    assertState(Inhabitedness.check(listUnknownExists, edgeNoPredefEnv), State.Unknown)
+    assertState(Inhabitedness.check(listUnknownForAll, predefTypeEnv), State.Inhabited)
+    assertState(Inhabitedness.check(listUnknownExists, predefTypeEnv), State.Inhabited)
 
     val skolem =
       Type.TyVar(Type.Var.Skolem("s", Kind.Type, existential = false, id = 7L))
@@ -623,15 +623,15 @@ class InhabitednessTest extends munit.ScalaCheckSuite {
       Inhabitedness.checkMatch(
         Type.apply1(Type.ListType, Type.IntType),
         listRight,
-        edgeNoPredefEnv
+        predefTypeEnv
       ),
-      State.Unknown
+      State.Inhabited
     )
     assertState(
       Inhabitedness.checkMatch(
         Type.apply1(Type.ListType, Type.IntType),
         listRight,
-        edgeFakeListEnv
+        predefTypeEnv ++ edgeFakeListEnv
       ),
       State.Unknown
     )

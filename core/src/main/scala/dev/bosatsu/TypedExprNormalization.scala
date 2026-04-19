@@ -67,6 +67,16 @@ object TypedExprNormalization {
     if (r.isRecursive) (Some(b), scope - b)
     else (None, scope)
 
+  private def isSuspensionLambdaArgs(
+      args: NonEmptyList[(Bindable, Type)]
+  ): Boolean =
+    args match {
+      case NonEmptyList((_, argTpe), Nil) =>
+        Type.normalize(argTpe).sameAs(Type.UnitType)
+      case _ =>
+        false
+    }
+
   // Share repeated immutable values within a lexical scope by introducing
   // non-recursive lets. This is conservative:
   // - only immutable expression forms (no Let/Loop/Recur/Match)
@@ -132,49 +142,73 @@ object TypedExprNormalization {
     def collect(
         expr: TypedExpr[A],
         blocked: Set[Bindable],
-        blockedTy: Set[TyBound]
+        blockedTy: Set[TyBound],
+        inSuspension: Boolean
     ): Unit = {
-      if (isShareable(expr) && !readsBlocked(expr, blocked, blockedTy))
+      if (
+        !inSuspension && isShareable(expr) && !readsBlocked(
+          expr,
+          blocked,
+          blockedTy
+        )
+      )
         addCandidate(expr)
 
       expr match {
         case Generic(quant, in) =>
           val blockedTy1 = blockedTy ++ quant.vars.iterator.map(_._1)
-          collect(in, blocked, blockedTy1)
+          collect(in, blocked, blockedTy1, inSuspension)
         case Annotation(in, _, _) =>
-          collect(in, blocked, blockedTy)
+          collect(in, blocked, blockedTy, inSuspension)
         case AnnotatedLambda(args, body, _) =>
-          collect(body, blocked ++ args.iterator.map(_._1), blockedTy)
+          // Unit -> a lambdas are suspension boundaries: don't hoist work out.
+          val inSuspension1 = inSuspension || isSuspensionLambdaArgs(args)
+          collect(
+            body,
+            blocked ++ args.iterator.map(_._1),
+            blockedTy,
+            inSuspension1
+          )
         case App(fn, args, _, _) =>
-          collect(fn, blocked, blockedTy)
-          args.iterator.foreach(collect(_, blocked, blockedTy))
-        case Let(arg, expr1, in, rec, _) =>
-          val blockedExpr =
-            if (rec.isRecursive) blocked + arg
-            else blocked
-          collect(expr1, blockedExpr, blockedTy)
-          collect(in, blocked + arg, blockedTy)
+          collect(fn, blocked, blockedTy, inSuspension)
+          args.iterator.foreach(collect(_, blocked, blockedTy, inSuspension))
+        case Let(arg, expr1, in, RecursionKind.Recursive, _) =>
+          val blockedExpr = blocked + arg
+          collect(expr1, blockedExpr, blockedTy, inSuspension)
+          collect(in, blocked + arg, blockedTy, inSuspension)
+        case let @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
+          val (lets, tail) = TypedExpr.flattenLets(let)
+          var blockedIn = blocked
+          val it = lets.iterator
+          while (it.hasNext) {
+            val (arg, rhs, _) = it.next()
+            collect(rhs, blockedIn, blockedTy, inSuspension)
+            blockedIn = blockedIn + arg
+          }
+          collect(tail, blockedIn, blockedTy, inSuspension)
         case Loop(args, body, _) =>
           val blockedLoop = blocked ++ args.iterator.map(_._1)
           args.iterator.foreach { case (_, initExpr) =>
-            collect(initExpr, blockedLoop, blockedTy)
+            collect(initExpr, blockedLoop, blockedTy, inSuspension)
           }
-          collect(body, blockedLoop, blockedTy)
+          collect(body, blockedLoop, blockedTy, inSuspension)
         case Recur(args, _, _) =>
-          args.iterator.foreach(collect(_, blocked, blockedTy))
+          args.iterator.foreach(collect(_, blocked, blockedTy, inSuspension))
         case Match(arg, branches, _) =>
-          collect(arg, blocked, blockedTy)
+          collect(arg, blocked, blockedTy, inSuspension)
           branches.iterator.foreach { case Branch(pat, guard, branchExpr) =>
             val blockedBranch = blocked ++ pat.names
-            guard.iterator.foreach(collect(_, blockedBranch, blockedTy))
-            collect(branchExpr, blockedBranch, blockedTy)
+            guard.iterator.foreach(
+              collect(_, blockedBranch, blockedTy, inSuspension)
+            )
+            collect(branchExpr, blockedBranch, blockedTy, inSuspension)
           }
         case Local(_, _, _) | Global(_, _, _, _) | Literal(_, _, _) =>
           ()
       }
     }
 
-    collect(te, Set.empty, Set.empty)
+    collect(te, Set.empty, Set.empty, inSuspension = false)
 
     val dupes: List[(Key, TypedExpr[A])] =
       seen.iterator.collect {
@@ -208,10 +242,12 @@ object TypedExprNormalization {
       def replace(
           expr: TypedExpr[A],
           blocked: Set[Bindable],
-          blockedTy: Set[TyBound]
+          blockedTy: Set[TyBound],
+          inSuspension: Boolean
       ): TypedExpr[A] = {
         val byKey =
-          if (!readsBlocked(expr, blocked, blockedTy)) replaceMap.get(expr.void)
+          if (!inSuspension && !readsBlocked(expr, blocked, blockedTy))
+            replaceMap.get(expr.void)
           else None
 
         byKey match {
@@ -221,58 +257,88 @@ object TypedExprNormalization {
             expr match {
               case g @ Generic(q, in) =>
                 val blockedTy1 = blockedTy ++ q.vars.iterator.map(_._1)
-                val in1 = replace(in, blocked, blockedTy1)
+                val in1 = replace(in, blocked, blockedTy1, inSuspension)
                 if (in1 eq in) g else Generic(q, in1)
               case ann @ Annotation(in, tpe, qev) =>
-                val in1 = replace(in, blocked, blockedTy)
+                val in1 = replace(in, blocked, blockedTy, inSuspension)
                 if (in1 eq in) ann else Annotation(in1, tpe, qev)
               case lam @ AnnotatedLambda(args, body, tag) =>
+                val inSuspension1 = inSuspension || isSuspensionLambdaArgs(args)
                 val body1 =
-                  replace(body, blocked ++ args.iterator.map(_._1), blockedTy)
+                  replace(
+                    body,
+                    blocked ++ args.iterator.map(_._1),
+                    blockedTy,
+                    inSuspension1
+                  )
                 if (body1 eq body) lam
                 else AnnotatedLambda(args, body1, tag)
               case app0 @ App(fn, args, tpe, tag) =>
-                val fn1 = replace(fn, blocked, blockedTy)
+                val fn1 = replace(fn, blocked, blockedTy, inSuspension)
                 val args1 =
-                  ListUtil.mapConserveNel(args)(replace(_, blocked, blockedTy))
+                  ListUtil.mapConserveNel(args)(
+                    replace(_, blocked, blockedTy, inSuspension)
+                  )
                 if ((fn1 eq fn) && (args1 eq args)) app0
                 else App(fn1, args1, tpe, tag)
-              case let0 @ Let(arg, expr1, in, rec, tag) =>
-                val blockedExpr =
-                  if (rec.isRecursive) blocked + arg
-                  else blocked
-                val expr2 = replace(expr1, blockedExpr, blockedTy)
-                val in1 = replace(in, blocked + arg, blockedTy)
+              case let0 @ Let(arg, expr1, in, RecursionKind.Recursive, tag) =>
+                val blockedExpr = blocked + arg
+                val expr2 =
+                  replace(expr1, blockedExpr, blockedTy, inSuspension)
+                val in1 = replace(in, blocked + arg, blockedTy, inSuspension)
                 if ((expr2 eq expr1) && (in1 eq in)) let0
-                else Let(arg, expr2, in1, rec, tag)
+                else Let(arg, expr2, in1, RecursionKind.Recursive, tag)
+              case let0 @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
+                val (lets, tail) = TypedExpr.flattenLets(let0)
+                var blockedIn = blocked
+                var changed = false
+                val rebuilt = List.newBuilder[(Bindable, TypedExpr[A], A)]
+                val it = lets.iterator
+                while (it.hasNext) {
+                  val (arg, rhs, letTag) = it.next()
+                  val rhs1 = replace(rhs, blockedIn, blockedTy, inSuspension)
+                  if (!(rhs1 eq rhs)) changed = true
+                  rebuilt += ((arg, rhs1, letTag))
+                  blockedIn = blockedIn + arg
+                }
+                val tail1 = replace(tail, blockedIn, blockedTy, inSuspension)
+                if (!(tail1 eq tail)) changed = true
+                if (!changed) let0
+                else TypedExpr.letAllNonRecWithTags(rebuilt.result(), tail1)
               case loop0 @ Loop(args, body, tag) =>
                 val blockedLoop = blocked ++ args.iterator.map(_._1)
                 val args1 = ListUtil.mapConserveNel(args) {
                   case (n, initExpr) =>
-                    val init1 = replace(initExpr, blockedLoop, blockedTy)
+                    val init1 =
+                      replace(initExpr, blockedLoop, blockedTy, inSuspension)
                     if (init1 eq initExpr) (n, initExpr)
                     else (n, init1)
                 }
-                val body1 = replace(body, blockedLoop, blockedTy)
+                val body1 = replace(body, blockedLoop, blockedTy, inSuspension)
                 if ((args1 eq args) && (body1 eq body)) loop0
                 else Loop(args1, body1, tag)
               case recur0 @ Recur(args, tpe, tag) =>
                 val args1 =
-                  ListUtil.mapConserveNel(args)(replace(_, blocked, blockedTy))
+                  ListUtil.mapConserveNel(args)(
+                    replace(_, blocked, blockedTy, inSuspension)
+                  )
                 if (args1 eq args) recur0
                 else Recur(args1, tpe, tag)
               case m @ Match(arg, branches, tag) =>
-                val arg1 = replace(arg, blocked, blockedTy)
+                val arg1 = replace(arg, blocked, blockedTy, inSuspension)
                 val branches1 = ListUtil.mapConserveNel(branches) { branch =>
                   val blockedBranch = blocked ++ branch.pattern.names
                   val guard1 =
-                    branch.guard.map(replace(_, blockedBranch, blockedTy))
-                  val expr1 = replace(branch.expr, blockedBranch, blockedTy)
+                    branch.guard.map(
+                      replace(_, blockedBranch, blockedTy, inSuspension)
+                    )
+                  val expr1 =
+                    replace(branch.expr, blockedBranch, blockedTy, inSuspension)
                   if (guard1.eq(branch.guard) && (expr1 eq branch.expr)) branch
                   else branch.copy(guard = guard1, expr = expr1)
                 }
                 if ((arg1 eq arg) && (branches1 eq branches)) m
-                else Match(arg1, branches1, tag)
+                else Match(m.matchKind, arg1, branches1, tag)
               case n @ (Local(_, _, _) | Global(_, _, _, _) |
                   Literal(_, _, _)) =>
                 n
@@ -280,7 +346,7 @@ object TypedExprNormalization {
         }
       }
 
-      val replaced = replace(te, Set.empty, Set.empty)
+      val replaced = replace(te, Set.empty, Set.empty, inSuspension = false)
       val bindings = bindingsByKey.map { case (_, nm, rep) => (nm, rep) }
 
       NonEmptyList.fromList(bindings) match {
@@ -311,7 +377,8 @@ object TypedExprNormalization {
           // if we have a recursive value it shadows the scope
           val (optName, s0) = nameScope(b, r, scope)
           val normTE0 = normalize1(optName, t, s0, typeEnv).get
-          val normTE = shareImmutableValues(normTE0)
+          val normTE =
+            unshadowInlineBinders(shareImmutableValues(normTE0), Set.empty)
           val rec1 =
             if (
               r.isRecursive && (SelfCallKind(b, normTE) == SelfCallKind.NoCall)
@@ -353,14 +420,129 @@ object TypedExprNormalization {
   private def setType[A](expr: TypedExpr[A], tpe: Type): TypedExpr[A] =
     if (!tpe.sameAs(expr.getType)) Annotation(expr, tpe, None) else expr
 
+  private def unshadowInlineBranch[A](
+      branch: Branch[A],
+      avoid: Set[Bindable]
+  ): Branch[A] =
+    NonEmptyList.fromList(branch.pattern.names) match {
+      case None =>
+        val guard1 = branch.guard.map(unshadowInlineBinders(_, avoid))
+        val expr1 = unshadowInlineBinders(branch.expr, avoid)
+        if ((guard1 eq branch.guard) && (expr1 eq branch.expr)) branch
+        else branch.copy(guard = guard1, expr = expr1)
+      case Some(args) =>
+        val clashArgs = args.filter(avoid)
+        val branchAvoid =
+          avoid ++ TypedExpr.freeVarsSet(branch.expr :: branch.guard.toList)
+        val (pattern1, guard0, expr0, avoid1) =
+          if (clashArgs.isEmpty) {
+            (branch.pattern, branch.guard, branch.expr, avoid ++ args.toList)
+          } else {
+            val fresh = Identifier.Bindable.freshSyntheticIterator(branchAvoid)
+            val newArgs = clashArgs.map(_ => fresh.next())
+            val argRenames = clashArgs.iterator.zip(newArgs.iterator).toMap
+            val resSub =
+              argRenames.iterator.map { case (oldArg, newArg) =>
+                oldArg -> { (loc: Local[A]) =>
+                  (Local(newArg, loc.tpe, loc.tag): TypedExpr[A])
+                }
+              }.toMap
+            val expr1 =
+              TypedExpr.substituteAll(resSub, branch.expr, enterLambda = true).get
+            val guard1 =
+              branch.guard.map(
+                TypedExpr.substituteAll(resSub, _, enterLambda = true).get
+              )
+            val pattern2 = branch.pattern.substitute(argRenames)
+            (pattern2, guard1, expr1, avoid ++ pattern2.names.toList)
+          }
+        val guard1 = guard0.map(unshadowInlineBinders(_, avoid1))
+        val expr1 = unshadowInlineBinders(expr0, avoid1)
+        if (
+          (pattern1 == branch.pattern) &&
+          (guard1 eq branch.guard) &&
+          (expr1 eq branch.expr)
+        ) branch
+        else branch.copy(pattern = pattern1, guard = guard1, expr = expr1)
+    }
+
+  // After inlining we can splice a whole subtree under a lexical scope that
+  // already uses some of the same names. The node-local `unshadow` helpers only
+  // rename binders owned by one node; this walk recursively unshadows every
+  // conflicting binder in the inlined subtree.
+  private def unshadowInlineBinders[A](
+      te: TypedExpr[A],
+      avoid: Set[Bindable]
+  ): TypedExpr[A] =
+    te match {
+      case g @ Generic(q, in) =>
+        val in1 = unshadowInlineBinders(in, avoid)
+        if (in1 eq in) g else Generic(q, in1)
+      case a @ Annotation(in, tpe, qev) =>
+        val in1 = unshadowInlineBinders(in, avoid)
+        if (in1 eq in) a else Annotation(in1, tpe, qev)
+      case lam @ AnnotatedLambda(_, _, tag) =>
+        val lam1 = lam.unshadow(avoid)
+        val avoid1 = avoid ++ lam1.args.iterator.map(_._1)
+        val body1 = unshadowInlineBinders(lam1.expr, avoid1)
+        if (body1 eq lam1.expr) lam1
+        else AnnotatedLambda(lam1.args, body1, tag)
+      case app @ App(fn, args, tpe, tag) =>
+        val fn1 = unshadowInlineBinders(fn, avoid)
+        val args1 = ListUtil.mapConserveNel(args)(unshadowInlineBinders(_, avoid))
+        if ((fn1 eq fn) && (args1 eq args)) app
+        else App(fn1, args1, tpe, tag)
+      case let @ Let(_, _, _, RecursionKind.NonRecursive, tag) =>
+        val let1 = let.unshadowResult(avoid)
+        val expr1 = unshadowInlineBinders(let1.expr, avoid)
+        val in1 = unshadowInlineBinders(let1.in, avoid + let1.arg)
+        if ((expr1 eq let1.expr) && (in1 eq let1.in)) let1
+        else Let(let1.arg, expr1, in1, RecursionKind.NonRecursive, tag)
+      case let @ Let(_, _, _, RecursionKind.Recursive, tag) =>
+        val let1 = let.unshadowBoth(avoid)
+        val avoid1 = avoid + let1.arg
+        val expr1 = unshadowInlineBinders(let1.expr, avoid1)
+        val in1 = unshadowInlineBinders(let1.in, avoid1)
+        if ((expr1 eq let1.expr) && (in1 eq let1.in)) let1
+        else Let(let1.arg, expr1, in1, RecursionKind.Recursive, tag)
+      case lp @ Loop(_, body, tag) =>
+        val lp1 = lp.unshadowBody(avoid)
+        val args1 =
+          ListUtil.mapConserveNel(lp1.args) { case (name, expr) =>
+            (name, unshadowInlineBinders(expr, avoid))
+          }
+        val avoid1 = avoid ++ lp1.args.iterator.map(_._1)
+        val body1 = unshadowInlineBinders(lp1.body, avoid1)
+        if ((args1 eq lp1.args) && (body1 eq lp1.body)) lp1
+        else Loop(args1, body1, tag)
+      case recur @ Recur(args, tpe, tag) =>
+        val args1 = ListUtil.mapConserveNel(args)(unshadowInlineBinders(_, avoid))
+        if (args1 eq args) recur else Recur(args1, tpe, tag)
+      case m @ Match(arg, branches, tag) =>
+        val arg1 = unshadowInlineBinders(arg, avoid)
+        val branches1 =
+          ListUtil.mapConserveNel(branches)(unshadowInlineBranch(_, avoid))
+        if ((arg1 eq arg) && (branches1 eq branches)) m
+        else Match(m.matchKind, arg1, branches1, tag)
+      case n @ (Local(_, _, _) | Global(_, _, _, _) | Literal(_, _, _)) =>
+        n
+    }
+
   private def appLambda[A](
       f1: AnnotatedLambda[A],
       args: NonEmptyList[TypedExpr[A]],
       tpe: Type,
       tag: A
   ): TypedExpr[A] = {
-    val freesInArgs = TypedExpr.freeVarsSet(args.toList)
-    val AnnotatedLambda(lamArgs, expr, _) = f1.unshadow(freesInArgs)
+    val unshadowed =
+      unshadowInlineBinders(f1, TypedExpr.freeVarsSet(args.toList))
+    val (lamArgs, expr) =
+      unshadowed match {
+        case AnnotatedLambda(args1, expr1, _) =>
+          (args1, expr1)
+        case _ =>
+          sys.error(s"expected lambda after inline unshadowing, found: ${unshadowed.reprString}")
+      }
     // Now that we certainly don't shadow we can convert this:
     // ((y1, y2, ..., yn) -> z)(x1, x2, ..., xn) = let y1 = x1 in let y2 = x2 in ... z
     val lets = lamArgs.zip(args).map { case ((n, ltpe), arg) =>
@@ -393,6 +575,77 @@ object TypedExprNormalization {
       case _ =>
         None
     }
+
+  private val TruePattern: Pattern[(PackageName, Constructor), Type] =
+    Pattern.PositionalStruct((PackageName.PredefName, Constructor("True")), Nil)
+  private val FalsePattern: Pattern[(PackageName, Constructor), Type] =
+    Pattern.PositionalStruct((PackageName.PredefName, Constructor("False")), Nil)
+
+  private def ifThenElse[A](
+      cond: TypedExpr[A],
+      thenCase: TypedExpr[A],
+      elseCase: TypedExpr[A]
+  ): TypedExpr[A] =
+    (boolConst(thenCase), boolConst(elseCase)) match {
+      case (Some(true), Some(false)) =>
+        cond
+      case _                         =>
+        Match(
+          cond,
+          NonEmptyList.of(
+            Branch(TruePattern, None, thenCase),
+            Branch(FalsePattern, None, elseCase)
+          ),
+          cond.tag
+        )
+    }
+
+  private def flattenBoolMatchArg[A, V](
+      arg: TypedExpr[A],
+      branches: NonEmptyList[Branch[A]],
+      tag: A,
+      typeEnv: TypeEnv[V]
+  )(implicit ev: V <:< Kind.Arg): Option[TypedExpr[A]] = {
+    val totalityCheck =
+      TotalityCheck(ev.substituteCo[[x] =>> TypeEnv[x]](typeEnv))
+
+    def asBoolSelector(
+        bs: NonEmptyList[Branch[A]]
+    ): Option[(TypedExpr[A], TypedExpr[A])] =
+      bs match {
+        case NonEmptyList(
+              Branch(TruePattern, None, ifTrue),
+              Branch(falseOrTop, None, ifFalse) :: Nil
+            ) if (falseOrTop == FalsePattern) || totalityCheck.isWildLike(
+              falseOrTop
+            ) =>
+          Some((ifTrue, ifFalse))
+        case NonEmptyList(
+              Branch(FalsePattern, None, ifFalse),
+              Branch(trueOrTop, None, ifTrue) :: Nil
+            ) if (trueOrTop == TruePattern) || totalityCheck.isWildLike(
+              trueOrTop
+            ) =>
+          Some((ifTrue, ifFalse))
+        case _ =>
+          None
+      }
+
+    (stripTypeWrappers(arg), asBoolSelector(branches)) match {
+      case (inner @ Match(innerArg, innerBranches, _), Some((ifTrue, ifFalse))) =>
+        innerBranches.traverse { inner =>
+          boolConst(inner.expr).map { cond =>
+            val selected = if (cond) ifTrue else ifFalse
+            if (selected eq inner.expr) inner
+            else inner.copy(expr = selected)
+          }
+        }.map { mapped =>
+          Match(inner.matchKind, innerArg, mapped, tag)
+        }
+      case _ =>
+        None
+    }
+  }
 
   @annotation.tailrec
   private def stripTypeWrappers[A](te: TypedExpr[A]): TypedExpr[A] =
@@ -458,6 +711,19 @@ object TypedExprNormalization {
         combineInvariantFlags(
           outerRecurInvariantFlags(fn, loopNames, inNestedLoop),
           loopList(args.toList, None)
+        )
+      case let @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
+        val (lets, tail) = TypedExpr.flattenLets(let)
+        val fromLets = lets.foldLeft(Option.empty[Vector[Boolean]]) {
+          case (acc, (_, rhs, _)) =>
+            combineInvariantFlags(
+              acc,
+              outerRecurInvariantFlags(rhs, loopNames, inNestedLoop)
+            )
+        }
+        combineInvariantFlags(
+          fromLets,
+          outerRecurInvariantFlags(tail, loopNames, inNestedLoop)
         )
       case Let(_, expr, in, _, _) =>
         combineInvariantFlags(
@@ -537,11 +803,26 @@ object TypedExprNormalization {
         }
         if ((fn1 eq fn) && (args1 eq args)) app
         else App(fn1, args1, tpe, tag)
-      case let @ Let(arg, expr, in, rec, tag) =>
+      case let @ Let(arg, expr, in, RecursionKind.Recursive, tag) =>
         val expr1 = dropOuterRecurArgs(expr, dropPositions, inNestedLoop)
         val in1 = dropOuterRecurArgs(in, dropPositions, inNestedLoop)
         if ((expr1 eq expr) && (in1 eq in)) let
-        else Let(arg, expr1, in1, rec, tag)
+        else Let(arg, expr1, in1, RecursionKind.Recursive, tag)
+      case let @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
+        val (lets, tail) = TypedExpr.flattenLets(let)
+        var changed = false
+        val rebuilt = List.newBuilder[(Bindable, TypedExpr[A], A)]
+        val it = lets.iterator
+        while (it.hasNext) {
+          val (n, rhs, letTag) = it.next()
+          val rhs1 = dropOuterRecurArgs(rhs, dropPositions, inNestedLoop)
+          if (!(rhs1 eq rhs)) changed = true
+          rebuilt += ((n, rhs1, letTag))
+        }
+        val tail1 = dropOuterRecurArgs(tail, dropPositions, inNestedLoop)
+        if (!(tail1 eq tail)) changed = true
+        if (!changed) let
+        else TypedExpr.letAllNonRecWithTags(rebuilt.result(), tail1)
       case lp @ Loop(args, body, tag) =>
         val args1 = ListUtil.mapConserveNel(args) { case (n, initExpr) =>
           (n, dropOuterRecurArgs(initExpr, dropPositions, inNestedLoop))
@@ -579,7 +860,7 @@ object TypedExprNormalization {
           else branch.copy(guard = guard1, expr = branchExpr1)
         }
         if ((arg1 eq arg) && (branches1 eq branches)) m
-        else Match(arg1, branches1, tag)
+        else Match(m.matchKind, arg1, branches1, tag)
       case n @ (Local(_, _, _) | Global(_, _, _, _) | Literal(_, _, _)) =>
         n
     }
@@ -611,11 +892,20 @@ object TypedExprNormalization {
           args.foldLeft(loop(fn, bound, acc)) { (acc0, a) =>
             loop(a, bound, acc0)
           }
-        case Let(arg, expr, in, rec, _) =>
-          val acc1 =
-            if (rec.isRecursive) loop(expr, bound + arg, acc)
-            else loop(expr, bound, acc)
+        case Let(arg, expr, in, RecursionKind.Recursive, _) =>
+          val acc1 = loop(expr, bound + arg, acc)
           loop(in, bound + arg, acc1)
+        case let @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
+          val (lets, tail) = TypedExpr.flattenLets(let)
+          var bound1 = bound
+          var acc1 = acc
+          val it = lets.iterator
+          while (it.hasNext) {
+            val (n, rhs, _) = it.next()
+            acc1 = loop(rhs, bound1, acc1)
+            bound1 = bound1 + n
+          }
+          loop(tail, bound1, acc1)
         case Loop(args, body, _) =>
           val acc1 = args.toList.foldLeft(acc) { case (acc0, (_, initExpr)) =>
             loop(initExpr, bound, acc0)
@@ -640,6 +930,55 @@ object TypedExprNormalization {
     loop(te, Set.empty, Map.empty)
   }
 
+  private def prependCallArgTypesRho(
+      fnType: Type.Rho,
+      extraArgTypes: List[Type]
+  ): Type.Rho =
+    fnType match {
+      case Type.Fun(args, res) =>
+        Type.Fun(args.prependList(extraArgTypes), res)
+      case _ =>
+        fnType
+    }
+
+  private def prependCallArgTypes(
+      fnType: Type,
+      extraArgTypes: List[Type]
+  ): Type =
+    if (extraArgTypes.isEmpty) fnType
+    else
+      fnType match {
+        case Type.ForAll(vars, in) =>
+          Type.ForAll(
+            vars,
+            prependCallArgTypesRho(in, extraArgTypes)
+          )
+        case rho: Type.Rho =>
+          prependCallArgTypesRho(rho, extraArgTypes)
+      }
+
+  private def retagDirectCallRef[A](
+      te: TypedExpr[A],
+      extraArgTypes: List[Type]
+  ): TypedExpr[A] =
+    te match {
+      case l @ Local(n, tpe, tag) =>
+        val tpe1 = prependCallArgTypes(tpe, extraArgTypes)
+        if (tpe1 == tpe) l else Local(n, tpe1, tag)
+      case a @ Annotation(in, tpe, qev) =>
+        val in1 = retagDirectCallRef(in, extraArgTypes)
+        val tpe1 = prependCallArgTypes(tpe, extraArgTypes)
+        val qev1 =
+          qev.map(_.mapTypes(prependCallArgTypes(_, extraArgTypes)))
+        if ((in1 eq in) && (tpe1 == tpe) && qev1.equals(qev)) a
+        else Annotation(in1, tpe1, qev1)
+      case g @ Generic(q, in) =>
+        val in1 = retagDirectCallRef(in, extraArgTypes)
+        if (in1 eq in) g else Generic(q, in1)
+      case other =>
+        setType(other, prependCallArgTypes(other.getType, extraArgTypes))
+    }
+
   // Return true when fnName appears in a non-direct-call position.
   // Direct calls are applications where the function expression resolves to fnName.
   private def hasEscapingFnRef[A](
@@ -660,14 +999,24 @@ object TypedExprNormalization {
           if (fnVisible && isSameLocalRef(fnName, fn)) false
           else hasEscapingFnRef(fn, fnName, fnVisible)
         fnEscapes || args.exists(hasEscapingFnRef(_, fnName, fnVisible))
-      case Let(arg, expr, in, rec, _) =>
-        if (arg == fnName) {
-          if (rec.isRecursive) false
-          else hasEscapingFnRef(expr, fnName, fnVisible)
-        } else {
+      case Let(arg, expr, in, RecursionKind.Recursive, _) =>
+        if (arg == fnName) false
+        else {
           hasEscapingFnRef(expr, fnName, fnVisible) ||
           hasEscapingFnRef(in, fnName, fnVisible)
         }
+      case let @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
+        val (lets, tail) = TypedExpr.flattenLets(let)
+        var escaped = false
+        var visible = fnVisible
+        val it = lets.iterator
+        while (it.hasNext && !escaped) {
+          val (arg, rhs, _) = it.next()
+          escaped = hasEscapingFnRef(rhs, fnName, visible)
+          if (arg == fnName) visible = false
+        }
+        if (escaped || !visible) escaped
+        else hasEscapingFnRef(tail, fnName, visible)
       case Loop(args, body, _) =>
         val fnVisibleBody = fnVisible && !args.exists(_._1 == fnName)
         args.exists { case (_, initExpr) =>
@@ -715,24 +1064,39 @@ object TypedExprNormalization {
           prependArgsToFnCalls(arg, fnName, extraArgs, fnVisible)
         }
         if (fnIsCall) {
-          val args2 = NonEmptyList.fromListUnsafe(extraArgs ::: args1.toList)
-          App(fn1, args2, tpe, tag)
+          val extraArgTypes = extraArgs.map(_.getType)
+          val fn2 = retagDirectCallRef(fn1, extraArgTypes)
+          val args2 = args1.prependList(extraArgs)
+          App(fn2, args2, tpe, tag)
         } else if ((fn1 eq fn) && (args1 eq args)) app
         else App(fn1, args1, tpe, tag)
-      case let @ Let(arg, expr, in, rec, tag) =>
-        if (arg == fnName) {
-          if (rec.isRecursive) let
-          else {
-            val expr1 = prependArgsToFnCalls(expr, fnName, extraArgs, fnVisible)
-            if (expr1 eq expr) let
-            else Let(arg, expr1, in, rec, tag)
-          }
-        } else {
+      case let @ Let(arg, expr, in, RecursionKind.Recursive, tag) =>
+        if (arg == fnName) let
+        else {
           val expr1 = prependArgsToFnCalls(expr, fnName, extraArgs, fnVisible)
           val in1 = prependArgsToFnCalls(in, fnName, extraArgs, fnVisible)
           if ((expr1 eq expr) && (in1 eq in)) let
-          else Let(arg, expr1, in1, rec, tag)
+          else Let(arg, expr1, in1, RecursionKind.Recursive, tag)
         }
+      case let @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
+        val (lets, tail) = TypedExpr.flattenLets(let)
+        var visible = fnVisible
+        var changed = false
+        val rebuilt = List.newBuilder[(Bindable, TypedExpr[A], A)]
+        val it = lets.iterator
+        while (it.hasNext) {
+          val (arg, expr, letTag) = it.next()
+          val expr1 = prependArgsToFnCalls(expr, fnName, extraArgs, visible)
+          if (!(expr1 eq expr)) changed = true
+          rebuilt += ((arg, expr1, letTag))
+          if (arg == fnName) visible = false
+        }
+        val tail1 =
+          if (visible) prependArgsToFnCalls(tail, fnName, extraArgs, visible)
+          else tail
+        if (!(tail1 eq tail)) changed = true
+        if (!changed) let
+        else TypedExpr.letAllNonRecWithTags(rebuilt.result(), tail1)
       case lp @ Loop(args, body, tag) =>
         val args1 = ListUtil.mapConserveNel(args) { pair =>
           val (n, initExpr) = pair
@@ -771,7 +1135,7 @@ object TypedExprNormalization {
           else branch.copy(guard = guard1, expr = branchExpr1)
         }
         if ((arg1 eq arg) && (branches1 eq branches)) m
-        else Match(arg1, branches1, tag)
+        else Match(m.matchKind, arg1, branches1, tag)
       case n @ (Local(_, _, _) | Global(_, _, _, _) | Literal(_, _, _)) =>
         n
     }
@@ -786,12 +1150,11 @@ object TypedExprNormalization {
       case Annotation(in, tpe, qev) =>
         prependLambdaArgs(in, extraArgs).map(Annotation(_, tpe, qev))
       case AnnotatedLambda(args, body, tag) =>
-        val allArgs =
-          NonEmptyList.fromListUnsafe(extraArgs.toList ::: args.toList)
+        val allArgs = args.prependList(extraArgs.toList)
         Some(AnnotatedLambda(allArgs, body, tag))
       case _ =>
-        // Recursive lets are introduced from def/recur forms, so this is
-        // only a defensive fallback for malformed TypedExpr values.
+        // Closure rewriting only applies when the binding still normalizes
+        // to a lambda (possibly wrapped in Generic/Annotation).
         None
     }
 
@@ -869,6 +1232,69 @@ object TypedExprNormalization {
       }
     }
 
+  private def sinkLetIntoBranchingBody[A](
+      arg: Bindable,
+      expr: TypedExpr[A],
+      in: TypedExpr[A],
+      rec: RecursionKind,
+      tag: A
+  ): Option[TypedExpr[A]] = {
+    def loop(current: TypedExpr[A]): Option[TypedExpr[A]] =
+      current match {
+        case Annotation(inner, tpe, qev) =>
+          loop(inner).map(Annotation(_, tpe, qev))
+        case Generic(quant, inner) =>
+          loop(inner).map(Generic(quant, _))
+        case m @ Match(marg, branches, mtag)
+            if !rec.isRecursive &&
+              marg.notFree(arg) &&
+              branches.exists { case Branch(p, guard, r) =>
+                p.names.contains(arg) ||
+                (guard.forall(_.notFree(arg)) && r.notFree(arg))
+              } =>
+          // x = y
+          // match z:
+          //   case w: ww
+          //
+          // can be rewritten as
+          // match z:
+          //   case w:
+          //     x = y
+          //     ww
+          //
+          // when z is not free in x, and at least one branch is not free in x.
+          // We recurse through type wrappers so annotations/generics do not
+          // block the branch-sinking rewrite after inlining.
+          val b1 = branches.map { branch =>
+            val p = branch.pattern
+            val guard = branch.guard
+            val r = branch.expr
+            if (
+              p.names.contains(arg) || (guard.forall(
+                _.notFree(arg)
+              ) && r.notFree(arg))
+            )
+              branch
+            else {
+              val guard1 =
+                guard.map { g =>
+                  if (g.notFree(arg)) g
+                  else Let(arg, expr, g, rec, tag)
+                }
+              val r1 =
+                if (r.notFree(arg)) r
+                else Let(arg, expr, r, rec, tag)
+              branch.copy(guard = guard1, expr = r1)
+            }
+          }
+          Some(Match(m.matchKind, marg, b1, mtag))
+        case _ =>
+          None
+      }
+
+    loop(in)
+  }
+
   /** if the te is not in normal form, transform it into normal form
     */
   private def normalizeLetOpt[A: Eq, V](
@@ -944,6 +1370,7 @@ object TypedExprNormalization {
         val lambda1 = AnnotatedLambda(lamArgs, e1, tag)
         if (changed) normalize1(namerec, lambda1, scope, typeEnv)
         else {
+          val isSuspensionLambda = isSuspensionLambdaArgs(lamArgs)
 
           def doesntUseArgs(te: TypedExpr[A]): Boolean =
             lamArgs.forall { case (n, _) => te.notFree(n) }
@@ -967,9 +1394,10 @@ object TypedExprNormalization {
               // note, e1 is already normalized, so fn is normalized
               Some(setType(fn, te.getType))
             case Let(arg1, ex, in, rec, tag1)
-                if !Impl.isSimple(ex, lambdaSimple = true) && doesntUseArgs(
-                  ex
-                ) && doesntShadow(arg1) =>
+                if !isSuspensionLambda &&
+                  !Impl.isSimple(ex, lambdaSimple = true) &&
+                  doesntUseArgs(ex) &&
+                  doesntShadow(arg1) =>
               // x ->
               //   y = z
               //   f(y)
@@ -988,7 +1416,7 @@ object TypedExprNormalization {
                 typeEnv
               )
             case m @ Match(arg1, branches, tag1)
-                if lamArgs.forall { case (arg, _) =>
+                if !isSuspensionLambda && lamArgs.forall { case (arg, _) =>
                   arg1.notFree(arg)
                 } && ((branches.length > 1) || !Impl.isSimple(
                   arg1,
@@ -1016,7 +1444,7 @@ object TypedExprNormalization {
                   if ((m eq expr) && (lamArgs === lamArgs0)) None
                   else Some(AnnotatedLambda(lamArgs, m, tag))
                 case Some(bs) =>
-                  val m1 = Match(arg1, bs, tag1)
+                  val m1 = Match(m.matchKind, arg1, bs, tag1)
                   normalize1(namerec, m1, scope, typeEnv)
               }
             case notApp =>
@@ -1065,14 +1493,8 @@ object TypedExprNormalization {
         val ws = Impl.WithScope(scope, ev.substituteCo[TypeEnv](typeEnv))
 
         f1 match {
-          // TODO: what if f1: Generic(_, AnnotatedLambda(_, _, _))
-          // we should still be able ton convert this to a let by
-          // instantiating to the right args
-          case ws.ResolveToLambda(Nil, args1, body, ftag) =>
+          case ws.DirectLambdaExpr(Nil, args1, body, ftag) =>
             val lam = AnnotatedLambda(args1, body, ftag)
-            val l = appLambda[A](lam, args, tpe, tag)
-            normalize1(namerec, l, scope, typeEnv)
-          case lam @ AnnotatedLambda(_, _, _) =>
             val l = appLambda[A](lam, args, tpe, tag)
             normalize1(namerec, l, scope, typeEnv)
           case Let(arg1, ex, in, rec, tag1) if a1.forall(_.notFree(arg1)) =>
@@ -1083,8 +1505,8 @@ object TypedExprNormalization {
               scope,
               typeEnv
             )
-          case Global(pack, n: Bindable, _, _) =>
-            ws.ResolveToLambda.resolveGlobalCallWithBonus(pack, n, args) match {
+          case _ =>
+            ws.ResolveToLambda.resolveCalleeCallWithBenefit(f1, args) match {
               case Some((args1, body, ftag)) =>
                 val lam = AnnotatedLambda(args1, body, ftag)
                 val l = appLambda[A](lam, args, tpe, tag)
@@ -1093,9 +1515,6 @@ object TypedExprNormalization {
                 if ((f1 eq fn) && (tpe == tpe0) && (a1 eq args)) None
                 else Some(App(f1, a1, tpe, tag))
             }
-          case _ =>
-            if ((f1 eq fn) && (tpe == tpe0) && (a1 eq args)) None
-            else Some(App(f1, a1, tpe, tag))
         }
       case Let(arg, ex, in, rec, tag) =>
         // note, Infer has already checked
@@ -1140,8 +1559,12 @@ object TypedExprNormalization {
               val scopeIn = si.updated(arg, (rec1, ex2, si))
 
               val in1 = normalize1(namerec, in, scopeIn, typeEnv).get
+              val nonRecUsageCount =
+                if (rec1.isRecursive) 0 else in1.freeVarsDup.count(_ == arg)
+              val shouldRewriteClosureBinding =
+                rec1.isRecursive || (nonRecUsageCount > 1)
               val maybeRewritten =
-                if (rec.isRecursive)
+                if (shouldRewriteClosureBinding)
                   rewriteNonEscapingClosureBinding(arg, ex2, in1, rec1, tag)
                 else None
 
@@ -1149,54 +1572,22 @@ object TypedExprNormalization {
                 case Some(rewritten) =>
                   normalize1(namerec, rewritten, scope, typeEnv)
                 case None =>
-                  in1 match {
-                    case Match(marg, branches, mtag)
-                        if !rec1.isRecursive && marg.notFree(arg) && branches
-                          .exists { case Branch(p, guard, r) =>
-                            p.names.contains(arg) ||
-                            (guard.forall(_.notFree(arg)) && r.notFree(arg))
-                          } =>
-                      // x = y
-                      // match z:
-                      //   case w: ww
-                      //
-                      // can be rewritten as
-                      // match z:
-                      //   case w:
-                      //     x = y
-                      //     ww
-                      //
-                      // when z is not free in x, and at least one branch is not free in x
-                      val b1 = branches.map { branch =>
-                        val p = branch.pattern
-                        val guard = branch.guard
-                        val r = branch.expr
-                        if (
-                          p.names.contains(arg) || (guard.forall(
-                            _.notFree(arg)
-                          ) && r.notFree(arg))
-                        )
-                          branch
-                        else {
-                          val guard1 =
-                            guard.map { g =>
-                              if (g.notFree(arg)) g
-                              else Let(arg, ex2, g, rec1, tag)
-                            }
-                          val r1 =
-                            if (r.notFree(arg)) r
-                            else Let(arg, ex2, r, rec1, tag)
-                          branch.copy(guard = guard1, expr = r1)
-                        }
-                      }
-                      normalize1(namerec, Match(marg, b1, mtag), scope, typeEnv)
-                    case _ =>
+                  sinkLetIntoBranchingBody(arg, ex2, in1, rec1, tag) match {
+                    case Some(branchSunk) =>
+                      normalize1(namerec, branchSunk, scope, typeEnv)
+                    case None             =>
                       val cnt = in1.freeVarsDup.count(_ == arg)
                       if (cnt > 0) {
                         // the arg is needed
                         val isSimp = Impl.isSimple(ex2, lambdaSimple = true)
+                        val isLambdaExpr = stripTypeWrappers(ex2) match {
+                          case AnnotatedLambda(_, _, _) => true
+                          case _                        => false
+                        }
+                        val inlineSimple =
+                          isSimp && !isLambdaExpr
                         val shouldInline = (!rec1.isRecursive) && {
-                          (cnt == 1) || isSimp
+                          (cnt == 1) || inlineSimple
                         }
                         // we don't want to inline a value that is itself a function call
                         // inside of lambdas
@@ -1232,6 +1623,11 @@ object TypedExprNormalization {
               hasOuterRecur(fn, inNestedLoop) || appArgs.exists(
                 hasOuterRecur(_, inNestedLoop)
               )
+            case let @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
+              val (lets, tail) = TypedExpr.flattenLets(let)
+              lets.exists { case (_, rhs, _) =>
+                hasOuterRecur(rhs, inNestedLoop)
+              } || hasOuterRecur(tail, inNestedLoop)
             case Let(_, expr, in, _, _) =>
               hasOuterRecur(expr, inNestedLoop) || hasOuterRecur(
                 in,
@@ -1321,6 +1717,15 @@ object TypedExprNormalization {
         if ((recur1: TypedExpr[A]) === te) None
         else Some(recur1)
 
+      case Match(arg, branches, tag)
+          if flattenBoolMatchArg(arg, branches, tag, typeEnv).nonEmpty =>
+        normalize1(
+          namerec,
+          flattenBoolMatchArg(arg, branches, tag, typeEnv).get,
+          scope,
+          typeEnv
+        )
+
       case Match(_, NonEmptyList(Branch(p, None, e), Nil), _)
           if !e.freeVarsDup.exists(p.names.toSet) =>
         // match x:
@@ -1342,7 +1747,7 @@ object TypedExprNormalization {
           scope,
           typeEnv
         )
-      case Match(arg, branches, tag) =>
+      case m @ Match(arg, branches, tag) =>
         def ncount(
             shadows: Iterable[Bindable],
             e: TypedExpr[A]
@@ -1415,52 +1820,93 @@ object TypedExprNormalization {
             .fromList(keptBranches)
             .getOrElse(NonEmptyList.one(branchNorms.last.branch))
 
-        // due to total matches, the last branch without any bindings
-        // can always be rewritten as _
-        val (changed1, branches1a) =
-          branches1.last.pattern match {
-            case Pattern.WildCard =>
-              (changed0, branches1)
-            case notWild
-                if notWild.names.isEmpty && branches1.last.guard.isEmpty =>
-              val newb = branches1.init ::: (Branch(
-                Pattern.WildCard,
-                None,
-                branches1.last.expr
-              ) :: Nil)
-              // this newb list clearly has more than 0 elements
-              (changed0 + 1, NonEmptyList.fromListUnsafe(newb))
+        val totalityCheck =
+          TotalityCheck(ev.substituteCo[[x] =>> TypeEnv[x]](typeEnv))
+
+        def rewriteLeadingWildcardGuard(
+            arg1: TypedExpr[A],
+            bs: NonEmptyList[Branch[A]]
+        ): Option[TypedExpr[A]] =
+          bs.toList match {
+            case Branch(p, Some(g), e1) :: tail
+                if totalityCheck.isWildLike(p) =>
+              NonEmptyList.fromList(tail).map { tailNel =>
+                val fallback = Match(m.matchKind, arg1, tailNel, tag)
+                Match(
+                  g,
+                  NonEmptyList.of(
+                    Branch(TruePattern, None, e1),
+                    Branch(FalsePattern, None, fallback)
+                  ),
+                  g.tag
+                )
+              }
             case _ =>
+              None
+          }
+
+        def rewriteTrailingGuardPair(
+            bs: NonEmptyList[Branch[A]]
+        ): Option[NonEmptyList[Branch[A]]] =
+          bs.toList match {
+            case init :+ Branch(p1, Some(g), e1) :+ Branch(p2, None, e2)
+                if p2.names.isEmpty &&
+                  p1.ambiguousBindings.intersect(g.freeVarsDup.toSet).isEmpty =>
+              val rewrittenHead = Branch(p1, None, ifThenElse(g, e1, e2))
+              val rewritten =
+                if (totalityCheck.difference(p2, p1).isEmpty)
+                  NonEmptyList.ofInitLast(init, rewrittenHead)
+                else
+                  NonEmptyList.ofInitLast(
+                    init :+ rewrittenHead,
+                    Branch(p2, None, e2)
+                  )
+              Some(rewritten)
+            case _ =>
+              None
+          }
+
+        val (changed1, branches1a) =
+          rewriteTrailingGuardPair(branches1) match {
+            case Some(rewritten) =>
+              (changed0 + 1, rewritten)
+            case None =>
               (changed0, branches1)
           }
+
         val a1 = normalize1(None, arg, scope, typeEnv).get
-        if (changed1 == 0) {
-          val m1 = Match(a1, branches, tag)
-          Impl.maybeEvalMatch(m1, scope) match {
-            case None =>
-              // if only the arg changes, there
-              // is no need to rerun the normalization
-              // because normalization of branches
-              // does not depend on the arg
-              if (a1 eq arg) None
-              else Some(m1)
-            case Some(m2) =>
-              // TODO: we may not have a proof that m2 is smaller
-              // than m1. requiring m2.size < m1.size fails some tests
-              // we can possibly simplify this now:
-              normalize1(namerec, m2, scope, typeEnv)
-          }
-        } else {
-          // there has been some change, so
-          // see if that unlocked any new changes
-          normalize1(namerec, Match(a1, branches1a, tag), scope, typeEnv)
+        rewriteLeadingWildcardGuard(a1, branches1a) match {
+          case Some(rewritten) =>
+            normalize1(namerec, rewritten, scope, typeEnv)
+          case None =>
+            if (changed1 == 0) {
+              val m1 = Match(m.matchKind, a1, branches, tag)
+              Impl.maybeEvalMatch(m1, scope, totalityCheck) match {
+                case None =>
+                  // if only the arg changes, there
+                  // is no need to rerun the normalization
+                  // because normalization of branches
+                  // does not depend on the arg
+                  if (a1 eq arg) None
+                  else Some(m1)
+                case Some(m2) =>
+                  // TODO: we may not have a proof that m2 is smaller
+                  // than m1. requiring m2.size < m1.size fails some tests
+                  // we can possibly simplify this now:
+                  normalize1(namerec, m2, scope, typeEnv)
+              }
+            } else {
+              // there has been some change, so
+              // see if that unlocked any new changes
+              normalize1(namerec, Match(m.matchKind, a1, branches1a, tag), scope, typeEnv)
+            }
         }
     }
   }
 
   def normalize[A: Eq](te: TypedExpr[A]): Option[TypedExpr[A]] = {
     val norm0 = normalize1(None, te, emptyScope, TypeEnv.empty).get
-    val norm1 = shareImmutableValues(norm0)
+    val norm1 = unshadowInlineBinders(shareImmutableValues(norm0), Set.empty)
     if ((norm1: TypedExpr[A]) === te) None
     else Some(norm1)
   }
@@ -1489,12 +1935,51 @@ object TypedExprNormalization {
           typeEnv.getType(const).map(_.kindOf)
         }
 
+      object DirectLambdaExpr {
+        def unapply(te: TypedExpr[A]): Option[
+          (
+              List[(Type.Var.Bound, Kind)],
+              NonEmptyList[(Bindable, Type)],
+              TypedExpr[A],
+              A
+          )
+        ] =
+          te match {
+            case Annotation(
+                  DirectLambdaExpr((h :: t), args, ex, tag),
+                  rho: Type.Rho,
+                  qev
+                ) =>
+              val body = AnnotatedLambda(args, ex, tag)
+              val quant = Quantification.ForAll(NonEmptyList(h, t))
+              val asGen = Generic(quant, body)
+
+              TypedExpr.instantiateTo(asGen, rho, kindOf, qev) match {
+                case AnnotatedLambda(a, e, t) => Some((Nil, a, e, t))
+                case Generic(
+                      Quantification.ForAll(nel),
+                      AnnotatedLambda(a, e, t)
+                    ) =>
+                  Some((nel.toList, a, e, t))
+                case _ => None
+              }
+            case Generic(
+                  Quantification.ForAll(frees),
+                  DirectLambdaExpr(f1, args, ex, tag)
+                ) =>
+              Some((frees.toList ::: f1, args, ex, tag))
+            case AnnotatedLambda(args, expr, ltag) =>
+              Some((Nil, args, expr, ltag))
+            case _ =>
+              None
+          }
+      }
+
       object ResolveToLambda {
-        // this is a parameter that we can tune to change inlining Global Lambdas
-        val MaxSize = 10
-        // Allow a larger inlining budget for global calls that expose
-        // an immediate lambda beta-reduction opportunity.
-        val LambdaArgInlineBonus = 24
+        // Bare function-value references stay conservative; the richer
+        // call-site benefit model runs separately for actual applications.
+        val MaxGlobalReferenceSize = 10
+        val MaxLocalReferenceSize = 0
 
         // TODO: don't we need to worry about the type environment for locals? They
         // can also capture type references to outer Generics
@@ -1534,10 +2019,9 @@ object TypedExprNormalization {
               Some((Nil, args, expr, ltag))
             case Global(p, n: Bindable, _, _) =>
               scope.getGlobal(p, n).flatMap {
-                // only inline global lambdas if they are somewhat small, otherwise we will
-                // tend to transitively inline everything into one big function and blow the stack
+                // Keep global alias inlining conservative and only for small values.
                 case (RecursionKind.NonRecursive, te, scope1)
-                    if te.size < MaxSize =>
+                    if te.size <= MaxGlobalReferenceSize =>
                   val s1 = WithScope(scope1, typeEnv)
                   te match {
                     case s1.ResolveToLambda(frees, args, expr, ltag) =>
@@ -1553,8 +2037,9 @@ object TypedExprNormalization {
               }
             case Local(nm, _, _) =>
               scope.getLocal(nm).flatMap {
-                // Local lambdas tend to be small, so inline them always if we can
-                case (RecursionKind.NonRecursive, te, scope1) =>
+                // Keep local alias inlining conservative to avoid repeated blowups.
+                case (RecursionKind.NonRecursive, te, scope1)
+                    if te.size <= MaxLocalReferenceSize =>
                   val s1 = WithScope(scope1, typeEnv)
                   te match {
                     case s1.ResolveToLambda(frees, args, expr, ltag) =>
@@ -1582,98 +2067,409 @@ object TypedExprNormalization {
             scope1
           )
 
-        private def hasAnyDirectLambdaBetaCandidate(
+        private def parameterDemandSummary(
             lamArgs: NonEmptyList[(Bindable, Type)],
-            body: TypedExpr[A],
-            callArgs: NonEmptyList[TypedExpr[A]]
-        ): Boolean =
-          // This is a profitability signal, not a whole-call safety check.
-          // We only need one argument to likely unlock an immediate beta-reduction
-          // win after inlining.
-          lamArgs.iterator.zip(callArgs.iterator).exists {
-            case ((argName, _), argExpr) =>
-              // Candidate argument checks:
-              // 1) closed argument (prefer closure-free lambda values)
-              // 2) simple argument
-              // 3) argument resolves to a lambda
-              // 4) corresponding parameter used exactly once
-              // 5) that use is direct-call-only (non-escaping)
-              argExpr.freeVarsDup.isEmpty &&
-              Impl.isSimple(argExpr, lambdaSimple = true) &&
-              ResolveToLambda.unapply(argExpr).nonEmpty &&
-              (body.freeVarsDup.count(_ == argName) == 1) &&
-              !hasEscapingFnRef(body, argName, fnVisible = true)
+            body: TypedExpr[A]
+        ): Vector[InlineBenefitModel.ParamSummary] = {
+          val args = lamArgs.toList.map(_._1)
+          val indexOf = args.zipWithIndex.toMap
+          val totalUses = Array.fill(args.length)(0)
+          val eagerUses = Array.fill(args.length)(0)
+          val branchOnlyUses = Array.fill(args.length)(0)
+          val directCalleeUses = Array.fill(args.length)(0)
+          val nonDirectCalleeUses = Array.fill(args.length)(0)
+          val cheapPositionUses = Array.fill(args.length)(0)
+
+          inline def record(
+              name: Bindable,
+              branchOnly: Boolean,
+              directCallee: Boolean,
+              insideLambda: Boolean,
+              cheapContext: Boolean
+          ): Unit =
+            indexOf.get(name) match {
+              case Some(idx) =>
+                totalUses(idx) += 1
+                if (branchOnly && !insideLambda) branchOnlyUses(idx) += 1
+                else eagerUses(idx) += 1
+                if (directCallee && !insideLambda) directCalleeUses(idx) += 1
+                else nonDirectCalleeUses(idx) += 1
+                if (cheapContext) cheapPositionUses(idx) += 1
+              case None =>
+                ()
+            }
+
+          case class LoopState(
+              node: TypedExpr[A],
+              branchOnly: Boolean,
+              directCallee: Boolean,
+              insideLambda: Boolean,
+              cheapContext: Boolean,
+              shadowed: Set[Bindable]
+          )
+
+          @annotation.tailrec
+          def loop(todo: List[LoopState]): Unit =
+            todo match {
+              case LoopState(
+                    node,
+                    branchOnly,
+                    directCallee,
+                    insideLambda,
+                    cheapContext,
+                    shadowed
+                  ) :: tail =>
+                node match {
+                  case Local(name, _, _) if !shadowed(name) =>
+                    record(name, branchOnly, directCallee, insideLambda, cheapContext)
+                    loop(tail)
+                  case Local(_, _, _) | Global(_, _, _, _) | Literal(_, _, _) =>
+                    loop(tail)
+                  case Generic(_, in) =>
+                    loop(
+                      LoopState(
+                        in,
+                        branchOnly,
+                        directCallee,
+                        insideLambda,
+                        cheapContext,
+                        shadowed
+                      ) :: tail
+                    )
+                  case Annotation(in, _, _) =>
+                    loop(
+                      LoopState(
+                        in,
+                        branchOnly,
+                        directCallee,
+                        insideLambda,
+                        cheapContext,
+                        shadowed
+                      ) :: tail
+                    )
+                  case AnnotatedLambda(args0, lamBody, _) =>
+                    loop(
+                      LoopState(
+                        lamBody,
+                        branchOnly = false,
+                        directCallee = false,
+                        insideLambda = true,
+                        cheapContext = false,
+                        shadowed = shadowed ++ args0.iterator.map(_._1)
+                      ) :: tail
+                    )
+                  case App(appFn, appArgs, _, _) =>
+                    val argStates =
+                      appArgs.toList.foldRight(tail) { (argExpr, acc) =>
+                        LoopState(
+                          argExpr,
+                          branchOnly,
+                          directCallee = false,
+                          insideLambda,
+                          cheapContext = false,
+                          shadowed
+                        ) :: acc
+                      }
+                    loop(
+                      LoopState(
+                        appFn,
+                        branchOnly,
+                        directCallee = true,
+                        insideLambda,
+                        cheapContext = false,
+                        shadowed
+                      ) :: argStates
+                    )
+                  case Let(arg, expr, in, rec, _) =>
+                    val shadowedIn = shadowed + arg
+                    val shadowedExpr =
+                      if (rec.isRecursive) shadowedIn else shadowed
+                    loop(
+                      LoopState(
+                        expr,
+                        branchOnly,
+                        directCallee = false,
+                        insideLambda,
+                        cheapContext = false,
+                        shadowedExpr
+                      ) ::
+                        LoopState(
+                          in,
+                          branchOnly,
+                          directCallee = false,
+                          insideLambda,
+                          cheapContext,
+                          shadowedIn
+                        ) ::
+                        tail
+                    )
+                  case Loop(args0, loopBody, _) =>
+                    val initStates =
+                      args0.toList.foldRight(tail) { case ((_, initExpr), acc) =>
+                        LoopState(
+                          initExpr,
+                          branchOnly,
+                          directCallee = false,
+                          insideLambda,
+                          cheapContext = false,
+                          shadowed
+                        ) :: acc
+                      }
+                    loop(
+                      LoopState(
+                        loopBody,
+                        branchOnly,
+                        directCallee = false,
+                        insideLambda,
+                        cheapContext = false,
+                        shadowed = shadowed ++ args0.iterator.map(_._1)
+                      ) :: initStates
+                    )
+                  case Recur(recurArgs, _, _) =>
+                    loop(
+                      recurArgs.toList.foldRight(tail) { (argExpr, acc) =>
+                        LoopState(
+                          argExpr,
+                          branchOnly,
+                          directCallee = false,
+                          insideLambda,
+                          cheapContext = false,
+                          shadowed
+                        ) :: acc
+                      }
+                    )
+                  case Match(matchArg, branches, _) =>
+                    val branchStates =
+                      branches.toList.foldRight(tail) { case (Branch(p, guard, expr), acc) =>
+                        val shadowed1 = shadowed ++ p.names
+                        val acc1 =
+                          LoopState(
+                            expr,
+                            branchOnly = true,
+                            directCallee = false,
+                            insideLambda,
+                            cheapContext = false,
+                            shadowed1
+                          ) :: acc
+                        guard.fold(acc1) { g =>
+                          LoopState(
+                            g,
+                            branchOnly = false,
+                            directCallee = false,
+                            insideLambda,
+                            cheapContext = false,
+                            shadowed1
+                          ) :: acc1
+                        }
+                      }
+                    loop(
+                      LoopState(
+                        matchArg,
+                        branchOnly,
+                        directCallee = false,
+                        insideLambda,
+                        cheapContext = true,
+                        shadowed
+                      ) :: branchStates
+                    )
+                }
+              case Nil =>
+                ()
+            }
+
+          loop(
+            LoopState(
+              body,
+              branchOnly = false,
+              directCallee = false,
+              insideLambda = false,
+              cheapContext = false,
+              shadowed = Set.empty
+            ) :: Nil
+          )
+
+          Vector.tabulate(args.length) { idx =>
+            InlineBenefitModel.ParamSummary(
+              totalUses = totalUses(idx),
+              eagerUses = eagerUses(idx),
+              branchOnlyUses = branchOnlyUses(idx),
+              directCalleeUses = directCalleeUses(idx),
+              nonDirectCalleeUses = nonDirectCalleeUses(idx),
+              cheapPositionUses = cheapPositionUses(idx)
+            )
           }
+        }
 
-        private def hasDirectLambdaArgBonus(
-            lamArgs: NonEmptyList[(Bindable, Type)],
-            body: TypedExpr[A],
-            callArgs: NonEmptyList[TypedExpr[A]]
-        ): Boolean =
-          // Whole-call safety is handled separately:
-          // - full saturation (all parameters have call arguments)
-          // - global scope-compatibility for free vars in the callee body
-          //
-          // Argument duplication/capture concerns are also handled by appLambda:
-          // it rewrites calls into let-bound arguments after unshadowing.
-          // Therefore this bonus check only looks for at least one profitable
-          // beta-reduction candidate argument.
-          !containsRecursiveControl(body) &&
-            hasAnyDirectLambdaBetaCandidate(lamArgs, body, callArgs)
+        private def isCheapArgument(argExpr: TypedExpr[A]): Boolean =
+          Impl.isSimple(argExpr, lambdaSimple = true)
 
-        private def containsRecursiveControl(te: TypedExpr[A]): Boolean =
-          te match {
-            case Generic(_, in) =>
-              containsRecursiveControl(in)
-            case Annotation(in, _, _) =>
-              containsRecursiveControl(in)
-            case AnnotatedLambda(_, in, _) =>
-              containsRecursiveControl(in)
-            case App(fn, args, _, _) =>
-              containsRecursiveControl(fn) || args.exists(
-                containsRecursiveControl
-              )
-            case Let(_, expr, in, rec, _) =>
-              rec.isRecursive || containsRecursiveControl(
-                expr
-              ) || containsRecursiveControl(in)
-            case Loop(_, _, _) | Recur(_, _, _) =>
+        private def isKnownArgumentValue(argExpr: TypedExpr[A]): Boolean =
+          stripTypeWrappers(argExpr) match {
+            case Literal(_, _, _) =>
               true
-            case Match(arg, branches, _) =>
-              containsRecursiveControl(arg) || branches.exists {
-                case Branch(_, guard, branchExpr) =>
-                  guard.exists(containsRecursiveControl) ||
-                  containsRecursiveControl(branchExpr)
+            case Global(_, _: Constructor, _, _) =>
+              true
+            case App(fn, _, _, _) =>
+              stripTypeWrappers(fn) match {
+                case Global(_, _: Constructor, _, _) =>
+                  true
+                case _ =>
+                  false
               }
-            case Local(_, _, _) | Global(_, _, _, _) | Literal(_, _, _) =>
+            case _ =>
               false
           }
 
-        def resolveGlobalCallWithBonus(
-            pack: PackageName,
-            name: Bindable,
+        private def isKnownDirectCallee(argExpr: TypedExpr[A]): Boolean =
+          ResolveToLambda.unapply(argExpr).nonEmpty ||
+            (stripTypeWrappers(argExpr) match {
+              case Global(_, _: Bindable, _, _) |
+                  Global(_, _: Constructor, _, _) =>
+                true
+              case _ =>
+                false
+            })
+
+        private def isDirectForwardedValue(argExpr: TypedExpr[A]): Boolean =
+          stripTypeWrappers(argExpr) match {
+            case Local(_, _, _) => true
+            case _              => false
+          }
+
+        @annotation.tailrec
+        private def exposesFollowOnReduction(body: TypedExpr[A]): Boolean =
+          stripTypeWrappers(body) match {
+            case App(fn, args, _, _)
+                if args.forall(isDirectForwardedValue) &&
+                  (stripTypeWrappers(fn) match {
+                    case Global(_, _: Bindable, _, _) |
+                        Global(_, _: Constructor, _, _) |
+                        Local(_, _, _) =>
+                      true
+                    case _ =>
+                      false
+                  }) =>
+              true
+            case Let(_, expr, in, RecursionKind.NonRecursive, _)
+                if Impl.isSimple(expr, lambdaSimple = true) =>
+              exposesFollowOnReduction(in)
+            case _ =>
+              false
+          }
+
+        @annotation.tailrec
+        private def exposesBranching(body: TypedExpr[A]): Boolean =
+          stripTypeWrappers(body) match {
+            case Match(_, _, _) =>
+              true
+            case Let(_, expr, in, RecursionKind.NonRecursive, _)
+                if Impl.isSimple(expr, lambdaSimple = true) =>
+              exposesBranching(in)
+            case _ =>
+              false
+          }
+
+        private def shouldInlineResolvedCall(
+            lamArgs: NonEmptyList[(Bindable, Type)],
+            body: TypedExpr[A],
+            callArgs: NonEmptyList[TypedExpr[A]],
+            calleeWeight: Int
+        ): Boolean =
+          InlineBenefitModel.shouldInlineCall(
+            InlineBenefitModel.CallSiteSummary(
+              calleeWeight = calleeWeight,
+              containsLoopLike = containsLoopOrRecur(body),
+              exposesBranching = exposesBranching(body),
+              exposesFollowOnReduction = exposesFollowOnReduction(body),
+              args = parameterDemandSummary(lamArgs, body)
+                .iterator
+                .zip(callArgs.iterator)
+                .map { case (demand, argExpr) =>
+                  InlineBenefitModel.ArgSummary(
+                    demand = demand,
+                    isCheap = isCheapArgument(argExpr),
+                    resolvesToLambda = ResolveToLambda.unapply(argExpr).nonEmpty,
+                    isKnownDirectCallee = isKnownDirectCallee(argExpr),
+                    isKnownValue = isKnownArgumentValue(argExpr)
+                  )
+                }
+                .toVector
+            )
+          )
+
+        private def resolveReferencedCallWithBenefit(
+            resolved: (RecursionKind, TypedExpr[A], Scope[A]),
             callArgs: NonEmptyList[TypedExpr[A]]
         ): Option[(NonEmptyList[(Bindable, Type)], TypedExpr[A], A)] =
-          scope.getGlobal(pack, name).flatMap {
-            case (RecursionKind.NonRecursive, te, scope1) =>
+          resolved match {
+            case (RecursionKind.NonRecursive, te, scope1)
+                if Type.freeBoundTyVars(te.getType :: Nil).isEmpty =>
               val s1 = WithScope(scope1, typeEnv)
               te match {
                 case s1.ResolveToLambda(Nil, args, body, ltag)
-                    // Properties that must hold for all arguments / whole-call shape.
-                    // fullySaturated
                     if args.length == callArgs.length &&
-                      // scopeSafe
                       isScopeSafeGlobalInline(args, body, scope1) &&
-                      // hasBonusSignal =
-                      hasDirectLambdaArgBonus(args, body, callArgs) &&
-                      // size is small enough
-                      (te.size < MaxSize + LambdaArgInlineBonus) =>
+                      shouldInlineResolvedCall(args, body, callArgs, body.size) =>
                   Some((args, body, ltag))
                 case _ =>
                   None
               }
             case _ =>
               None
+          }
+
+        private def resolveInstantiatedCalleeWithBenefit(
+            callee: TypedExpr[A],
+            callArgs: NonEmptyList[TypedExpr[A]]
+        ): Option[(NonEmptyList[(Bindable, Type)], TypedExpr[A], A)] =
+          ResolveToLambda.unapply(callee).collect {
+            case (Nil, args, body, ltag)
+                if (args.length == callArgs.length) &&
+                  shouldInlineResolvedCall(args, body, callArgs, body.size) =>
+              (args, body, ltag)
+          }
+
+        def resolveCalleeCallWithBenefit(
+            callee: TypedExpr[A],
+            callArgs: NonEmptyList[TypedExpr[A]]
+        ): Option[(NonEmptyList[(Bindable, Type)], TypedExpr[A], A)] =
+          resolveInstantiatedCalleeWithBenefit(callee, callArgs).orElse {
+            stripTypeWrappers(callee) match {
+              case Global(pack, name: Bindable, _, _) =>
+                scope.getGlobal(pack, name).flatMap(
+                  resolveReferencedCallWithBenefit(_, callArgs)
+                )
+              case _ =>
+                None
+            }
+          }
+
+        def containsLoopOrRecur(te: TypedExpr[A]): Boolean =
+          te match {
+            case Generic(_, in) =>
+              containsLoopOrRecur(in)
+            case Annotation(in, _, _) =>
+              containsLoopOrRecur(in)
+            case AnnotatedLambda(_, in, _) =>
+              containsLoopOrRecur(in)
+            case App(fn, args, _, _) =>
+              containsLoopOrRecur(fn) || args.exists(containsLoopOrRecur)
+            case let @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
+              val (lets, tail) = TypedExpr.flattenLets(let)
+              lets.exists { case (_, rhs, _) => containsLoopOrRecur(rhs) } ||
+              containsLoopOrRecur(tail)
+            case Let(_, expr, in, _, _) =>
+              containsLoopOrRecur(expr) || containsLoopOrRecur(in)
+            case Loop(_, _, _) | Recur(_, _, _) =>
+              true
+            case Match(arg, branches, _) =>
+              containsLoopOrRecur(arg) || branches.exists {
+                case Branch(_, guard, branchExpr) =>
+                  guard.exists(containsLoopOrRecur) ||
+                  containsLoopOrRecur(branchExpr)
+              }
+            case Local(_, _, _) | Global(_, _, _, _) | Literal(_, _, _) =>
+              false
           }
       }
     }
@@ -1695,6 +2491,11 @@ object TypedExprNormalization {
           // maybe inline lambdas so we can possibly
           // apply (x -> f)(g) => let x = g in f
           lambdaSimple
+        case let @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
+          val (lets, tail) = TypedExpr.flattenLets(let)
+          lets.forall { case (_, rhs, _) =>
+            isSimpleNotTail(rhs, lambdaSimple)
+          } && isSimple(tail, lambdaSimple)
         case Let(_, ex, in, _, _) =>
           isSimpleNotTail(ex, lambdaSimple) && isSimple(in, lambdaSimple)
         case Loop(_, _, _) | Recur(_, _, _) =>
@@ -1722,16 +2523,42 @@ object TypedExprNormalization {
     object FnArgs {
       def unapply[A](
           te: TypedExpr[A]
-      ): Option[(TypedExpr[A], NonEmptyList[TypedExpr[A]])] =
+      ): Option[(TypedExpr[A], NonEmptyList[TypedExpr[A]], Type)] =
         te match {
-          case App(fn, args, _, _) => Some((fn, args))
-          case _                   => None
+          case App(fn, args, result, _) => Some((fn, args, result))
+          case _                        => None
         }
     }
 
+    private def retypeEvaluatedValue[A](
+        result: EvalResult[A],
+        asType: Type,
+        totalityCheck: TotalityCheck
+    ): Option[EvalResult[A]] =
+      result match {
+        case lit @ EvalResult.Constant(value) =>
+          if (asType.sameAs(Type.getTypeOf(value))) Some(lit)
+          else None
+        case EvalResult.Cons(pack, cons, args) =>
+          totalityCheck.inEnv.getConstructor(pack, cons).flatMap { case (dt, ctor) =>
+            dt.extractTypeArgs(asType).flatMap { typeArgs =>
+              dt.instantiateConstructorFieldTypes(ctor, typeArgs).flatMap { fieldTypes =>
+                if (fieldTypes.lengthCompare(args.length) == 0) {
+                  val typedArgs =
+                    args.iterator.zip(fieldTypes.iterator).map { case (arg, tpe) =>
+                      setType(arg, tpe)
+                    }.toList
+                  Some(EvalResult.Cons(pack, cons, typedArgs))
+                } else None
+              }
+            }
+          }
+      }
+
     def evaluate[A: Eq](
         te: TypedExpr[A],
-        scope: Scope[A]
+        scope: Scope[A],
+        totalityCheck: TotalityCheck
     ): Option[EvalResult[A]] =
       te match {
         case Literal(lit, _, _) => Some(EvalResult.Constant(lit))
@@ -1740,19 +2567,23 @@ object TypedExprNormalization {
             case (RecursionKind.NonRecursive, t, s) =>
               // local values may have free values defined in
               // their scope. we could handle these with let bindings
-              if (scopeMatches(t.freeVarsDup.toSet, s, scope)) evaluate(t, s)
+              if (scopeMatches(t.freeVarsDup.toSet, s, scope))
+                evaluate(t, s, totalityCheck)
               else None
             case _ => None
           }
-        case Let(arg, expr, in, RecursionKind.NonRecursive, _) =>
-          evaluate(
-            in,
-            scope.updated(arg, (RecursionKind.NonRecursive, expr, scope))
-          )
-        case FnArgs(fn, args) =>
-          evaluate(fn, scope).map {
+        case let @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
+          val (lets, tail) = TypedExpr.flattenLets(let)
+          val scope1 = lets.foldLeft(scope) { case (accScope, (arg, expr, _)) =>
+            accScope.updated(arg, (RecursionKind.NonRecursive, expr, accScope))
+          }
+          evaluate(tail, scope1, totalityCheck)
+        case FnArgs(fn, args, resultTpe0) =>
+          val resultTpe = Type.normalize(resultTpe0)
+          evaluate(fn, scope, totalityCheck).map {
             case EvalResult.Cons(p, c, ahead) =>
-              EvalResult.Cons(p, c, ahead ::: args.toList)
+              val cons = EvalResult.Cons(p, c, ahead ::: args.toList)
+              retypeEvaluatedValue(cons, resultTpe, totalityCheck).getOrElse(cons)
             // $COVERAGE-OFF$
             case EvalResult.Constant(c) =>
               // this really shouldn't happen,
@@ -1768,16 +2599,27 @@ object TypedExprNormalization {
             case (RecursionKind.NonRecursive, t, s) =>
               // Global values never have free values,
               // so it is safe to substitute into our current scope
-              evaluate(t, s)
+              evaluate(t, s, totalityCheck)
             case _ => None
           }
         case Generic(_, in) =>
           // if we can evaluate, we are okay
-          evaluate(in, scope)
-        case Annotation(te, _, _) =>
-          evaluate(te, scope)
+          evaluate(in, scope, totalityCheck)
+        case Annotation(te0, tpe0, _) =>
+          val tpe = Type.normalize(tpe0)
+          if (tpe.sameAs(te0.getType)) evaluate(te0, scope, totalityCheck)
+          else
+            stripTypeWrappers(te0) match {
+              case Global(_, _: Constructor, _, _) =>
+                evaluate(te0, scope, totalityCheck)
+              case _ =>
+                evaluate(te0, scope, totalityCheck).flatMap(
+                  retypeEvaluatedValue(_, tpe, totalityCheck)
+                )
+            }
         case m @ Match(_, _, _) =>
-          maybeEvalMatch(m, scope).flatMap(evaluate(_, scope))
+          maybeEvalMatch(m, scope, totalityCheck)
+            .flatMap(evaluate(_, scope, totalityCheck))
         case _ =>
           None
       }
@@ -1787,19 +2629,20 @@ object TypedExprNormalization {
 
     def maybeEvalMatch[A: Eq](
         m: Match[? <: A],
-        scope: Scope[A]
+        scope: Scope[A],
+        totalityCheck: TotalityCheck
     ): Option[TypedExpr[A]] = {
       def evalBool(te: TypedExpr[A]): Option[Boolean] = {
         val te1: TypedExpr[A] =
           te match {
             case m1 @ Match(_, _, _) =>
-              maybeEvalMatch(m1, scope).getOrElse(te)
+              maybeEvalMatch(m1, scope, totalityCheck).getOrElse(te)
             case _ =>
               te
           }
 
         boolConst(te1).orElse {
-          evaluate(te1, scope).flatMap {
+          evaluate(te1, scope, totalityCheck).flatMap {
             case EvalResult.Cons(
                   PackageName.PredefName,
                   Constructor("True"),
@@ -1818,18 +2661,9 @@ object TypedExprNormalization {
         }
       }
 
-      evaluate(m.arg, scope).flatMap {
+      evaluate(m.arg, scope, totalityCheck).flatMap {
         case EvalResult.Cons(p, c, args) =>
           val alen = args.length
-
-          def isTotal(p: Pat): Boolean =
-            p match {
-              case Pattern.WildCard | Pattern.Var(_) => true
-              case Pattern.Named(_, p)               => isTotal(p)
-              case Pattern.Annotation(p, _)          => isTotal(p)
-              case Pattern.Union(h, t) => isTotal(h) || t.exists(isTotal)
-              case _                   => false
-            }
 
           // The Option signals we can't complete
           def filterPat(pat: Pat): Option[Option[Pat]] =
@@ -1842,9 +2676,8 @@ object TypedExprNormalization {
                 filterPat(p).map { p1 =>
                   p1.map(bp => Pattern.Named(n, bp))
                 }
-              case Pattern.Annotation(p, _) =>
-                // The annotation is only used at inference time, the values have already been typed
-                filterPat(p)
+              case Pattern.Annotation(p, tpe) =>
+                filterPat(p).map(_.map(Pattern.Annotation(_, tpe)))
               case Pattern.Union(h, t) =>
                 (filterPat(h), t.traverse(filterPat))
                   .mapN { (optP1, p2s) =>
@@ -1868,6 +2701,8 @@ object TypedExprNormalization {
           object MaybeNamedStruct {
             def unapply(p: Pat): Option[(List[Bindable], List[Pat])] =
               p match {
+                case Pattern.Annotation(inner, _) =>
+                  unapply(inner)
                 case Pattern.Named(n, MaybeNamedStruct(ns, pats)) =>
                   Some((n :: ns, pats))
                 case Pattern.PositionalStruct(_, pats) =>
@@ -1907,7 +2742,12 @@ object TypedExprNormalization {
                           Let(b, a, tr, RecursionKind.NonRecursive, m.tag)
                         case _ =>
                           // This will get simplified later
-                          Match(a, NonEmptyList.one(Branch(p, None, tr)), m.tag)
+                          Match(
+                            m.matchKind,
+                            a,
+                            NonEmptyList.one(Branch(p, None, tr)),
+                            m.tag
+                          )
                       }
                   }
 
@@ -1968,13 +2808,14 @@ object TypedExprNormalization {
                     )
                   // $COVERAGE-ON$
                   case (pat @ MaybeNamedStruct(_, pats), r) :: rest
-                      if rest.isEmpty || pats.forall(isTotal) =>
+                      if rest.isEmpty || pats.forall(totalityCheck.isTop) =>
                     // If there are no more items, or all inner patterns are total, we are done
                     // exactly one matches, this can be a sequential match
                     bindConsPattern(pat, r)
                   case h :: t =>
                     // more than one branch might match, wait till runtime
                     val m1 = Match(
+                      m.matchKind,
                       m.arg,
                       NonEmptyList(h, t).map { case (pat, rhs) =>
                         Branch(pat, None, rhs)

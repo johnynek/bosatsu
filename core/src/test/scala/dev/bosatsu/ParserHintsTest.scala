@@ -5,7 +5,7 @@ import cats.data.Validated
 class ParserHintsTest extends munit.FunSuite {
 
   private def parseFailure(source: String): Parser.Error.ParseFailure =
-    Parser.parse(Package.parser(None), source) match {
+    Parser.parse(Package.parser, source) match {
       case Validated.Valid(_) =>
         fail(s"expected parse failure for:\n$source")
       case Validated.Invalid(errs) =>
@@ -162,6 +162,41 @@ class ParserHintsTest extends munit.FunSuite {
     )
   }
 
+  test("using match in a condition suggests matches") {
+    val source =
+      """package Foo
+        |
+        |x = (
+        |  if value match Foo: 1
+        |  else: 0
+        |)
+        |""".stripMargin
+
+    val pf = parseFailure(source)
+    val hints = ParserHints.hints(source, pf.locations, pf).map(_.render(120))
+    assert(
+      hints.exists(_.contains("meant 'matches'")),
+      hints.mkString("\n")
+    )
+  }
+
+  test("using matches as a match header suggests match") {
+    val source =
+      """package Foo
+        |
+        |x = matches value:
+        |  case _: 1
+        |""".stripMargin
+
+    val pf = parseFailure(source)
+    val hints = ParserHints.hints(source, pf.locations, pf).map(_.render(120))
+    val shown = pf.showContext(LocationMap.Colorize.None).render(120)
+    assert(
+      hints.exists(_.contains("meant 'match'")),
+      hints.mkString("\n") + "\n" + shown
+    )
+  }
+
   test("zero-arg defs are supported") {
     val source =
       """package Foo
@@ -216,6 +251,70 @@ class ParserHintsTest extends munit.FunSuite {
     assert(
       hints.exists(_.contains("""write `\${`""")),
       hints.mkString("\n")
+    )
+  }
+
+  test("missing trailing expression after nested def gets hint") {
+    val source =
+      """package Foo
+        |
+        |def flat_map(ll: LazyList[a], fn: a -> LazyList[b]) -> LazyList[b]:
+        |    def loop(first: Int, ll):
+        |        match (first, ll):
+        |            case (_, Empty): Empty
+        |            case (_, Cons(h, t)):
+        |                match fn(get_Lazy(h)):
+        |                    case Empty: todo(())
+        |                    case not_empty:
+        |                        Concat(not_empty, lazy(() -> flat_map(get_Lazy(t), fn)))
+        |            case (_, Concat(first, second)):
+        |                concat_lazy(flat_map(first, fn), lazy(() -> flat_map(get_Lazy(second), fn)))
+        |            case (f, Mapped(ll, fn1)):
+        |                if cmp_Int(f, 0) matches GT:
+        |                    loop(0, run_map(ll, fn1))
+        |                else:
+        |                    Empty
+        |
+        |# invariant: neither current nor pending should be empty
+        |def uncons_step(rem: Int, current: LazyList[a], pending: List[LazyList[a]]) -> Option[(Lazy[a], LazyList[a])]:
+        |""".stripMargin
+
+    val pf = parseFailure(source)
+    val hints = ParserHints.hints(source, pf.locations, pf).map(_.render(120))
+    val shown = pf.showContext(LocationMap.Colorize.None).render(120)
+    assert(
+      hints.exists(_.contains("def ended without a final expression")),
+      hints.mkString("\n") + "\n" + shown
+    )
+    assert(
+      shown.contains("def ended without a final expression"),
+      shown
+    )
+  }
+
+  test("unexpected indentation in def body gets dedicated hint") {
+    val source =
+      """package Foo
+        |
+        |def map(ll: LazyList[a], fn: a -> b) -> LazyList[b]:
+        |    LazyList(sz, vll) = ll
+        |    vll1 = match vll:
+        |        case Empty: Empty
+        |        case Mapped(mll, fn1): Mapped(mll, x -> fn(fn1(x)))
+        |        case notEmptyMapped: Mapped(notEmptyMapped, fn)
+        |     LazyList(sz, vll1)
+        |""".stripMargin
+
+    val pf = parseFailure(source)
+    val hints = ParserHints.hints(source, pf.locations, pf).map(_.render(120))
+    val shown = pf.showContext(LocationMap.Colorize.None).render(120)
+    assert(
+      hints.exists(_.contains("unexpected indentation")),
+      hints.mkString("\n") + "\n" + shown
+    )
+    assert(
+      shown.contains("unexpected indentation"),
+      shown
     )
   }
 }

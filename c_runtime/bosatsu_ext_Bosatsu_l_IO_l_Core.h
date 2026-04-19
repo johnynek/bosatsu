@@ -21,6 +21,7 @@ BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_create__temp__dir(BValue dir, BValue pref
 BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_list__dir(BValue path);
 BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_stat(BValue path);
 BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_mkdir(BValue path, BValue recursive);
+BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_mkdir__with__mode(BValue path, BValue recursive, BValue mode);
 BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_remove(BValue path, BValue recursive);
 BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_rename(BValue from, BValue to);
 BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_get__env(BValue name);

@@ -160,7 +160,7 @@ abstract class SeqPatternLaws[E, I, S, R] extends munit.ScalaCheckSuite {
 
   protected def minSuccessfulTests: Int =
     // PropertyCheckConfiguration(minSuccessful = 50000)
-    5000
+    if (dev.bosatsu.Platform.isScalaJvm) 5000 else 1000
   // PropertyCheckConfiguration(minSuccessful = 50)
 
   override def scalaCheckTestParameters =

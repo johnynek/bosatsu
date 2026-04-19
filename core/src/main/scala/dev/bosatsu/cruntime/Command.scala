@@ -25,11 +25,19 @@ object Command {
       Opts
         .option[P](
           "repo_root",
-          "the path to the root of the repo, if not set, search for .git directory"
+          "the path to the root of the repo, if not set, search for a .git entry"
         )
         .orNone
         .map {
-          case Some(value) => moduleIOMonad.pure(value)
+          case Some(value) =>
+            platformIO.gitTopLevel.flatMap {
+              case Some(repoTop)
+                  if platformIO.pathToString(value) == "." ||
+                    platformIO.pathToString(value) == "./" =>
+                moduleIOMonad.pure(repoTop)
+              case _ =>
+                moduleIOMonad.pure(value)
+            }
           case None        =>
             platformIO.gitTopLevel
               .flatMap {
@@ -37,7 +45,7 @@ object Command {
                 case None        =>
                   moduleIOMonad.raiseError(
                     CliException
-                      .Basic("could not find .git directory in parents.")
+                      .Basic("could not find a .git entry in parents.")
                   )
               }
         }
@@ -263,16 +271,54 @@ object Command {
                 ".bosatsuc" :: "c_runtime" :: "src" :: gitSha :: Nil
               )
               runtimeRoot <- ensureRuntimeRoot(baseDir, archivePath)
+              vendoredInputsOpt <- VendoredDeps.ensure(
+                root,
+                runtimeRoot,
+                profile
+              )(platformIO)
+              envCppFlags <- platformIO.env("CPPFLAGS")
+              envLdFlags <- platformIO.env("LDFLAGS")
+              envLibs <- platformIO.env("LIBS")
+              makeArgs = {
+                val base =
+                  List(
+                    "-C",
+                    platformIO.pathToString(runtimeRoot),
+                    "install",
+                    s"ROOTDIR=${platformIO.pathToString(root)}",
+                    s"VERSION=$gitSha",
+                    s"PROFILE=$profile"
+                  )
+
+                vendoredInputsOpt match {
+                  case None => base
+                  case Some(vendoredInputs) =>
+                    val cppFlags =
+                      (
+                        (vendoredInputs.runtimeCppFlags ::: vendoredInputs.includeFlags)
+                          .mkString(" ") ::
+                          envCppFlags.filter(_.trim.nonEmpty).toList
+                      ).filter(_.nonEmpty).mkString(" ")
+                    val ldFlags =
+                      envLdFlags.filter(_.trim.nonEmpty).getOrElse("")
+                    val libs =
+                      (
+                        vendoredInputs.linkFlags.mkString(" ") ::
+                          envLibs.filter(_.trim.nonEmpty).toList
+                      ).filter(_.nonEmpty).mkString(" ")
+
+                    base :::
+                      List("VENDORED_DEPS=1") :::
+                      (if (cppFlags.nonEmpty) List(s"CPPFLAGS=$cppFlags")
+                       else Nil) :::
+                      (if (ldFlags.nonEmpty) List(s"LDFLAGS=$ldFlags")
+                       else Nil) :::
+                      (if (libs.nonEmpty) List(s"LIBS=$libs") else Nil)
+                }
+              }
               _ <- platformIO.system(
                 "make",
-                List(
-                  "-C",
-                  platformIO.pathToString(runtimeRoot),
-                  "install",
-                  s"ROOTDIR=${platformIO.pathToString(root)}",
-                  s"VERSION=$gitSha",
-                  s"PROFILE=$profile"
-                )
+                makeArgs
               )
               installDir =
                 platformIO.resolve(root, ".bosatsuc" :: gitSha :: Nil)

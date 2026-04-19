@@ -174,7 +174,7 @@ object OperatorHints {
       case "-" =>
         numericFns(site, "sub", "subf")
       case "*" =>
-        numericFns(site, "mul", "timesf")
+        numericFns(site, "mul", "mulf")
       case "/" =>
         numericFns(site, "div", "divf")
       case "%" =>

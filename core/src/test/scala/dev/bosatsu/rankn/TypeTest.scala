@@ -3,7 +3,7 @@ package dev.bosatsu.rankn
 import cats.data.NonEmptyList
 import cats.syntax.all._
 import dev.bosatsu.MonadGen.genMonad
-import dev.bosatsu.{Kind, Region, TypedExpr, Variance}
+import dev.bosatsu.{Kind, Platform, Region, TypedExpr, Variance}
 import dev.bosatsu.hashing.{Algo, Hashable}
 import org.scalacheck.Gen
 import org.scalacheck.Prop
@@ -15,7 +15,9 @@ class TypeTest extends munit.ScalaCheckSuite {
 
   override def scalaCheckTestParameters =
     // PropertyCheckConfiguration(minSuccessful = 5000)
-    super.scalaCheckTestParameters.withMinSuccessfulTests(1000)
+    super.scalaCheckTestParameters.withMinSuccessfulTests(
+      if (Platform.isScalaJvm) 1000 else 200
+    )
   // PropertyCheckConfiguration(minSuccessful = 5)
 
   def parse(s: String): Type =
@@ -251,6 +253,26 @@ class TypeTest extends munit.ScalaCheckSuite {
       }
 
     go(s, SortedSet.empty)
+  }
+
+  test("containsType finds exact and nested type occurrences") {
+    val target = Type.TyApply(Type.OptionType, Type.IntType)
+    val nested = Type.TyApply(Type.ListType, target)
+    val quantified = Type.ForAll(
+      NonEmptyList.one((Type.Var.Bound("q"), Kind.Type)),
+      nested.asInstanceOf[Type.Rho]
+    )
+
+    assert(Type.containsType(target, target))
+    assert(Type.containsType(nested, target))
+    assert(Type.containsType(quantified, target))
+  }
+
+  test("containsType returns false when the target is not present") {
+    val target = Type.TyApply(Type.OptionType, Type.IntType)
+    val absent = Type.TyApply(Type.ListType, Type.StrType)
+
+    assert(!Type.containsType(absent, target))
   }
 
   test("free vars are not duplicated") {
@@ -722,6 +744,49 @@ class TypeTest extends munit.ScalaCheckSuite {
     val sub = Type.substituteVar(t, Map[Type.Var, Type](b -> Type.TyVar(a)))
 
     assertEquals(Type.freeBoundTyVars(sub :: Nil), List(a))
+  }
+
+  test("renameMetaAndSkolemsToBounds rewrites through quantifiers") {
+    import Type.Var.Bound
+
+    val a = Bound("a")
+    val b = Bound("b")
+    val x = Bound("x")
+    val y = Bound("y")
+    val meta =
+      Type.Meta(
+        Kind.Type,
+        100001L,
+        existential = false,
+        RefSpace.constRef(Option.empty)
+      )
+    val skolem = Type.Var.Skolem("sk", Kind.Type, existential = false, 100002L)
+
+    val tpe =
+      Type.forAll(
+        NonEmptyList.one((a, Kind.Type)),
+        Type.existsRho(
+          NonEmptyList.one((b, Kind.Type)),
+          Type.TyApply(Type.TyVar(skolem), Type.TyMeta(meta))
+        )
+      )
+
+    val renamed =
+      Type.renameMetaAndSkolemsToBounds(
+        tpe,
+        Map(meta -> x),
+        Map(skolem -> y)
+      )
+    val expected =
+      Type.forAll(
+        NonEmptyList.one((a, Kind.Type)),
+        Type.existsRho(
+          NonEmptyList.one((b, Kind.Type)),
+          Type.TyApply(Type.TyVar(y), Type.TyVar(x))
+        )
+      )
+
+    assertEquals(renamed, expected)
   }
 
   test("types are well ordered") {

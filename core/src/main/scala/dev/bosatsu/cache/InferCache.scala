@@ -1,25 +1,15 @@
 package dev.bosatsu.cache
 
 import cats.Applicative
-import dev.bosatsu.{CompileOptions, Package, PackageName}
 import java.util.concurrent.atomic.AtomicLong
-import scala.collection.immutable.SortedMap
 
-trait InferCache[F[_]] {
+trait InferCache[F[_], K, V] {
   type Key
-  type DepHash
 
-  def generateKey(
-      pack: Package.Parsed,
-      depInterfaceHashes: SortedMap[PackageName, DepHash],
-      compileOptions: CompileOptions,
-      compilerIdentity: String,
-      phaseIdentity: String
-  ): F[Key]
+  def generateKey(input: K): F[Key]
 
-  def get(key: Key): F[Option[Package.Inferred]]
-  def put(key: Key, value: Package.Inferred): F[Unit]
-  def dependencyHash(interface: Package.Interface): F[DepHash]
+  def get(key: Key): F[Option[V]]
+  def put(key: Key, value: V): F[Unit]
 
   def statsSnapshot: Option[String] = None
 }
@@ -31,26 +21,18 @@ object InferCache {
       v == "1" || v.equalsIgnoreCase("true") || v.equalsIgnoreCase("yes")
     }
 
-  def noop[F[_]: Applicative]: InferCache[F] { type Key = Unit; type DepHash = Unit } =
-    new InferCache[F] {
+  def noop[F[_]: Applicative, K, V]: InferCache[F, K, V] { type Key = Unit } =
+    new InferCache[F, K, V] {
       type Key = Unit
-      type DepHash = Unit
       private val statsEnabled = InferCache.statsEnabled
-      private val noneF: F[Option[Package.Inferred]] =
+      private val noneF: F[Option[V]] =
         Applicative[F].pure(None)
       private val generateKeyCalls = new AtomicLong(0L)
       private val getCalls = new AtomicLong(0L)
       private val putCalls = new AtomicLong(0L)
-      private val dependencyHashCalls = new AtomicLong(0L)
 
-      def generateKey(
-          pack: Package.Parsed,
-          depInterfaceHashes: SortedMap[PackageName, DepHash],
-          compileOptions: CompileOptions,
-          compilerIdentity: String,
-          phaseIdentity: String
-      ): F[Key] = {
-        val _ = depInterfaceHashes
+      def generateKey(input: K): F[Key] = {
+        val _ = input
         if (statsEnabled) {
           generateKeyCalls.incrementAndGet()
           ()
@@ -58,7 +40,7 @@ object InferCache {
         Applicative[F].unit
       }
 
-      def get(key: Key): F[Option[Package.Inferred]] = {
+      def get(key: Key): F[Option[V]] = {
         if (statsEnabled) {
           getCalls.incrementAndGet()
           ()
@@ -66,17 +48,9 @@ object InferCache {
         noneF
       }
 
-      def put(key: Key, value: Package.Inferred): F[Unit] = {
+      def put(key: Key, value: V): F[Unit] = {
         if (statsEnabled) {
           putCalls.incrementAndGet()
-          ()
-        }
-        Applicative[F].unit
-      }
-
-      def dependencyHash(interface: Package.Interface): F[DepHash] = {
-        if (statsEnabled) {
-          dependencyHashCalls.incrementAndGet()
           ()
         }
         Applicative[F].unit
@@ -88,9 +62,8 @@ object InferCache {
           val generateKeyCallsV = generateKeyCalls.get()
           val getCallsV = getCalls.get()
           val putCallsV = putCalls.get()
-          val dependencyHashCallsV = dependencyHashCalls.get()
           Some(
-            s"[compile-cache noop] generateKeyCalls=$generateKeyCallsV getCalls=$getCallsV putCalls=$putCallsV dependencyHashCalls=$dependencyHashCallsV"
+            s"[compile-cache noop] generateKeyCalls=$generateKeyCallsV getCalls=$getCallsV putCalls=$putCallsV"
           )
         }
     }

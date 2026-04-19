@@ -12,6 +12,7 @@ import cats.implicits._
 
 @JSExportTopLevel("Bosatsu")
 object JsApi {
+  private val toolPrefix = List("tool")
 
   private def splitPath(p: String): List[String] =
     p.split("/", -1).toList.map(_.toLowerCase.capitalize)
@@ -25,6 +26,9 @@ object JsApi {
   private def makeInputArgs(keys: Iterable[String]): List[String] =
     keys.iterator.flatMap(key => "--input" :: normalize(key) :: Nil).toList
 
+  private def toolCommandArgs(args: List[String]): List[String] =
+    toolPrefix ::: args
+
   class Error(val error_message: String) extends js.Object
 
   class EvalSuccess(val result: js.Any) extends js.Object
@@ -37,7 +41,7 @@ object JsApi {
       mainFile: String,
       files: js.Dictionary[String]
   ): EvalSuccess | Error = {
-    val baseArgs = "--package_root" :: "" :: "--color" :: "html" :: Nil
+    val baseArgs = "--color" :: "html" :: Nil
     val main =
       if (mainPackage != null) "--main" :: mainPackage :: baseArgs
       else "--main_file" :: mainFile :: baseArgs
@@ -47,7 +51,7 @@ object JsApi {
     }.toMap
 
     module.runWith(filePaths)(
-      "eval" :: main ::: makeInputArgs(files.keys)
+      toolCommandArgs("eval" :: main ::: makeInputArgs(files.keys))
     ) match {
       case Left(err) =>
         new Error(s"error: ${err.getMessage}")
@@ -93,7 +97,7 @@ object JsApi {
       mainFile: String,
       files: js.Dictionary[String]
   ): EvalSuccess | Error = {
-    val baseArgs = "--package_root" :: "" :: "--color" :: "html" :: Nil
+    val baseArgs = "--color" :: "html" :: Nil
     val main =
       if (mainPackage != null) "--main" :: mainPackage :: baseArgs
       else "--main_file" :: mainFile :: baseArgs
@@ -103,8 +107,10 @@ object JsApi {
     }.toMap
 
     module.runWith(filePaths)(
-      "json" :: "write" :: "--output" :: "" :: main ::: makeInputArgs(
-        files.keys
+      toolCommandArgs(
+        "json" :: "write" :: "--output" :: "" :: main ::: makeInputArgs(
+          files.keys
+        )
       )
     ) match {
       case Left(err) =>

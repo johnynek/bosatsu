@@ -10,7 +10,7 @@ import org.scalacheck.{Arbitrary, Gen, Shrink}
 class RingOptLaws extends munit.ScalaCheckSuite {
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters
-      .withMinSuccessfulTests(1000)
+      .withMinSuccessfulTests(if (Platform.isScalaJvm) 1000 else 100)
       .withMaxDiscardRatio(10)
 
   import RingOpt._
@@ -787,6 +787,55 @@ class RingOptLaws extends munit.ScalaCheckSuite {
       ),
       Weights(9, 4, 1)
     )
+    // issue #1997
+    law(
+      Add(
+        Neg(
+          Mult(
+            Neg(Neg(Neg(One))),
+            Add(
+              Add(
+                Symbol(BigInt("-1")),
+                Neg(Add(One, Symbol(BigInt("-2147483649"))))
+              ),
+              Mult(
+                Neg(One),
+                Add(
+                  Symbol(BigInt("9223372036854775808")),
+                  Symbol(BigInt("9223372036854775808"))
+                )
+              )
+            )
+          )
+        ),
+        Mult(
+          Neg(
+            Mult(
+              Symbol(
+                BigInt(
+                  "227735723830261017356624072586187250173053607080767410257500007075375160416"
+                )
+              ),
+              Zero
+            )
+          ),
+          Add(
+            Add(
+              Neg(Symbol(BigInt("-2958422629478306252"))),
+              Neg(Add(Zero, Integer(BigInt("2147483648"))))
+            ),
+            Mult(
+              Neg(One),
+              Add(
+                Integer(BigInt("2147483648")),
+                Mult(Symbol(BigInt("8849351773351790999")), One)
+              )
+            )
+          )
+        )
+      ),
+      Weights(21, 10, 9)
+    )
     forAll((a: Expr[BigInt], w: Weights) => law(a, w))
   }
   property("multiplication by 1 is always simplified") {
@@ -1208,6 +1257,33 @@ class RingOptLaws extends munit.ScalaCheckSuite {
           ),
           2,
           Weights(3, 1, 1)
+        ) ::
+        (
+          // issue #1932
+          Add(
+            Mult(
+              Add(
+                One,
+                Add(
+                  Symbol(BigInt("-9223372036854775808")),
+                  Symbol(BigInt("-1"))
+                )
+              ),
+              Integer(BigInt("-9223372036854775809"))
+            ),
+            Mult(
+              Integer(BigInt("-9327526714483220380375219972304915541328013433")),
+              Add(
+                Symbol(BigInt("-19744576984966573129269796274849165441")),
+                Add(
+                  Symbol(BigInt("-3219933437254141254")),
+                  Symbol(BigInt("-1"))
+                )
+              )
+            )
+          ),
+          5,
+          Weights(4, 2, 1)
         ) ::
         Nil
 

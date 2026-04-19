@@ -7,11 +7,17 @@ import cats.implicits.catsKernelOrderingForOrder
 import cats.syntax.all._
 import dev.bosatsu.{
   BosatsuInt as BInt,
+  CompileOptions,
+  Identifier,
   Json,
+  Kind,
+  Matchless as BosatsuMatchless,
+  Import,
   Package,
   PackageName,
   PlatformIO,
   PredefImpl,
+  Referant,
   Test,
   Value,
   rankn
@@ -31,13 +37,19 @@ sealed abstract class Output[+Path] {
         val hasMissing = resMap.exists(_._2.isEmpty)
         // it would be nice to run in parallel, but
         // MatchlessToValue is not currently threadsafe
+        val totalStart = System.nanoTime()
         val evalTest = resMap.map {
           case (p, Some(evalTest)) =>
-            (p, Some(evalTest.value))
+            val start = System.nanoTime()
+            val result = evalTest.value
+            val elapsedNanos = System.nanoTime() - start
+            (p, Some((result, elapsedNanos)))
           case (p, None) => (p, None)
         }
+        val totalElapsedNanos = System.nanoTime() - totalStart
 
-        val testReport = Test.outputFor(evalTest, color, quiet)
+        val testReport =
+          Test.outputForTimed(evalTest, color, totalElapsedNanos, quiet)
         val success = !hasMissing && (testReport.fails == 0)
         val code = if (success) ExitCode.Success else ExitCode.Error
         writeStdout(testReport.doc).as(code)
@@ -84,8 +96,8 @@ sealed abstract class Output[+Path] {
 
         (ifres *> out).as(ExitCode.Success)
 
-      case Output.ShowOutput(packs, ifaces, output) =>
-        val doc = ShowEdn.showDoc(packs, ifaces)
+      case Output.ShowOutput(show, output) =>
+        val doc = ShowEdn.showDoc(show)
         writeOut(doc, output).as(ExitCode.Success)
 
       case Output.DepsOutput(depinfo, output, style) =>
@@ -242,10 +254,55 @@ sealed abstract class Output[+Path] {
   }
 }
 object Output {
+  enum ShowIr(val cliName: String) derives CanEqual {
+    case TypedExpr extends ShowIr("typedexpr")
+    case Matchless extends ShowIr("matchless")
+  }
+  object ShowIr {
+    def fromCliName(name: String): Option[ShowIr] =
+      values.find(_.cliName == name)
+  }
+
+  sealed trait ShowValue {
+    def ir: ShowIr
+    def typedPasses: List[CompileOptions.TypedPass]
+    def packageNamesOnly: Boolean
+  }
+  object ShowValue {
+    final case class Typed(
+        packages: List[Package.Typed[Any]],
+        interfaces: List[Package.Interface],
+        typedPasses: List[CompileOptions.TypedPass],
+        packageNamesOnly: Boolean
+    ) extends ShowValue {
+      val ir: ShowIr = ShowIr.TypedExpr
+    }
+
+    final case class MatchlessPackage(
+        name: PackageName,
+        imports: List[Import[
+          Package.Interface,
+          NonEmptyList[Referant[Kind.Arg]]
+        ]],
+        exportedValues: List[Identifier],
+        externals: List[Identifier.Bindable],
+        defs: List[(Identifier.Bindable, BosatsuMatchless.Expr[?])]
+    )
+
+    final case class Matchless(
+        packages: List[MatchlessPackage],
+        typedPasses: List[CompileOptions.TypedPass],
+        matchlessPasses: List[BosatsuMatchless.Pass],
+        packageNamesOnly: Boolean
+    ) extends ShowValue {
+      val ir: ShowIr = ShowIr.Matchless
+    }
+  }
+
   case class TestOutput(
       tests: List[(PackageName, Option[Eval[Test]])],
       colorize: Colorize,
-      quiet: Boolean = false
+      quiet: Boolean
   ) extends Output[Nothing]
 
   case class EvaluationResult(
@@ -262,7 +319,7 @@ object Output {
       extends Output[Path]
 
   case class CompileOut[Path](
-      packList: List[Package.Typed[Any]],
+      packList: List[Package.Compiled],
       ifout: Option[Path],
       output: Option[Path]
   ) extends Output[Path]
@@ -270,8 +327,7 @@ object Output {
   case class TranspileOut[Path](outs: List[(Path, Doc)]) extends Output[Path]
 
   case class ShowOutput[Path](
-      packages: List[Package.Typed[Any]],
-      ifaces: List[Package.Interface],
+      show: ShowValue,
       output: Option[Path]
   ) extends Output[Path]
 

@@ -1,3 +1,5 @@
+package Bar
+
 from Foo import x
 
 test = Assertion(

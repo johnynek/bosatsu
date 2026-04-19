@@ -17,18 +17,28 @@ def smallest_factor(n):
   match n:
     case 1: 1
     case _:
-      int_loop(n, -1, (i, _) ->
-        trial = n - i + 2
-        if trial.divides(n): (0, trial)
-        else: (i - 1, -1))
+      def loop_smallest(rem, trial):
+        loop rem:
+          case _ if trial.divides(n):
+            trial
+          case _ if cmp_Int(rem, 1) matches GT:
+            loop_smallest(rem - 1, trial + 1)
+          case _:
+            -1
+      loop_smallest(n, 2)
 
 def all_factors(n):
-  int_loop(n, [], (i, facs) ->
-    next_factor = smallest_factor(i)
-    next_facs = [next_factor, *facs]
-    match i.div(next_factor):
-      case 1: (0, next_facs)
-      case smaller: (smaller, next_facs))
+  def loop_factors(fuel, current, facs):
+    loop fuel:
+      case _ if cmp_Int(fuel, 0) matches GT:
+        next_factor = smallest_factor(current)
+        next_facs = [next_factor, *facs]
+        match current.div(next_factor):
+          case 1: next_facs
+          case smaller: loop_factors(fuel.sub(1), smaller, next_facs)
+      case _:
+        facs
+  loop_factors(n, n, [])
 
 def largest_factor(n):
   match all_factors(n):

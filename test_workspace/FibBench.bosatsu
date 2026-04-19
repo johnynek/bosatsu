@@ -20,15 +20,10 @@ def print_fib(str: String):
     case Some(i): println("fib(${str}) = ${int_to_String(fib(i))}")
     case None: println("could not parse ${str}")
 
-def list_len(lst, acc):
-  recur lst:
-    case []: acc
-    case [_, *tail]: list_len(tail, add(acc, 1))
-
 def main(args: List[String]):
   match args:
     case [_, n]: print_fib(n)
-    case _: println("expected exactly one arg, got: ${int_to_String(list_len(args, 0))}")
+    case _: println("expected exactly one arg, got: ${int_to_String(length_List(args))}")
 
 main = Main(args -> show_error((
   _ <- main(args).await()

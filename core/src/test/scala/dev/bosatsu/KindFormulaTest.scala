@@ -2,12 +2,14 @@ package dev.bosatsu
 
 import dev.bosatsu.rankn.TypeEnv
 class KindFormulaTest extends munit.FunSuite {
+  private val predefTypeEnv: TypeEnv[Kind.Arg] =
+    Package.interfaceOf(PackageMap.predefCompiled).exportedTypeEnv
 
   def makeTE(teStr: String): Either[Any, TypeEnv[Kind.Arg]] = {
     val te = TestUtils.parsedTypeEnvOf(PackageName.PredefName, teStr)
     KindFormula
       .solveShapesAndKinds(
-        (),
+        predefTypeEnv,
         te.allDefinedTypes.reverse
       )
       .fold(Left(_), Right(_), (a, _) => Left(a))
@@ -18,7 +20,7 @@ class KindFormulaTest extends munit.FunSuite {
     val te = TestUtils.predefParsedTypeEnv
     val eitherTE = KindFormula
       .solveShapesAndKinds(
-        (),
+        predefTypeEnv,
         te.allDefinedTypes.reverse
       )
       .fold(Left(_), Right(_), (a, _) => Left(a))
@@ -304,5 +306,26 @@ enum Free[a: +*]:
   Done(get: a)
   Map(tup: exists b. (Free[b], b -> a))
 """)
+  }
+
+  test("regression: Eval-like variance failure reports kind failure, not invariant") {
+    val res = makeTE("""#
+enum Leaf[a: +*]:
+  Done(done: a)
+
+enum BindChain[f: +* -> *, a: -*, b: +*]:
+  Single(fn: a -> f[b]),
+  Many[c](first: BindChain[f, a, c], last: b -> f[b])
+
+enum Eval[a: +*]:
+  Pure(value: Leaf[a])
+  FlatMap[b](prev: Leaf[b], chain: BindChain[Eval, b, a])
+
+enum Stack[a, b]:
+  Last(fn: a -> Eval[b])
+  More[c](first: a -> Eval[c], rest: Stack[c, b])
+""")
+
+    assertEquals(res.left.map(_ => ()), Left(()))
   }
 }

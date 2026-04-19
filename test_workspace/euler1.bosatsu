@@ -7,8 +7,7 @@ package Euler/One
 operator == = eq_Int
 operator % = mod_Int
 
-def operator ||(x, y):
-  True if x else y
+operator || = or
 
 def keep(i):
   (i % 3 == 0) || (i % 5 == 0)

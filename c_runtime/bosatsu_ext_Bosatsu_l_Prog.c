@@ -1,6 +1,9 @@
-#include "bosatsu_runtime.h"
+#include "bosatsu_ext_Bosatsu_l_Prog.h"
 
+#include <gc.h>
 #include <stdio.h>
+#include <stdatomic.h>
+#include <stdlib.h>
 
 /*
 # Prog is an ADT with the following values:
@@ -11,6 +14,10 @@
 # ApplyFix(a, f) => (4, a, f)
 # Effect(arg: BValue, f: BValue => BValue) => (5, arg, f)
 */
+
+typedef struct {
+  _Atomic BValue value;
+} BSTS_Prog_Var;
 
 BValue ___bsts_g_Bosatsu_l_Prog_l_pure(BValue a)
 {
@@ -27,14 +34,154 @@ BValue ___bsts_g_Bosatsu_l_Prog_l_apply__fix(BValue a, BValue f)
   return alloc_enum2(4, a, f);
 }
 
+static BValue bsts_prog_flat_map_assoc_closure(BValue *slots, BValue a)
+{
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(call_fn1(slots[0], a), slots[1]);
+}
+
 BValue ___bsts_g_Bosatsu_l_Prog_l_flat__map(BValue p, BValue f)
 {
+  if (get_variant(p) == 2)
+  {
+    BValue captures[2] = {get_enum_index(p, 1), f};
+    BValue combined = alloc_closure1(2, captures, bsts_prog_flat_map_assoc_closure);
+    return alloc_enum2(2, get_enum_index(p, 0), combined);
+  }
   return alloc_enum2(2, p, f);
+}
+
+static BValue bsts_prog_recover_assoc_closure(BValue *slots, BValue a)
+{
+  return ___bsts_g_Bosatsu_l_Prog_l_recover(call_fn1(slots[0], a), slots[1]);
 }
 
 BValue ___bsts_g_Bosatsu_l_Prog_l_recover(BValue p, BValue f)
 {
+  if (get_variant(p) == 3)
+  {
+    BValue captures[2] = {get_enum_index(p, 1), f};
+    BValue combined = alloc_closure1(2, captures, bsts_prog_recover_assoc_closure);
+    return alloc_enum2(3, get_enum_index(p, 0), combined);
+  }
   return alloc_enum2(3, p, f);
+}
+
+static BValue bsts_prog_effect1(BValue a, BValue (*fn)(BValue))
+{
+  return alloc_enum2(5, a, alloc_boxed_pure_fn1(fn));
+}
+
+static BValue bsts_prog_effect2(BValue a, BValue b, BValue (*fn)(BValue))
+{
+  return alloc_enum2(5, alloc_struct2(a, b), alloc_boxed_pure_fn1(fn));
+}
+
+static BSTS_Prog_Var *bsts_prog_unbox_var(BValue var_value)
+{
+  return BSTS_PTR(BSTS_Prog_Var, var_value);
+}
+
+static BValue bsts_prog_new_var_effect(BValue initial)
+{
+  BSTS_Prog_Var *cell = (BSTS_Prog_Var *)GC_malloc(sizeof(BSTS_Prog_Var));
+  if (cell == NULL)
+  {
+    perror("GC_malloc failure in bsts_prog_new_var_effect");
+    abort();
+  }
+
+  atomic_init(&cell->value, initial);
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(BSTS_VALUE_FROM_PTR(cell));
+}
+
+static BValue bsts_prog_var_get_effect(BValue var_value)
+{
+  BSTS_Prog_Var *cell = bsts_prog_unbox_var(var_value);
+  BValue current = atomic_load_explicit(&cell->value, memory_order_acquire);
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(current);
+}
+
+static BValue bsts_prog_var_set_effect(BValue pair)
+{
+  BValue var_value = get_struct_index(pair, 0);
+  BValue next_value = get_struct_index(pair, 1);
+  BSTS_Prog_Var *cell = bsts_prog_unbox_var(var_value);
+  atomic_store_explicit(&cell->value, next_value, memory_order_release);
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_unit_value());
+}
+
+static BValue bsts_prog_var_swap_effect(BValue pair)
+{
+  BValue var_value = get_struct_index(pair, 0);
+  BValue next_value = get_struct_index(pair, 1);
+  BSTS_Prog_Var *cell = bsts_prog_unbox_var(var_value);
+  BValue current = atomic_exchange_explicit(&cell->value, next_value, memory_order_acq_rel);
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(current);
+}
+
+static BValue bsts_prog_var_update_effect(BValue pair)
+{
+  BValue var_value = get_struct_index(pair, 0);
+  BValue fn = get_struct_index(pair, 1);
+  BSTS_Prog_Var *cell = bsts_prog_unbox_var(var_value);
+
+  while (1)
+  {
+    BValue current = atomic_load_explicit(&cell->value, memory_order_acquire);
+    BValue update_result = call_fn1(fn, current);
+    BValue next_value = get_struct_index(update_result, 0);
+    BValue result = get_struct_index(update_result, 1);
+    BValue expected = current;
+    // Weak CAS may retry even without contention, so fn may be re-run.
+    if (atomic_compare_exchange_weak_explicit(
+            &cell->value,
+            &expected,
+            next_value,
+            memory_order_acq_rel,
+            memory_order_acquire))
+    {
+      return ___bsts_g_Bosatsu_l_Prog_l_pure(result);
+    }
+  }
+}
+
+BValue ___bsts_g_Bosatsu_l_Prog_l_new__var(BValue a)
+{
+  return bsts_prog_effect1(a, bsts_prog_new_var_effect);
+}
+
+BValue ___bsts_g_Bosatsu_l_Prog_l_get(BValue a)
+{
+  return bsts_prog_effect1(a, bsts_prog_var_get_effect);
+}
+
+BValue ___bsts_g_Bosatsu_l_Prog_l_set(BValue a, BValue b)
+{
+  return bsts_prog_effect2(a, b, bsts_prog_var_set_effect);
+}
+
+BValue ___bsts_g_Bosatsu_l_Prog_l_swap(BValue a, BValue b)
+{
+  return bsts_prog_effect2(a, b, bsts_prog_var_swap_effect);
+}
+
+BValue ___bsts_g_Bosatsu_l_Prog_l_update(BValue a, BValue b)
+{
+  return bsts_prog_effect2(a, b, bsts_prog_var_update_effect);
+}
+
+static volatile BValue bsts_prog_observe_sink = (BValue)0;
+
+static BValue bsts_prog_observe_effect(BValue arg)
+{
+  bsts_prog_observe_sink = arg;
+  bsts_prog_observe_sink = bsts_unit_value();
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_unit_value());
+}
+
+BValue ___bsts_g_Bosatsu_l_Prog_l_observe(BValue a)
+{
+  return bsts_prog_effect1(a, bsts_prog_observe_effect);
 }
 
 BValue bsts_prog_step_fix_closure(BValue *slots, BValue a)
@@ -55,17 +202,14 @@ BValue bsts_prog_step_fix(BValue arg, BValue fixfn)
   return call_fn1(ap1, arg);
 }
 
-int bsts_Bosatsu_Prog_run_main(BValue main_fn, int argc, char **argv)
+static BSTS_Prog_Test_Result bsts_prog_result(_Bool is_error, BValue value)
 {
-  BValue arg_list = alloc_enum0(0);
-  for (int i = argc; i > 0; i--)
-  {
-    // TODO
-    // we are assuming this null terminated string is utf8
-    // but we should check that is is valid
-    BValue arg = bsts_string_from_utf8_bytes_static_null_term(argv[i - 1]);
-    arg_list = alloc_enum2(1, arg, arg_list);
-  }
+  BSTS_Prog_Test_Result result = { is_error, value };
+  return result;
+}
+
+static BSTS_Prog_Test_Result bsts_Bosatsu_Prog_run(BValue prog)
+{
   /*
   # the stack ADT:
   done = (0,)
@@ -73,7 +217,7 @@ int bsts_Bosatsu_Prog_run_main(BValue main_fn, int argc, char **argv)
   def recstep(fn, stack): return (2, fn, stack)
   */
   BValue stack = alloc_enum0(0);
-  BValue arg = call_fn1(main_fn, arg_list);
+  BValue arg = prog;
   while (1)
   {
     switch (get_variant(arg))
@@ -88,8 +232,8 @@ int bsts_Bosatsu_Prog_run_main(BValue main_fn, int argc, char **argv)
         switch (get_variant(stack))
         {
         case 0:
-          // done, the result must be an int
-          return (int)bsts_integer_to_int32(item);
+          // done, return the successful value.
+          return bsts_prog_result(0, item);
         case 1:
         {
           // fmstep
@@ -117,9 +261,8 @@ int bsts_Bosatsu_Prog_run_main(BValue main_fn, int argc, char **argv)
         switch (get_variant(stack))
         {
         case 0:
-          // done, the result must be an int
-          printf("unexpected top error");
-          return 1;
+          // done, this is an uncaught top-level error.
+          return bsts_prog_result(1, error);
         case 1:
           // fmstep, but we have an error
           stack = get_enum_index(stack, 1);
@@ -167,8 +310,35 @@ int bsts_Bosatsu_Prog_run_main(BValue main_fn, int argc, char **argv)
     }
     default:
       fprintf(stderr, "bosatsu Prog execution fault: invalid Prog tag: %u\n", get_variant(arg));
-      return 1;
+      return bsts_prog_result(1, arg);
     }
   }
-  return 0;
+  return bsts_prog_result(1, arg);
+}
+
+int bsts_Bosatsu_Prog_run_main(BValue main_fn, int argc, char **argv)
+{
+  BValue arg_list = alloc_enum0(0);
+  for (int i = argc; i > 0; i--)
+  {
+    // TODO
+    // we are assuming this null terminated string is utf8
+    // but we should check that is is valid
+    BValue arg = bsts_string_from_utf8_bytes_static_null_term(argv[i - 1]);
+    arg_list = alloc_enum2(1, arg, arg_list);
+  }
+
+  BSTS_Prog_Test_Result result = bsts_Bosatsu_Prog_run(call_fn1(main_fn, arg_list));
+  if (result.is_error)
+  {
+    printf("unexpected top error");
+    return 1;
+  }
+  return (int)bsts_integer_to_int32(result.value);
+}
+
+BSTS_Prog_Test_Result bsts_Bosatsu_Prog_run_test(BValue test_fn)
+{
+  BValue arg_list = alloc_enum0(0);
+  return bsts_Bosatsu_Prog_run(call_fn1(test_fn, arg_list));
 }

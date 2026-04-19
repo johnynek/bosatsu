@@ -25,6 +25,7 @@ export (
   utf8_Char_at,
   index_in_range_Bytes,
 )
+exposes Bosatsu/Collection/Array
 
 external struct Bytes
 

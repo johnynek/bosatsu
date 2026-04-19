@@ -5,10 +5,11 @@ package dev.bosatsu
   */
 
 import cats.implicits._
-import cats.data.{Chain, Writer, NonEmptyList}
+import cats.data.NonEmptyList
 import cats.Applicative
 import scala.collection.immutable.SortedSet
 import dev.bosatsu.rankn.Type
+import dev.bosatsu.Declaration.MatchKind
 
 import Identifier.{Bindable, Constructor}
 
@@ -33,8 +34,19 @@ sealed abstract class Expr[T] derives CanEqual {
       case Lambda(args, res, _) =>
         val nameSet = args.toList.iterator.map(_._1).toSet
         ListUtil.filterNot(res.freeVarsDup)(nameSet)
-      case App(fn, args, _) =>
-        fn.freeVarsDup ::: args.reduceMap(_.freeVarsDup)
+      case app @ App(fn, args, _) =>
+        Expr.flattenApp2(app) match {
+          case Some((steps, last)) =>
+            var acc = last.freeVarsDup
+            val rev = steps.toList.reverseIterator
+            while (rev.hasNext) {
+              val step = rev.next()
+              acc = step.fn.freeVarsDup ::: step.arg.freeVarsDup ::: acc
+            }
+            acc
+          case None =>
+            fn.freeVarsDup ::: args.reduceMap(_.freeVarsDup)
+        }
       case Let(arg, argE, in, rec, _) =>
         val argFree0 = argE.freeVarsDup
         val argFree =
@@ -86,8 +98,19 @@ sealed abstract class Expr[T] derives CanEqual {
       case Local(_, _)         => Set.empty
       case g @ Global(_, _, _) => Set.empty + g
       case Lambda(_, res, _)   => res.globals
-      case App(fn, args, _)    =>
-        fn.globals | args.reduceMap(_.globals)
+      case app @ App(fn, args, _) =>
+        Expr.flattenApp2(app) match {
+          case Some((steps, last)) =>
+            var acc = last.globals
+            val rev = steps.toList.reverseIterator
+            while (rev.hasNext) {
+              val step = rev.next()
+              acc = step.fn.globals | step.arg.globals | acc
+            }
+            acc
+          case None =>
+            fn.globals | args.reduceMap(_.globals)
+        }
       case Let(_, argE, in, _, _) =>
         argE.globals | in.globals
       case Literal(_, _)           => Set.empty
@@ -128,17 +151,37 @@ sealed abstract class Expr[T] derives CanEqual {
         Generic(typeVars, in.eraseTags)
       case Lambda(args, expr, _) =>
         Lambda(args, expr.eraseTags, ())
-      case App(fn, args, _) =>
-        App(fn.eraseTags, args.map(_.eraseTags), ())
+      case app @ App(fn, args, _) =>
+        Expr.flattenApp2(app) match {
+          case Some((steps, last)) =>
+            var acc: Expr[Unit] = last.eraseTags
+            val rev = steps.toList.reverseIterator
+            while (rev.hasNext) {
+              val step = rev.next()
+              acc = App(
+                step.fn.eraseTags,
+                NonEmptyList.of(step.arg.eraseTags, acc),
+                ()
+              )
+            }
+            acc
+          case None =>
+            App(fn.eraseTags, args.map(_.eraseTags), ())
+        }
       case Let(arg, expr, in, recursive, _) =>
         Let(arg, expr.eraseTags, in.eraseTags, recursive, ())
       case Literal(lit, _) =>
         Literal(lit, ())
-      case Match(arg, branches, _) =>
+      case m @ Match(arg, branches, _) =>
         Match(
+          m.matchKind,
           arg.eraseTags,
           branches.map { b =>
-            Branch(b.pattern, b.guard.map(_.eraseTags), b.expr.eraseTags)
+            Branch(
+              b.pattern,
+              b.guard.map(_.eraseTags),
+              b.expr.eraseTags
+            )(using Region.empty)
           },
           ()
         )
@@ -195,12 +238,34 @@ object Expr {
       pattern: Pattern[(PackageName, Constructor), Type],
       guard: Option[Expr[T]],
       expr: Expr[T]
-  )
-  case class Match[T](
+  )(using val patternRegion: Region)
+  final case class MatchExpr[T](
+      matchKind: MatchKind,
       arg: Expr[T],
       branches: NonEmptyList[Branch[T]],
       tag: T
   ) extends Expr[T]
+
+  type Match[T] = MatchExpr[T]
+  object Match {
+    def apply[T](
+        arg: Expr[T],
+        branches: NonEmptyList[Branch[T]],
+        tag: T
+    ): MatchExpr[T] =
+      MatchExpr(MatchKind.Match, arg, branches, tag)
+
+    def apply[T](
+        matchKind: MatchKind,
+        arg: Expr[T],
+        branches: NonEmptyList[Branch[T]],
+        tag: T
+    ): MatchExpr[T] =
+      MatchExpr(matchKind, arg, branches, tag)
+
+    def unapply[T](m: MatchExpr[T]): Some[(Expr[T], NonEmptyList[Branch[T]], T)] =
+      Some((m.arg, m.branches, m.tag))
+  }
 
   // Inverse of `Let.flatten`
   def lets[T](
@@ -267,8 +332,19 @@ object Expr {
       case Local(name, _)      => SortedSet(name)
       case Generic(_, in)      => allNames(in)
       case Global(_, _, _)     => SortedSet.empty
-      case App(fn, args, _)    =>
-        args.foldLeft(allNames(fn))((bs, e) => bs | allNames(e))
+      case app @ App(fn, args, _) =>
+        flattenApp2(app) match {
+          case Some((steps, last)) =>
+            var acc = allNames(last)
+            val rev = steps.toList.reverseIterator
+            while (rev.hasNext) {
+              val step = rev.next()
+              acc = allNames(step.fn) | allNames(step.arg) | acc
+            }
+            acc
+          case None =>
+            args.foldLeft(allNames(fn))((bs, e) => bs | allNames(e))
+        }
       case Lambda(args, e, _) => allNames(e) ++ args.toList.iterator.map(_._1)
       case Let(arg, expr, in, _, _) => allNames(expr) | allNames(in) + arg
       case Literal(_, _)            => SortedSet.empty
@@ -305,8 +381,8 @@ object Expr {
     Match(
       cond,
       NonEmptyList.of(
-        Branch(TruePat, None, ifTrue),
-        Branch(FalsePat, None, ifFalse)
+        Branch(TruePat, None, ifTrue)(using Region.empty),
+        Branch(FalsePat, None, ifFalse)(using Region.empty)
       ),
       tag
     )
@@ -319,6 +395,53 @@ object Expr {
       case Nil          => fn
     }
 
+  final case class App2Step[T](fn: Expr[T], arg: Expr[T], tag: T)
+
+  // Flatten right-deep binary application chains:
+  // f0(x0, f1(x1, ... fn(xn, last)))
+  // into steps [(f0, x0), (f1, x1), ...] and the final `last`.
+  def flattenApp2[T](
+      root: App[T]
+  ): Option[(NonEmptyList[App2Step[T]], Expr[T])] = {
+    val steps = List.newBuilder[App2Step[T]]
+    var cursor: Expr[T] = root
+    var done = false
+    var valid = true
+    var last: Expr[T] = root
+
+    while (valid && !done) {
+      cursor match {
+        case App(fn, NonEmptyList(arg, rhs :: Nil), tag) =>
+          steps += App2Step(fn, arg, tag)
+          rhs match {
+            case next @ App(_, NonEmptyList(_, _ :: Nil), _) =>
+              cursor = next
+            case _ =>
+              last = rhs
+              done = true
+          }
+        case _ =>
+          valid = false
+      }
+    }
+
+    if (!valid) None
+    else NonEmptyList.fromList(steps.result()).map((_, last))
+  }
+
+  def rebuildApp2[T](
+      steps: NonEmptyList[App2Step[T]],
+      last: Expr[T]
+  ): Expr[T] = {
+    var res = last
+    val rev = steps.toList.reverseIterator
+    while (rev.hasNext) {
+      val step = rev.next()
+      res = App(step.fn, NonEmptyList.of(step.arg, res), step.tag)
+    }
+    res
+  }
+
   // Traverse all non-bound vars
   private def traverseType[T, F[_]](expr: Expr[T], bound: Set[Type.Var.Bound])(
       fn: (Type, Set[Type.Var.Bound]) => F[Type]
@@ -328,12 +451,27 @@ object Expr {
         (traverseType[T, F](e, bound)(fn), fn(tpe, bound))
           .mapN(Annotation(_, _, a))
       case v: Name[T]      => F.pure(v)
-      case App(f, args, t) =>
-        (
-          traverseType[T, F](f, bound)(fn),
-          args.traverse(traverseType[T, F](_, bound)(fn))
-        )
-          .mapN(App(_, _, t))
+      case app @ App(f, args, t) =>
+        flattenApp2(app) match {
+          case Some((steps, last)) =>
+            var acc: F[Expr[T]] = traverseType[T, F](last, bound)(fn)
+            val rev = steps.toList.reverseIterator
+            while (rev.hasNext) {
+              val step = rev.next()
+              acc = (
+                traverseType[T, F](step.fn, bound)(fn),
+                traverseType[T, F](step.arg, bound)(fn),
+                acc
+              ).mapN((fn1, arg1, rhs1) => App(fn1, NonEmptyList.of(arg1, rhs1), step.tag))
+            }
+            acc
+          case None =>
+            (
+              traverseType[T, F](f, bound)(fn),
+              args.traverse(traverseType[T, F](_, bound)(fn))
+            )
+              .mapN(App(_, _, t))
+        }
       case Generic(bs, in) =>
         // Seems dangerous since we are hiding from fn that the Type.TyVar inside
         // matching these are not unbound
@@ -350,7 +488,7 @@ object Expr {
         (traverseType[T, F](exp, bound)(fn), traverseType[T, F](in, bound)(fn))
           .mapN(Let(arg, _, _, rec, tag))
       case l @ Literal(_, _)         => F.pure(l)
-      case Match(arg, branches, tag) =>
+      case m @ Match(arg, branches, tag) =>
         val argB = traverseType[T, F](arg, bound)(fn)
         type B = Branch[T]
         def branchFn(b: B): F[B] =
@@ -358,9 +496,11 @@ object Expr {
             b.pattern.traverseType(fn(_, bound)),
             b.guard.traverse(traverseType[T, F](_, bound)(fn)),
             traverseType[T, F](b.expr, bound)(fn)
-          ).mapN(Branch(_, _, _))
+          ).mapN { (pat, guard, expr) =>
+            Branch(pat, guard, expr)(using b.patternRegion)
+          }
         val branchB = branches.traverse(branchFn)
-        (argB, branchB).mapN(Match(_, _, tag))
+        (argB, branchB).mapN(Match(m.matchKind, _, _, tag))
     }
 
   private def substExpr[A](
@@ -390,13 +530,104 @@ object Expr {
   }
 
   // Returns a distinct list of free bound type variables
-  // in the order they were encountered in traversal
+  // in the order they were encountered in traversal.
+  //
+  // This is implemented with an explicit work stack to avoid recursive
+  // expression traversal and stack overflows on large source expressions.
   def freeBoundTyVars[A](expr: Expr[A]): List[Type.Var.Bound] = {
-    val w = traverseType(expr, Set.empty) { (t, bound) =>
-      val frees = Chain.fromSeq(Type.freeBoundTyVars(t :: Nil))
-      Writer(frees.filterNot(bound), t)
+    sealed trait Work
+    case class ExprWork(expr: Expr[A], bound: Set[Type.Var.Bound]) extends Work
+    case class PatternWork(
+        pattern: Pattern[?, Type],
+        bound: Set[Type.Var.Bound]
+    ) extends Work
+    case class TypeWork(tpe: Type, bound: Set[Type.Var.Bound]) extends Work
+
+    val seen = scala.collection.mutable.Set.empty[Type.Var.Bound]
+    val out = scala.collection.mutable.ListBuffer.empty[Type.Var.Bound]
+
+    def recordType(tpe: Type, bound: Set[Type.Var.Bound]): Unit =
+      Type.freeBoundTyVars(tpe :: Nil).foreach { t =>
+        if (!bound(t) && !seen(t)) {
+          seen += t
+          out += t
+        }
+      }
+
+    var stack: List[Work] = ExprWork(expr, Set.empty) :: Nil
+
+    while (stack.nonEmpty) {
+      val item = stack.head
+      stack = stack.tail
+
+      item match {
+        case ExprWork(expr, bound) =>
+          expr match {
+            case Annotation(e, tpe, _) =>
+              stack = ExprWork(e, bound) :: TypeWork(tpe, bound) :: stack
+            case _: Name[A] | Literal(_, _) =>
+              ()
+            case App(fn, args, _) =>
+              args.toList.reverseIterator.foreach { arg =>
+                stack = ExprWork(arg, bound) :: stack
+              }
+              stack = ExprWork(fn, bound) :: stack
+            case Generic(bs, in) =>
+              val bound1 = bound ++ bs.toList.iterator.map(_._1)
+              stack = ExprWork(in, bound1) :: stack
+            case Lambda(args, in, _) =>
+              stack = ExprWork(in, bound) :: stack
+              args.toList.reverseIterator.foreach { case (_, optT) =>
+                optT.foreach { tpe =>
+                  stack = TypeWork(tpe, bound) :: stack
+                }
+              }
+            case Let(_, argE, in, _, _) =>
+              stack = ExprWork(argE, bound) :: ExprWork(in, bound) :: stack
+            case Match(arg, branches, _) =>
+              branches.toList.reverseIterator.foreach { branch =>
+                stack = ExprWork(branch.expr, bound) :: stack
+                branch.guard.foreach { guard =>
+                  stack = ExprWork(guard, bound) :: stack
+                }
+                stack = PatternWork(branch.pattern, bound) :: stack
+              }
+              stack = ExprWork(arg, bound) :: stack
+          }
+
+        case PatternWork(pattern, bound) =>
+          pattern match {
+            case Pattern.WildCard | Pattern.Literal(_) | Pattern.Var(_) |
+                Pattern.StrPat(_) =>
+              ()
+            case Pattern.Named(_, pat) =>
+              stack = PatternWork(pat, bound) :: stack
+            case Pattern.ListPat(items) =>
+              items.reverseIterator.foreach {
+                case Pattern.ListPart.Item(pat) =>
+                  stack = PatternWork(pat, bound) :: stack
+                case Pattern.ListPart.WildList | Pattern.ListPart.NamedList(_) =>
+                  ()
+              }
+            case Pattern.Annotation(pat, tpe) =>
+              stack = PatternWork(pat, bound) :: TypeWork(tpe, bound) :: stack
+            case Pattern.PositionalStruct(_, params) =>
+              params.reverseIterator.foreach { pat =>
+                stack = PatternWork(pat, bound) :: stack
+              }
+            case Pattern.Union(head, tail) =>
+              tail.toList.reverseIterator.foreach { pat =>
+                stack = PatternWork(pat, bound) :: stack
+              }
+              stack = PatternWork(head, bound) :: stack
+          }
+
+        case TypeWork(tpe, bound) =>
+          recordType(tpe, bound)
+      }
     }
-    w.written.iterator.toList.distinct
+
+    out.toList
   }
 
   /** Here we substitute any free bound variables with skolem variables
@@ -461,7 +692,7 @@ object Expr {
       case (((name, _), Some(matchPat)), body) =>
         Match(
           Local(name, outer),
-          NonEmptyList.one(Branch(matchPat, None, body)),
+          NonEmptyList.one(Branch(matchPat, None, body)(using Region.empty)),
           outer
         )
     }

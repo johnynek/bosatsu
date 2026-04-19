@@ -30,6 +30,7 @@ object Region extends RegionLowPriority {
   def apply(start: Int, end: Int): Tpe =
     (start.toLong << 32) | (end.toLong & 0xffffffffL)
 
+  val empty: Tpe = Region(0, 0)
 
   implicit val ordering: Ordering[Region] =
     Ordering.Long
@@ -38,7 +39,10 @@ object Region extends RegionLowPriority {
     new cats.kernel.instances.LongOrder
 
   implicit val regionSemigroup: Semigroup[Region] =
-    Semigroup.instance(_ + _)
+    Semigroup.instance { (left, right) =>
+      // Use span-composition semantics, not numeric Long addition.
+      Region(left.start, right.end)
+    }
 
   implicit val regionShow: Show[Region] =
     Show.show(r => s"[${r.start}, ${r.end})")
@@ -61,6 +65,9 @@ object HasRegion {
     new HasRegion[T] {
       def region(t: T) = fn(t)
     }
+
+  given HasRegion[Region] =
+    instance(identity)
 
   def region[T](t: T)(implicit hr: HasRegion[T]): Region =
     hr.region(t)

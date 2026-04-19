@@ -10,6 +10,39 @@ from Bosatsu/Num/Float64 import (
   is_nan,
   string_to_Float64,
 )
+from Bosatsu/Num/Int64 import (
+  add_Int64,
+  and_Int64,
+  cmp_Int64,
+  div_Int64,
+  eq_Int64,
+  float64_to_Int64,
+  int64_to_Float64,
+  int64_to_Int,
+  int_low_bits_to_Int64,
+  int_to_Int64,
+  max_i64,
+  min_i64,
+  mod_Int64,
+  mul_Int64,
+  not_Int64,
+  or_Int64,
+  popcount_Int64,
+  shift_left_Int64,
+  shift_right_Int64,
+  shift_right_unsigned_Int64,
+  sub_Int64,
+  xor_Int64,
+  operator +,
+  operator -,
+  operator *,
+  operator &,
+  operator |,
+  operator ^,
+  operator <<,
+  operator >>,
+)
+from Bosatsu/Loops import range_foldr
 
 operator / = div
 operator % = mod_Int
@@ -21,14 +54,19 @@ def oi(opt):
     case None: "None"
     case Some(v): "Some(${i(v)})"
 
-def notb(a):
-  match a:
-    case True: False
-    case False: True
-def andb(a, b):
-  match a:
-    case True: b
-    case False: False
+notb = not
+andb = and
+
+test_bool = TestSuite("Bool tests", [
+  Assertion(and(True, True), "and(True, True)"),
+  Assertion(and(True, False) matches False, "and(True, False)"),
+  Assertion(and(False, True) matches False, "and(False, True)"),
+  Assertion(or(False, False) matches False, "or(False, False)"),
+  Assertion(or(False, True), "or(False, True)"),
+  Assertion(or(True, False), "or(True, False)"),
+  Assertion(not(True) matches False, "not(True)"),
+  Assertion(not(False), "not(False)"),
+])
 
 test_int = TestSuite("Int tests", [
       Assertion((4 % -3) matches -2, "(4 % -3) == -2 got: ${i(4 % -3)}"),
@@ -77,6 +115,11 @@ test_int = TestSuite("Int tests", [
       Assertion(and_Int(-1, 23) matches 23, "-1 & 23 == 23"),
       Assertion(or_Int(-1, 23) matches -1, "-1 | 23 == -1"),
       Assertion(not_Int(-2) matches 1, "~(-2) == 1"),
+      Assertion(popcount_Int(0) matches 0, "popcount_Int(0) == 0"),
+      Assertion(popcount_Int(7) matches 3, "popcount_Int(7) == 3"),
+      Assertion(popcount_Int(-1) matches 0, "popcount_Int(-1) == 0"),
+      Assertion(popcount_Int(-2) matches 1, "popcount_Int(-2) == 1"),
+      Assertion(popcount_Int(1.shift_left_Int(2000)) matches 1, "popcount_Int(1 << 2000) == 1"),
       
       Assertion(gcd_Int(4, 3) matches 1, "gcd(4, 3) == 1"),
       Assertion(gcd_Int(-4, -3) matches -1, "gcd(-4, -3) == -1"),
@@ -108,7 +151,133 @@ test_int = TestSuite("Int tests", [
       Assertion(string_to_Int("-2147483649z") matches None, "-2147483649z string_to_Int"),
     ])
 
+def scalar_char(code_point: Int) -> Char:
+  match int_to_Char(code_point):
+    case Some(c): c
+    case None: .'?'
+
+char_u_e000 = scalar_char(57344)
+char_u_ffff = scalar_char(65535)
+char_u_10000 = scalar_char(65536)
+
+string_u_e000 = char_to_String(char_u_e000)
+string_u_ffff = char_to_String(char_u_ffff)
+string_u_10000 = char_to_String(char_u_10000)
+string_a_u_e000 = concat_String(["a", string_u_e000])
+string_a_u_ffff = concat_String(["a", string_u_ffff])
+string_a_u_10000 = concat_String(["a", string_u_10000])
+
+test_cmp_eq = TestSuite("Comparison/equality tests", [
+  Assertion(cmp_Bool(False, False) matches EQ, "cmp_Bool EQ"),
+  Assertion(cmp_Bool(False, True) matches LT, "cmp_Bool LT"),
+  Assertion(cmp_Bool(True, False) matches GT, "cmp_Bool GT"),
+  Assertion(eq_Bool(True, True), "eq_Bool true"),
+  Assertion(notb(eq_Bool(True, False)), "eq_Bool false"),
+  Assertion(cmp_Comparison(LT, EQ) matches LT, "cmp_Comparison LT"),
+  Assertion(cmp_Comparison(EQ, EQ) matches EQ, "cmp_Comparison EQ"),
+  Assertion(cmp_Comparison(GT, LT) matches GT, "cmp_Comparison GT"),
+  Assertion(cmp_Char(char_u_e000, char_u_10000) matches LT, "cmp_Char U+E000 < U+10000"),
+  Assertion(cmp_Char(char_u_ffff, char_u_10000) matches LT, "cmp_Char U+FFFF < U+10000"),
+  Assertion(eq_Comparison(GT, GT), "eq_Comparison true"),
+  Assertion(notb(eq_Comparison(LT, GT)), "eq_Comparison false"),
+  Assertion(eq_Char(char_u_e000, char_u_e000), "eq_Char true"),
+  Assertion(notb(eq_Char(char_u_e000, char_u_10000)), "eq_Char false"),
+])
+
+def cmp_to_int(c: Comparison) -> Int:
+  match c:
+    case LT: -1
+    case EQ: 0
+    case GT: 1
+
+def cmp_char(left: Char, right: Char) -> Comparison:
+  cmp_Int(char_to_Int(left), char_to_Int(right))
+
+def cmp_string_model(left: String, right: String) -> Comparison:
+  loop (left, right):
+    case ("", ""): EQ
+    case ("", _): LT
+    case (_, ""): GT
+    case ("$.{left_head}${left_tail}", "$.{right_head}${right_tail}"):
+      head_cmp = cmp_char(left_head, right_head)
+      match head_cmp:
+        case LT: LT
+        case EQ: cmp_string_model(left_tail, right_tail)
+        case GT: GT
+
+def cmp_string_matches_model(left: String, right: String) -> Bool:
+  cmp_Int(
+    cmp_to_int(cmp_String(left, right)),
+    cmp_to_int(cmp_string_model(left, right))
+  ) matches EQ
+
+def cmp_string_row_law(left: String, rights: List[String]) -> Bool:
+  loop rights:
+    case []: True
+    case [right, *tail]:
+      if cmp_string_matches_model(left, right):
+        cmp_string_row_law(left, tail)
+      else:
+        False
+
+def cmp_string_matrix_law(lefts: List[String], rights: List[String]) -> Bool:
+  loop lefts:
+    case []: True
+    case [left, *tail]:
+      if cmp_string_row_law(left, rights):
+        cmp_string_matrix_law(tail, rights)
+      else:
+        False
+
+cmp_string_samples = [
+  "",
+  "A",
+  "B",
+  "BARBARA",
+  "LINDA",
+  "alpha",
+  "alphabet",
+  "alphabeta",
+  "bar",
+  "baz",
+  "foo",
+  "food",
+  "fool",
+  "z",
+  "zz",
+  "0",
+  "2",
+  "9",
+  "10",
+  "hello",
+  "hello!",
+  "hello?",
+  "Hello",
+  "é",
+  "ê",
+  "Ω",
+  "δ",
+  "👋",
+  "👋a",
+  "a👋",
+  "日本",
+  "日本語",
+  string_u_e000,
+  string_u_ffff,
+  string_u_10000,
+  string_a_u_e000,
+  string_a_u_ffff,
+  string_a_u_10000,
+  "~tilde",
+  "{brace}",
+  "|pipe",
+  "🙂",
+  "🙃",
+]
+
 test_string = TestSuite("String tests", [
+  Assertion(eq_String("foo", "foo"), "eq_String equal"),
+  Assertion(notb(eq_String("foo", "food")), "eq_String unequal"),
   Assertion("foo".partition_String("f") matches Some(("", "oo")), "foo partition_String f"),
   Assertion("foo".partition_String("") matches None, "foo partition_String \"\""),
   Assertion("foo".partition_String("x") matches None, "foo partition_String x"),
@@ -126,6 +295,14 @@ test_string = TestSuite("String tests", [
   Assertion(tail_or_empty_String("") matches "", "tail_or_empty empty"),
   Assertion(tail_or_empty_String("abc") matches "bc", "tail_or_empty ascii"),
   Assertion(tail_or_empty_String("éa") matches "a", "tail_or_empty unicode"),
+  Assertion(cmp_String("BARBARA", "LINDA") matches LT, "cmp_String BARBARA vs LINDA"),
+  Assertion(cmp_String(string_u_e000, string_u_10000) matches LT, "cmp_String U+E000 < U+10000"),
+  Assertion(cmp_String(string_u_ffff, string_u_10000) matches LT, "cmp_String U+FFFF < U+10000"),
+  Assertion(cmp_String(string_a_u_e000, string_a_u_10000) matches LT, "cmp_String a+U+E000 < a+U+10000"),
+  Assertion(cmp_String(string_a_u_ffff, string_a_u_10000) matches LT, "cmp_String a+U+FFFF < a+U+10000"),
+  Assertion(
+    cmp_string_matrix_law(cmp_string_samples, cmp_string_samples),
+    "cmp_String agrees with recursive model on sample matrix"),
 
   Assertion(notb("bbb" matches "ab${_}"), "literal prefix not found"),
   Assertion(notb("zabq" matches "ab${_}"), "literal found later is not a prefix"),
@@ -172,13 +349,63 @@ test_string = TestSuite("String tests", [
     "unicode literal candidate miss then hit"),
 ])
 
-def eqf(a, b): cmp_Float64(a, b) matches EQ
+test_list = TestSuite("List tests", [
+  Assertion(length_List([]) matches 0, "length_List empty"),
+  Assertion(length_List([1, 2, 3]) matches 3, "length_List items"),
+  Assertion(length_List(["a", "b"]) matches 2, "length_List polymorphic"),
+])
+
+def eqf(a, b): eq_Float64(a, b)
 def eqi(a, b): cmp_Int(a, b) matches EQ
+def eqi64(a, b): cmp_Int64(a, b) matches EQ
+
+def int64_eq_int(value, expected: Int) -> Bool:
+  int64_to_Int(value).eqi(expected)
+
+def int64_option_eq_int(value, expected: Int) -> Bool:
+  match value:
+    case Some(v): int64_eq_int(v, expected)
+    case None: False
 def eqb(a, b):
   if a:
     b
   else:
     notb(b)
+
+def eq_int_list(left: List[Int], right: List[Int]) -> Bool:
+  loop (left, right):
+    case ([], []): True
+    case ([lh, *lt], [rh, *rt]) if eqi(lh, rh):
+      eq_int_list(lt, rt)
+    case _: False
+
+def split_last_loop(items: List[Int]) -> Option[(List[Int], Int)]:
+  def loop_split(rem: List[Int], rev_init: List[Int]) -> Option[(List[Int], Int)]:
+    loop rem:
+      case []:
+        None
+      case [last]:
+        Some((rev_init.reverse(), last))
+      case [head, *tail]:
+        loop_split(tail, [head, *rev_init])
+  loop_split(items, [])
+
+def split_last_match(items: List[Int]) -> Option[(List[Int], Int)]:
+  match items:
+    case []: None
+    case [*init, last]: Some((init, last))
+
+def eq_split_last_result(
+  left: Option[(List[Int], Int)],
+  right: Option[(List[Int], Int)]
+) -> Bool:
+  match (left, right):
+    case (None, None):
+      True
+    case (Some((left_init, left_last)), Some((right_init, right_last))):
+      andb(eq_int_list(left_init, right_init), eqi(left_last, right_last))
+    case _:
+      False
 
 u64_mod = 1.shift_left_Int(64)
 two_pow_52 = 1.shift_left_Int(52)
@@ -189,8 +416,28 @@ lcg_inc = 1442695040888963407
 def next_u64(seed: Int) -> Int:
   seed.mul(lcg_mul).add(lcg_inc).mod_Int(u64_mod)
 
+def split_last_equivalence_law(trials: Int, seed0: Int) -> Bool:
+  state = range_foldr(trials, (seed0, True), (_, state) -> (
+    (seed, ok) = state
+    seed1 = next_u64(seed)
+    length = seed1.mod_Int(12)
+    list_state = range_foldr(length, (seed1, []), (_, list_state) -> (
+      (list_seed, rev_items) = list_state
+      list_seed1 = next_u64(list_seed)
+      item = list_seed1.mod_Int(2001).sub(1000)
+      (list_seed1, [item, *rev_items])
+    ))
+    (seed2, rev_items) = list_state
+    items = rev_items.reverse()
+    expected = split_last_loop(items)
+    got = split_last_match(items)
+    ok1 = andb(ok, eq_split_last_result(expected, got))
+    (seed2, ok1)
+  ))
+  state matches (_, True)
+
 def bits_roundtrip_law(trials: Int, seed0: Int) -> Bool:
-  state = int_loop(trials, (seed0, True), (n, state) -> (
+  state = range_foldr(trials, (seed0, True), (_, state) -> (
     (seed, ok) = state
     seed1 = next_u64(seed)
     f = int_bits_to_Float64(seed1)
@@ -198,12 +445,12 @@ def bits_roundtrip_law(trials: Int, seed0: Int) -> Bool:
     ok1 = match is_nan(f):
       case True: ok
       case False: andb(ok, eqi(bits_back, seed1))
-    (n.sub(1), (seed1, ok1))
+    (seed1, ok1)
   ))
   state matches (_, True)
 
 def string_roundtrip_law(trials: Int, seed0: Int) -> Bool:
-  state = int_loop(trials, (seed0, True), (n, state) -> (
+  state = range_foldr(trials, (seed0, True), (_, state) -> (
     (seed, ok) = state
     seed1 = next_u64(seed)
     f = int_bits_to_Float64(seed1)
@@ -212,44 +459,44 @@ def string_roundtrip_law(trials: Int, seed0: Int) -> Bool:
       case Some(f1) if is_nan(f): is_nan(f1)
       case Some(f1): eqf(f, f1)
       case None: False
-    (n.sub(1), (seed1, andb(ok, ok1)))
+    (seed1, andb(ok, ok1))
   ))
   state matches (_, True)
 
 def pos_inf_matches_law(trials: Int, seed0: Int) -> Bool:
-  state = int_loop(trials, (seed0, True), (n, state) -> (
+  state = range_foldr(trials, (seed0, True), (_, state) -> (
     (seed, ok) = state
     seed1 = next_u64(seed)
     f = int_bits_to_Float64(seed1)
     rhs = andb(is_infinite(f), cmp_Float64(f, 0.0) matches GT)
     ok1 = andb(ok, eqb(f matches ∞, rhs))
-    (n.sub(1), (seed1, ok1))
+    (seed1, ok1)
   ))
   state matches (_, True)
 
 def neg_inf_matches_law(trials: Int, seed0: Int) -> Bool:
-  state = int_loop(trials, (seed0, True), (n, state) -> (
+  state = range_foldr(trials, (seed0, True), (_, state) -> (
     (seed, ok) = state
     seed1 = next_u64(seed)
     f = int_bits_to_Float64(seed1)
     rhs = andb(is_infinite(f), cmp_Float64(f, 0.0) matches LT)
     ok1 = andb(ok, eqb(f matches -∞, rhs))
-    (n.sub(1), (seed1, ok1))
+    (seed1, ok1)
   ))
   state matches (_, True)
 
 def nan_matches_law(trials: Int, seed0: Int) -> Bool:
-  state = int_loop(trials, (seed0, True), (n, state) -> (
+  state = range_foldr(trials, (seed0, True), (_, state) -> (
     (seed, ok) = state
     seed1 = next_u64(seed)
     f = int_bits_to_Float64(seed1)
     ok1 = andb(ok, eqb(is_nan(f), f matches .NaN))
-    (n.sub(1), (seed1, ok1))
+    (seed1, ok1)
   ))
   state matches (_, True)
 
 def int_float_roundtrip_law(trials: Int, seed0: Int) -> Bool:
-  state = int_loop(trials, (seed0, True), (n, state) -> (
+  state = range_foldr(trials, (seed0, True), (_, state) -> (
     (seed, ok) = state
     seed1 = next_u64(seed)
     i0 = seed1.mod_Int(two_pow_53).sub(two_pow_52)
@@ -257,7 +504,7 @@ def int_float_roundtrip_law(trials: Int, seed0: Int) -> Bool:
     ok1 = match back:
       case Some(i1): andb(ok, eqi(i0, i1))
       case None: False
-    (n.sub(1), (seed1, ok1))
+    (seed1, ok1)
   ))
   state matches (_, True)
 
@@ -279,24 +526,46 @@ def classify_float(x: Float64) -> Int:
     case 1.5: 2
     case _: 3
 
+test_list_patterns = TestSuite("List pattern tests", [
+  Assertion(
+    eq_split_last_result(split_last_loop([]), split_last_match([])),
+    "split_last empty list"
+  ),
+  Assertion(
+    eq_split_last_result(split_last_loop([7]), split_last_match([7])),
+    "split_last singleton list"
+  ),
+  Assertion(
+    eq_split_last_result(split_last_loop([1, 2, 3]), split_last_match([1, 2, 3])),
+    "split_last three items"
+  ),
+  Assertion(
+    split_last_equivalence_law(300, 919191),
+    "split_last loop/match equivalence law"
+  ),
+])
+
 test_float = TestSuite("Float tests", [
   Assertion(eqf(addf(1.25, 2.5), 3.75), "addf"),
   Assertion(eqf(subf(5.5, 2.25), 3.25), "subf"),
-  Assertion(eqf(timesf(1.5, 2.0), 3.0), "timesf"),
+  Assertion(eqf(mulf(1.5, 2.0), 3.0), "mulf"),
   Assertion(eqf(divf(7.5, 2.5), 3.0), "divf"),
-  Assertion(eqf(.NaN, nan0), "nan equality"),
+  Assertion(eq_Float64(.NaN, nan0), "nan equality"),
+  Assertion(notb(eq_Float64(1.0, 2.0)), "float inequality"),
   Assertion(eqf(1_234.5_6, 1234.56), "underscore parsing"),
   Assertion(eqf(.5, 0.5), "leading dot"),
   Assertion(eqf(5., 5.0), "trailing dot"),
   Assertion(eqf(∞, divf(1.0, 0.0)), "literal infinity"),
   Assertion(eqf(-∞, divf(-1.0, 0.0)), "literal negative infinity"),
-  Assertion(float_to_int_eq(0.5, 0), "python hard case: round(0.5) == 0"),
-  Assertion(float_to_int_eq(1.5, 2), "python hard case: round(1.5) == 2"),
-  Assertion(float_to_int_eq(2.5, 2), "python hard case: round(2.5) == 2"),
-  Assertion(float_to_int_eq(3.5, 4), "python hard case: round(3.5) == 4"),
-  Assertion(float_to_int_eq(-0.5, 0), "python hard case: round(-0.5) == 0"),
-  Assertion(float_to_int_eq(-1.5, -2), "python hard case: round(-1.5) == -2"),
-  Assertion(float_to_int_eq(-2.5, -2), "python hard case: round(-2.5) == -2"),
+  # Float64 -> Int uses IEEE-754 ties-to-even, matching Scala's Math.rint and
+  # Python's round on binary floating-point inputs.
+  Assertion(float_to_int_eq(0.5, 0), "ties-to-even: round(0.5) == 0"),
+  Assertion(float_to_int_eq(1.5, 2), "ties-to-even: round(1.5) == 2"),
+  Assertion(float_to_int_eq(2.5, 2), "ties-to-even: round(2.5) == 2"),
+  Assertion(float_to_int_eq(3.5, 4), "ties-to-even: round(3.5) == 4"),
+  Assertion(float_to_int_eq(-0.5, 0), "ties-to-even: round(-0.5) == 0"),
+  Assertion(float_to_int_eq(-1.5, -2), "ties-to-even: round(-1.5) == -2"),
+  Assertion(float_to_int_eq(-2.5, -2), "ties-to-even: round(-2.5) == -2"),
   Assertion(float_to_int_eq(0.49999999999999994, 0), "python hard case: round(0.49999999999999994) == 0"),
   Assertion(float_to_int_eq(4503599627370495.5, 4503599627370496), "python hard case near 2^52"),
   Assertion(float_to_int_eq(9007199254740992.0, 9007199254740992), "python hard case at 2^53"),
@@ -349,8 +618,91 @@ test_float = TestSuite("Float tests", [
   Assertion(classify_float(0.0) matches 1, "zero pattern match"),
 ])
 
+test_int64 = TestSuite("Int64 tests", [
+  Assertion(int64_option_eq_int(int_to_Int64(0), 0), "safe conversion 0"),
+  Assertion(int64_option_eq_int(int_to_Int64(9223372036854775807), 9223372036854775807), "safe conversion max"),
+  Assertion(int_to_Int64(9223372036854775808) matches None, "safe conversion max + 1"),
+  Assertion(int_to_Int64(-9223372036854775809) matches None, "safe conversion min - 1"),
+  Assertion(int64_eq_int(int_low_bits_to_Int64(18446744073709551615), -1), "low bits uses two's complement"),
+  Assertion(int64_eq_int(int_low_bits_to_Int64(-1), -1), "low bits preserves negative one"),
+  Assertion(int64_eq_int(add_Int64(max_i64, int_low_bits_to_Int64(1)), -9223372036854775808),
+    "add_Int64 wraps to min_i64"),
+  Assertion(int64_eq_int(sub_Int64(min_i64, int_low_bits_to_Int64(1)), 9223372036854775807),
+    "sub_Int64 wraps to max_i64"),
+  Assertion(int64_eq_int(mul_Int64(min_i64, int_low_bits_to_Int64(-1)), -9223372036854775808),
+    "mul_Int64 wraps min_i64 * -1"),
+  Assertion(int64_eq_int(div_Int64(int_low_bits_to_Int64(-5), int_low_bits_to_Int64(3)), -2),
+    "div_Int64 floors negative quotient"),
+  Assertion(int64_eq_int(div_Int64(int_low_bits_to_Int64(5), int_low_bits_to_Int64(-3)), -2),
+    "div_Int64 floors mixed-sign quotient"),
+  Assertion(int64_eq_int(div_Int64(min_i64, int_low_bits_to_Int64(-1)), -9223372036854775808),
+    "div_Int64 overflow wraps to min_i64"),
+  Assertion(int64_eq_int(div_Int64(int_low_bits_to_Int64(7), int_low_bits_to_Int64(0)), 0),
+    "div_Int64 by zero returns 0"),
+  Assertion(int64_eq_int(mod_Int64(int_low_bits_to_Int64(5), int_low_bits_to_Int64(-3)), -1),
+    "mod_Int64 keeps the divisor sign"),
+  Assertion(int64_eq_int(mod_Int64(int_low_bits_to_Int64(7), int_low_bits_to_Int64(0)), 7),
+    "mod_Int64 by zero returns the left value"),
+  Assertion(
+    int64_eq_int(
+      add_Int64(
+        mul_Int64(
+          div_Int64(int_low_bits_to_Int64(-5), int_low_bits_to_Int64(3)),
+          int_low_bits_to_Int64(3)),
+        mod_Int64(int_low_bits_to_Int64(-5), int_low_bits_to_Int64(3))),
+      -5),
+    "div_Int64 and mod_Int64 satisfy the divmod law"),
+  Assertion(int64_eq_int(and_Int64(int_low_bits_to_Int64(-1), int_low_bits_to_Int64(23)), 23),
+    "and_Int64 keeps low bits"),
+  Assertion(int64_eq_int(or_Int64(int_low_bits_to_Int64(-1), int_low_bits_to_Int64(23)), -1),
+    "or_Int64 keeps low bits"),
+  Assertion(int64_eq_int(xor_Int64(int_low_bits_to_Int64(-1), int_low_bits_to_Int64(23)), -24),
+    "xor_Int64 keeps low bits"),
+  Assertion(int64_eq_int(not_Int64(int_low_bits_to_Int64(-2)), 1), "not_Int64 flips all bits"),
+  Assertion(int64_eq_int(shift_left_Int64(int_low_bits_to_Int64(1), 63), -9223372036854775808),
+    "shift_left_Int64 keeps low 64 bits"),
+  Assertion(int64_eq_int(shift_left_Int64(int_low_bits_to_Int64(1), 64), 0),
+    "shift_left_Int64 clears on large positive count"),
+  Assertion(int64_eq_int(shift_left_Int64(int_low_bits_to_Int64(1), -1), 0),
+    "shift_left_Int64 uses right shift on negative count"),
+  Assertion(int64_eq_int(shift_right_Int64(int_low_bits_to_Int64(-1), 100), -1),
+    "shift_right_Int64 sign extends on large positive count"),
+  Assertion(int64_eq_int(shift_right_Int64(int_low_bits_to_Int64(1), -63), -9223372036854775808),
+    "shift_right_Int64 uses wrapped left shift on negative count"),
+  Assertion(int64_eq_int(shift_right_unsigned_Int64(int_low_bits_to_Int64(-1), 1), 9223372036854775807),
+    "shift_right_unsigned_Int64 clears the sign bit"),
+  Assertion(eqi(popcount_Int64(int_low_bits_to_Int64(-1)), 64), "popcount_Int64 counts raw bits"),
+  Assertion(cmp_Int64(min_i64, max_i64) matches LT, "cmp_Int64 signed ordering"),
+  Assertion(cmp_Int64(int_low_bits_to_Int64(-1), int_low_bits_to_Int64(-1)) matches EQ, "cmp_Int64 equality"),
+  Assertion(eq_Int64(int_low_bits_to_Int64(-1), int_low_bits_to_Int64(-1)), "eq_Int64 wrapper"),
+  Assertion(eq_Int64(int_low_bits_to_Int64(-1), int_low_bits_to_Int64(0)) matches False, "eq_Int64 distinguishes values"),
+  Assertion(int64_eq_int(int_low_bits_to_Int64(2) + int_low_bits_to_Int64(3), 5), "Int64 operator + wrapper"),
+  Assertion(int64_eq_int(int_low_bits_to_Int64(2) - int_low_bits_to_Int64(3), -1), "Int64 operator - wrapper"),
+  Assertion(int64_eq_int(int_low_bits_to_Int64(3) * int_low_bits_to_Int64(7), 21), "Int64 operator * wrapper"),
+  Assertion(int64_eq_int(int_low_bits_to_Int64(-1) & int_low_bits_to_Int64(23), 23), "Int64 operator & wrapper"),
+  Assertion(int64_eq_int(int_low_bits_to_Int64(-1) | int_low_bits_to_Int64(23), -1), "Int64 operator | wrapper"),
+  Assertion(int64_eq_int(int_low_bits_to_Int64(-1) ^ int_low_bits_to_Int64(23), -24), "Int64 operator ^ wrapper"),
+  Assertion(int64_eq_int(int_low_bits_to_Int64(1) << 63, -9223372036854775808), "Int64 operator << wrapper"),
+  Assertion(int64_eq_int(int_low_bits_to_Int64(1) >> -63, -9223372036854775808), "Int64 operator >> wrapper"),
+  Assertion(int64_option_eq_int(float64_to_Int64(1.5), 2), "float64_to_Int64 rounds ties to even"),
+  Assertion(int64_option_eq_int(float64_to_Int64(2.5), 2), "float64_to_Int64 keeps even ties"),
+  Assertion(int64_option_eq_int(float64_to_Int64(-0.5), 0), "float64_to_Int64 handles negative ties"),
+  Assertion(float64_to_Int64(∞) matches None, "float64_to_Int64 rejects infinity"),
+  Assertion(eqf(int64_to_Float64(min_i64), -9223372036854775808.0), "int64_to_Float64 matches Int conversion"),
+  Assertion(
+    match float64_to_Int64(int64_to_Float64(min_i64)):
+      case Some(v): eqi64(v, min_i64)
+      case None: False,
+    "float64 roundtrip keeps min_i64"),
+])
+
 test = TestSuite("Predef tests", [
+    test_bool,
     test_int,
+    test_cmp_eq,
     test_string,
+    test_list,
+    test_list_patterns,
     test_float,
+    test_int64,
 ])

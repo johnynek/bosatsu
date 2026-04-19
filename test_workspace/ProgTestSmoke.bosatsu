@@ -1,0 +1,17 @@
+package ProgTestSmoke
+
+from Bosatsu/Prog import ProgTest, pure, raise_error, recover
+
+tests = ProgTest(
+  _ ->
+    recover(
+      raise_error("expected"),
+      err ->
+        pure(
+          TestSuite("ProgTest smoke", [
+            Assertion(err matches "expected", "recovered expected error in ProgTest"),
+            Assertion(True, "ProgTest executed"),
+          ])
+        )
+    )
+)

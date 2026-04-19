@@ -12,22 +12,39 @@ import dev.bosatsu.library.{
 }
 import dev.bosatsu.{
   CompileOptions,
+  Identifier,
   LocationMap,
   Package,
   PackageMap,
   PackageName,
   Par,
-  Parser
+  Parser,
+  Predef
 }
 import scala.collection.immutable.SortedMap
 
 class ClangGenLibraryDepsTest extends munit.FunSuite {
+  private def extractCFunction(code: String, mangledNameFragment: String): String = {
+    val start = code.indexOf(mangledNameFragment)
+    assert(start >= 0, code)
+    val headerStart = code.lastIndexOf("BValue ", start)
+    assert(headerStart >= 0, code)
+    val nextFn = code.indexOf("\n\nBValue ", start)
+    val nextMain = code.indexOf("\n\nint main(", start)
+    val end =
+      List(nextFn, nextMain)
+        .filter(_ > headerStart)
+        .sorted
+        .headOption
+        .getOrElse(code.length)
+    code.slice(headerStart, end)
+  }
 
   private def typeCheck(
       src: String,
       ifaces: List[Package.Interface]
-  ): PackageMap.Inferred = {
-    val pack = Parser.unsafeParse(Package.parser(None), src)
+  ): PackageMap.Compiled = {
+    val pack = Parser.unsafeParse(Package.parser, src)
     val nel = NonEmptyList.one((("test", LocationMap(src)), pack))
     Par.noParallelism {
       PackageMap
@@ -104,13 +121,355 @@ class ClangGenLibraryDepsTest extends munit.FunSuite {
       )
 
     Par.withEC {
-      val values = rootDl.lib.implementations.testValues.toList.sorted
+      val values = rootDl.lib.implementations.testEntries.toList.collect {
+        case (pn, Right(entry)) => (pn, entry)
+      }.sortBy(_._1)
       ClangGen(rootDl).renderTests(values) match {
         case Right(doc) =>
           val rendered = doc.render(120)
           assert(rendered.contains("bsts_test_argv_has_quiet"), rendered)
           assert(rendered.contains("bsts_test_run"), rendered)
           assert(rendered.contains("quiet"), rendered)
+        case Left(err) =>
+          fail(err.display.render(80))
+      }
+    }
+  }
+
+  test("clang gen avoids cross-library helper calls after Matchless inlining") {
+    val predefIface = Package.interfaceOf(PackageMap.predefCompiled)
+    val helperPackName = PackageName.parts("Helper", "Bool")
+    val rootPackName = PackageName.parts("Root", "Main")
+    val mainName = Identifier.Name("main")
+
+    val helperSrc =
+      """package Helper/Bool
+        |
+        |export choose
+        |
+        |def choose(flag: Bool, on_true: Int) -> Int:
+        |  if flag:
+        |    on_true
+        |  else:
+        |    0
+        |""".stripMargin
+
+    val helperPm = typeCheck(helperSrc, predefIface :: Nil)
+    val helperPack = helperPm.toMap(helperPackName)
+    val helperIface = Package.interfaceOf(helperPack)
+
+    val rootSrc =
+      """package Root/Main
+        |
+        |from Helper/Bool import choose
+        |
+        |def expensive(i: Int) -> Int:
+        |  if False:
+        |    0
+        |  else:
+        |    i
+        |
+        |main = choose(False, expensive(1))
+        |""".stripMargin
+
+    val rootPm = typeCheck(rootSrc, predefIface :: helperIface :: Nil)
+
+    val helperVersion = Version(1, 0, 0)
+    val rootVersion = Version(1, 0, 0)
+
+    val helperLib = DecodedLibrary[Algo.Blake3](
+      name = Name("helper"),
+      version = helperVersion,
+      hashValue = HashValue[Algo.Blake3]("00"),
+      protoLib = proto.Library(
+        name = "helper",
+        descriptor =
+          Some(proto.LibDescriptor(version = Some(helperVersion.toProto)))
+      ),
+      interfaces = helperIface :: Nil,
+      implementations = helperPm
+    )
+
+    val rootLib = DecodedLibrary[Algo.Blake3](
+      name = Name("root"),
+      version = rootVersion,
+      hashValue = HashValue[Algo.Blake3]("00"),
+      protoLib = proto.Library(
+        name = "root",
+        descriptor =
+          Some(proto.LibDescriptor(version = Some(rootVersion.toProto)))
+      ),
+      interfaces = Nil,
+      implementations = rootPm
+    )
+
+    val helperDl = DecodedLibraryWithDeps(helperLib, SortedMap.empty)
+    val rootDl =
+      DecodedLibraryWithDeps(
+        rootLib,
+        SortedMap(helperDl.nameVersion -> helperDl)
+      )
+
+    Par.withEC {
+      ClangGen(rootDl).renderMain(
+        rootPackName,
+        mainName,
+        Code.Ident("run_main")
+      ) match {
+        case Right(doc) =>
+          val rendered = doc.render(120)
+          val mainFn =
+            extractCFunction(rendered, "___bsts_g_Root_l_Main_l_main")
+          assertEquals(
+            mainFn.contains("___bsts_g_Helper_l_Bool_l_choose"),
+            false,
+            mainFn
+          )
+        case Left(err) =>
+          fail(err.display.render(80))
+      }
+    }
+  }
+
+  test("clang gen emits bsts_test_run_prog for ProgTest entries") {
+    val predefIface = Package.interfaceOf(PackageMap.predefCompiled)
+
+    val progSrc =
+      """package Bosatsu/Prog
+        |
+        |export Prog(), ProgTest(), pure
+        |
+        |enum Prog[e, a]:
+        |  Pure(get: a)
+        |
+        |def pure[a](a: a) -> forall e. Prog[e, a]:
+        |  Pure(a)
+        |
+        |struct ProgTest(test_fn: List[String] -> Prog[String, Test])
+        |""".stripMargin
+
+    val progPm = typeCheck(progSrc, predefIface :: Nil)
+    val progPack = progPm.toMap(PackageName.parts("Bosatsu", "Prog"))
+    val progIface = Package.interfaceOf(progPack)
+
+    val rootSrc =
+      """package Root/Main
+        |
+        |from Bosatsu/Prog import ProgTest, pure
+        |
+        |tests = ProgTest(_ -> pure(Assertion(True, "ok")))
+        |""".stripMargin
+
+    val rootPm = typeCheck(rootSrc, predefIface :: progIface :: Nil)
+
+    val progVersion = Version(1, 0, 0)
+    val rootVersion = Version(1, 0, 0)
+
+    val progLib = DecodedLibrary[Algo.Blake3](
+      name = Name("prog"),
+      version = progVersion,
+      hashValue = HashValue[Algo.Blake3]("00"),
+      protoLib = proto.Library(
+        name = "prog",
+        descriptor =
+          Some(proto.LibDescriptor(version = Some(progVersion.toProto)))
+      ),
+      interfaces = progIface :: Nil,
+      implementations = progPm
+    )
+
+    val rootLib = DecodedLibrary[Algo.Blake3](
+      name = Name("root"),
+      version = rootVersion,
+      hashValue = HashValue[Algo.Blake3]("00"),
+      protoLib = proto.Library(
+        name = "root",
+        descriptor =
+          Some(proto.LibDescriptor(version = Some(rootVersion.toProto)))
+      ),
+      interfaces = Nil,
+      implementations = rootPm
+    )
+
+    val progDl = DecodedLibraryWithDeps(progLib, SortedMap.empty)
+    val rootDl =
+      DecodedLibraryWithDeps(
+        rootLib,
+        SortedMap(progDl.nameVersion -> progDl)
+      )
+
+    Par.withEC {
+      val values = rootDl.lib.implementations.testEntries.toList.collect {
+        case (pn, Right(entry)) => (pn, entry)
+      }.sortBy(_._1)
+      ClangGen(rootDl).renderTests(values) match {
+        case Right(doc) =>
+          val rendered = doc.render(120)
+          assert(rendered.contains("bsts_test_run_prog"), rendered)
+        case Left(err) =>
+          fail(err.display.render(80))
+      }
+    }
+  }
+
+  test("clang gen includes Bosatsu/Prog observe external when referenced") {
+    val predefIface = Package.interfaceOf(PackageMap.predefCompiled)
+
+    val progSrc =
+      """package Bosatsu/Prog
+        |
+        |export Prog(), ProgTest(), pure, observe, await
+        |
+        |external struct Prog[e: +*, a: +*]
+        |
+        |external def pure[a](a: a) -> forall e. Prog[e, a]
+        |external def flat_map[e, a, b](prog: Prog[e, a], fn: a -> Prog[e, b]) -> Prog[e, b]
+        |external def observe[a](a: a) -> forall e. Prog[e, Unit]
+        |
+        |def await(p, fn): p.flat_map(fn)
+        |
+        |struct ProgTest(test_fn: List[String] -> Prog[String, Test])
+        |""".stripMargin
+
+    val progPm = typeCheck(progSrc, predefIface :: Nil)
+    val progPack = progPm.toMap(PackageName.parts("Bosatsu", "Prog"))
+    val progIface = Package.interfaceOf(progPack)
+
+    val rootSrc =
+      """package Root/Main
+        |
+        |from Bosatsu/Prog import ProgTest, pure, observe, await
+        |
+        |tests = ProgTest(_ ->
+        |  observe("probe").await(_ -> pure(Assertion(True, "ok")))
+        |)
+        |""".stripMargin
+
+    val rootPm = typeCheck(rootSrc, predefIface :: progIface :: Nil)
+
+    val progVersion = Version(1, 0, 0)
+    val rootVersion = Version(1, 0, 0)
+
+    val progLib = DecodedLibrary[Algo.Blake3](
+      name = Name("prog"),
+      version = progVersion,
+      hashValue = HashValue[Algo.Blake3]("00"),
+      protoLib = proto.Library(
+        name = "prog",
+        descriptor =
+          Some(proto.LibDescriptor(version = Some(progVersion.toProto)))
+      ),
+      interfaces = progIface :: Nil,
+      implementations = progPm
+    )
+
+    val rootLib = DecodedLibrary[Algo.Blake3](
+      name = Name("root"),
+      version = rootVersion,
+      hashValue = HashValue[Algo.Blake3]("00"),
+      protoLib = proto.Library(
+        name = "root",
+        descriptor =
+          Some(proto.LibDescriptor(version = Some(rootVersion.toProto)))
+      ),
+      interfaces = Nil,
+      implementations = rootPm
+    )
+
+    val progDl = DecodedLibraryWithDeps(progLib, SortedMap.empty)
+    val rootDl =
+      DecodedLibraryWithDeps(
+        rootLib,
+        SortedMap(progDl.nameVersion -> progDl)
+      )
+
+    Par.withEC {
+      val values = rootDl.lib.implementations.testEntries.toList.collect {
+        case (pn, Right(entry)) => (pn, entry)
+      }.sortBy(_._1)
+      ClangGen(rootDl).renderTests(values) match {
+        case Right(doc) =>
+          val rendered = doc.render(120)
+          assert(rendered.contains("___bsts_g_Bosatsu_l_Prog_l_observe"), rendered)
+        case Left(err) =>
+          fail(err.display.render(80))
+      }
+    }
+  }
+
+  test("clang gen includes Bosatsu/Prog Var externals when referenced") {
+    val predefIface = Package.interfaceOf(PackageMap.predefCompiled)
+    val progSrc = Predef.loadFileInCompile("test_workspace/Prog.bosatsu")
+
+    val progPm = typeCheck(progSrc, predefIface :: Nil)
+    val progPack = progPm.toMap(PackageName.parts("Bosatsu", "Prog"))
+    val progIface = Package.interfaceOf(progPack)
+
+    val rootSrc =
+      """package Root/Main
+        |
+        |from Bosatsu/Prog import ProgTest, await, get, new_var, pure, set, swap, update
+        |
+        |tests = ProgTest(_ -> (
+        |  v <- new_var(0).await()
+        |  _ <- set(v, 1).await()
+        |  _ <- swap(v, 2).await()
+        |  _ <- update(v, _ -> (3, ())).await()
+        |  n <- get(v).await()
+        |  pure(Assertion(n matches 3, "ok"))
+        |))
+        |""".stripMargin
+
+    val rootPm = typeCheck(rootSrc, predefIface :: progIface :: Nil)
+
+    val progVersion = Version(1, 0, 0)
+    val rootVersion = Version(1, 0, 0)
+
+    val progLib = DecodedLibrary[Algo.Blake3](
+      name = Name("prog"),
+      version = progVersion,
+      hashValue = HashValue[Algo.Blake3]("00"),
+      protoLib = proto.Library(
+        name = "prog",
+        descriptor =
+          Some(proto.LibDescriptor(version = Some(progVersion.toProto)))
+      ),
+      interfaces = progIface :: Nil,
+      implementations = progPm
+    )
+
+    val rootLib = DecodedLibrary[Algo.Blake3](
+      name = Name("root"),
+      version = rootVersion,
+      hashValue = HashValue[Algo.Blake3]("00"),
+      protoLib = proto.Library(
+        name = "root",
+        descriptor =
+          Some(proto.LibDescriptor(version = Some(rootVersion.toProto)))
+      ),
+      interfaces = Nil,
+      implementations = rootPm
+    )
+
+    val progDl = DecodedLibraryWithDeps(progLib, SortedMap.empty)
+    val rootDl =
+      DecodedLibraryWithDeps(
+        rootLib,
+        SortedMap(progDl.nameVersion -> progDl)
+      )
+
+    Par.withEC {
+      val values = rootDl.lib.implementations.testEntries.toList.collect {
+        case (pn, Right(entry)) => (pn, entry)
+      }.sortBy(_._1)
+      ClangGen(rootDl).renderTests(values) match {
+        case Right(doc) =>
+          val rendered = doc.render(120)
+          assert(rendered.contains("___bsts_g_Bosatsu_l_Prog_l_new__var"), rendered)
+          assert(rendered.contains("___bsts_g_Bosatsu_l_Prog_l_set"), rendered)
+          assert(rendered.contains("___bsts_g_Bosatsu_l_Prog_l_swap"), rendered)
+          assert(rendered.contains("___bsts_g_Bosatsu_l_Prog_l_update"), rendered)
+          assert(rendered.contains("___bsts_g_Bosatsu_l_Prog_l_get"), rendered)
         case Left(err) =>
           fail(err.display.render(80))
       }

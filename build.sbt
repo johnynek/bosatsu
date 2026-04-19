@@ -88,26 +88,51 @@ lazy val docs = (project in file("docs"))
       val paradoxGeneratedRoot =
         (Compile / sourceDirectory).value / "paradox" / "generated" / "core_alpha"
       val generatedDocsRoot = repoRoot / "core_alpha_docs"
+      val sourceRepoUrl = "https://github.com/johnynek/bosatsu/blob/main"
+      val disableParadoxSourceMarkdownLink =
+        """---
+          |github.base_url=
+          |---
+          |
+          |""".stripMargin
+      def rewriteMarkdownLinksToHtml(content: String): String = {
+        val linkPattern = raw"\]\(([^)]+)\)".r
+        linkPattern.replaceAllIn(content, m => {
+          val target = m.group(1)
+          val hashIdx = target.indexOf('#')
+          val (path, suffix) =
+            if (hashIdx >= 0) {
+              (target.substring(0, hashIdx), target.substring(hashIdx))
+            } else (target, "")
+
+          if (path.endsWith(".md") && !path.contains("://")) {
+            s"](${path.stripSuffix(".md")}.html$suffix)"
+          } else {
+            m.matched
+          }
+        })
+      }
 
       // Ensure bosatsuj has an up-to-date CLI assembly before generating docs.
       val _ = (cli / assembly).value
 
-      val fetchCmd = Seq("./bosatsuj", "lib", "fetch")
+      val fetchCmd = Seq("./bosatsuj", "fetch")
       log.info(fetchCmd.mkString("running: ", " ", ""))
       val fetchExit = Process(fetchCmd, repoRoot).!
       if (fetchExit != 0) {
         sys.error(
-          s"lib fetch failed with exit code $fetchExit: ${fetchCmd.mkString(" ")}"
+          s"fetch failed with exit code $fetchExit: ${fetchCmd.mkString(" ")}"
         )
       }
 
       val docCmd = Seq(
         "./bosatsuj",
-        "lib",
         "doc",
         "--outdir",
         "core_alpha_docs",
-        "--include_predef"
+        "--include_predef",
+        "--source_repo_url",
+        sourceRepoUrl
       )
       log.info(docCmd.mkString("running: ", " ", ""))
       val docExit = Process(docCmd, repoRoot).!
@@ -157,7 +182,7 @@ lazy val docs = (project in file("docs"))
         s"""# Core Alpha API
            |
            |This section is generated from `test_workspace` using:
-           |`./bosatsuj lib doc --outdir core_alpha_docs --include_predef`
+           |`./bosatsuj doc --outdir core_alpha_docs --include_predef --source_repo_url $sourceRepoUrl`
            |
            |@@@ index
            |${tocLinkLines.mkString("\n")}
@@ -168,14 +193,49 @@ lazy val docs = (project in file("docs"))
            |${pageLinkLines.mkString("\n")}
            |""".stripMargin
 
-      IO.write(paradoxGeneratedRoot / "index.md", generatedIndex)
+      markdownFiles.foreach { file =>
+        val markdown = IO.read(file)
+        IO.write(
+          file,
+          disableParadoxSourceMarkdownLink + rewriteMarkdownLinksToHtml(markdown)
+        )
+      }
+      IO.write(
+        paradoxGeneratedRoot / "index.md",
+        disableParadoxSourceMarkdownLink + generatedIndex
+      )
       log.info(
         s"generated ${markdownFiles.size} markdown files into $paradoxGeneratedRoot"
       )
     },
-    Compile / paradox := (Compile / paradox)
-      .dependsOn(Compile / generateCoreAlphaParadoxDocs)
-      .value,
+    Compile / paradox := {
+      val paradoxResult = (Compile / paradox)
+        .dependsOn(Compile / generateCoreAlphaParadoxDocs)
+        .value
+      val log = streams.value.log
+      val generatedSourceRoot =
+        (Compile / sourceDirectory).value / "paradox" / "generated" / "core_alpha"
+      val paradoxSiteRoot = (Compile / target).value / "paradox" / "site" / "main"
+      val generatedSiteRoot = paradoxSiteRoot / "generated" / "core_alpha"
+
+      val markdownFiles = (generatedSourceRoot ** "*.md").get
+      markdownFiles.foreach { sourceFile =>
+        IO.relativize(generatedSourceRoot, sourceFile) match {
+          case Some(relPath) =>
+            val targetFile = generatedSiteRoot / relPath
+            IO.createDirectory(targetFile.getParentFile)
+            IO.copyFile(sourceFile, targetFile)
+          case None =>
+            sys.error(
+              s"failed to relativize generated markdown path: $sourceFile against $generatedSourceRoot"
+            )
+        }
+      }
+      log.info(
+        s"copied ${markdownFiles.size} generated markdown files into $generatedSiteRoot"
+      )
+      paradoxResult
+    },
     publish / skip := true
   )
 
@@ -248,10 +308,27 @@ lazy val cli = (project in file("cli"))
         munitScalaCheck.value % Test
       ),
     // static linking doesn't work with macos or with linux http4s on the path
-    nativeImageOptions ++= List(
-      "--no-fallback",
-      "--verbose"
-    ) ++ {
+    nativeImageOptions ++= {
+      val nativeImageBuilderXmx =
+        sys.env
+          .get("BOSATSU_NATIVE_IMAGE_BUILD_JAVA_XMX")
+          .filter(_.nonEmpty)
+          .getOrElse("12g")
+      val watchdogOpts =
+        sys.env
+          .get("BOSATSU_NATIVE_IMAGE_DEADLOCK_WATCHDOG_INTERVAL_MINUTES")
+          .filter(_.nonEmpty)
+          .toList
+          .map(minutes => s"-H:DeadlockWatchdogInterval=$minutes") ++
+          sys.env
+            .get("BOSATSU_NATIVE_IMAGE_DEADLOCK_WATCHDOG_EXIT_ON_TIMEOUT")
+            .collect {
+              case value if value.equalsIgnoreCase("true") =>
+                "-H:+DeadlockWatchdogExitOnTimeout"
+              case value if value.equalsIgnoreCase("false") =>
+                "-H:-DeadlockWatchdogExitOnTimeout"
+            }
+            .toList
       val staticOpt =
         if (sys.env.get("BOSATSU_STATIC_NATIVE_IMAGE").exists(_.nonEmpty))
           List("--static")
@@ -273,10 +350,19 @@ lazy val cli = (project in file("cli"))
           .map(_.trim)
           .filter(_.nonEmpty)
           .map(p => s"-H:CLibraryPath=$p")
-      staticOpt ++ muslOpt ++ clibPaths
+      List(
+        "--no-fallback",
+        "--verbose",
+        "-O2",
+        s"-J-Xmx$nativeImageBuilderXmx",
+        "-H:IncludeResources=dev/bosatsu/scalawasiz3/aot/.*\\.meta",
+        "-H:+RemoveUnusedSymbols",
+        "-H:CompilationExpirationPeriod=0",
+        "-H:CompilationNoProgressPeriod=0"
+      ) ++ watchdogOpts ++ staticOpt ++ muslOpt ++ clibPaths
     },
-    nativeImageJvm := "graalvm-java21",
-    nativeImageVersion := "21.0.2"
+    nativeImageJvm := "graalvm-java23",
+    nativeImageVersion := "23.0.2"
   )
   .dependsOn(protoJVM, coreJVM % "compile->compile;test->test")
 
@@ -326,7 +412,7 @@ lazy val core =
         catsParse.value,
         decline.value,
         paiges.value,
-        scalawasiz3.value % Test,
+        scalawasiz3.value,
         scalaCheck.value % Test,
         munit.value % Test,
         munitScalaCheck.value % Test,
@@ -379,6 +465,7 @@ lazy val jsapi =
         Seq(
           cats.value,
           decline.value,
+          munit.value % Test,
           scalaCheck.value % Test
         )
     )
