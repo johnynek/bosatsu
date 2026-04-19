@@ -8,8 +8,8 @@
 - Flow: `implementation`
 - Issue: `#2331` Allow binding if matches syntax in patterns.
 - Source design doc: `docs/design/2331-allow-binding-if-matches-syntax-in-patterns.md`
-- Pending steps: `1`
-- Completed steps: `4`
+- Pending steps: `0`
+- Completed steps: `5`
 - Total steps: `5`
 
 ## Summary
@@ -18,11 +18,11 @@ Implement scoped match-branch guards so `case p_outer if expr matches p_inner:` 
 
 ## Current State
 
-`TypedExpr.MatchGuard` now lowers end to end through `Matchless.scala`, `ShowEdn.scala`, and the already-landed proto encoding without backend schema growth. Matchless lowering evaluates the guard scrutinee once per attempted branch, carries guard-pattern binders into the branch RHS in right-most-wins order, and a directly coupled `TypedExpr.Branch.mapGuardNodeExprScoped` fix keeps inner-guard normalization from looping. Added focused `EvaluationTest`, `MatchlessTest`, `ProtoConverterTest`, and `ShowEdnRoundTripTest` regressions, then reran `scripts/test_basic.sh`, which passed. The remaining work is to document the user-facing scope rule in the language guide.
+`TypedExpr.MatchGuard` now lowers end to end through `Matchless.scala`, `ShowEdn.scala`, and the already-landed proto encoding without backend schema growth, with focused regression coverage across evaluation, lowering, and round-trip tooling. `docs/src/main/paradox/language_guide.md` now documents the shipped branch-guard `matches` semantics: only a whole-guard conditional `matches` extends scope into the optional inner guard and same branch body, nested boolean uses do not, and totality remains conservative except for trivially successful cases. Verification passed with `scripts/test_basic.sh`, `sbt "doc; paradox"`, and `git diff --check`.
 
 ## Problem
 
-The compiler and tooling path for branch-guard `matches` is now implemented, but the repo still lacks the user-facing language-guide update that explains the exact scope boundary and guarded-totality rule. Until that documentation lands, the behavior is correct and tested but not fully described for users and reviewers.
+Issue #2331 required compiler behavior, diagnostics, lowering, tooling, tests, and user-facing docs to agree on scoped branch-guard `matches`. That gap is now closed on this branch, so no further planned work remains for the issue.
 
 ## Steps
 
@@ -129,7 +129,7 @@ Teach the remaining backend/tooling pipeline to carry `TypedExpr.MatchGuard` end
 
 `Matchless.scala` now carries `TypedExpr.MatchGuard` through lowering by preserving a scoped guard shape until Matchless compilation, evaluating the guard scrutinee once, compiling the inner guard pattern with the existing `doesMatch` helper, appending guard binders after outer binders before lowering the RHS, and emitting only the needed boolean test. `ShowEdn.scala` now round-trips `match-guard`, focused `EvaluationTest`/`MatchlessTest`/`ProtoConverterTest`/`ShowEdnRoundTripTest` regressions were added, and a directly coupled `TypedExpr.Branch.mapGuardNodeExprScoped` identity fix stopped `MatchGuard` inner-guard normalization from looping. Verification passed with `coreJVM/testOnly dev.bosatsu.EvaluationTest dev.bosatsu.MatchlessTest dev.bosatsu.ProtoConverterTest dev.bosatsu.tool.ShowEdnRoundTripTest` and `scripts/test_basic.sh`.
 
-5. [ ] `document-and-clear-required-gate` Document the Scope Rule and Reconfirm the Gate
+5. [x] `document-and-clear-required-gate` Document the Scope Rule and Reconfirm the Gate
 
 Update `docs/src/main/paradox/language_guide.md` so the user-facing semantics match the shipped implementation: top-level conditional `matches` in branch guards bind into the same branch body, nested boolean uses do not, and guarded totality remains conservative except for effectively-trivial guards. If this branch changes again while documenting, rerun `scripts/test_basic.sh` before PR handoff.
 
@@ -146,3 +146,7 @@ Update `docs/src/main/paradox/language_guide.md` so the user-facing semantics ma
 #### Assertion Tests
 
 - Run the repo-required gate: `scripts/test_basic.sh`.
+
+#### Completion Notes
+
+`docs/src/main/paradox/language_guide.md` now documents that a whole-guard conditional `matches` on a match or `recur` branch opens scope for the optional inner `matches` guard and the same branch body only, nested boolean uses do not extend branch-body scope, and totality stays conservative except for trivially successful guard matches. Because the docs changed in this round, verification reran `scripts/test_basic.sh`; `sbt "doc; paradox"` and `git diff --check` also passed.
