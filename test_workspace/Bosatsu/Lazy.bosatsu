@@ -1,0 +1,25 @@
+package Bosatsu/Lazy
+
+export (
+  Lazy,
+  lazy,
+  get_Lazy,
+)
+
+external struct Lazy[a: +*]
+
+external def lazy[a](fn: Unit -> a) -> Lazy[a]
+external def get_Lazy[a](l: Lazy[a]) -> a
+
+########
+## test code below
+########
+
+def force_twice[a](l: Lazy[a]) -> (a, a):
+  (get_Lazy(l), get_Lazy(l))
+
+tests = TestSuite("Lazy tests", [
+  Assertion(get_Lazy(lazy(_ -> 1)) matches 1, "force int"),
+  Assertion(force_twice(lazy(_ -> 2)) matches (2, 2), "force twice"),
+  Assertion(get_Lazy(lazy(_ -> (1, "x"))) matches (1, "x"), "force tuple"),
+])

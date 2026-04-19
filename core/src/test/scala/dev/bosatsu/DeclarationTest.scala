@@ -132,7 +132,7 @@ class DeclarationTest extends munit.ScalaCheckSuite {
           DefStatement(
             Name("mfLjwok"),
             None,
-            NonEmptyList.one(NonEmptyList.one(Pattern.Var(Name("foo")))),
+            NonEmptyList.one(Pattern.Var(Name("foo")) :: Nil),
             None,
             (
               NotSameLine(Padding(10, Indented(10, Var(Backticked(""))))),
@@ -149,7 +149,7 @@ class DeclarationTest extends munit.ScalaCheckSuite {
                           Backticked(""),
                           None,
                           NonEmptyList.one(
-                            NonEmptyList.one(Pattern.Var(Name("bar")))
+                            Pattern.Var(Name("bar")) :: Nil
                           ),
                           None,
                           (
@@ -166,9 +166,7 @@ class DeclarationTest extends munit.ScalaCheckSuite {
                                   Name("gkxAckqpatu"),
                                   None,
                                   NonEmptyList.one(
-                                    NonEmptyList.one(
-                                      Pattern.Var(Name("quux"))
-                                    )
+                                    Pattern.Var(Name("quux")) :: Nil
                                   ),
                                   Some(
                                     TypeRef.TypeName(
@@ -266,6 +264,64 @@ x""")
     law("b", "12", """[b for b in b]""", Some("""[b for b in 12]"""))
     law("b", "12", """[b for b in b if b]""", Some("""[b for b in 12 if b]"""))
     law("b", "12", """Foo { b }""", Some("Foo { b: 12 }"))
+  }
+
+  test("conditional matches bind names only in their true arm") {
+    def bind(name: String) = unsafeParse(Identifier.bindableParser, name)
+
+    val decl = unsafeParse(
+      Declaration.parser(""),
+      """if foo matches Some(a):
+        |  fn(a)
+        |elif bar matches Some(b):
+        |  gn(b)
+        |else:
+        |  h""".stripMargin
+    )
+
+    assertEquals(
+      decl.freeVars.toSet,
+      Set(bind("foo"), bind("fn"), bind("bar"), bind("gn"), bind("h"))
+    )
+    assert(decl.allNames(bind("a")))
+    assert(decl.allNames(bind("b")))
+  }
+
+  test("substitute respects conditional matches scopes") {
+    val target = unsafeParse(Identifier.bindableParser, "target")
+    val y = unsafeParse(Identifier.bindableParser, "y")
+    val xExpr = unsafeParse(Declaration.parser(""), "x").toNonBinding
+    val zExpr = unsafeParse(Declaration.parser(""), "z").toNonBinding
+
+    val masked =
+      unsafeParse(
+        Declaration.parser(""),
+        """if opt matches Some(x):
+          |  target
+          |else:
+          |  0""".stripMargin
+      )
+
+    assertEquals(Declaration.substitute(target, xExpr, masked), None)
+
+    val original =
+      unsafeParse(
+        Declaration.parser(""),
+        """if opt matches Some(x):
+          |  x
+          |else:
+          |  y""".stripMargin
+      )
+    val expected =
+      unsafeParse(
+        Declaration.parser(""),
+        """if opt matches Some(x):
+          |  x
+          |else:
+          |  z""".stripMargin
+      )
+
+    assertEquals(Declaration.substitute(y, zExpr, original), Some(expected))
   }
 
   test("test freeVars with explicit examples") {

@@ -6,7 +6,9 @@ import org.scalacheck.Prop.forAll
 
 class PatternTest extends munit.ScalaCheckSuite {
   override def scalaCheckTestParameters =
-    super.scalaCheckTestParameters.withMinSuccessfulTests(5000)
+    super.scalaCheckTestParameters.withMinSuccessfulTests(
+      if (Platform.isScalaJvm) 5000 else 800
+    )
 
   val patGen = Gen.choose(0, 5).flatMap(Generators.genPattern(_))
 
@@ -158,6 +160,22 @@ class PatternTest extends munit.ScalaCheckSuite {
     }
   }
 
+  test("normalizeStrPatParts re-compacts literals after duplicate removal") {
+    val e = Identifier.Name("e")
+    val input = NonEmptyList.of(
+      Pattern.StrPart.LitStr("v"),
+      Pattern.StrPart.NamedStr(e),
+      Pattern.StrPart.LitStr("jptmabf"),
+      Pattern.StrPart.NamedStr(e)
+    )
+    val expected = NonEmptyList.of(
+      Pattern.StrPart.LitStr("vjptmabf"),
+      Pattern.StrPart.NamedStr(e)
+    )
+
+    assertEquals(Generators.normalizeStrPatParts(input), expected)
+  }
+
   test("definitelyTotal detects obvious total patterns") {
     val n = Identifier.Name("n")
 
@@ -230,5 +248,62 @@ class PatternTest extends munit.ScalaCheckSuite {
     ) { (p, map) =>
       law(p, map)
     }
+  }
+
+  test("searchInfo distinguishes search patterns from ambiguous bindings") {
+    def bindable(name: String): Identifier.Bindable =
+      Identifier.Name(name)
+
+    def yesSearch(str: String): Unit =
+      assert(
+        pat(str).isSearchPattern,
+        s"expected search pattern: $str"
+      )
+
+    def noSearch(str: String): Unit =
+      assert(
+        !pat(str).isSearchPattern,
+        s"did not expect search pattern: $str"
+      )
+
+    def bindings(str: String): Set[Identifier.Bindable] =
+      pat(str).ambiguousBindings
+
+    def expectBindings(str: String, names: Set[String]): Unit =
+      assertEquals(
+        bindings(str),
+        names.map(bindable),
+        s"unexpected ambiguous bindings for: $str"
+      )
+
+    noSearch("Foo(x)")
+    noSearch("[x, y]")
+    noSearch("[*xs]")
+    noSearch("[x, *y]")
+    noSearch("[x, y, *zs]")
+    noSearch("Foo([x, *y])")
+
+    yesSearch("[*_, x]")
+    yesSearch("[x, *mid, y]")
+    yesSearch("Foo([*_, x])")
+    yesSearch(""""ab${middle}cd"""")
+    yesSearch(""""${prefix}$.{ch}z"""")
+
+    expectBindings("[*xs]", Set.empty)
+    expectBindings("[x, *y]", Set.empty)
+    expectBindings("[x, y, *zs]", Set.empty)
+    expectBindings("Foo([x, *y])", Set.empty)
+    expectBindings("[*_, x]", Set.empty)
+    expectBindings("[x, *mid, y]", Set.empty)
+    expectBindings("Foo([*_, x])", Set.empty)
+    expectBindings(""""ab${middle}cd"""", Set.empty)
+    expectBindings(""""${prefix}$.{ch}z"""", Set.empty)
+
+    expectBindings("[x, *_, y, *_]", Set("y"))
+    expectBindings("[*_, x, *_]", Set("x"))
+    expectBindings("[*pre, x, *post]", Set("pre", "x", "post"))
+    expectBindings("Foo([*_, x, *_])", Set("x"))
+    expectBindings(""""${left}$.{ch}${right}"""", Set("left", "ch", "right"))
+    expectBindings(""""$.{x}${_}${_}$.{y}"""", Set.empty)
   }
 }

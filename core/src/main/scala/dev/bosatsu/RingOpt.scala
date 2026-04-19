@@ -1723,14 +1723,21 @@ object RingOpt {
     // inside. It helps with the repeatedAdd normalization in corner cases
     // but doesn't seem to frustrate undistribute much for the a*b + a*c
     // cases we want to work (although, probably some nesting of those doesn't)
-    // work well, I would imagine
-    // strip obvious top-level additive no-ops without flattening the full tree,
-    // since flattening can hide useful factorization structure.
-    val e =
-      e0 match {
-        case Add(x, y) => Expr.checkAdd[A](x, y)
-        case other     => other
+    // work well, I would imagine.
+    //
+    // Strip obvious top-level additive no-ops without flattening the full tree,
+    // since flattening can hide useful factorization structure. We do this
+    // repeatedly so normalize(a + 0) and normalize(a) start from the same root
+    // even when a itself is Add(_, 0).
+    @annotation.tailrec
+    def stripTopLevelAddNoOps(expr: Expr[A]): Expr[A] =
+      expr match {
+        case Add(x, y) if x.isZero => stripTopLevelAddNoOps(y)
+        case Add(x, y) if y.isZero => stripTopLevelAddNoOps(x)
+        case other                 => other
       }
+
+    val e = stripTopLevelAddNoOps(e0)
     loop(e, W.cost(e), HashSet.empty[Expr[A]].add(e), 0)
   }
 
@@ -2301,18 +2308,45 @@ object RingOpt {
         val sumProd = SumProd[A](leftA :: rightA :: Nil).normalize(W)
 
         // Preserve repeated-add structure when it is cheaper than term-wise
-        // decomposition. This avoids losing opportunities like 2 * (x + y).
-        if (Hash[Expr[A]].eqv(leftA, rightA)) {
-          val doubled = Expr.checkMult(Integer(2), leftA)
-          val costDouble = W.cost(doubled)
-          val costSumProd = W.cost(sumProd)
-          if (costDouble < costSumProd) doubled
-          else if (
-            costDouble == costSumProd && Order[Expr[A]].lt(doubled, sumProd)
-          )
-            doubled
-          else sumProd
-        } else sumProd
+        // decomposition. This avoids losing opportunities like n * (x + y).
+        def repeatedAdds(expr: Expr[A]): Option[(BigInt, Expr[A])] = {
+          def loop(e0: Expr[A]): (BigInt, Expr[A]) =
+            e0 match {
+              case Add(x, y) =>
+                val xA: Expr[A] = x
+                val yA: Expr[A] = y
+                val (cx, tx) = loop(xA)
+                val (cy, ty) = loop(yA)
+                if (Hash[Expr[A]].eqv(tx, ty)) (cx + cy, tx)
+                else (BigInt(1), e0)
+              case _ =>
+                (BigInt(1), e0)
+            }
+
+          loop(expr) match {
+            case (cnt, term) if cnt > 1 => Some((cnt, term))
+            case _                       => None
+          }
+        }
+
+        val repeatedForms =
+          repeatedAdds(Add(leftA, rightA)).toList :::
+            repeatedAdds(e).toList
+
+        repeatedForms
+          .map { case (cnt, term) =>
+            Expr.checkMult(Integer(cnt), term)
+          }
+          .foldLeft(sumProd) { (best, candidate) =>
+            val bestCost = W.cost(best)
+            val candidateCost = W.cost(candidate)
+            if (candidateCost < bestCost) candidate
+            else if (
+              (candidateCost == bestCost) && Order[Expr[A]].lt(candidate, best)
+            )
+              candidate
+            else best
+          }
 
       case Mult(a, b) =>
         val aA: Expr[A] = a

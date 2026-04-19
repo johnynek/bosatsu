@@ -26,35 +26,7 @@ static BValue bsts_some(BValue value) {
 }
 
 static BValue bsts_uint64_to_int(uint64_t bits) {
-  uint32_t words[2] = {
-    (uint32_t)(bits & UINT32_C(0xffffffff)),
-    (uint32_t)((bits >> 32) & UINT32_C(0xffffffff))
-  };
-
-  if (words[1] == 0 && words[0] <= INT32_MAX) {
-    return bsts_integer_from_int((int32_t)words[0]);
-  }
-  return bsts_integer_from_words_copy(1, words[1] == 0 ? 1 : 2, words);
-}
-
-static double bsts_round_ties_even(double d) {
-  double int_part = 0.0;
-  double frac = modf(d, &int_part);
-  double abs_frac = fabs(frac);
-  if (abs_frac < 0.5) {
-    return int_part;
-  }
-  if (abs_frac > 0.5) {
-    return int_part + copysign(1.0, d);
-  }
-
-  // Tie: choose the even integer.
-  double abs_int = fabs(int_part);
-  double rem2 = fmod(abs_int, 2.0);
-  if (rem2 == 0.0) {
-    return int_part;
-  }
-  return int_part + copysign(1.0, d);
+  return bsts_integer_from_uint64(bits);
 }
 
 static int hex_digit_value(unsigned char c) {

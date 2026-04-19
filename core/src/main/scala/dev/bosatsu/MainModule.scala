@@ -14,8 +14,30 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
 
   import platformIO._
 
-  final def run(args: List[String]): Either[Help, IO[Output[Path]]] =
-    command.parse(args.toList)
+  private val argumentDelimiter = "--"
+
+  private def isEvalCommandPath(args: List[String]): Boolean =
+    args match {
+      case "eval" :: _           => true
+      case "tool" :: "eval" :: _ => true
+      case _                     => false
+    }
+
+  private def splitEvalPassthroughArgs(
+      args: List[String]
+  ): (List[String], List[String]) =
+    if (isEvalCommandPath(args)) {
+      // Only eval commands support passthrough args, and only after an explicit `--`.
+      args.span(_ != argumentDelimiter) match {
+        case (prefix, Nil)          => (prefix, Nil)
+        case (prefix, _ :: suffix) => (prefix, suffix)
+      }
+    } else (args, Nil)
+
+  final def run(args: List[String]): Either[Help, IO[Output[Path]]] = {
+    val (parseArgs, evalPassthroughArgs) = splitEvalPassthroughArgs(args)
+    command(evalPassthroughArgs).parse(parseArgs)
+  }
 
   final def runAndReport(args: List[String]): Either[Help, IO[ExitCode]] =
     run(args).map(report)
@@ -65,19 +87,18 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
     )
   }
 
-  def opts: Opts[IO[Output[Path]]] =
-    Opts
-      .subcommand("lib", "tools for working with bosatsu libraries")(
-        library.Command
-          .opts(platformIO)
-      )
+  def opts(evalPassthroughArgs: List[String]): Opts[IO[Output[Path]]] =
+    // Root help follows the left-to-right parser construction order, so keep
+    // library-mode commands first and leave file-based compiler flows under tool.
+    library.Command
+      .opts(platformIO, evalPassthroughArgs)
       .orElse {
         Opts.subcommand(
           "tool",
-          "lower-level file-based commands for build tool integration"
+          "lower-level file-based compiler commands for build tool integration"
         )(
           tool_command.ToolCommand
-            .opts(platformIO)
+            .opts(platformIO, evalPassthroughArgs)
         )
       }
       .orElse(versionCommand)
@@ -91,7 +112,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
         )
       }
 
-  def command: Command[IO[Output[Path]]] = {
+  def command(evalPassthroughArgs: List[String]): Command[IO[Output[Path]]] = {
     val versionInfo =
       (s"version: ${BuildInfo.version}" ::
         s"scala-version: ${BuildInfo.scalaVersion}" ::
@@ -100,8 +121,11 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
 
     Command(
       "bosatsu",
-      s"a total and functional programming language\n\n$versionInfo"
-    )(opts)
+      "a total and functional programming language\n\n" +
+        "top-level commands are the default repo/library workflows.\n" +
+        "use `tool` for lower-level file-based compiler commands.\n\n" +
+        versionInfo
+    )(opts(evalPassthroughArgs))
   }
 
   final def reportOutput(out: Output[Path]): IO[ExitCode] =

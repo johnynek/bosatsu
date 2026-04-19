@@ -42,6 +42,7 @@ trait PlatformIO[F[_], Path] {
     }
 
   def readUtf8(p: Path): F[String]
+  def readBytes(p: Path): F[Array[Byte]]
   def parseUtf8[A](path: Path, p0: P0[A]): F[A] =
     readUtf8(path)
       .flatMap { str =>
@@ -54,13 +55,13 @@ trait PlatformIO[F[_], Path] {
         }
       }
 
-  def getOrError[A](oa: Option[A], msg: => String): F[A] =
+  final inline def getOrError[A](oa: Option[A], inline msg: => Throwable): F[A] =
     oa match {
       case Some(a) => moduleIOMonad.pure(a)
-      case None    => moduleIOMonad.raiseError(new Exception(msg))
+      case None    => moduleIOMonad.raiseError(msg)
     }
 
-  def readPackages(paths: List[Path]): F[List[Package.Typed[Unit]]]
+  def readPackages(paths: List[Path]): F[List[Package.Compiled]]
   def readInterfaces(paths: List[Path]): F[List[Package.Interface]]
   def readLibrary(path: Path): F[Hashed[Algo.Blake3, proto.Library]]
 
@@ -73,11 +74,6 @@ trait PlatformIO[F[_], Path] {
       uri: String
   ): F[Either[PlatformIO.FetchHashFailure, Unit]]
 
-  /** given an ordered list of prefered roots, if a packFile starts with one of
-    * these roots, return a PackageName based on the rest
-    */
-  def pathPackage(roots: List[Path], packFile: Path): Option[PackageName]
-
   def fsDataType(p: Path): F[Option[PlatformIO.FSDataType]]
 
   def fileExists(p: Path): F[Boolean] =
@@ -89,6 +85,13 @@ trait PlatformIO[F[_], Path] {
   def resolve(p: Path, child: String): Path
   def resolve(p: Path, child: Path): Path
   def relativize(prefix: Path, deeper: Path): Option[Path]
+  def parent(p: Path): Option[Path]
+
+  final def hasGitMetadataEntry(dir: Path): F[Boolean] =
+    fsDataType(resolve(dir, ".git")).map {
+      case Some(_) => true
+      case None    => false
+    }
 
   def resolveFile(root: Path, pack: PackageName): F[Option[Path]] = {
     val dir = resolve(root, pack.parts.init)
@@ -112,23 +115,37 @@ trait PlatformIO[F[_], Path] {
   def writeError(doc: Doc): F[Unit]
 
   def system(command: String, args: List[String]): F[Unit]
+  def systemStdout(command: String, args: List[String]): F[String]
+
+  def env(name: String): F[Option[String]]
+  def hostOs: F[String]
+  def hostArch: F[String]
 
   def gitShaHead: F[String]
 
-  def gitTopLevel: F[Option[Path]] = {
+  final def gitTopLevelFrom(start: Path): F[Option[Path]] = {
     def searchStep(current: Path): F[Either[Path, Option[Path]]] =
       fsDataType(current).flatMap {
         case Some(PlatformIO.FSDataType.Dir) =>
-          fsDataType(resolve(current, ".git"))
-            .map {
-              case Some(PlatformIO.FSDataType.Dir) => Right(Some(current))
-              case _ => Left(resolve(current, ".."))
-            }
+          hasGitMetadataEntry(current).map {
+            case true => Right(Some(current))
+            case false =>
+              parent(current) match {
+                case Some(next) if !pathOrdering.equiv(next, current) =>
+                  Left(next)
+                case _ =>
+                  Right(None)
+              }
+          }
         case _ => moduleIOMonad.pure(Right(None))
       }
 
+    moduleIOMonad.tailRecM(start)(searchStep)
+  }
+
+  def gitTopLevel: F[Option[Path]] = {
     path(".") match {
-      case Valid(a)   => moduleIOMonad.tailRecM(a)(searchStep)
+      case Valid(a)   => gitTopLevelFrom(a)
       case Invalid(e) =>
         moduleIOMonad.raiseError(
           new Exception(s"could not find current directory: $e")
@@ -156,7 +173,7 @@ trait PlatformIO[F[_], Path] {
   def writeBytes(path: Path, bytes: Array[Byte]): F[Unit]
 
   def writeLibrary(lib: proto.Library, path: Path): F[Unit]
-  def writePackages[A](packages: List[Package.Typed[A]], path: Path): F[Unit]
+  def writePackages(packages: List[Package.Compiled], path: Path): F[Unit]
 
   /** Create a temporary directory with the given prefix, run the function, then
     * delete the directory (best-effort) before returning the original result.
@@ -203,41 +220,6 @@ object PlatformIO {
             )
           )
       }
-  }
-
-  def pathPackage[Path](roots: List[Path], packFile: Path)(
-      relativeParts: (Path, Path) => Option[Iterable[String]]
-  ): Option[PackageName] = {
-    def dropExtension(parts: List[String]): List[String] =
-      if (parts.isEmpty) Nil
-      else {
-        val init = parts.init
-        val last = parts.last
-        val idx = last.lastIndexOf('.')
-        val noExt = if (idx > 0) last.substring(0, idx) else last
-        init :+ noExt
-      }
-
-    def normalizePart(part: String): String =
-      if (part.isEmpty) part
-      else {
-        val ch = part.charAt(0)
-        if ('a' <= ch && ch <= 'z') ch.toUpper.toString + part.substring(1)
-        else part
-      }
-
-    def getP(p: Path): Option[PackageName] =
-      relativeParts(p, packFile).flatMap { parts0 =>
-        val parts = dropExtension(parts0.iterator.map(_.toString).toList)
-        val raw = parts.mkString("/")
-        PackageName.parse(raw).orElse {
-          val normalized = parts.map(normalizePart).mkString("/")
-          PackageName.parse(normalized)
-        }
-      }
-
-    if (packFile.toString.isEmpty) None
-    else roots.collectFirstSome(getP)
   }
 
   sealed abstract class FSDataType derives CanEqual

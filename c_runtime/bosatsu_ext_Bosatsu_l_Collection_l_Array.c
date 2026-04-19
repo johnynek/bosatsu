@@ -1,23 +1,15 @@
 #include "bosatsu_runtime.h"
+#include "bosatsu_array_internal.h"
 
+#include <errno.h>
 #include <gc.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-typedef struct {
-  BValue* data;
-  int offset;
-  int len;
-} BSTS_Array;
-
-static void bsts_array_free(void* ptr) {
-  (void)ptr;
-}
-
 static BSTS_Array* bsts_array_unbox(BValue array) {
-  return (BSTS_Array*)get_external(array);
+  return BSTS_PTR(BSTS_Array, array);
 }
 
 static BValue* bsts_array_alloc_data(int len) {
@@ -33,6 +25,19 @@ static BValue* bsts_array_alloc_data(int len) {
   return data;
 }
 
+static BSTS_Array** bsts_array_alloc_parts(int len) {
+  if (len <= 0) {
+    return NULL;
+  }
+
+  BSTS_Array** parts = (BSTS_Array**)GC_malloc(sizeof(BSTS_Array*) * (size_t)len);
+  if (parts == NULL) {
+    perror("GC_malloc failure in bsts_array_alloc_parts");
+    abort();
+  }
+  return parts;
+}
+
 static BValue bsts_array_wrap(BValue* data, int offset, int len) {
   BSTS_Array* arr = (BSTS_Array*)GC_malloc(sizeof(BSTS_Array));
   if (arr == NULL) {
@@ -43,19 +48,16 @@ static BValue bsts_array_wrap(BValue* data, int offset, int len) {
   arr->data = data;
   arr->offset = offset;
   arr->len = len;
-  return alloc_external(arr, bsts_array_free);
+  return BSTS_VALUE_FROM_PTR(arr);
 }
 
 static BValue bsts_array_empty(void) {
   return bsts_array_wrap(NULL, 0, 0);
 }
 
-static _Bool bsts_array_index_in_range(BValue index, int len) {
-  BValue zero = bsts_integer_from_int(0);
-  BValue len_value = bsts_integer_from_int(len);
-
-  return (bsts_integer_cmp(index, zero) >= 0) &&
-         (bsts_integer_cmp(index, len_value) < 0);
+static _Bool bsts_array_int64_index_in_range(BValue index, int len) {
+  int64_t idx = (int64_t)bsts_int64_to_bits(index);
+  return (idx >= 0) && (idx < (int64_t)len);
 }
 
 static int bsts_array_cmp(BValue cmp_fn, BValue left, BValue right) {
@@ -73,6 +75,14 @@ static int bsts_array_cmp(BValue cmp_fn, BValue left, BValue right) {
 
 static int bsts_min_int(int left, int right) {
   return left < right ? left : right;
+}
+
+static BValue bsts_boxf(double d) {
+  return bsts_float64_from_double(d);
+}
+
+static double bsts_unboxf(BValue v) {
+  return bsts_float64_to_double(v);
 }
 
 static void bsts_array_merge_pass(
@@ -143,24 +153,20 @@ BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_empty__Array() {
 }
 
 BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_tabulate__Array(BValue n, BValue fn) {
-  BValue zero = bsts_integer_from_int(0);
-  if (bsts_integer_cmp(n, zero) <= 0) {
+  int64_t len64 = (int64_t)bsts_int64_to_bits(n);
+  if (len64 <= 0) {
     return bsts_array_empty();
   }
 
-  BValue max_int = bsts_integer_from_int(INT_MAX);
-  if (bsts_integer_cmp(n, max_int) > 0) {
+  if (len64 > (int64_t)INT_MAX) {
     return bsts_array_empty();
   }
 
-  int len = (int)bsts_integer_to_int32(n);
-  if (len <= 0) {
-    return bsts_array_empty();
-  }
+  int len = (int)len64;
 
   BValue* data = bsts_array_alloc_data(len);
-  for (int idx = 0; idx < len; idx++) {
-    data[idx] = call_fn1(fn, bsts_integer_from_int(idx));
+  for (int64_t idx = 0; idx < len64; idx++) {
+    data[(int)idx] = call_fn1(fn, bsts_int64_from_int64(idx));
   }
 
   return bsts_array_wrap(data, 0, len);
@@ -205,29 +211,45 @@ BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_to__List__Array(BValue array) {
 
 BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_size__Array(BValue array) {
   BSTS_Array* arr = bsts_array_unbox(array);
-  return bsts_integer_from_int(arr->len);
+  return bsts_int64_from_int64((int64_t)arr->len);
 }
 
 BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_get__map__Array(BValue array, BValue index, BValue default_fn, BValue map_fn) {
   BSTS_Array* arr = bsts_array_unbox(array);
 
-  if (bsts_array_index_in_range(index, arr->len)) {
-    int idx = (int)bsts_integer_to_int32(index);
+  if (bsts_array_int64_index_in_range(index, arr->len)) {
+    int idx = (int)((int64_t)bsts_int64_to_bits(index));
     return call_fn1(map_fn, arr->data[arr->offset + idx]);
   }
 
-  return call_fn1(default_fn, bsts_unit_value());
+  return call_fn1(default_fn, index);
 }
 
 BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_get__or__Array(BValue array, BValue index, BValue default_fn) {
   BSTS_Array* arr = bsts_array_unbox(array);
 
-  if (bsts_array_index_in_range(index, arr->len)) {
-    int idx = (int)bsts_integer_to_int32(index);
+  if (bsts_array_int64_index_in_range(index, arr->len)) {
+    int idx = (int)((int64_t)bsts_int64_to_bits(index));
     return arr->data[arr->offset + idx];
   }
 
-  return call_fn1(default_fn, bsts_unit_value());
+  return call_fn1(default_fn, index);
+}
+
+BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_foldl__with__index__Array(BValue array, BValue init, BValue fn) {
+  BSTS_Array* arr = bsts_array_unbox(array);
+
+  BValue acc = init;
+  /* Public Array indices are relative to the visible slice, not arr->offset. */
+  for (int idx = 0; idx < arr->len; idx++) {
+    acc = call_fn3(
+        fn,
+        acc,
+        arr->data[arr->offset + idx],
+        bsts_int64_from_int64((int64_t)idx));
+  }
+
+  return acc;
 }
 
 BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_foldl__Array(BValue array, BValue init, BValue fn) {
@@ -236,6 +258,17 @@ BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_foldl__Array(BValue array, BValu
   BValue acc = init;
   for (int idx = 0; idx < arr->len; idx++) {
     acc = call_fn2(fn, acc, arr->data[arr->offset + idx]);
+  }
+
+  return acc;
+}
+
+BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_foldr__Array(BValue array, BValue init, BValue fn) {
+  BSTS_Array* arr = bsts_array_unbox(array);
+
+  BValue acc = init;
+  for (int idx = arr->len - 1; idx >= 0; idx--) {
+    acc = call_fn2(fn, arr->data[arr->offset + idx], acc);
   }
 
   return acc;
@@ -256,14 +289,237 @@ BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_map__Array(BValue array, BValue 
   return bsts_array_wrap(data, 0, arr->len);
 }
 
-BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_set__or__self__Array(BValue array, BValue index, BValue value) {
+BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_map__with__index__Array(BValue array, BValue fn) {
   BSTS_Array* arr = bsts_array_unbox(array);
 
-  if (!bsts_array_index_in_range(index, arr->len)) {
+  if (arr->len <= 0) {
+    return bsts_array_empty();
+  }
+
+  BValue* data = bsts_array_alloc_data(arr->len);
+  for (int idx = 0; idx < arr->len; idx++) {
+    data[idx] = call_fn2(
+        fn,
+        arr->data[arr->offset + idx],
+        bsts_int64_from_int64((int64_t)idx));
+  }
+
+  return bsts_array_wrap(data, 0, arr->len);
+}
+
+BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_filter__Array(BValue array, BValue fn) {
+  BSTS_Array* arr = bsts_array_unbox(array);
+
+  if (arr->len <= 0) {
+    return bsts_array_empty();
+  }
+
+  int idx = 0;
+  while (idx < arr->len) {
+    BValue item = arr->data[arr->offset + idx];
+    BValue keep = call_fn1(fn, item);
+    if (get_variant(keep) != 1) {
+      break;
+    }
+    idx += 1;
+  }
+
+  if (idx >= arr->len) {
     return array;
   }
 
-  int idx = (int)bsts_integer_to_int32(index);
+  int max_out = arr->len - 1;
+  BValue* data = bsts_array_alloc_data(max_out);
+  if (idx > 0) {
+    // Items before idx are already known to pass. Copy directly so we don't
+    // re-run the predicate and change evaluation count/ordering.
+    memcpy(data, arr->data + arr->offset, sizeof(BValue) * (size_t)idx);
+  }
+
+  int out = idx;
+  idx += 1;
+  while (idx < arr->len) {
+    BValue item = arr->data[arr->offset + idx];
+    BValue keep = call_fn1(fn, item);
+    if (get_variant(keep) == 1) {
+      data[out] = item;
+      out += 1;
+    }
+    idx += 1;
+  }
+
+  if (out <= 0) {
+    return bsts_array_empty();
+  }
+
+  return bsts_array_wrap(data, 0, out);
+}
+
+BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_flat__map__Array(BValue array, BValue fn) {
+  BSTS_Array* arr = bsts_array_unbox(array);
+
+  if (arr->len <= 0) {
+    return bsts_array_empty();
+  }
+
+  BSTS_Array** mapped = bsts_array_alloc_parts(arr->len);
+  long total = 0;
+
+  for (int idx = 0; idx < arr->len; idx++) {
+    BValue item = arr->data[arr->offset + idx];
+    BSTS_Array* mapped_arr = bsts_array_unbox(call_fn1(fn, item));
+    mapped[idx] = mapped_arr;
+    total += (long)mapped_arr->len;
+    if (total > (long)INT_MAX) {
+      errno = EOVERFLOW;
+      perror("flat_map_Array total length overflow");
+      abort();
+    }
+  }
+
+  if (total <= 0) {
+    return bsts_array_empty();
+  }
+
+  int total_len = (int)total;
+  BValue* data = bsts_array_alloc_data(total_len);
+  int write = 0;
+
+  for (int idx = 0; idx < arr->len; idx++) {
+    BSTS_Array* mapped_arr = mapped[idx];
+    if (mapped_arr->len > 0) {
+      memcpy(
+          data + write,
+          mapped_arr->data + mapped_arr->offset,
+          sizeof(BValue) * (size_t)mapped_arr->len);
+      write += mapped_arr->len;
+    }
+  }
+
+  return bsts_array_wrap(data, 0, total_len);
+}
+
+BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_zip__map__Array(BValue left, BValue right, BValue fn) {
+  BSTS_Array* left_arr = bsts_array_unbox(left);
+  BSTS_Array* right_arr = bsts_array_unbox(right);
+  int pair_len = bsts_min_int(left_arr->len, right_arr->len);
+
+  if (pair_len <= 0) {
+    return bsts_array_empty();
+  }
+
+  BValue* data = bsts_array_alloc_data(pair_len);
+  for (int idx = 0; idx < pair_len; idx++) {
+    data[idx] = call_fn2(
+        fn,
+        left_arr->data[left_arr->offset + idx],
+        right_arr->data[right_arr->offset + idx]);
+  }
+
+  return bsts_array_wrap(data, 0, pair_len);
+}
+
+BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_zip__foldl__Array(BValue left, BValue right, BValue init, BValue fn) {
+  BSTS_Array* left_arr = bsts_array_unbox(left);
+  BSTS_Array* right_arr = bsts_array_unbox(right);
+  int pair_len = bsts_min_int(left_arr->len, right_arr->len);
+
+  BValue acc = init;
+  for (int idx = 0; idx < pair_len; idx++) {
+    acc = call_fn3(
+        fn,
+        acc,
+        left_arr->data[left_arr->offset + idx],
+        right_arr->data[right_arr->offset + idx]);
+  }
+
+  return acc;
+}
+
+BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_zip__sumf__Array(BValue left, BValue right, BValue fn) {
+  BSTS_Array* left_arr = bsts_array_unbox(left);
+  BSTS_Array* right_arr = bsts_array_unbox(right);
+  int pair_len = bsts_min_int(left_arr->len, right_arr->len);
+
+  if (pair_len <= 0) {
+    return bsts_boxf(0.0);
+  }
+
+  // Seed from the first visible pair so left-to-right reductions preserve
+  // sign-sensitive values like -0.0 instead of forcing an initial +0.0.
+  double acc = bsts_unboxf(call_fn2(
+      fn,
+      left_arr->data[left_arr->offset],
+      right_arr->data[right_arr->offset]));
+  for (int idx = 1; idx < pair_len; idx++) {
+    acc += bsts_unboxf(call_fn2(
+        fn,
+        left_arr->data[left_arr->offset + idx],
+        right_arr->data[right_arr->offset + idx]));
+  }
+
+  return bsts_boxf(acc);
+}
+
+BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_sumf__Array(BValue array) {
+  BSTS_Array* arr = bsts_array_unbox(array);
+  if (arr->len <= 0) {
+    return bsts_boxf(0.0);
+  }
+
+  // Arrays carrying Float64 data are laid out in pointer-sized slots as the
+  // raw IEEE-754 bit pattern; this avoids the per-element unboxing overhead in
+  // this hot reduction path.
+  const double* data = (const double*)(const void*)(arr->data + arr->offset);
+  double acc = data[0];
+  for (int idx = 1; idx < arr->len; idx++) {
+    acc += data[idx];
+  }
+
+  return bsts_boxf(acc);
+}
+
+BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_sumsqf__Array(BValue array) {
+  BSTS_Array* arr = bsts_array_unbox(array);
+  if (arr->len <= 0) {
+    return bsts_boxf(0.0);
+  }
+
+  const double* data = (const double*)(const void*)(arr->data + arr->offset);
+  double acc = data[0] * data[0];
+  for (int idx = 1; idx < arr->len; idx++) {
+    acc += data[idx] * data[idx];
+  }
+
+  return bsts_boxf(acc);
+}
+
+BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_dotf__Array(BValue left, BValue right) {
+  BSTS_Array* left_arr = bsts_array_unbox(left);
+  BSTS_Array* right_arr = bsts_array_unbox(right);
+  int pair_len = bsts_min_int(left_arr->len, right_arr->len);
+  if (pair_len <= 0) {
+    return bsts_boxf(0.0);
+  }
+
+  const double* left_data = (const double*)(const void*)(left_arr->data + left_arr->offset);
+  const double* right_data = (const double*)(const void*)(right_arr->data + right_arr->offset);
+  double acc = left_data[0] * right_data[0];
+  for (int idx = 1; idx < pair_len; idx++) {
+    acc += left_data[idx] * right_data[idx];
+  }
+
+  return bsts_boxf(acc);
+}
+
+BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_set__or__self__Array(BValue array, BValue index, BValue value) {
+  BSTS_Array* arr = bsts_array_unbox(array);
+
+  if (!bsts_array_int64_index_in_range(index, arr->len)) {
+    return array;
+  }
+
+  int idx = (int)((int64_t)bsts_int64_to_bits(index));
   BValue* data = bsts_array_alloc_data(arr->len);
 
   if (arr->len > 0) {
@@ -324,30 +580,23 @@ BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_concat__all__Array(BValue arrays
 
 BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_slice__Array(BValue array, BValue start, BValue end) {
   BSTS_Array* arr = bsts_array_unbox(array);
+  int64_t len64 = (int64_t)arr->len;
+  int64_t start64 = (int64_t)bsts_int64_to_bits(start);
+  int64_t end64 = (int64_t)bsts_int64_to_bits(end);
+  int64_t start1 = start64 < 0 ? 0 : start64;
+  int64_t end1 = end64 < 0 ? end64 : (end64 > len64 ? len64 : end64);
 
-  BValue zero = bsts_integer_from_int(0);
-  BValue len_value = bsts_integer_from_int(arr->len);
-
-  BValue start1 = bsts_integer_cmp(start, zero) < 0 ? zero : start;
-  BValue end1 = bsts_integer_cmp(end, len_value) > 0 ? len_value : end;
-
-  _Bool valid =
-      (bsts_integer_cmp(start1, zero) >= 0) &&
-      (bsts_integer_cmp(end1, zero) >= 0) &&
-      (bsts_integer_cmp(start1, end1) <= 0) &&
-      (bsts_integer_cmp(end1, len_value) <= 0);
-
-  if (!valid) {
+  if ((start1 < 0) || (end1 < 0) || (start1 > end1) || (end1 > len64)) {
     return bsts_array_empty();
   }
 
-  BValue slice_len_value = bsts_integer_add(end1, bsts_integer_negate(start1));
-  if (bsts_integer_cmp(slice_len_value, zero) <= 0) {
+  int64_t slice_len64 = end1 - start1;
+  if (slice_len64 <= 0) {
     return bsts_array_empty();
   }
 
-  int start_idx = (int)bsts_integer_to_int32(start1);
-  int slice_len = (int)bsts_integer_to_int32(slice_len_value);
+  int start_idx = (int)start1;
+  int slice_len = (int)slice_len64;
   return bsts_array_wrap(arr->data, arr->offset + start_idx, slice_len);
 }
 

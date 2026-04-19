@@ -3,6 +3,9 @@ package dev.bosatsu.smt
 sealed trait SmtCommand derives CanEqual
 object SmtCommand {
   final case class SetLogic(logic: String) extends SmtCommand
+  object SetLogic {
+    val QF_LIA: SetLogic = SetLogic("QF_LIA")
+  }
   final case class DeclareConst[S <: SmtSort](name: String, sort: S)
       extends SmtCommand
   final case class DeclareFun[S <: SmtSort](

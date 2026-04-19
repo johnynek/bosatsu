@@ -287,7 +287,7 @@ object Generators {
     } yield DefStatement(
       name,
       NonEmptyList.fromList(tpes),
-      args.map(_.map(argToPat)),
+      args.map(_.map(argToPat).toList),
       retType,
       body
     )
@@ -474,7 +474,7 @@ object Generators {
       import Declaration._
       def protect(d: NonBinding): NonBinding =
         d match {
-          case Var(_) | Apply(_, _, _) | Parens(_) | Matches(_, _) => d
+          case Var(_) | Apply(_, _, _) | Parens(_) | Matches(_, _, _) => d
           case _ => Parens(d)(using emptyRegion)
         }
       ApplyOp(protect(l), op, protect(r))
@@ -560,7 +560,7 @@ object Generators {
       case lam @ Lambda(_, _)      => Parens(lam)(using emptyRegion)
       case ife @ IfElse(_, _)      => Parens(ife)(using emptyRegion)
       case tern @ Ternary(_, _, _) => Parens(tern)(using emptyRegion)
-      case matches @ Matches(_, _) => Parens(matches)(using emptyRegion)
+      case matches @ Matches(_, _, _) => Parens(matches)(using emptyRegion)
       case m @ Match(_, _, _)      => Parens(m)(using emptyRegion)
       case not                     => not
     }
@@ -626,6 +626,57 @@ object Generators {
       useAnnotation = false
     )
 
+  private def strPartNames(part: Pattern.StrPart): Set[Identifier.Bindable] =
+    part match {
+      case Pattern.StrPart.NamedStr(n)  => Set(n)
+      case Pattern.StrPart.NamedChar(n) => Set(n)
+      case _                            => Set.empty
+    }
+
+  private def strPartNames(
+      parts: List[Pattern.StrPart]
+  ): Set[Identifier.Bindable] =
+    parts.iterator.flatMap(strPartNames(_)).toSet
+
+  private def isStringWild(part: Pattern.StrPart): Boolean =
+    part match {
+      case Pattern.StrPart.LitStr(_) | Pattern.StrPart.NamedChar(_) |
+          Pattern.StrPart.WildChar =>
+        false
+      case _ => true
+    }
+
+  private[bosatsu] def normalizeStrPatParts(
+      nel: NonEmptyList[Pattern.StrPart]
+  ): NonEmptyList[Pattern.StrPart] =
+    nel match {
+      case NonEmptyList(_, Nil) => nel
+      case NonEmptyList(h1, h2 :: t)
+          if strPartNames(h1).exists(strPartNames(h2 :: t).contains) =>
+        normalizeStrPatParts(NonEmptyList(h2, t))
+      case NonEmptyList(
+            Pattern.StrPart.LitStr(h1),
+            Pattern.StrPart.LitStr(h2) :: t
+          ) =>
+        normalizeStrPatParts(
+          NonEmptyList(Pattern.StrPart.LitStr(h1 + h2), t)
+        )
+      case NonEmptyList(h1, h2 :: t) =>
+        val tail = normalizeStrPatParts(NonEmptyList(h2, t))
+        if (isStringWild(tail.head) && isStringWild(h1)) {
+          tail
+        } else {
+          (h1, tail.head) match {
+            case (Pattern.StrPart.LitStr(s1), Pattern.StrPart.LitStr(s2)) =>
+              normalizeStrPatParts(
+                NonEmptyList(Pattern.StrPart.LitStr(s1 + s2), tail.tail)
+              )
+            case _ =>
+              h1 :: tail
+          }
+        }
+    }
+
   lazy val genStrPat: Gen[Pattern.StrPat] = {
     val recurse = Gen.lzy(genStrPat)
 
@@ -638,43 +689,10 @@ object Generators {
         Gen.const(Pattern.StrPart.WildChar)
       )
 
-    def isWild(p: Pattern.StrPart): Boolean =
-      p match {
-        case Pattern.StrPart.LitStr(_) | Pattern.StrPart.NamedChar(_) |
-            Pattern.StrPart.WildChar =>
-          false
-        case _ => true
-      }
-
-    def makeValid(
-        nel: NonEmptyList[Pattern.StrPart]
-    ): NonEmptyList[Pattern.StrPart] =
-      nel match {
-        case NonEmptyList(_, Nil) => nel
-        case NonEmptyList(h1, h2 :: t)
-            if Pattern
-              .StrPat(NonEmptyList.one(h1))
-              .names
-              .exists(Pattern.StrPat(NonEmptyList(h2, t)).names.toSet) =>
-          makeValid(NonEmptyList(h2, t))
-        case NonEmptyList(
-              Pattern.StrPart.LitStr(h1),
-              Pattern.StrPart.LitStr(h2) :: t
-            ) =>
-          makeValid(NonEmptyList(Pattern.StrPart.LitStr(h1 + h2), t))
-        case NonEmptyList(h1, h2 :: t) =>
-          val tail = makeValid(NonEmptyList(h2, t))
-          if (isWild(tail.head) && isWild(h1)) {
-            tail
-          } else {
-            h1 :: tail
-          }
-      }
-
     for {
       sz <- Gen.choose(1, 4) // don't get too giant, intersections blow up
       inner <- nonEmptyN(genPart, sz)
-      p0 = Pattern.StrPat(makeValid(inner))
+      p0 = Pattern.StrPat(normalizeStrPatParts(inner))
       notStr <- p0.toLiteralString.fold(Gen.const(p0))(_ => recurse)
     } yield notStr
   }
@@ -807,7 +825,7 @@ object Generators {
 
     val genCase: Gen[Declaration.MatchBranch] =
       Gen.zip(genPattern(3), guardGen, padBody).map { case (pat, guard, body) =>
-        MatchBranch(pat, guard, body)
+        MatchBranch(pat, guard, body)(using emptyRegion)
       }
 
     for {
@@ -819,17 +837,37 @@ object Generators {
   }
 
   def matchesGen(argGen0: Gen[NonBinding]): Gen[Declaration.Matches] =
-    Gen.zip(argGen0, genPattern(3)).map { case (a, p) =>
+    Gen.zip(
+      argGen0,
+      genPattern(3),
+      Gen.frequency((3, Gen.const(None)), (1, argGen0.map(Some(_))))
+    ).map { case (a, p, guard) =>
       import Declaration._
+
+      @annotation.tailrec
+      def guardedMatchesNeedsParens(g: NonBinding): Boolean =
+        g match {
+          case Annotation(of, _) => guardedMatchesNeedsParens(of)
+          case Matches(_, _, Some(_)) =>
+            true
+          case _ =>
+            false
+        }
 
       val fixa = a match {
         // matches binds tighter than all these
         case Lambda(_, _) | IfElse(_, _) | ApplyOp(_, _, _) | Match(_, _, _) |
-            Ternary(_, _, _) =>
+            Matches(_, _, Some(_)) | Ternary(_, _, _) =>
           Parens(a)(using emptyRegion)
         case _ => a
       }
-      Matches(fixa, p)(using emptyRegion)
+      val fixGuard = guard.map {
+        case g if guardedMatchesNeedsParens(g) =>
+          Parens(g)(using emptyRegion)
+        case g =>
+          g
+      }
+      Matches(fixa, p, fixGuard)(using emptyRegion)
     }
 
   val genLit: Gen[Lit] = {
@@ -1060,8 +1098,8 @@ object Generators {
                 shrinkDecl.shrink(body)
               ))
           }
-        case Matches(a, _) =>
-          a #:: LazyList.from(shrinkDecl.shrink(a))
+        case Matches(a, _, guard) =>
+          a #:: guard.to(LazyList) #::: LazyList.from(shrinkDecl.shrink(a))
         // the rest can't be shrunk
         case Comment(c)      => c.on.padded #:: LazyList.empty
         case CommentNB(c)    => c.on.padded #:: LazyList.empty
@@ -1755,6 +1793,7 @@ object Generators {
       i.items.toList.flatMap { in =>
         in.tag.toList.flatMap {
           case Referant.DefinedT(dt)       => dt.toTypeConst :: Nil
+          case Referant.TypeAliasT(ta)     => ta.toTypeConst :: Nil
           case Referant.Constructor(dt, _) => dt.toTypeConst :: Nil
           case Referant.Value(_)           => Nil
         }
@@ -2017,7 +2056,7 @@ object Generators {
                       recur
                     )
                     .map { case (pat, guard, expr) =>
-                      Expr.Branch(pat, guard, expr)
+                      Expr.Branch(pat, guard, expr)(using emptyRegion)
                     },
                   3
                 ),

@@ -16,6 +16,8 @@ from Bosatsu/Example/Json/Github/Workflows/Util import (
   StepEnv,
   java_strategy_17,
   java_version_17,
+  install_vendored_c_runtime_cmd,
+  install_vendored_c_runtime_node_cmd,
   needs_test,
   needs_test_c,
   node_lib_eval_run_create_mode_cmd,
@@ -29,6 +31,7 @@ from Bosatsu/Example/Json/Github/Workflows/Util import (
   run_c_runtime_ci,
   run_lib_test_c,
   run_lib_build_c,
+  run_lib_build_node_c,
   setup_sbt_step,
   tool_test_workspace_cmd,
   tool_test_workspace_node_cmd,
@@ -36,6 +39,7 @@ from Bosatsu/Example/Json/Github/Workflows/Util import (
   transpile_python_cmd,
   sbt_cache_fetch_step,
   timeout_minutes_default,
+  verify_graalvm_native_image_pin_cmd,
 )
 
 struct WorkflowJobsTest(
@@ -88,6 +92,13 @@ struct WorkflowJobsNeedsRunStrategyStepsTimeout(
   `timeout-minutes`: Int,
 )
 
+struct WorkflowJobsNeedsRunStepsTimeout(
+  needs: String,
+  `runs-on`: String,
+  steps: List[Step[FetchJavaWith]],
+  `timeout-minutes`: Int,
+)
+
 struct WorkflowJobsLibPublishDryRun(
   needs: String,
   `runs-on`: String,
@@ -97,12 +108,16 @@ struct WorkflowJobsLibPublishDryRun(
 
 struct WorkflowJobs(
   test: WorkflowJobsTest,
+  treeSitter: WorkflowJobsTestJS,
+  proofChecks: WorkflowJobsNeedsRunStepsTimeout,
   testPY: WorkflowJobsTestPY,
   testJS: WorkflowJobsTestJS,
   testWithCoverageReport: WorkflowJobsTestWithCoverageReport,
   buildWithGraal: WorkflowJobsNeedsRunStepsStrategy,
   testWithNode: WorkflowJobsNeedsRunStepsStrategy,
   testC: WorkflowJobsNeedsRunStrategyStepsTimeout,
+  `testC-sanitizers`: WorkflowJobsNeedsRunStrategyStepsTimeout,
+  `testC-valgrind`: WorkflowJobsNeedsRunStrategyStepsTimeout,
   testCMacOS: WorkflowJobsNeedsRunStrategyStepsTimeout,
   libPublishDryRun: WorkflowJobsLibPublishDryRun,
 )
@@ -114,6 +129,13 @@ struct WorkflowOn(pull_request: WorkflowOnPullRequest)
 struct Workflow(jobs: WorkflowJobs, name: String, on: WorkflowOn)
 
 java_matrix_bootstrap_steps = [
+  checkout_v2_step,
+  sbt_cache_fetch_step,
+  matrix_java_fetch_step,
+  setup_sbt_step,
+]
+
+test_java_matrix_bootstrap_steps = [
   checkout_v2_step,
   sbt_cache_fetch_step,
   matrix_java_fetch_step,
@@ -164,7 +186,7 @@ workflow =
       WorkflowJobsTest(
         runner_ubuntu_latest,
         [
-          *java_matrix_bootstrap_steps,
+          *test_java_matrix_bootstrap_steps,
           Step {
             name: Set("run JVM tests"),
             run: Set(cat_lines([
@@ -175,6 +197,35 @@ workflow =
           },
         ],
         java_strategy_17,
+        timeout_minutes_default,
+      ),
+      WorkflowJobsTestJS(
+        needs_test,
+        runner_ubuntu_latest,
+        [
+          *java_matrix_bootstrap_steps,
+          Step {
+            name: Set("install tree-sitter cli"),
+            run: Set("npm install -g tree-sitter-cli@0.24.7"),
+          },
+          Step {
+            name: Set("run tree-sitter and differential parser checks"),
+            run: Set("./scripts/test_tree_sitter.sh"),
+          },
+        ],
+        java_strategy_17,
+        timeout_minutes_default,
+      ),
+      WorkflowJobsNeedsRunStepsTimeout(
+        needs_test,
+        runner_ubuntu_latest,
+        [
+          checkout_v2_step,
+          Step {
+            name: Set("run proof checks"),
+            run: Set("./scripts/check_proofs.sh"),
+          },
+        ],
         timeout_minutes_default,
       ),
       WorkflowJobsTestPY(
@@ -209,8 +260,16 @@ workflow =
           Step {
             name: Set("run coreJS tests"),
             run: Set(cat_lines([
-              "sbt \"coreJS/testOnly * -- --log=failure; jsapiJS/compile\"",
+              "sbt \"coreJS/testOnly * -- --log=failure; jsapiJS/testOnly * -- --log=failure\"",
               "sbt \"jsuiJS/testOnly * -- --log=failure\"",
+              "",
+            ])),
+          },
+          Step {
+            name: Set("verify jsui browser bundle"),
+            run: Set(cat_lines([
+              "export NODE_OPTIONS=--openssl-legacy-provider",
+              "sbt \"jsuiJS/fullOptJS::webpack\"",
               "",
             ])),
           },
@@ -245,6 +304,10 @@ workflow =
         [
           *java_matrix_bootstrap_steps,
           Step {
+            name: Set("verify graalvm native image pin"),
+            run: Set(verify_graalvm_native_image_pin_cmd),
+          },
+          Step {
             name: Set("build native image"),
             run: Set(cat_lines([
               "sbt \"cli/nativeImage\"",
@@ -270,20 +333,13 @@ workflow =
           },
           run_bosatsu_node_tests_step,
           Step {
-            name: Set("install boehm"),
-            run: Set("sudo apt-get update && sudo apt-get install -y libgc1 libgc-dev"),
-          },
-          Step {
             name: Set("install c runtime"),
-            run: Set(cat_lines([
-              "make -C c_runtime install VERSION=$(git rev-parse HEAD)",
-              "",
-            ])),
+            run: Set(install_vendored_c_runtime_node_cmd),
           },
           Step {
-            name: Set("run lib test"),
+            name: Set("run test"),
             run: Set(cat_lines([
-              "./bosatsu_node lib fetch",
+              "./bosatsu_node fetch",
               "lib_eval_out=$(${node_lib_eval_run_create_mode_cmd})",
               "echo \"$lib_eval_out\"",
               "echo \"$lib_eval_out\" | grep -q \"create_mode_test:ok\"",
@@ -291,12 +347,13 @@ workflow =
               "echo \"$tool_eval_out\"",
               "echo \"$tool_eval_out\" | grep -q \"create_mode_test:ok\"",
               "mkdir node_out_lib",
-              "./bosatsu_node lib test --outdir node_out_lib",
+              "./bosatsu_node test --outdir node_out_lib",
               "echo \"now test without a given outdir\"",
-              "./bosatsu_node lib test",
+              "./bosatsu_node test",
               "",
             ])),
           },
+          Step { name: Set("run build"), run: Set(run_lib_build_node_c) },
         ],
         java_strategy_17,
       ),
@@ -308,8 +365,8 @@ workflow =
           *c_build_bootstrap_steps,
           Step { name: Set("build assembly"), run: Set("sbt \"cli/assembly\"") },
           Step {
-            name: Set("install boehm"),
-            run: Set("sudo apt-get update && sudo apt install -y libgc1 libgc-dev pkg-config"),
+            name: Set("install vendored c runtime"),
+            run: Set(install_vendored_c_runtime_cmd),
           },
           Step { name: Set("test runtime code"), run: Set(run_c_runtime_ci) },
           Step { name: Set("generate and compile c code"), run: Set(transpile_c_cmd) },
@@ -323,17 +380,49 @@ workflow =
               "package Foo",
               "test = Assertion(True, \"foo\")",
               "EOF",
-              "./bosatsuj tool transpile --input issue1642_repro/Foo.bosatsu --package_root issue1642_repro c --outdir issue1642_repro/out --test --exe_out test_exe --cc_flag=-O0 --cc_lib=-lm",
+              "./bosatsuj tool transpile --input issue1642_repro/Foo.bosatsu c --outdir issue1642_repro/out --test --exe_out test_exe --cc_flag=-O0 --cc_lib=-lm",
               "issue1642_repro/out/test_exe | tee issue1642_repro/output.txt",
-              "grep -Eq '^Foo:$' issue1642_repro/output.txt",
+              "grep -Eq '^Foo: [0-9]+\\.[0-9]{3}s$' issue1642_repro/output.txt",
               "grep -Eq '^    passed: .*1' issue1642_repro/output.txt",
               "",
             ])),
           },
-          Step { name: Set("run lib test"), run: Set(run_lib_test_c) },
-          Step { name: Set("run lib build"), run: Set(run_lib_build_c) },
+          Step { name: Set("run test"), run: Set(run_lib_test_c) },
+          Step { name: Set("run build"), run: Set(run_lib_build_c) },
         ],
         timeout_minutes_default,
+      ),
+      WorkflowJobsNeedsRunStrategyStepsTimeout(
+        needs_test,
+        runner_ubuntu_latest,
+        java_strategy_17,
+        [
+          *c_build_bootstrap_steps,
+          Step { name: Set("build assembly"), run: Set("sbt \"cli/assembly\"") },
+          Step {
+            name: Set("run c sanitizer checks"),
+            run: Set("./scripts/test_c_sanitizers.sh"),
+          },
+        ],
+        60,
+      ),
+      WorkflowJobsNeedsRunStrategyStepsTimeout(
+        needs_test,
+        runner_ubuntu_latest,
+        java_strategy_17,
+        [
+          *c_build_bootstrap_steps,
+          Step { name: Set("build assembly"), run: Set("sbt \"cli/assembly\"") },
+          Step {
+            name: Set("install c toolchain and valgrind"),
+            run: Set("sudo apt-get update && sudo apt install -y valgrind"),
+          },
+          Step {
+            name: Set("run c valgrind checks"),
+            run: Set("./scripts/test_c_valgrind.sh"),
+          },
+        ],
+        90,
       ),
       WorkflowJobsNeedsRunStrategyStepsTimeout(
         needs_test,
@@ -342,12 +431,15 @@ workflow =
         [
           *c_build_bootstrap_steps,
           Step { name: Set("build assembly"), run: Set("sbt \"cli/assembly\"") },
-          Step { name: Set("install boehm"), run: Set("brew install bdw-gc pkg-config") },
+          Step {
+            name: Set("install vendored c runtime"),
+            run: Set(install_vendored_c_runtime_cmd),
+          },
           Step { name: Set("test runtime code"), run: Set(run_c_runtime_ci) },
           Step { name: Set("generate and compile c code"), run: Set(transpile_c_cmd) },
           Step { name: Set("run generated c code"), run: Set("./c_out/test_exe") },
-          Step { name: Set("run lib test"), run: Set(run_lib_test_c) },
-          Step { name: Set("run lib build"), run: Set(run_lib_build_c) },
+          Step { name: Set("run test"), run: Set(run_lib_test_c) },
+          Step { name: Set("run build"), run: Set(run_lib_build_c) },
         ],
         timeout_minutes_default,
       ),
@@ -358,13 +450,14 @@ workflow =
           *java_matrix_bootstrap_steps,
           Step { name: Set("build assembly"), run: Set("sbt \"cli/assembly\"") },
           Step {
-            name: Set("dry run bosatsu lib publish"),
+            name: Set("dry run bosatsu publish"),
             run: Set(run_publish_bosatsu_libs),
             env: Set(StepEnv {
               `REPO_ROOT`: Set("\${{ github.workspace }}"),
               `OUTDIR`: Set("\${{ runner.temp }}/bosatsu_lib_publish"),
               `GIT_SHA`: Set("\${{ github.sha }}"),
               `URI_BASE`: Set("https://example.invalid/"),
+              `PUBLISH_DRY_RUN`: Set("1"),
             }),
           },
         ],

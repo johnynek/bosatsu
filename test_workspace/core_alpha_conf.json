@@ -1,17 +1,32 @@
 {
   "name": "core_alpha",
   "repo_uri": "https://github.com/johnynek/bosatsu.git",
-  "next_version": "4.0.1",
+  "next_version": "8.0.1",
   "previous": {
-      "version": "4.0.0",
-      "hashes": [ "blake3:74916cbb5c96dee4a797fbd9d7c585eceac3840169b4462ae9ff7d98209c5aac" ],
-      "uris": [
-          "https://github.com/johnynek/bosatsu/releases/download/v0.0.36/core_alpha-v4.0.0.bosatsu_lib" ]
-    },
-  "exported_packages": [ "Bosatsu/Bool", "Bosatsu/Char", "Bosatsu/Collection/Array",
-      "Bosatsu/Collection/Queue", "Bosatsu/Collection/TreeList", "Bosatsu/Dict", "Bosatsu/IO/Error",
-      "Bosatsu/IO/Bytes", "Bosatsu/IO/Core", "Bosatsu/IO/Std", "Bosatsu/Num/Binary", "Bosatsu/List",
-      "Bosatsu/Num/Nat", "Bosatsu/Num/BinNat", "Bosatsu/Nothing", "Bosatsu/Option", "Bosatsu/Json",
-      "Bosatsu/Prog", "Bosatsu/Rand", "Bosatsu/Testing/Properties", "Bosatsu/Num/Float64" ],
-  "all_packages": [ ".*" ]
+    "version": "8.0.0",
+    "hashes": [
+      "blake3:c514d38d9590ea37121a42df6b0bc68ed4c9c4cf43b391a58855cc03dc14ebca"
+    ],
+    "uris": [
+      "https://github.com/johnynek/bosatsu/releases/download/v0.0.65/core_alpha-v8.0.0.bosatsu_lib"
+    ]
+  },
+  "exported_packages": [
+    "Bosatsu/Char",
+    "Bosatsu/Collection/Array",
+    "Bosatsu/Eval",
+    "Bosatsu/IO/Bytes",
+    "Bosatsu/IO/Core",
+    "Bosatsu/IO/Error",
+    "Bosatsu/IO/Std",
+    "Bosatsu/Json",
+    "Bosatsu/Lazy",
+    "Bosatsu/Num/Float64",
+    "Bosatsu/Num/Int64",
+    "Bosatsu/Prog"
+  ],
+  "all_packages": [
+    ".*"
+  ],
+  "doc_base_url": "https://johnynek.github.io/bosatsu/generated/core_alpha/"
 }

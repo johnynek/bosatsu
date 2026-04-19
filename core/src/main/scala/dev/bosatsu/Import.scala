@@ -6,8 +6,11 @@ import cats.parse.{Parser => P}
 import cats.syntax.all._
 import org.typelevel.paiges.{Doc, Document}
 import Parser.{spaces, Combinators}
+import scala.util.hashing.MurmurHash3
 
 case class Import[A, B](pack: A, items: NonEmptyList[ImportedName[B]]) {
+  override lazy val hashCode: Int =
+    MurmurHash3.caseClassHash(this)
   def resolveToGlobal: Map[Identifier, (A, Identifier)] =
     items.foldLeft(Map.empty[Identifier, (A, Identifier)]) {
       case (m0, impName) =>

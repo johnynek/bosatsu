@@ -1,0 +1,33 @@
+package ProgAssoc
+
+from Bosatsu/Loops import range_foldr
+from Bosatsu/Prog import Prog, ProgTest, pure, raise_error, recover, await
+
+flat_map_steps = 1000
+recover_steps = 1000
+
+def left_nested_flat_map(steps: Int) -> forall err. Prog[err, Int]:
+  range_foldr(
+    steps,
+    pure(0),
+    (_, acc) -> acc.await(v -> pure(add(v, 1)))
+  )
+
+def left_nested_recover(steps: Int) -> forall err. Prog[err, Int]:
+  recover(
+    range_foldr(
+      steps,
+      raise_error(0),
+      (_, acc) -> recover(acc, err -> raise_error(add(err, 1)))
+    ),
+    err -> pure(err)
+  )
+
+tests = ProgTest(_ -> (
+  flat_value <- left_nested_flat_map(flat_map_steps).await()
+  recovered_value <- left_nested_recover(recover_steps).await()
+  pure(TestSuite("Prog associativity", [
+    Assertion(flat_value.eq_Int(flat_map_steps), "left-associated flat_map chain"),
+    Assertion(recovered_value.eq_Int(recover_steps), "left-associated recover chain"),
+  ]))
+))

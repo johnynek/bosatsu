@@ -72,47 +72,43 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
       systemCmd(cmd, args, processBuilder)(_ => ())
     }
 
-  val gitShaHead: IO[String] = {
-    val args = "rev-parse" :: "HEAD" :: Nil
-    processBldr("git", args).flatMap { processBuilder =>
-      // Combine stdout and stderr, and pipe the combined output for capturing
+  def systemStdout(cmd: String, args: List[String]): IO[String] =
+    processBldr(cmd, args).flatMap { processBuilder =>
       processBuilder.redirectErrorStream(true)
       processBuilder.redirectOutput(ProcessBuilder.Redirect.PIPE)
-      systemCmd("git", args, processBuilder) { process =>
-        // Prepare to read the combined output
+      systemCmd(cmd, args, processBuilder) { process =>
         val reader = new java.io.BufferedReader(
           new java.io.InputStreamReader(process.getInputStream)
         )
         val output = new StringBuilder
         var line: String = null
-
-        // Read all lines from the process's output
         while ({ line = reader.readLine(); line != null }) {
           output.append(line).append("\n"): Unit
         }
         reader.close()
-        output.toString.trim
+        output.toString
       }
     }
+
+  val gitShaHead: IO[String] = {
+    systemStdout("git", "rev-parse" :: "HEAD" :: Nil).map(_.trim)
   }
+
+  def env(name: String): IO[Option[String]] =
+    IO(Option(System.getenv(name)))
+
+  def hostOs: IO[String] =
+    IO(Option(System.getProperty("os.name")).getOrElse("unknown"))
+
+  def hostArch: IO[String] =
+    IO(Option(System.getProperty("os.arch")).getOrElse("unknown"))
 
   override def moduleIOMonad: MonadError[IO, Throwable] =
     cats.effect.IO.asyncForIO
 
   override def gitTopLevel: IO[Option[Path]] = {
-    def searchStep(current: Path): IO[Either[Path, Option[Path]]] =
-      fsDataType(current).flatMap {
-        case Some(PlatformIO.FSDataType.Dir) =>
-          fsDataType(resolve(current, ".git"))
-            .map {
-              case Some(PlatformIO.FSDataType.Dir) => Right(Some(current))
-              case _ => Left(resolve(current, ".."))
-            }
-        case _ => moduleIOMonad.pure(Right(None))
-      }
-
     val start = Paths.get(".").toAbsolutePath.normalize
-    moduleIOMonad.tailRecM(start)(searchStep)
+    gitTopLevelFrom(start)
   }
 
   private def deleteRecursively(path: Path): IO[Unit] =
@@ -166,6 +162,9 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
       def delay[A](a: => A): IO[A] =
         IO(a)
 
+      def compute[A](a: => A): IO[A] =
+        IO.blocking(a)
+
       def unsafeNewPromise[A]: Promise[A] =
         Deferred.unsafe[IO, Either[Throwable, A]]
 
@@ -187,6 +186,9 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
   def readUtf8(path: Path): IO[String] =
     IO.blocking(new String(Files.readAllBytes(path), "utf-8"))
 
+  def readBytes(path: Path): IO[Array[Byte]] =
+    IO.blocking(Files.readAllBytes(path))
+
   def fsDataType(p: Path): IO[Option[PlatformIO.FSDataType]] =
     IO.blocking {
       val f = p.toFile()
@@ -205,6 +207,8 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
       root.relativize(pf)
     }
     else None
+  def parent(p: Path): Option[Path] =
+    Option(p.getParent)
 
   def read[A <: GeneratedMessage](
       path: Path
@@ -255,7 +259,7 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
   def readInterfacesAndPackages(
       ifacePaths: List[Path],
       packagePaths: List[Path]
-  ): IO[(List[Package.Interface], List[Package.Typed[Unit]])] =
+  ): IO[(List[Package.Interface], List[Package.Compiled])] =
     (
       ifacePaths.traverse(read[proto.Interfaces](_)),
       packagePaths.traverse(read[proto.Packages](_))
@@ -271,7 +275,7 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
   def readInterfaces(paths: List[Path]): IO[List[Package.Interface]] =
     readInterfacesAndPackages(paths, Nil).map(_._1)
 
-  def readPackages(paths: List[Path]): IO[List[Package.Typed[Unit]]] =
+  def readPackages(paths: List[Path]): IO[List[Package.Compiled]] =
     readInterfacesAndPackages(Nil, paths).map(_._2)
 
   def readLibrary(path: Path): IO[Hashed[Algo.Blake3, proto.Library]] =
@@ -388,7 +392,7 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
     IO.fromTry(ProtoConverter.interfacesToProto(interfaces))
       .flatMap(write(_, path))
 
-  def writePackages[A](packages: List[Package.Typed[A]], path: Path): IO[Unit] =
+  def writePackages(packages: List[Package.Compiled], path: Path): IO[Unit] =
     IO.fromTry(ProtoConverter.packagesToProto(packages))
       .flatMap(write(_, path))
 
@@ -409,15 +413,6 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
   def hasExtension(str: String): Path => Boolean = { (path: Path) =>
     path.toString.endsWith(str)
   }
-
-  def pathPackage(roots: List[Path], packFile: Path): Option[PackageName] =
-    PlatformIO.pathPackage(roots, packFile) { (root, pf) =>
-      if (pf.startsWith(root)) Some {
-        import scala.jdk.CollectionConverters._
-        root.relativize(pf).asScala.map(_.toString)
-      }
-      else None
-    }
 
   def writeDoc(p: Path, d: Doc): IO[Unit] =
     IO.blocking {

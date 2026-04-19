@@ -2,7 +2,7 @@ package dev.bosatsu
 
 import cats.data.NonEmptyList
 
-import rankn.{ConstructorFn, DefinedType, Type, TypeEnv}
+import rankn.{ConstructorFn, DefinedType, Type, TypeAlias, TypeEnv}
 
 import Identifier.{Constructor => ConstructorName}
 
@@ -15,7 +15,14 @@ sealed abstract class Referant[+A] {
     this match {
       case Referant.Value(_)           => None
       case Referant.DefinedT(dt)       => Some(dt)
+      case Referant.TypeAliasT(_)      => None
       case Referant.Constructor(dt, _) => Some(dt)
+    }
+
+  def typeAlias: Option[TypeAlias[A]] =
+    this match {
+      case Referant.TypeAliasT(ta) => Some(ta)
+      case _                       => None
     }
 
   def addTo[A1 >: A](
@@ -30,6 +37,8 @@ sealed abstract class Referant[+A] {
         te.addConstructor(packageName, dt, cf)
       case Referant.DefinedT(dt) =>
         te.addDefinedType(dt)
+      case Referant.TypeAliasT(ta) =>
+        te.addTypeAlias(ta)
     }
 
   def depPackages: List[PackageName] =
@@ -40,6 +49,8 @@ sealed abstract class Referant[+A] {
       case Referant.DefinedT(dt) =>
         // what package is this type defined in
         dt.packageName :: Nil
+      case Referant.TypeAliasT(ta) =>
+        ta.depPackages
       case Referant.Constructor(_, c) =>
         // what packages do we need in order to refer to this constructor
         c.depPackages
@@ -49,6 +60,7 @@ sealed abstract class Referant[+A] {
 object Referant {
   case class Value(scheme: Type) extends Referant[Nothing]
   case class DefinedT[A](dtype: DefinedType[A]) extends Referant[A]
+  case class TypeAliasT[A](alias: TypeAlias[A]) extends Referant[A]
   case class Constructor[A](dtype: DefinedType[A], fn: ConstructorFn[A])
       extends Referant[A]
 
@@ -62,8 +74,11 @@ object Referant {
   def importedTypes[A, B](
       imps: List[Import[A, NonEmptyList[Referant[B]]]]
   ): Map[Identifier, (PackageName, TypeName)] =
-    imported(imps) { case Referant.DefinedT(dt) =>
-      (dt.packageName, dt.name)
+    imported(imps) {
+      case Referant.DefinedT(dt)   =>
+        (dt.packageName, dt.name)
+      case Referant.TypeAliasT(ta) =>
+        (ta.packageName, ta.name)
     }
 
   /** These are all the imported items that may be used in a match
@@ -101,6 +116,8 @@ object Referant {
                   param.defaultType.getOrElse(param.tpe)
                 ))
           case Referant.DefinedT(_) =>
+            Iterator.empty
+          case Referant.TypeAliasT(_) =>
             Iterator.empty
         }
       }
@@ -155,11 +172,13 @@ object Referant {
                       param.defaultType.getOrElse(param.tpe)
                     )
                   case None =>
-                    te3
+                  te3
                 }
               }
           case (te1, Referant.DefinedT(dt)) =>
             te1.addDefinedType(dt)
+          case (te1, Referant.TypeAliasT(ta)) =>
+            te1.addTypeAlias(ta)
         }
       }
     }

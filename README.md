@@ -9,6 +9,18 @@ Bosatsu is a simple, non-turing complete language designed for configuration, qu
 borrows from [Python](https://www.python.org/), [Haskell](https://www.haskell.org/),
 [Dhall](https://hackage.haskell.org/package/dhall) and [Rust](https://www.rust-lang.org/en-US/).
 
+Bosatsu aims to keep logic flow literal in the source even when the compiler is
+doing sophisticated checking. A reader should be able to see the package
+interface at the top of the file, where each non-predef name comes from, and
+how control flows through the program directly from the syntax. Bosatsu is
+stricter about names than about type annotations: dependencies stay explicit,
+while most types can be inferred unless the source literally names a foreign
+type.
+
+Correctness comes from a sound total language with explicit effects and
+private-by-default package boundaries. Simplicity comes from local reasoning,
+not from minimizing keystrokes at all costs.
+
 Please see the [documentation site](https://johnynek.github.io/bosatsu/)
 and the [Getting started guide](docs/src/main/paradox/getting_started.md)
 or try basic expressions using this [in-browser Bosatsu compiler](https://johnynek.github.io/bosatsu/compiler/).
@@ -47,6 +59,14 @@ test = Assertion(computed == 233168, "expected 233168")
 Please feel free to file an issue to discuss making a change to Bosatsu or
 to ask a question about how Bosatsu might be useful for a use-case that is
 interesting to you.
+
+## Tree-sitter + Neovim
+Bosatsu has an in-repo Tree-sitter grammar at
+`syntax/tree-sitter-bosatsu`.
+
+For local parser workflows and Neovim setup (`:TSInstall bosatsu`,
+`:TSUpdate bosatsu`), see:
+`syntax/tree-sitter-bosatsu/README.md`.
 
 ## Release
 See [release.md](release.md) for the release workflow and tagging steps.

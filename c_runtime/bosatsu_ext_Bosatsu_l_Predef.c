@@ -25,6 +25,17 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_char__to__Int(BValue a) {
   return bsts_integer_from_int(codepoint);
 }
 
+BValue ___bsts_g_Bosatsu_l_Predef_l_cmp__Char(BValue a, BValue b) {
+  int left = bsts_char_code_point_from_value(a);
+  int right = bsts_char_code_point_from_value(b);
+  int result = (left < right) ? -1 : ((left > right) ? 1 : 0);
+  return alloc_enum0(result + 1);
+}
+
+BValue ___bsts_g_Bosatsu_l_Predef_l_eq__Char(BValue a, BValue b) {
+  return bsts_string_equals(a, b) ? alloc_enum0(1) : alloc_enum0(0);
+}
+
 // a is a List[Char]
 BValue ___bsts_g_Bosatsu_l_Predef_l_char__List__to__String(BValue a) {
   BValue amut = a;
@@ -68,6 +79,10 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_cmp__Int(BValue a, BValue b) {
 BValue ___bsts_g_Bosatsu_l_Predef_l_cmp__Float64(BValue a, BValue b) {
   int result = bsts_float64_cmp_total(a, b);
   return alloc_enum0(result + 1);
+}
+
+BValue ___bsts_g_Bosatsu_l_Predef_l_eq__Float64(BValue a, BValue b) {
+  return bsts_float64_equals(a, b) ? alloc_enum0(1) : alloc_enum0(0);
 }
 
 // a is a List[String]
@@ -120,6 +135,10 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_div(BValue a, BValue b) {
   return get_struct_index(divmod, 0);
 }
 
+BValue ___bsts_g_Bosatsu_l_Predef_l_div__mod(BValue a, BValue b) {
+  return bsts_integer_div_mod(a, b);
+}
+
 BValue ___bsts_g_Bosatsu_l_Predef_l_divf(BValue a, BValue b) {
   return bsts_float64_from_double(bsts_float64_to_double(a) / bsts_float64_to_double(b));
 }
@@ -139,42 +158,6 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_gcd__Int(BValue a, BValue b) {
   }
 
   return a;
-}
-
-/*
-this loops until the returned Int is <= 0 or the returned Int is >= intValue
-external def int_loop(intValue: Int, state: a, fn: (Int, a) -> (Int, a)) -> a
-*/
-BValue ___bsts_g_Bosatsu_l_Predef_l_int__loop(BValue i, BValue a, BValue fn) {
-  // def int_loop(i, a, fn):
-  //   cont = (0 < i)
-  //   res = a
-  //   _i = i
-  //   _a = a
-  //   while cont:
-  //     res = fn(_i, _a)
-  //     tmp_i = res[0]
-  //     _a = res[1][0]
-  //     cont = (0 < tmp_i) and (tmp_i < _i)
-  //     _i = tmp_i
-  //   return _a
-  BValue zero = bsts_integer_from_int(0);
-  int cont = bsts_integer_cmp(zero, i) < 0;
-  BValue _i = i;
-  BValue _a = a;
-  while (cont) {
-    // we have to keep a ref to _i to compare below
-    BValue i_clone = _i;
-    // _i and _a are consumed here, so
-    BValue res = call_fn2(fn, _i, _a);
-    BValue tmp_i = get_struct_index(res, 0);
-    _a = get_struct_index(res, 1);
-    // we have to be strictly decreasing _i but > 0
-    cont = (bsts_integer_cmp(zero, tmp_i) < 0) && (bsts_integer_cmp(tmp_i, i_clone) < 0);
-    _i = tmp_i;
-  }
-  // all the rest of the values are references
-  return _a;
 }
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_int__to__Char(BValue a) {
@@ -204,8 +187,11 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_mod__Int(BValue a, BValue b) {
 }
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_not__Int(BValue a) {
-  // ~x = (-1 - x)
-  return bsts_integer_negate(bsts_integer_add(a, bsts_integer_from_int(1)));
+  return bsts_integer_not(a);
+}
+
+BValue ___bsts_g_Bosatsu_l_Predef_l_popcount__Int(BValue a) {
+  return bsts_integer_popcount(a);
 }
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_or__Int(BValue a, BValue b) {
@@ -294,7 +280,7 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_string__to__Int(BValue a) {
 }
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_sub(BValue a, BValue b) {
-  return ___bsts_g_Bosatsu_l_Predef_l_add(a, bsts_integer_negate(b));
+  return bsts_integer_sub(a, b);
 }
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_subf(BValue a, BValue b) {
@@ -310,8 +296,13 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_times(BValue a, BValue b) {
   return ___bsts_g_Bosatsu_l_Predef_l_mul(a, b);
 }
 
-BValue ___bsts_g_Bosatsu_l_Predef_l_timesf(BValue a, BValue b) {
+BValue ___bsts_g_Bosatsu_l_Predef_l_mulf(BValue a, BValue b) {
   return bsts_float64_from_double(bsts_float64_to_double(a) * bsts_float64_to_double(b));
+}
+
+BValue ___bsts_g_Bosatsu_l_Predef_l_timesf(BValue a, BValue b) {
+  // compatibility alias for previously exported predef name
+  return ___bsts_g_Bosatsu_l_Predef_l_mulf(a, b);
 }
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_trace(BValue a, BValue b) {

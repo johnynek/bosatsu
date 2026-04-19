@@ -139,12 +139,19 @@ abstract class TypeParser[A] {
         val args = if (ins.tail.isEmpty) {
           val in0 = ins.head
           val din = toDoc(in0)
-          unapplyFn(in0)
-            .orElse(unapplyUniversal(in0))
-            .orElse(unapplyExistential(in0))
-            .orElse(unapplyTuple(in0)) match {
-            case Some(_) => par(din)
-            case None    => din
+          unapplyTuple(in0) match {
+            case Some(Nil) =>
+              // Unit arguments are already rendered as `()`.
+              din
+            case Some(_) =>
+              par(din)
+            case None    =>
+              unapplyFn(in0)
+                .orElse(unapplyUniversal(in0))
+                .orElse(unapplyExistential(in0)) match {
+                case Some(_) => par(din)
+                case None    => din
+              }
           }
         } else {
           // there is more than 1 arg so parens are always used: (a, b) -> c

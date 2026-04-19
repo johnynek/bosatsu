@@ -1,10 +1,12 @@
 package dev.bosatsu.jsui
 
 import cats.data.Chain
+import cats.data.Validated
 import cats.effect.{IO, Resource}
-import dev.bosatsu.{MemoryMain, Package, Test, rankn}
-import dev.bosatsu.tool.Output
-import org.typelevel.paiges.{Doc, Document}
+import cats.parse.{Parser => P}
+import dev.bosatsu.{MemoryMain, Package, Parser, Test, rankn}
+import dev.bosatsu.tool.{Output, ShowEdn}
+import org.typelevel.paiges.Doc
 import org.scalajs.dom.window.localStorage
 
 import Action.Cmd
@@ -13,6 +15,21 @@ object Store {
   private type ErrorOr[A] = Either[Throwable, A]
   val memoryMain = MemoryMain[ErrorOr]
   private val toolPrefix = List("tool")
+  private val webDemoPackageName = "WebDemo"
+  private val webDemoPath = Chain("root", webDemoPackageName)
+  private val optionalHeaderParser =
+    Package.headerParser.? <* P.anyChar.rep0
+
+  private[jsui] def withWebDemoPackage(str: String): String =
+    // In the web playground we accept snippets without an explicit package.
+    // If there is no parseable header, inject a stable package name for tool args.
+    Parser.parse(optionalHeaderParser, str) match {
+      case Validated.Valid((_, Some(_))) => str
+      case Validated.Valid((_, None)) =>
+        s"package $webDemoPackageName\n\n$str"
+      case Validated.Invalid(_) =>
+        str
+    }
 
   private def toolCommandArgs(
       subcommand: String,
@@ -28,8 +45,6 @@ object Store {
           "eval",
           "--input",
           "root/WebDemo",
-          "--package_root",
-          "root",
           "--main_file",
           "root/WebDemo",
           "--color",
@@ -51,8 +66,6 @@ object Store {
           "test",
           "--input",
           "root/WebDemo",
-          "--package_root",
-          "root",
           "--test_file",
           "root/WebDemo",
           "--color",
@@ -74,22 +87,12 @@ object Store {
           "show",
           "--input",
           "root/WebDemo",
-          "--package_root",
-          "root",
           "--color",
           "html"
         )
         val handler: HandlerFn = {
-          case Output.ShowOutput(packs, ifaces, _) =>
-            val pdocs = packs.map { pack =>
-              Document[Package.Typed[Any]].document(pack)
-            }
-            val idocs = ifaces.map { iface =>
-              Document[Package.Interface].document(iface)
-            }
-
-            val doc = Doc.intercalate(Doc.hardLine, idocs ::: pdocs)
-            doc.render(80)
+          case Output.ShowOutput(show, _) =>
+            ShowEdn.showDoc(show).render(80)
           case other =>
             s"internal error. got unexpected result: $other"
         }
@@ -100,9 +103,10 @@ object Store {
     val start = System.currentTimeMillis()
     println(s"starting $cmd: $start")
     val (args, handler) = cmdHandler(cmd)
+    val source = withWebDemoPackage(str)
 
     val res = memoryMain.runWith(
-      files = Map(Chain("root", "WebDemo") -> str)
+      files = Map(webDemoPath -> source)
     )(args) match {
       case Right(good) => handler(good)
       case Left(err)   =>

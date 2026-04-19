@@ -1,9 +1,10 @@
 package dev.bosatsu
 
-import cats.data.{Chain, NonEmptyList, Writer, NonEmptyMap}
+import cats.data.{Chain, NonEmptyList, NonEmptyMap}
 import cats.parse.{Parser => P}
 import cats.syntax.all._
 import org.typelevel.paiges.{Doc, Document}
+import scala.collection.immutable.LongMap
 
 import rankn._
 import LocationMap.Colorize
@@ -16,15 +17,110 @@ sealed abstract class PackageError {
 }
 
 object PackageError {
+  final case class ShownTypes(
+      typeDocs: Map[Type, Doc],
+      unknownTypeVars: List[(String, Kind)]
+  ) extends (Type => Doc) {
+    def apply(tpe: Type): Doc = typeDocs(tpe)
+
+    private def unknownTypeVarDoc(name: String, kind: Kind): Doc =
+      if (kind == Kind.Type) Doc.text(name)
+      else Doc.text(name) + Doc.text(": ") + Kind.toDoc(kind)
+
+    val unknownTypesDoc: Doc =
+      unknownTypeVars match {
+        case Nil =>
+          Doc.empty
+        case (name, kind) :: Nil =>
+          Doc.hardLine + Doc.text("where ") + unknownTypeVarDoc(
+            name,
+            kind
+          ) + Doc.text(" is an unknown type.")
+        case many =>
+          val docs = many.map { case (name, kind) =>
+            unknownTypeVarDoc(name, kind)
+          }
+          Doc.hardLine + Doc.text("where unknown types are ") +
+            Doc.intercalate(Doc.text(",") + Doc.space, docs) +
+            Doc.char('.')
+      }
+
+    def withUnknownTypes(doc: Doc): Doc =
+      doc + unknownTypesDoc
+  }
+
+  private def renameTypeMetas(
+      tpe: Type,
+      renameMeta: Map[Type.Meta, Type.Var.Bound]
+  ): Type = {
+    def renameLeaf(leaf: Type.Leaf): Type.Leaf =
+      leaf match {
+        case Type.TyMeta(meta) =>
+          renameMeta.get(meta) match {
+            case Some(bound) => Type.TyVar(bound)
+            case None        => leaf
+          }
+        case _ =>
+          leaf
+      }
+
+    def renameLeafApply(
+        in: Type.Leaf | Type.TyApply
+    ): Type.Leaf | Type.TyApply =
+      in match {
+        case leaf: Type.Leaf     => renameLeaf(leaf)
+        case Type.TyApply(on, a) =>
+          Type.TyApply(renameLeafApply(on), renameType(a))
+      }
+
+    def renameRho(rho: Type.Rho): Type.Rho =
+      rho match {
+        case leaf: Type.Leaf        => renameLeaf(leaf)
+        case Type.TyApply(on, a)    =>
+          Type.TyApply(renameLeafApply(on), renameType(a))
+        case Type.Exists(vars, in1) =>
+          Type.Exists(vars, renameLeafApply(in1))
+      }
+
+    def renameType(in: Type): Type =
+      in match {
+        case rho: Type.Rho         => renameRho(rho)
+        case Type.ForAll(vars, in) => Type.ForAll(vars, renameRho(in))
+      }
+
+    renameType(tpe)
+  }
+
   def showTypes(
       pack: PackageName,
       tpes: List[Type],
       localTypeNames: Set[TypeName] = Set.empty
-  ): Map[Type, Doc] = {
+  ): ShownTypes = {
     // TODO: we should use the imports in each package to talk about (https://github.com/johnynek/bosatsu/issues/4)
     // types in ways that are local to that package
     Require(pack ne null)
-    TypeRenderer.documents(tpes, TypeRenderer.Context(pack, localTypeNames), 80)
+    val usedBounds: Set[Type.Var.Bound] =
+      Type.tyVarBinders(tpes) ++ Type.freeTyVars(tpes).collect {
+        case b: Type.Var.Bound => b
+      }
+    val metaToBound: List[(Type.Meta, Type.Var.Bound)] =
+      Type.alignBinders(Type.metaTvs(tpes).toList, usedBounds.contains)
+    val metaSubs = metaToBound.toMap
+    val ctx = TypeRenderer.Context(pack, localTypeNames)
+    val rendered =
+      tpes.iterator
+        .map { tpe =>
+          val shown =
+            if (metaSubs.isEmpty) tpe
+            else renameTypeMetas(tpe, metaSubs)
+          tpe -> TypeRenderer.document(shown, ctx, 80)
+        }
+        .toMap
+
+    ShownTypes(
+      rendered,
+      metaToBound.map { case (meta, bound) => (bound.name, meta.kind) }
+    )
   }
 
   def nearest[A](
@@ -44,6 +140,66 @@ object PackageError {
 
   private def quoted(ident: Identifier): Doc =
     Doc.char('`') + Doc.text(ident.sourceCodeRepr) + Doc.char('`')
+
+  private def quotedPackageName(pn: PackageName): Doc =
+    Doc.char('`') + Doc.text(pn.asString) + Doc.char('`')
+
+  private def exposesSetDoc(packages: List[PackageName]): Doc =
+    packages match {
+      case Nil =>
+        Doc.text("()")
+      case nonEmpty =>
+        Doc
+          .intercalate(
+            Doc.text(",") + Doc.lineOrSpace,
+            nonEmpty.map(pn => Doc.text(pn.asString))
+          )
+          .grouped
+    }
+
+  private def groupedParensDoc(items: List[Doc]): Doc =
+    items match {
+      case Nil =>
+        Doc.text("()")
+      case nonEmpty =>
+        val body = Doc.intercalate(Doc.comma + Doc.line, nonEmpty)
+        (Doc.char('(') + (Doc.lineOrEmpty + body).nested(4) + Doc.lineOrEmpty + Doc
+          .char(')')).grouped
+    }
+
+  private def exposesLineDoc(packages: List[PackageName]): Option[Doc] =
+    packages match {
+      case Nil      => None
+      case nonEmpty => Some(Doc.text("exposes ") + exposesSetDoc(nonEmpty))
+    }
+
+  private def canonicalExposesLineDoc(packages: List[PackageName]): Option[Doc] =
+    packages match {
+      case Nil => None
+      case nonEmpty @ (_ :: Nil) =>
+        Some(Doc.text("exposes ") + exposesSetDoc(nonEmpty))
+      case nonEmpty =>
+        Some(
+          (Doc.text("exposes ") + groupedParensDoc(
+            nonEmpty.map(pn => Doc.text(pn.asString))
+          )).grouped
+        )
+    }
+
+  private def sectionDoc(title: String, body: Doc): Doc =
+    Doc.text(title) + (Doc.hardLine + body).nested(4)
+
+  private val exposesRegionParser =
+    (Package.headerPackageNameParser.void *>
+      Package.headerImportsParser.void *>
+      Package.headerExportsParser.void *>
+      Package.headerExposeRegionsParser) <* P.anyChar.rep0.void
+
+  private def declaredExposesRegion(source: String): Option[Region] =
+    Parser
+      .parse(exposesRegionParser, source)
+      .toOption
+      .flatMap(_._2.headOption)
 
   private def suggestedName(
       ident: Identifier,
@@ -77,9 +233,17 @@ object PackageError {
   private def checkModeTodoHint(name: Identifier): Doc =
     name match {
       case b: Identifier.Bindable if b.sourceCodeRepr == "todo" =>
-        Doc.hardLine + Doc.text(
-          "hint: `todo` is only available in type-check mode (`tool check`/`lib check`) and is not available in emit commands (`show`/`build`/`transpile`/`test`)."
-        )
+        Doc.hardLine + (
+          Doc.text(
+            "hint: built-in `todo` is only available in relaxed `check` modes."
+          ) + Doc.lineOrSpace +
+            Doc.text(
+              "`check --warn` warns and `check --lax` allows it silently."
+            ) + Doc.lineOrSpace +
+            Doc.text(
+              "Strict `tool check`, strict `check`, and emit/run commands do not include `todo`."
+            )
+        ).grouped
       case _ =>
         Doc.empty
     }
@@ -137,17 +301,88 @@ object PackageError {
       }
   }
 
+  // These are the non-soundness diagnostics that `check` / `test`
+  // may demote to warnings (`--warn`) or silence (`--lax`) during local
+  // iteration. Everything else remains a hard correctness error.
+  def isPostponable(err: PackageError): Boolean =
+    err match {
+      case _: PackageError.UnusedImport           => true
+      case _: PackageError.UnusedLetError         => true
+      case _: PackageError.UnusedLets             => true
+      case _: PackageError.TodoUsage              => true
+      case _: PackageError.RecursionLint          => true
+      case _: PackageError.ExposesMismatch        => true
+      case _: PackageError.ShadowedBindingTypeError =>
+        true
+      case PackageError.TotalityCheckError(
+            _,
+            _: TotalityCheck.UnreachableBranches[?]
+          ) =>
+        true
+      case _ =>
+        false
+    }
+
   private val importWithRegionParser: P[
-    (PackageName, NonEmptyList[(Region, ImportedName[Unit])])
+    (
+        (Region, PackageName),
+        NonEmptyList[(Region, ImportedName[Unit])]
+    )
   ] = {
     import Parser.Combinators
 
     val pyimps = ImportedName.parser.region.itemsMaybeParens.map(_._2)
 
     (
-      (P.string("from") ~ Parser.spaces).backtrack *> PackageName.parser <* Parser.spaces,
+      (P.string("from") ~ Parser.spaces).backtrack *> PackageName.parser.region <* Parser.spaces,
       P.string("import") *> Parser.spaces *> pyimps
     ).tupled
+  }
+
+  private def shiftedRegion(region: Region, amount: Int): Region =
+    Region(region.start + amount, region.end + amount)
+
+  private case class ImportRegions(
+      packageRegion: Region,
+      importedNames: NonEmptyList[(Region, ImportedName[Unit])]
+  )
+
+  private def findImportRegions(
+      sourceMap: SourceMap,
+      importingPackage: PackageName,
+      importedPackage: PackageName
+  ): Option[ImportRegions] = {
+    val source = sourceMap.getMapSrc(importingPackage)._1.fromString
+
+    var startAt = 0
+    var result: Option[ImportRegions] = None
+    while (startAt >= 0 && result.isEmpty) {
+      val idx = source.indexOf("from", startAt)
+      if (idx < 0) {
+        startAt = -1
+      } else {
+        if (startsLineToken(source, idx)) {
+          importWithRegionParser.parse(source.substring(idx)) match {
+            case Right((_, ((packRegion, `importedPackage`), imports))) =>
+              val shiftedImports =
+                imports.map { case (region, imported) =>
+                  (shiftedRegion(region, idx), imported)
+                }
+              result = Some(
+                ImportRegions(
+                  shiftedRegion(packRegion, idx),
+                  shiftedImports
+                )
+              )
+            case _ =>
+              ()
+          }
+        }
+        startAt = idx + 4
+      }
+    }
+
+    result
   }
 
   private def startsLineToken(source: String, idx: Int): Boolean = {
@@ -170,39 +405,52 @@ object PackageError {
       importingPackage: PackageName,
       importedPackage: PackageName,
       importedName: Identifier
-  ): Option[Region] = {
-    val source = sourceMap.getMapSrc(importingPackage)._1.fromString
+  ): Option[Region] =
+    findImportRegions(sourceMap, importingPackage, importedPackage)
+      .flatMap(_.importedNames.toList.collectFirst {
+        case (region, imported) if imported.originalName == importedName =>
+          region
+      })
 
-    var startAt = 0
-    var result: Option[Region] = None
-    while (startAt >= 0 && result.isEmpty) {
-      val idx = source.indexOf("from", startAt)
-      if (idx < 0) {
-        startAt = -1
-      } else {
-        if (startsLineToken(source, idx)) {
-          importWithRegionParser.parse(source.substring(idx)) match {
-            case Right((_, (`importedPackage`, imports))) =>
-              result = imports.toList.collectFirst {
-                case (region, imported)
-                    if imported.originalName == importedName =>
-                  Region(region.start + idx, region.end + idx)
-              }
-            case _ =>
-              ()
-          }
+  private def findImportPackageRegion(
+      sourceMap: SourceMap,
+      importingPackage: PackageName,
+      importedPackage: PackageName
+  ): Option[Region] =
+    findImportRegions(sourceMap, importingPackage, importedPackage)
+      .map(_.packageRegion)
+
+  private def unknownImportPackageHint(pack: PackageName): Doc =
+    Doc.text("Hint: add source containing package ") +
+      quotedPackageName(pack) +
+      Doc.text(
+        " to --input/--input_dir, or include a dependency library with --pub_dep/--priv_dep. Also check for package-name typos."
+      )
+
+  private def unknownImportPackageTypoHint(
+      sourceMap: SourceMap,
+      importingPackage: PackageName,
+      importedPackage: PackageName
+  ): Doc = {
+    val query = Identifier.Name(importedPackage.asString)
+    val knownPackages =
+      sourceMap.keysIterator
+        .filterNot(pn => (pn == importingPackage) || (pn == importedPackage))
+        .map { pn =>
+          (Identifier.Name(pn.asString): Identifier, ())
         }
-        startAt = idx + 4
-      }
-    }
+        .toList
+    val suggestions =
+      nearest(query, knownPackages, 3)
+        .map { case (ident, _) => (ident, Some("package")) }
 
-    result
+    didYouMeanDoc(suggestions)
   }
 
   case class UnknownExport[A](
       ex: ExportedName[A],
       in: PackageName,
-      lets: List[(Identifier.Bindable, RecursionKind, TypedExpr[Declaration])]
+      candidatesWithRegions: List[(Identifier.Bindable, Region)]
   ) extends PackageError {
     def message(
         sourceMap: Map[PackageName, (LocationMap, String)],
@@ -212,7 +460,7 @@ object PackageError {
       val header =
         s"in $sourceName unknown export ${ex.name.sourceCodeRepr}"
       val candidateMap: Map[Identifier, Region] =
-        lets.map { case (n, _, expr) => (n, HasRegion.region(expr)) }.toMap
+        candidatesWithRegions.iterator.map { case (n, r) => (n: Identifier, r) }.toMap
       val candidates =
         nearest(ex.name, candidateMap, 3)
           .map { case (n, r) =>
@@ -261,8 +509,25 @@ object PackageError {
         sourceMap: Map[PackageName, (LocationMap, String)],
         errColor: Colorize
     ) = {
-      val (_, sourceName) = sourceMap.getMapSrc(fromName)
-      s"in $sourceName package ${fromName.asString} imports unknown package ${pack.asString}"
+      val region = findImportPackageRegion(sourceMap, fromName, pack)
+      val (lm, _) = sourceMap.getMapSrc(fromName)
+      val context =
+        region.map { r =>
+          lm.showRegion(r, 2, errColor).getOrElse(Doc.str(r.show))
+        }
+      val base =
+        sourceMap.headLine(fromName, region) + Doc.hardLine +
+          Doc.text("Unknown package ") + quotedPackageName(pack) +
+          Doc.text(" in import.") +
+          unknownImportPackageTypoHint(sourceMap, fromName, pack)
+      (context match {
+        case Some(ctx) =>
+          base + Doc.hardLine + ctx + Doc.hardLine + unknownImportPackageHint(
+            pack
+          )
+        case None =>
+          base + Doc.hardLine + unknownImportPackageHint(pack)
+      }).render(80)
     }
   }
 
@@ -469,14 +734,19 @@ object PackageError {
           orient(left, right, direction)
         }
 
-      def mismatchEvidenceRegion(
+      def mismatchEvidenceRegions(
           tpeErr: Infer.Error.Single
-      ): Option[Region] =
+      ): List[Region] =
         tpeErr match {
           case te: Infer.Error.TypeError =>
-            expectedFound(te).map(_._1._2)
+            expectedFound(te)
+              .map { case ((_, expectedRegion), (_, foundRegion)) =>
+                if (expectedRegion === foundRegion) expectedRegion :: Nil
+                else expectedRegion :: foundRegion :: Nil
+              }
+              .getOrElse(Nil)
           case _ =>
-            None
+            Nil
         }
 
       def dedupKey(
@@ -484,13 +754,52 @@ object PackageError {
       ): Option[(String, Int, String, String)] =
         tpeErr match {
           case c @ Infer.Error.ContextualTypeError(site, _, _) =>
+            val (siteKey, siteHash) =
+              site match {
+                case Infer.Error.MismatchSite.AppArg(
+                      _,
+                      _,
+                      _,
+                      _,
+                      _,
+                      functionRegion,
+                      argumentRegion,
+                      callRegion
+                    ) =>
+                  (
+                    "context:app-arg",
+                    (functionRegion, argumentRegion, callRegion).hashCode
+                  )
+                case Infer.Error.MismatchSite.MatchPattern(
+                      _,
+                      _,
+                      _,
+                      scrutineeRegion,
+                      patternRegion
+                    ) =>
+                  (
+                    "context:match-pattern",
+                    (scrutineeRegion, patternRegion).hashCode
+                  )
+                case Infer.Error.MismatchSite.MatchBranchResult(
+                      _,
+                      _,
+                      scrutineeRegion,
+                      patternRegion,
+                      branchRegion
+                    ) =>
+                  (
+                    "context:match-branch-result",
+                    (scrutineeRegion, patternRegion, branchRegion).hashCode
+                  )
+              }
             val (expectedKey, foundKey) =
               expectedFound(c)
                 .map { case ((exp, _), (found, _)) =>
                   (renderedTypeKey(exp), renderedTypeKey(found))
                 }
                 .getOrElse(("", ""))
-            Some((s"context:$site", site.hashCode, expectedKey, foundKey))
+            Some((siteKey, siteHash, expectedKey, foundKey))
           case e @ Infer.Error.NotUnifiable(_, _, r0, r1, _) =>
             val (expectedKey, foundKey) =
               expectedFound(e)
@@ -535,7 +844,7 @@ object PackageError {
             .empty[(Infer.Error.Single, List[Region])]
 
         singles.foreach { single =>
-          val evidence = mismatchEvidenceRegion(single).toList
+          val evidence = mismatchEvidenceRegions(single)
           dedupKey(single) match {
             case Some(key) =>
               keyToIdx.get(key) match {
@@ -574,6 +883,50 @@ object PackageError {
           case _ =>
             None
         }
+
+      def extraTypeLayerHint(expectedType: Type, foundType: Type): Doc =
+        foundType match {
+          case Type.TyApply(_, arg) if arg.sameAs(expectedType) =>
+            Doc.hardLine + Doc.text(
+              "hint: found type is the expected type wrapped one extra time."
+            )
+          case _ =>
+            Doc.empty
+        }
+
+      def guessedExtraLayerType(
+          expectedType: Type,
+          foundType: Type
+      ): Option[Type] =
+        (expectedType, foundType) match {
+          case (expected @ Type.TyApply(expectedOn, _), Type.TyApply(foundOn, _))
+              if Type.rootConst(expectedOn).nonEmpty &&
+                Type.rootConst(foundOn).isEmpty =>
+            Some(Type.TyApply(expectedOn, expected))
+          case _ =>
+            None
+        }
+
+      def evidenceDocOrDefault(
+          evidenceRegions: List[Region],
+          baselineRegions: List[Region],
+          defaultDoc: Doc
+      ): Doc = {
+        val distinctEvidence = evidenceRegions.distinct.sortBy(_.start)
+        val distinctBaseline = baselineRegions.distinct.sortBy(_.start)
+        val extraEvidence = distinctEvidence.filterNot(distinctBaseline.contains)
+
+        if (extraEvidence.nonEmpty) {
+          val docs = (distinctBaseline ::: extraEvidence)
+            .distinct
+            .sortBy(_.start)
+            .map(contextDoc)
+          Doc.text("evidence sites:") + Doc.hardLine +
+            Doc.intercalate(Doc.hardLine + Doc.hardLine, docs)
+        } else {
+          defaultDoc
+        }
+      }
 
       def isUseBeforeDef(name: Identifier, region: Region): Boolean =
         name match {
@@ -640,6 +993,7 @@ object PackageError {
                   }
 
                 (
+                  tmap.withUnknownTypes(
                   Doc.text(
                     s"type mismatch in call to $fnLabel, argument ${appSite.argIndex + 1} of ${appSite.argCount}:"
                   ) + Doc.hardLine +
@@ -648,7 +1002,78 @@ object PackageError {
                     Doc.text("function type: ") + tmap(appSite.functionType) +
                     Doc.hardLine + Doc.text("argument site:") + Doc.hardLine +
                     contextDoc(appSite.argumentRegion) + fnContext,
+                  ),
                   Some(appSite.argumentRegion)
+                )
+
+              case branchSite: Infer.Error.MismatchSite.MatchBranchResult =>
+                val expected = branchSite.expectedResultType
+                val inferredFound =
+                  branchSite.inferredResultType
+                    .filterNot(_.sameAs(expected))
+                    .map(_ -> branchSite.branchRegion)
+                val foundFromCause =
+                  expectedFound(c).map(_._2).orElse {
+                    baseMismatch(cause).flatMap {
+                      case ((left, leftRegion), (right, rightRegion), _) =>
+                        if (!left.sameAs(expected)) Some((left, leftRegion))
+                        else if (!right.sameAs(expected))
+                          Some((right, rightRegion))
+                        else None
+                    }
+                  }
+                val found =
+                  inferredFound
+                    .orElse(foundFromCause)
+                    .getOrElse((expected, branchSite.branchRegion))
+                val guessedExtra =
+                  guessedExtraLayerType(expected, found._1)
+
+                val tmap = showTypes(
+                  pack,
+                  List(expected, found._1) ::: guessedExtra.toList,
+                  localTypeNames
+                )
+                val patternContext =
+                  if (branchSite.patternRegion =!= branchSite.branchRegion) {
+                    Doc.hardLine + Doc.text("pattern site:") + Doc.hardLine +
+                      contextDoc(branchSite.patternRegion)
+                  } else {
+                    Doc.empty
+                  }
+                val scrutineeContext =
+                  if (
+                    (branchSite.scrutineeRegion =!= branchSite.branchRegion) &&
+                      (branchSite.scrutineeRegion =!= branchSite.patternRegion)
+                  ) {
+                    Doc.hardLine + Doc.text("scrutinee site:") +
+                      Doc.hardLine +
+                      contextDoc(branchSite.scrutineeRegion)
+                  } else {
+                    Doc.empty
+                  }
+
+                (
+                  tmap.withUnknownTypes(
+                    Doc.text("match branch result type mismatch:") +
+                      Doc.hardLine +
+                      Doc.text("expected branch type: ") + tmap(expected) +
+                      Doc.hardLine +
+                      Doc.text("found branch type: ") + tmap(found._1) +
+                      extraTypeLayerHint(expected, found._1) +
+                      guessedExtra.fold(Doc.empty) { extra =>
+                        Doc.hardLine + Doc.text(
+                          "hint: this may be one extra layer, for example "
+                        ) + tmap(extra) + Doc.text(" instead of ") +
+                          tmap(expected) + Doc.char('.')
+                      } +
+                      Doc.hardLine +
+                      Doc.text("branch site:") + Doc.hardLine +
+                      contextDoc(branchSite.branchRegion) +
+                      patternContext +
+                      scrutineeContext
+                  ),
+                  Some(branchSite.branchRegion)
                 )
 
               case patSite: Infer.Error.MismatchSite.MatchPattern =>
@@ -678,6 +1103,7 @@ object PackageError {
                   }
 
                 (
+                  tmap.withUnknownTypes(
                   Doc.text("pattern type mismatch:") + Doc.hardLine +
                     Doc.text("pattern: ") + Doc.text(
                       patternDoc
@@ -690,6 +1116,7 @@ object PackageError {
                     ) + Doc.hardLine +
                     Doc.text("pattern site:") + Doc.hardLine +
                     contextDoc(patSite.patternRegion) + scrutineeContext,
+                  ),
                   Some(patSite.patternRegion)
                 )
             }
@@ -728,20 +1155,16 @@ object PackageError {
 
             val tmap =
               showTypes(pack, List(expectedType, foundType), localTypeNames)
-            val evidenceDocs =
-              evidenceRegions.distinct.sortBy(_.start).map(contextDoc)
-            val evidenceDoc =
-              if (evidenceDocs.lengthCompare(1) > 0) {
-                Doc.text("evidence sites:") + Doc.hardLine +
-                  Doc.intercalate(Doc.hardLine + Doc.hardLine, evidenceDocs)
-              } else {
-                context1
-              }
-            val doc =
+            val evidenceDoc = evidenceDocOrDefault(
+              evidenceRegions,
+              expectedRegion :: foundRegion :: Nil,
+              context1
+            )
+            val doc = tmap.withUnknownTypes(
               Doc.text("type error: expected type ") + tmap(expectedType) +
                 context0 + Doc.text("but found type ") + tmap(foundType) +
                 Doc.hardLine + fnHint + evidenceDoc
-
+            )
             (doc, Some(expectedRegion))
 
           case Infer.Error.VarNotInScope((_, name), scope, region) =>
@@ -843,15 +1266,11 @@ object PackageError {
 
             val tmap =
               showTypes(pack, List(expectedType, foundType), localTypeNames)
-            val evidenceDocs =
-              evidenceRegions.distinct.sortBy(_.start).map(contextDoc)
-            val evidenceDoc =
-              if (evidenceDocs.lengthCompare(1) > 0) {
-                Doc.text("evidence sites:") + Doc.hardLine +
-                  Doc.intercalate(Doc.hardLine + Doc.hardLine, evidenceDocs)
-              } else {
-                context1
-              }
+            val evidenceDoc = evidenceDocOrDefault(
+              evidenceRegions,
+              foundRegion :: expectedRegion :: Nil,
+              context1
+            )
             val kindHints = List(
               kindHintDoc("found type", foundType),
               kindHintDoc("expected type", expectedType)
@@ -859,12 +1278,14 @@ object PackageError {
             val kindHintSection =
               if (kindHints.isEmpty) Doc.empty
               else Doc.hardLine + Doc.intercalate(Doc.hardLine, kindHints)
-            val doc = Doc.text("type ") + tmap(foundType) + context0 +
+            val doc = tmap.withUnknownTypes(
+              Doc.text("type ") + tmap(foundType) + context0 +
               Doc.text("does not subsume expected type ") + tmap(
                 expectedType
               ) + Doc.hardLine +
               evidenceDoc +
               kindHintSection
+            )
 
             (doc, Some(foundRegion))
 
@@ -895,22 +1316,26 @@ object PackageError {
           case Infer.Error.KindCannotTyApply(applied, region) =>
             val tmap = showTypes(pack, applied :: Nil, localTypeNames)
             val context = contextDoc(region)
-            val doc = Doc.text("kind error: for kind of the left of ") +
+            val doc = tmap.withUnknownTypes(
+              Doc.text("kind error: for kind of the left of ") +
               tmap(applied) + Doc.text(
                 " is *. Cannot apply to kind *."
               ) + Doc.hardLine +
               context
+            )
 
             (doc, Some(region))
 
           case Infer.Error.KindExpectedType(tpe, kind, region) =>
             val tmap = showTypes(pack, tpe :: Nil, localTypeNames)
             val context = contextDoc(region)
-            val doc = Doc.text("expected type ") +
+            val doc = tmap.withUnknownTypes(
+              Doc.text("expected type ") +
               tmap(tpe) + Doc.text(
                 " to have kind *, which is to say be a valid value, but it is kind "
               ) + Kind.toDoc(kind) + Doc.hardLine +
               context
+            )
 
             (doc, Some(region))
 
@@ -923,7 +1348,8 @@ object PackageError {
               localTypeNames
             )
             val context = contextDoc(region)
-            val doc = Doc.text("kind error: ") + Doc.text("the type: ") + tmap(
+            val doc = tmap.withUnknownTypes(
+              Doc.text("kind error: ") + Doc.text("the type: ") + tmap(
               applied
             ) +
               Doc.text(" is invalid because the left ") + tmap(leftT) + Doc
@@ -934,6 +1360,7 @@ object PackageError {
               Doc.text(s" but left cannot accept the kind of the right:") +
               Doc.hardLine +
               context
+            )
 
             (doc, Some(region))
 
@@ -956,7 +1383,7 @@ object PackageError {
                 Doc.empty
               }
 
-            val doc =
+            val doc = tmap.withUnknownTypes(
               Doc.text("kind error: ") + Doc.text("the type: ") + tmap(meta) +
                 Doc.text(" of kind: ") + Kind.toDoc(metaK) + Doc.text(
                   " at: "
@@ -966,6 +1393,7 @@ object PackageError {
                 Doc.text(" of kind: ") + Kind.toDoc(rightK) + context1 +
                 Doc.hardLine +
                 Doc.text("because the first kind does not subsume the second.")
+            )
 
             (doc, Some(metaR))
 
@@ -982,7 +1410,7 @@ object PackageError {
                 Doc.empty
               }
 
-            val doc =
+            val doc = tmap.withUnknownTypes(
               Doc.text("Unexpected unknown: the type: ") + tmap(tymeta) +
                 Doc.text(" of kind: ") + Kind.toDoc(meta.kind) + Doc.text(
                   " at: "
@@ -993,6 +1421,7 @@ object PackageError {
                 Doc.text(
                   "this sometimes happens when a function arg has been omitted, or an illegal recursive type or function."
                 )
+            )
 
             (doc, Some(metaR))
 
@@ -1001,9 +1430,37 @@ object PackageError {
             val context = contextDoc(region)
 
             (
+              tmap.withUnknownTypes(
               Doc.text("the type ") + tmap(tpe) + Doc.text(
                 " is not polymorphic enough"
               ) + Doc.hardLine + context,
+              ),
+              Some(region)
+            )
+
+          case Infer.Error.ConstructorArityMismatch(
+                (optPack, cons),
+                expectedArity,
+                foundArity,
+                region
+              ) =>
+            def args(n: Int) =
+              if (n == 0) "no arguments"
+              else if (n == 1) "one argument"
+              else s"$n arguments"
+
+            val constructorName =
+              optPack match {
+                case Some(pn) if pn =!= pack =>
+                  s"${pn.asString}::${cons.sourceCodeRepr}"
+                case _ =>
+                  cons.sourceCodeRepr
+              }
+
+            (
+              Doc.text(
+                s"$constructorName is a constructor that takes ${args(expectedArity)}, but this call passes ${args(foundArity)}."
+              ) + Doc.hardLine + contextDoc(region),
               Some(region)
             )
 
@@ -1140,7 +1597,7 @@ object PackageError {
           singleToDoc(
             s,
             occurrences = 1,
-            evidenceRegions = mismatchEvidenceRegion(s).toList
+            evidenceRegions = mismatchEvidenceRegions(s)
           )
         case c @ Infer.Error.Combine(_, _) =>
           val twoLines = Doc.hardLine + Doc.hardLine
@@ -1225,16 +1682,16 @@ object PackageError {
     }
   }
 
-  case class TotalityCheckError(
+  case class TotalityCheckError[A: HasRegion](
       pack: PackageName,
-      err: TotalityCheck.ExprError[Declaration]
+      err: TotalityCheck.ExprError[A]
   ) extends PackageError {
     def message(
         sourceMap: Map[PackageName, (LocationMap, String)],
         errColor: Colorize
     ) = {
       val (lm, _) = sourceMap.getMapSrc(pack)
-      val region = err.matchExpr.tag.region
+      val region = HasRegion.region(err.matchExpr.tag)
       val context1 =
         lm.showRegion(region, 2, errColor)
           .getOrElse(Doc.str(region.show)) // we should highlight the whole region
@@ -1279,6 +1736,26 @@ object PackageError {
               Doc.char(',') + Doc.lineOrSpace,
               unreachableBranches.toList.map(doc.document(_))
             ))
+        case TotalityCheck.MatchesAlwaysTrue(matchExpr) =>
+          val scrutineeType = matchExpr.arg.getType
+          val showT = showTypes(pack, scrutineeType :: Nil)
+
+          given Document[Type] = Document.instance(showT)
+
+          matchExpr.tag match {
+            case Declaration.Matches(_, pattern, None) =>
+              Doc.text("`matches` pattern covers all values of type ") +
+                Document[Type].document(scrutineeType) +
+                Doc.text(", so this expression is always `True`:") +
+                Doc.hardLine +
+                Document[Pattern.Parsed].document(pattern) +
+                Doc.hardLine +
+                Doc.text(
+                  "use explicit equality if comparison was intended, or a more specific pattern."
+                )
+            case _ =>
+              Doc.text("`matches` expression is always `True`")
+          }
         case TotalityCheck.InvalidPattern(_, err) =>
           import TotalityCheck._
           err match {
@@ -1363,6 +1840,56 @@ object PackageError {
       .render(80)
   }
 
+  private def todoUsageMessage(
+      pack: PackageName,
+      regions: NonEmptyList[Region],
+      sourceMap: Map[PackageName, (LocationMap, String)],
+      errColor: Colorize
+  ): String = {
+    val (lm, _) = sourceMap.getMapSrc(pack)
+    val sorted = regions.toList.distinct.sorted
+    val occurrenceDocs = sorted.map { region =>
+      val context = lm
+        .showRegion(region, 2, errColor)
+        .getOrElse(Doc.str(region.show))
+      Doc.text("temporary `todo` placeholder used here") +
+        Doc.hardLine +
+        context
+    }
+
+    val countDoc =
+      if (sorted.tail.isEmpty) None
+      else Some(Doc.text(s"found ${sorted.length} `todo` placeholders."))
+
+    val hintDoc =
+      Doc.text("How to resolve:") +
+        Doc.hardLine +
+        Doc.intercalate(
+          Doc.hardLine,
+          List(
+            Doc.text("- replace each `todo` with the real implementation"),
+            Doc.text(
+              "- keep using `check --warn` or `check --lax` only while iterating"
+            ),
+            Doc.text(
+              "- remove all `todo` calls before strict `tool check` / `check` or any emit/run command"
+            )
+          )
+        )
+
+    val line2 = Doc.hardLine + Doc.hardLine
+    val packDoc = sourceMap.headLine(pack, Some(sorted.head))
+    val intro =
+      Doc.text(
+        "`todo` is a temporary placeholder. It is only accepted during relaxed `check` runs."
+      )
+
+    (packDoc + (line2 + Doc.intercalate(
+      line2,
+      intro :: occurrenceDocs ::: List(countDoc, Some(hintDoc)).flatten
+    )).nested(2)).render(80)
+  }
+
   case class UnusedLetError(
       pack: PackageName,
       errs: NonEmptyList[(Identifier.Bindable, Region)]
@@ -1383,6 +1910,17 @@ object PackageError {
       )
   }
 
+  case class TodoUsage(
+      pack: PackageName,
+      regions: NonEmptyList[Region]
+  ) extends PackageError {
+    def message(
+        sourceMap: Map[PackageName, (LocationMap, String)],
+        errColor: Colorize
+    ) =
+      todoUsageMessage(pack, regions, sourceMap, errColor)
+  }
+
   case class RecursionError(
       pack: PackageName,
       err: RecursionCheck.Error
@@ -1399,6 +1937,26 @@ object PackageError {
       // TODO use the sourceMap/regions in RecursionError (https://github.com/johnynek/bosatsu/issues/4)
       val packDoc = sourceMap.headLine(pack, Some(err.region))
       val doc = packDoc + Doc.hardLine + Doc.text(errMessage) +
+        Doc.hardLine + ctx + Doc.hardLine
+
+      doc.render(80)
+    }
+  }
+
+  case class RecursionLint(
+      pack: PackageName,
+      lint: RecursionCheck.Lint
+  ) extends PackageError {
+    def message(
+        sourceMap: Map[PackageName, (LocationMap, String)],
+        errColor: Colorize
+    ) = {
+      val (lm, _) = sourceMap.getMapSrc(pack)
+      val ctx = lm
+        .showRegion(lint.region, 2, errColor)
+        .getOrElse(Doc.str(lint.region.show))
+      val packDoc = sourceMap.headLine(pack, Some(lint.region))
+      val doc = packDoc + Doc.hardLine + Doc.text(lint.message) +
         Doc.hardLine + ctx + Doc.hardLine
 
       doc.render(80)
@@ -1481,6 +2039,230 @@ object PackageError {
     }
   }
 
+  case class DuplicateExposes(
+      pack: PackageName,
+      declarations: NonEmptyList[List[PackageName]]
+  ) extends PackageError {
+    def message(
+        sourceMap: Map[PackageName, (LocationMap, String)],
+        errColor: Colorize
+    ) = {
+      val prefix = sourceMap.headLine(pack, None)
+      val declCount = declarations.length
+      val renderedDecls =
+        declarations.toList.flatMap(exposesLineDoc)
+      val body =
+        Doc.text("at most one `exposes` declaration is allowed, but found ") +
+          Doc.text(declCount.toString) +
+          Doc.text(" declarations.") +
+          (
+            if (renderedDecls.isEmpty) Doc.empty
+            else
+              Doc.hardLine +
+                Doc.text("keep exactly one of:") +
+                Doc.hardLine +
+                Doc
+                  .intercalate(
+                    Doc.hardLine,
+                    renderedDecls
+                  )
+                  .nested(2)
+          )
+
+      (prefix + Doc.hardLine + body).render(80)
+    }
+  }
+
+  case class ExposesMismatch(
+      pack: PackageName,
+      declared: List[PackageName],
+      actual: List[PackageName],
+      missingCauses: Map[PackageName, NonEmptyList[String]]
+  ) extends PackageError {
+    def message(
+        sourceMap: Map[PackageName, (LocationMap, String)],
+        errColor: Colorize
+    ) = {
+      val prefix = sourceMap.headLine(pack, None)
+      val (lm, _) = sourceMap.getMapSrc(pack)
+      val missing = actual.filterNot(declared.toSet)
+      val extra = declared.filterNot(actual.toSet)
+      val declaredDoc =
+        declaredExposesRegion(lm.fromString)
+          .flatMap(lm.showRegion(_, 0, errColor))
+          .getOrElse {
+            exposesLineDoc(declared).getOrElse(
+              Doc.text("no `exposes` declaration found.")
+            )
+          }
+      val fixDoc =
+        if (actual.isEmpty)
+          Doc.text("omit `exposes` (equivalent to `exposes ()`).")
+        else
+          canonicalExposesLineDoc(actual).get + Doc.char('.')
+
+      val missingDoc =
+        NonEmptyList.fromList(missing).map { missingNel =>
+          val lines = missingNel.toList.flatMap { dep =>
+            missingCauses.get(dep).map { exports =>
+              val exportWord =
+                if (exports.tail.isEmpty) "export" else "exports"
+              val exportDocs =
+                exports.toList.map(name =>
+                  Doc.char('`') + Doc.text(name) + Doc.char('`')
+                )
+
+              Doc.text(dep.asString) + Doc.text(" escapes via ") +
+                Doc.text(exportWord) + Doc.space +
+                Doc
+                  .intercalate(Doc.text(",") + Doc.lineOrSpace, exportDocs)
+                  .grouped
+            }
+          }
+
+          sectionDoc(
+            "missing declarations:",
+            Doc.intercalate(Doc.hardLine, lines)
+          )
+        }
+
+      val extraDoc =
+        NonEmptyList
+          .fromList(extra)
+          .map(extraNel =>
+            sectionDoc("extra declarations:", exposesSetDoc(extraNel.toList))
+          )
+
+      val sections =
+        List(
+          Some(sectionDoc("declared here:", declaredDoc)),
+          Some(sectionDoc("canonical fix:", fixDoc)),
+          missingDoc,
+          extraDoc
+        ).flatten
+
+      val body =
+        Doc.intercalate(
+          Doc.hardLine + Doc.hardLine,
+          Doc.text("declared `exposes` does not match the exported API.") ::
+            sections
+        )
+
+      (prefix + Doc.hardLine + body).render(80)
+    }
+  }
+
+  private def varianceDoc(v: Variance): Doc =
+    Doc.text(
+      v match {
+        case Variance.Covariant     => "covariant (+)"
+        case Variance.Contravariant => "contravariant (-)"
+        case Variance.Invariant     => "invariant"
+        case Variance.Phantom       => "phantom"
+      }
+    )
+
+  private def inferredVariance(
+      varianceId: Long,
+      constraints: LongMap[NonEmptyList[KindFormula.Constraint]],
+      existing: LongMap[Variance]
+  ): Option[(Variance, Option[KindFormula.Constraint])] = {
+    val fixedByConstraint: List[(Variance, KindFormula.Constraint)] =
+      constraints
+        .get(varianceId)
+        .map(_.toList)
+        .getOrElse(Nil)
+        .collect {
+          case c @ KindFormula.Constraint.DeclaredParam(_, kindArg) =>
+            (kindArg.variance, c: KindFormula.Constraint)
+          case c @ KindFormula.Constraint.DeclaredType(_, _, _, _, kindArg) =>
+            (kindArg.variance, c: KindFormula.Constraint)
+          case c @ KindFormula.Constraint.ImportedConst(_, _, _, _, kindArg) =>
+            (kindArg.variance, c: KindFormula.Constraint)
+          case c @ KindFormula.Constraint.UnifyVariance(_, _, _, variance) =>
+            (variance, c: KindFormula.Constraint)
+        }
+
+    val fixedUnique: Option[(Variance, KindFormula.Constraint)] =
+      fixedByConstraint match {
+        case Nil =>
+          None
+        case (v, c) :: tail
+            if tail.forall { case (v1, _) =>
+              v1 == v
+            } =>
+          Some((v, c))
+        case _ =>
+          None
+      }
+
+    existing.get(varianceId) match {
+      case Some(v) => Some((v, fixedUnique.map(_._2)))
+      case None    => fixedUnique.map { case (v, c) => (v, Some(c)) }
+    }
+  }
+
+  private def unsatisfiableVarianceHint(
+      pack: PackageName,
+      unsat: KindFormula.Error.Unsatisfiable
+  ): Option[Doc] = {
+    val selfType: Type = unsat.dte.toTypeTyConst
+
+    val candidate = unsat.constraints.iterator
+      .flatMap { case (_, constraintsOnView) =>
+        if (constraintsOnView.exists(_.isInstanceOf[KindFormula.Constraint.RecursiveView])) {
+          constraintsOnView.toList.iterator.flatMap {
+            case KindFormula.Constraint.IsProduct(_, argVariance, tapply)
+                if (tapply.arg: Type) == selfType =>
+              inferredVariance(argVariance.id, unsat.constraints, unsat.existing) match {
+                case Some((argVar, _)) if argVar != Variance.co =>
+                  Iterator.single((tapply, argVar))
+                case _ =>
+                  Iterator.empty
+              }
+            case _ =>
+              Iterator.empty
+          }
+        } else Iterator.empty
+      }
+      .take(1)
+      .toList
+      .headOption
+
+    candidate.map { case (tapply, argVariance) =>
+      val shown = showTypes(pack, tapply :: tapply.arg :: Nil)
+      val appDoc = shown(tapply)
+      val argDoc = shown(tapply.arg)
+      val (_, args) = Type.unapplyAll(tapply)
+      val argPos = args.length
+
+      val base =
+        Doc.text("hint: recursive occurrences must be covariant.") +
+          Doc.hardLine +
+          Doc.text("In type application ") +
+          appDoc +
+          Doc.text(", argument #") +
+          Doc.text(argPos.toString) +
+          Doc.text(" (") +
+          argDoc +
+          Doc.text(") is constrained to ") +
+          varianceDoc(argVariance) +
+          Doc.text(
+            ", so this recursive use cannot satisfy the required covariant recursive view."
+          )
+
+      val hkHint =
+        if (argVariance == Variance.Invariant)
+          Doc.hardLine +
+            Doc.text(
+              "For higher-kinded parameters, `f: +* -> *` constrains f's input kind; use `f: +(+* -> *)` to make f itself covariant."
+            )
+        else Doc.empty
+
+      base + hkHint
+    }
+  }
+
   case class KindInferenceError(
       pack: PackageName,
       kindError: KindFormula.Error,
@@ -1491,25 +2273,42 @@ object PackageError {
         errColor: Colorize
     ) = {
       val (lm, _) = sourceMap.getMapSrc(pack)
-      val region = regions(kindError.dt.toTypeConst)
+      val region = regions(kindError.typeDecl.toTypeConst)
       val ctx = lm
         .showRegion(region, 2, errColor)
         .getOrElse(Doc.str(region.show)) // we should highlight the whole region
       val prefix = sourceMap.headLine(pack, Some(region))
+      def typeDeclPrefix(td: rankn.TypeDecl[?], body: String): Doc = {
+        val tdoc = showTypes(pack, td.toTypeTyConst :: Nil)(td.toTypeTyConst)
+        val lead =
+          td match {
+            case _: rankn.TypeAlias[?] => Doc.text("in type alias ")
+            case _                     => Doc.text("in type ")
+          }
+        lead + tdoc + Doc.text(body)
+      }
+
+      def sourceDoc(source: Shape.Source): Doc =
+        source match {
+          case Shape.Source.ConstructorFn(cons) =>
+            Doc.text(s" in the constructor ${cons.name.sourceCodeRepr}")
+          case Shape.Source.AliasBody         =>
+            Doc.text(" in the alias body")
+        }
       val message = kindError match {
-        case KindFormula.Error.Unsatisfiable(_, _, _, _) =>
-          // TODO: would be good to give a more precise problem, e.g. which (https://github.com/johnynek/bosatsu/issues/4)
-          // type parameters are the problem.
-          Doc.text("could not solve for valid variances")
+        case unsat @ KindFormula.Error.Unsatisfiable(_, _, _, _) =>
+          val base = Doc.text("could not solve for valid variances")
+          unsatisfiableVarianceHint(pack, unsat) match {
+            case Some(hint) => base + Doc.hardLine + hint
+            case None       => base
+          }
         case KindFormula.Error.FromShapeError(se) =>
           se match {
-            case Shape.UnificationError(_, cons, left, right) =>
+            case Shape.UnificationError(_, source, left, right) =>
               Doc.text("shape error: expected ") + Shape.shapeDoc(left) + Doc
                 .text(" and ") + Shape.shapeDoc(right) +
-                Doc.text(
-                  s" to match in the constructor ${cons.name.sourceCodeRepr}"
-                ) + Doc.hardLine
-            case Shape.ShapeMismatch(_, cons, outer, tyApp, right) =>
+                Doc.text(" to match") + sourceDoc(source) + Doc.hardLine
+            case Shape.ShapeMismatch(_, source, outer, tyApp, right) =>
               val tmap = showTypes(pack, outer :: tyApp :: Nil)
               val typeDoc =
                 if (outer != (tyApp: Type))
@@ -1517,52 +2316,34 @@ object PackageError {
                 else tmap(outer)
 
               Doc.text("shape error: expected ") + Shape.shapeDoc(right) + Doc
-                .text(" -> ?") + Doc.text(" but found * ") +
-                Doc.text(
-                  s"in the constructor ${cons.name.sourceCodeRepr} inside type "
-                ) +
+                .text(" -> ?") + Doc.text(" but found *") +
+                sourceDoc(source) +
+                Doc.text(" inside type ") +
                 typeDoc +
                 Doc.hardLine
-            case Shape.FinishFailure(dt, left, right) =>
-              val tdoc =
-                showTypes(pack, dt.toTypeTyConst :: Nil)(dt.toTypeTyConst)
-              Doc.text("in type ") + tdoc + Doc.text(
-                " could not unify shapes: "
-              ) + Shape.shapeDoc(left) + Doc.text(" and ") +
+            case Shape.FinishFailure(td, left, right) =>
+              typeDeclPrefix(td, " could not unify shapes: ") +
+                Shape.shapeDoc(left) + Doc.text(" and ") +
                 Shape.shapeDoc(right)
-            case Shape.ShapeLoop(dt, tpe, _) =>
+            case Shape.ShapeLoop(td, tpe, _) =>
               val tpe2 = tpe match {
                 case Left(ap) => ap
                 case Right(v) => Type.TyVar(v)
               }
-              val tdocs = showTypes(pack, dt.toTypeTyConst :: tpe2 :: Nil)
+              val tdocs = showTypes(pack, td.toTypeTyConst :: tpe2 :: Nil)
 
-              Doc.text("in type ") + tdocs(dt.toTypeTyConst) + Doc.text(
-                " cyclic dependency encountered in "
-              ) +
+              typeDeclPrefix(td, " cyclic dependency encountered in ") +
                 tdocs(tpe2)
-            case Shape.UnboundVar(dt, cfn, v) =>
+            case Shape.UnboundVar(td, source, v) =>
               val tpe2 = Type.TyVar(v)
-              val tdocs = showTypes(pack, dt.toTypeTyConst :: tpe2 :: Nil)
-
-              val cfnMsg =
-                if (dt.isStruct) Doc.empty
-                else {
-                  Doc.text(s" in constructor ${cfn.name.sourceCodeRepr} ")
-                }
-              Doc.text("in type ") + tdocs(dt.toTypeTyConst) +
-                Doc.text(" unbound type variable ") + tdocs(tpe2) + cfnMsg
-            case Shape.UnknownConst(dt, cfn, c) =>
+              val tdocs = showTypes(pack, td.toTypeTyConst :: tpe2 :: Nil)
+              typeDeclPrefix(td, " unbound type variable ") + tdocs(tpe2) +
+                sourceDoc(source)
+            case Shape.UnknownConst(td, source, c) =>
               val tpe2 = Type.TyConst(c)
-              val tdocs = showTypes(pack, dt.toTypeTyConst :: tpe2 :: Nil)
-
-              val cfnMsg =
-                if (dt.isStruct) Doc.empty
-                else {
-                  Doc.text(s" in constructor ${cfn.name.sourceCodeRepr} ")
-                }
-              Doc.text("in type ") + tdocs(dt.toTypeTyConst) +
-                Doc.text(" unknown type ") + tdocs(tpe2) + cfnMsg
+              val tdocs = showTypes(pack, td.toTypeTyConst :: tpe2 :: Nil)
+              typeDeclPrefix(td, " unknown type ") + tdocs(tpe2) +
+                sourceDoc(source)
           }
       }
       (prefix + Doc.hardLine + message + Doc.hardLine + ctx).render(80)
@@ -1595,7 +2376,7 @@ object PackageError {
   case class UnusedLets(
       inPack: PackageName,
       unusedLets: NonEmptyList[
-        (Identifier.Bindable, RecursionKind, TypedExpr[Any], Region)
+        (Identifier.Bindable, RecursionKind, Region)
       ]
   ) extends PackageError {
     def message(
@@ -1604,7 +2385,7 @@ object PackageError {
     ) =
       unusedValueMessage(
         inPack,
-        unusedLets.map { case (b, _, _, r) => (b, r) },
+        unusedLets.map { case (b, _, r) => (b, r) },
         sourceMap,
         errColor,
         if (unusedLets.tail.isEmpty) {

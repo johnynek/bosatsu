@@ -1,19 +1,24 @@
 package dev.bosatsu.library
 
 import _root_.bosatsu.{TypedAst => proto}
-import cats.{MonadError, Order, Show}
+import cats.{MonadError, Show}
 import cats.data.{NonEmptyList, StateT}
 import cats.syntax.all._
 import dev.bosatsu.{
+  ExportedName,
   Identifier,
+  Matchless,
+  MatchlessGlobalInlining,
   MatchlessFromTypedExpr,
+  Package,
   PackageName,
   PackageMap,
-  Par
+  Par,
+  Referant
 }
 import dev.bosatsu.codegen.{CompilationNamespace, CompilationSource}
 import dev.bosatsu.hashing.{Algo, Hashed}
-import dev.bosatsu.graph.{Dag, Memoize, Toposort}
+import dev.bosatsu.graph.{CanPromise, Dag, Memoize, Toposort}
 import dev.bosatsu.rankn.Type
 import dev.bosatsu.tool.CliException
 import org.typelevel.paiges.Doc
@@ -41,15 +46,26 @@ case class DecodedLibraryWithDeps[A](
 
   def compile(implicit
       ec: Par.EC
-  ): MatchlessFromTypedExpr.Compiled[(Name, Version)] = {
-    given Order[(Name, Version)] = Order.fromOrdering(using
-      Ordering.Tuple2(using
-        summon[Ordering[Name]],
-        summon[Ordering[Version]]
-      )
+  ): MatchlessFromTypedExpr.Compiled[(Name, Version)] =
+    MatchlessFromTypedExpr.compile(
+      nameVersion,
+      lib.implementations,
+      Matchless.LocalPassOptions.Default
     )
-    MatchlessFromTypedExpr.compile(nameVersion, lib.implementations)
-  }
+
+  def compile(
+      localPassOptions: Matchless.LocalPassOptions
+  )(implicit ec: Par.EC): MatchlessFromTypedExpr.Compiled[(Name, Version)] =
+    MatchlessFromTypedExpr.compile(
+      nameVersion,
+      lib.implementations,
+      localPassOptions
+    )
+
+  def compileRaw(implicit
+      ec: Par.EC
+  ): MatchlessFromTypedExpr.Compiled[(Name, Version)] =
+    MatchlessFromTypedExpr.compileRaw(nameVersion, lib.implementations)
 
   def filterLets(
       keep: ((Name, Version)) => Option[((PackageName, Identifier)) => Boolean]
@@ -70,14 +86,16 @@ object DecodedLibraryWithDeps {
   def decodeAll[F[_]](
       protoLib: Hashed[Algo.Blake3, proto.Library]
   )(load: proto.LibDependency => F[Hashed[Algo.Blake3, proto.Library]])(implicit
-      F: MonadError[F, Throwable]
+      F: MonadError[F, Throwable],
+      C: CanPromise[F]
   ): F[DecodedLibraryWithDeps[Algo.Blake3]] =
     DecodedLibrary.decodeWithDeps(protoLib)(load).flatMap(decodeAll(_)(load))
 
   def decodeAll[F[_]](
       dec: DecodedLibrary[Algo.Blake3]
   )(load: proto.LibDependency => F[Hashed[Algo.Blake3, proto.Library]])(implicit
-      F: MonadError[F, Throwable]
+      F: MonadError[F, Throwable],
+      C: CanPromise[F]
   ): F[DecodedLibraryWithDeps[Algo.Blake3]] = {
     type Key = (Name, Version)
     type Value = DecodedLibraryWithDeps[Algo.Blake3]
@@ -137,7 +155,9 @@ object DecodedLibraryWithDeps {
 
   implicit def decodedLibraryWithDepsCompilationSource[A](implicit
       EC: Par.EC
-  ): CompilationSource[DecodedLibraryWithDeps[A]] =
+  ): CompilationSource[DecodedLibraryWithDeps[A]] {
+    type ScopeKey = (Name, Version)
+  } =
     new CompilationSource[DecodedLibraryWithDeps[A]] {
       type ScopeKey = (Name, Version)
 
@@ -216,17 +236,61 @@ object DecodedLibraryWithDeps {
               depForKey(key)
             }
 
+          private def compileWithMatchlessOptions(
+              localPassOptions: Matchless.LocalPassOptions,
+              enableGlobalInlining: Boolean
+          ): SortedMap[ScopeKey, MatchlessFromTypedExpr.Compiled[ScopeKey]] =
+            if (enableGlobalInlining)
+              MatchlessGlobalInlining.optimize(
+                allDeps
+                  .map { dep =>
+                    (dep.nameVersion, Par.start(dep.compileRaw))
+                  }
+                  .to(SortedMap)
+                  .transform((_, p) => Par.await(p)),
+                topoSort,
+                depFor,
+                localPassOptions
+              )
+            else
+              allDeps
+                .map { dep =>
+                  (dep.nameVersion, dep.compile(localPassOptions))
+                }
+                .to(SortedMap)
+
           lazy val compiled
               : SortedMap[ScopeKey, MatchlessFromTypedExpr.Compiled[ScopeKey]] =
-            allDeps
-              .map { dep =>
-                (dep.nameVersion, Par.start(dep.compile))
-              }
-              .to(SortedMap)
-              .transform((_, p) => Par.await(p))
+            compileWithMatchlessOptions(
+              Matchless.LocalPassOptions.Default,
+              enableGlobalInlining = true
+            )
 
-          lazy val testValues: Map[PackageName, Identifier.Bindable] =
-            a.lib.implementations.testValues
+          def compiledWithMatchlessOptions(
+              localPassOptions: Matchless.LocalPassOptions,
+              enableGlobalInlining: Boolean
+          ): SortedMap[ScopeKey, MatchlessFromTypedExpr.Compiled[ScopeKey]] =
+            compileWithMatchlessOptions(localPassOptions, enableGlobalInlining)
+
+          def exportedValues(
+              packageName: PackageName
+          ): Option[Map[Identifier.Bindable, Type]] =
+            a.lib.implementations.toMap.get(packageName).map { pack =>
+              pack.exports.iterator.collect {
+                case ExportedName.Binding(name, Referant.Value(tpe)) =>
+                  (name, tpe)
+              }.toMap
+            }
+
+          def exportedTestEntry(
+              packageName: PackageName,
+              bindable: Identifier.Bindable
+          ): Option[Package.TestEntry[Any]] =
+            a.lib.implementations.toMap
+              .get(packageName)
+              .flatMap(Package.testEntryForBindable(_, bindable))
+
+          lazy val testEntries = a.lib.implementations.testEntries
 
           def mainValues(
               mainTypeFn: Type => Boolean

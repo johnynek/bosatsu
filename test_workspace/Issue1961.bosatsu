@@ -1,0 +1,19 @@
+package Issue1961
+
+from Bosatsu/List import eq_List
+from Bosatsu/Collection/Array import from_List_Array, to_List_Array
+
+def eq_Int_List(left: List[Int], right: List[Int]) -> Bool:
+  eq_List(eq_Int)(left, right)
+
+def eq_Int_List_List(left: List[List[Int]], right: List[List[Int]]) -> Bool:
+  eq_List(eq_Int_List)(left, right)
+
+roundtrip = [[1, 2], [3], []].map_List(from_List_Array).map_List(to_List_Array)
+
+tests = TestSuite("Issue1961 tests", [
+  Assertion(
+    eq_Int_List_List(roundtrip, [[1, 2], [3], []]),
+    "Array externals can be used as first-class function values"
+  )
+])

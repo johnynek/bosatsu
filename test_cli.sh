@@ -6,6 +6,8 @@ check_lib_eval_output() {
   printf '%s\n' "$output" | grep -Eq '^Main \{ run: <fn arity=1> \}: Bosatsu/Prog::Main$'
 }
 
+./scripts/test_launcher_passthrough.sh
+
 sbt cli/assembly
 time ./bosatsuj tool test \
   --input_dir test_workspace \
@@ -13,14 +15,13 @@ time ./bosatsuj tool test \
   --input test_workspace/Bosatsu/Collection/Array.bosatsu \
   --input test_workspace/Bosatsu/IO/Core.bosatsu \
   --input test_workspace/Bosatsu/IO/Bytes.bosatsu \
-  --input test_workspace/Bosatsu/IO/Std.bosatsu \
-  --package_root test_workspace
+  --input test_workspace/Bosatsu/IO/Std.bosatsu
 
-time ./bosatsuj lib fetch \
+time ./bosatsuj fetch \
   --repo_root . \
   --name core_alpha
 
-ls_output=$(./bosatsuj lib eval \
+ls_output=$(./bosatsuj eval \
   --repo_root . \
   --name core_alpha \
   --main Bosatsu/LsExample \

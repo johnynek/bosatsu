@@ -136,8 +136,8 @@ object Kind {
       case _ => false
     }
 
-  def validApply[A](left: Kind, right: Kind, onTypeErr: => A)(
-      onSubsumeFail: Cons => A
+  final inline def validApply[A](left: Kind, right: Kind, inline onTypeErr: => A)(
+      inline onSubsumeFail: Cons => A
   ): Either[A, Kind] =
     left match {
       case cons @ Cons(Kind.Arg(_, lhs), res) =>

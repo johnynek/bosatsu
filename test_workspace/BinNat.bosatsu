@@ -4,6 +4,7 @@ from Bosatsu/Num/Nat import Nat, Zero as NatZero, Succ as NatSucc, mul2 as mul2_
 
 export (BinNat(), to_Int, to_Nat, to_BinNat, next, add_BinNat, mul2, div2,
   prev, times_BinNat, exp, cmp_BinNat, is_even, sub_BinNat, sub_Option, eq_BinNat, divmod)
+exposes Bosatsu/Num/Nat
 # a natural number with three variants:
 # Zero = 0
 # Odd(n) = 2n + 1
@@ -32,16 +33,12 @@ def to_Nat(b: BinNat) -> Nat:
 
 # Convert a built in integer to a BinNat. <= 0 is converted to 0
 def to_BinNat(n: Int) -> BinNat:
-  # build up a list in reverse of transformations
-  fns = int_loop(n, [], (n, fns) ->
-    is_even = n.and_Int(1) matches 0
-    (hfn, dec) = (bn -> Even(bn), i -> i.sub(1)) if is_even else (bn -> Odd(bn), i -> i)
-    fns = [hfn, *fns]
-    n = n.shift_right_Int(1)
-    (dec(n), fns)
-  )
-  # Now apply all the transformations
-  fns.foldl_List(Zero, (bn, fn) -> fn(bn))
+    recur n:
+        case _ if cmp_Int(n, 0) matches LT | EQ: Zero
+        case _:
+            even = n.and_Int(1) matches 0
+            if even: Even(to_BinNat(n.sub(1).div(2)))
+            else: Odd(to_BinNat(n.div(2)))
 
 def cmp_BinNat(a: BinNat, b: BinNat) -> Comparison:
   recur a:
@@ -76,7 +73,7 @@ def cmp_BinNat(a: BinNat, b: BinNat) -> Comparison:
 # because at the first difference we can stop. In the worst
 # case of equality, the cost is the same.
 def eq_BinNat(a: BinNat, b: BinNat) -> Bool:
-  recur a:
+  loop a:
     case Zero: b matches Zero
     case Odd(n):
       match b:
@@ -292,7 +289,7 @@ def exp(base: BinNat, power: BinNat) -> BinNat:
 def fold_left_BinNat(fn: (a, BinNat) -> a, init: a, cnt: BinNat) -> a:
   # use the Nat as a trick to prove termination
   def loop(init: a, cnt: BinNat, cnt_Nat: Nat) -> a:
-    recur cnt_Nat:
+    loop cnt_Nat:
       case NatZero: init
       case NatSucc(prev_nat):
         cnt = prev(cnt)
@@ -306,7 +303,7 @@ def fold_left_BinNat(fn: (a, BinNat) -> a, init: a, cnt: BinNat) -> a:
 # fibonacci using the fuel pattern
 def fib(b: BinNat) -> BinNat:
     def loop(n: Nat, cur: BinNat, next: BinNat) -> BinNat:
-        recur n:
+        loop n:
             case NatZero: cur
             case NatSucc(n):
                 sum = add_BinNat(cur, next)

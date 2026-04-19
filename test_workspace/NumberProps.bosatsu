@@ -18,8 +18,10 @@ from Bosatsu/Num/Binary import (BinInt, int_to_BinInt, binInt_to_Int, add as add
 
 from Bosatsu/Testing/Properties import (Prop, suite_Prop, forall_Prop, run_Prop)
 from Bosatsu/Rand import (Rand, from_pair, geometric_Int, int_range, map_Rand, prod_Rand)
+from Bosatsu/Loops import range_foldr
 
 export (rand_Int, rand_Nat, rand_BinNat)
+exposes Bosatsu/Num/BinNat, Bosatsu/Num/Nat, Bosatsu/Rand
 
 # Property checks for Nat, BinNat, Int
 
@@ -46,24 +48,8 @@ int_props = suite_Prop(
   ]
 )
 
-def cmp_Comparison(c1: Comparison, c2: Comparison) -> Comparison:
-    match c1:
-        case LT:
-            match c2:
-                case LT: EQ
-                case _: LT
-        case EQ:
-            match c2:
-                case LT: GT
-                case EQ: EQ
-                case GT: LT
-        case GT:
-            match c2:
-                case GT: EQ
-                case _: GT
-
 def exp_Int(base: Int, power: Int) -> Int:
-  int_loop(power, 1, (p, acc) -> (p.sub(1), acc.mul(base)))
+  range_foldr(power, 1, (_, acc) -> acc.mul(base))
 
 small_rand_Nat: Rand[Nat] = int_range(7).map_Rand(int_to_Nat)
 small_rand_BinNat: Rand[BinNat] = int_range(7).map_Rand(int_to_BinNat)

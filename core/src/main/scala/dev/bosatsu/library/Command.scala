@@ -4,7 +4,6 @@ import cats.{Monad, MonoidK}
 import cats.arrow.FunctionK
 import cats.data.{
   Chain,
-  Ior,
   NonEmptyChain,
   NonEmptyList,
   Validated,
@@ -13,18 +12,22 @@ import cats.data.{
 }
 import com.monovore.decline.{Argument, Opts}
 import dev.bosatsu.tool.{
+  CommandSupport,
   CliException,
   CompilerApi,
+  LintMode,
   MarkdownDoc,
   Output,
   PathParseError,
   PathGen,
   PackageResolver,
   ShowEdn,
+  ShowSupport,
   ShowSelection
 }
 import dev.bosatsu.codegen.Transpiler
 import dev.bosatsu.codegen.clang.ClangTranspiler
+import dev.bosatsu.codegen.CompilationSource
 import dev.bosatsu.Parser
 import cats.parse.{Parser => CP}
 import dev.bosatsu.hashing.Algo.WithAlgo.WithAlgoHashValue
@@ -35,10 +38,13 @@ import dev.bosatsu.{
   Identifier,
   Json,
   JsonEncodingError,
-  Package,
+  LocationMap,
   PackageName,
   PackageMap,
+  Par,
+  MatchlessFromTypedExpr,
   PlatformIO,
+  TypeValidator,
   ValueToJson,
   TypeName,
   PredefImpl,
@@ -130,14 +136,17 @@ object Command {
     val privWithout = conf.privateDeps.filterNot(_.name == depName)
     visibility match {
       case DepVisibility.Public =>
-        conf.copy(publicDeps = pubWithout :+ dep, privateDeps = privWithout)
+        conf.copy(public_deps = pubWithout :+ dep, private_deps = privWithout)
       case DepVisibility.Private =>
-        conf.copy(publicDeps = pubWithout, privateDeps = privWithout :+ dep)
+        conf.copy(public_deps = pubWithout, private_deps = privWithout :+ dep)
     }
   }
 
-  def opts[F[_], P](platformIO: PlatformIO[F, P]): Opts[F[Output[P]]] = {
-    import platformIO.{pathArg, moduleIOMonad, showPath, parallelF}
+  def opts[F[_], P](
+      platformIO: PlatformIO[F, P],
+      evalPassthroughArgs: List[String] = Nil
+  ): Opts[F[Output[P]]] = {
+    import platformIO.{canPromiseF, pathArg, moduleIOMonad, showPath, parallelF}
 
     implicit val hashArg: Argument[Algo.WithAlgo[HashValue]] =
       Parser.argFromParser(
@@ -151,7 +160,7 @@ object Command {
       Opts
         .option[P](
           "repo_root",
-          "the path to the root of the repo, if not set, search for .git directory"
+          "the path to the root of the repo, if not set, search for a .git entry"
         )
         .orNone
         .map {
@@ -163,19 +172,43 @@ object Command {
                 case None        =>
                   moduleIOMonad.raiseError(
                     CliException
-                      .Basic("could not find .git directory in parents.")
+                      .Basic("could not find a .git entry in parents.")
                   )
               }
         }
 
     def libsPath(root: P): P = platformIO.resolve(root, "bosatsu_libs.json")
 
+    def parseConfigJson(path: P, jsonString: String): F[Json] =
+      Json.parserFile.parseAll(jsonString) match {
+        case Right(json) => moduleIOMonad.pure(json)
+        case Left(err)   =>
+          val locations = LocationMap(jsonString)
+          val lineColSuffix =
+            locations
+              .toLineCol(err.failedAtOffset)
+              .map { case (line, col) => s":${line + 1}:${col + 1}" }
+              .getOrElse("")
+          val summary = show"config parse failed: $path$lineColSuffix"
+          val parseDoc = Parser.Error.showExpectations(
+            locations,
+            err.expected,
+            Colorize.None
+          )
+          val errDoc = Doc.intercalate(
+            Doc.hardLine,
+            List(Doc.text(summary), parseDoc)
+          )
+          moduleIOMonad.raiseError(CliException(summary, err = errDoc))
+      }
+
     def readJson[A: Json.Reader](path: P, onEmpty: => F[A]): F[A] =
       platformIO.fsDataType(path).flatMap {
         case None                             => onEmpty
         case Some(PlatformIO.FSDataType.File) =>
           platformIO
-            .parseUtf8(path, Json.parserFile)
+            .readUtf8(path)
+            .flatMap(parseConfigJson(path, _))
             .flatMap { json =>
               Json.Reader[A].read(Json.Path.Root, json) match {
                 case Right(a)          => moduleIOMonad.pure(a)
@@ -293,7 +326,7 @@ object Command {
                 } else {
                   val msg =
                     if (libSize == 0) {
-                      "no libraries configured. Run `lib init`"
+                      "no libraries configured. Run `init`"
                     } else {
                       show"more than one library, select one: ${libs.toMap.keys.toList.sorted.mkString(", ")}"
                     }
@@ -365,13 +398,64 @@ object Command {
         )
         .orNone
         .map {
-          case None => { root =>
-            platformIO.resolve(root, ".bosatsuc" :: "cas" :: Nil)
-          }
-          case Some(d) => { _ => d }
+          case Some(d) =>
+            (_: P) => d
+          case None    =>
+            (root: P) => platformIO.resolve(root, ".bosatsuc" :: "cas" :: Nil)
         }
 
-    case class ConfigConf(conf: LibConfig, cas: Cas[F, P], confDir: P) {
+    val compileCacheDirOpt: Opts[P => Option[P]] = {
+      val defaultDirFn: P => Option[P] = (root: P) =>
+        Some(platformIO.resolve(root, ".bosatsuc" :: "infer-cache" :: Nil))
+      val noCacheFn: P => Option[P] = (_: P) => None
+
+      // Shared across top-level library commands that invoke inference/typechecking.
+      // --cache_dir and --no_cache are mutually exclusive via orElse branches.
+      Opts
+        .option[P](
+          "cache_dir",
+          help =
+            "cache directory for compiled package artifacts (default: .bosatsuc/infer-cache in repo root)"
+        )
+        .map { cacheDir =>
+          (_: P) => Some(cacheDir)
+        }
+        .orElse(
+          Opts
+            .flag(
+              "no_cache",
+              help = "disable compiled package artifact cache for this run"
+            )
+            .as(noCacheFn)
+        )
+        .orElse(Opts(defaultDirFn))
+    }
+
+    val lintMode: Opts[LintMode] =
+      Opts
+        .flag(
+          "warn",
+          help =
+            "treat postponable lint diagnostics as warnings for `check` and `test`"
+        )
+        .as(LintMode.Warn)
+        .orElse(
+          Opts
+            .flag(
+              "lax",
+              help =
+                "suppress postponable lint diagnostics for `check` and `test`"
+            )
+            .as(LintMode.Lax)
+        )
+        .orElse(Opts(LintMode.Strict))
+
+    case class ConfigConf(
+        conf: LibConfig,
+        cas: Cas[F, P],
+        confDir: P,
+        gitRoot: P
+    ) {
       private def loadFromCas(
           dep: proto.LibDependency
       ): F[Hashed[Algo.Blake3, proto.Library]] =
@@ -382,7 +466,7 @@ object Command {
               CliException(
                 "missing dep from cas",
                 Doc.text(
-                  show"missing dependency ${dep.name} ${Library.versionOrZero(dep)} in CAS, run `lib fetch`."
+                  show"missing dependency ${dep.name} ${Library.versionOrZero(dep)} in CAS, run `fetch`."
                 )
               )
             )
@@ -419,7 +503,7 @@ object Command {
                         desc
                       )).nested(2)).grouped +
                       Doc.line +
-                      Doc.text("run `lib fetch` to download it.")
+                      Doc.text("run `fetch` to download it.")
                   )
                 )
             }
@@ -446,7 +530,89 @@ object Command {
         publicDepClosureFromCas(cas, startLibs)
 
       private val inputRes =
-        PackageResolver.LocalRoots[F, P](NonEmptyList.one(confDir), None)
+        PackageResolver.ExplicitOnly[F, P]()
+
+      private def parsedPackageMetaFor(
+          path: P
+      ): F[ValidatedNel[PathParseError[P], (PackageName, List[PackageName])]] =
+        PathParseError
+          .parseFile(
+            PackageResolver.headerParserIgnoreRest,
+            path,
+            platformIO
+          )
+          .map(
+            _.map { case (_, (packageName, imports, _, _)) =>
+              (packageName, imports.map(_.pack))
+            }
+          )
+
+      private def failHeaderParseErrors[A](
+          errs: NonEmptyList[PathParseError[P]]
+      ): F[A] = {
+        val messageDocs: List[Doc] =
+          errs.toList.flatMap {
+            case PathParseError.ParseFailure(pf, path) =>
+              val (r, c) = pf.locations.toLineCol(pf.position).get
+              List(
+                Doc.text(s"failed to parse $path:${r + 1}:${c + 1}"),
+                pf.showContext(Colorize.None)
+              )
+            case PathParseError.FileError(path, err) =>
+              err match {
+                case e
+                    if e.getClass.getName == "java.nio.file.NoSuchFileException" =>
+                  // This class isn't present in scalajs, use the String
+                  List(Doc.text(s"file not found: $path"))
+                case _ =>
+                  List(
+                    Doc.text(s"failed to parse $path"),
+                    Doc.text(Option(err.getMessage).getOrElse(err.toString)),
+                    Doc.text(err.getClass.toString)
+                  )
+              }
+          }
+        val errDoc = Doc.intercalate(Doc.hardLine, messageDocs)
+        val messageString = errDoc.render(80)
+        moduleIOMonad.raiseError(CliException(messageString, err = errDoc))
+      }
+
+      private def sourceFileMetadata(
+          inputSrcs: List[P]
+      ): F[List[(P, PackageName, List[PackageName])]] =
+        inputSrcs
+          .traverse(path => parsedPackageMetaFor(path).map(path -> _))
+          .flatMap { parsedBySource =>
+            parsedBySource
+              .traverse { case (path, parsedMeta) =>
+                parsedMeta.map { case (pack, imports) =>
+                  (path, pack, imports)
+                }
+              }
+              .toEither match {
+              case Right(meta) => moduleIOMonad.pure(meta)
+              case Left(errs)  => failHeaderParseErrors(errs)
+            }
+          }
+
+      private def sourcePackages: F[List[PackageName]] =
+        PathGen
+          .recursiveChildren(confDir, ".bosatsu")(platformIO)
+          .read
+          .flatMap(sourceFileMetadata)
+          .map(_.map(_._2).distinct.sorted)
+
+      def validateTestFilterMatches(
+          filterRegexes: NonEmptyList[String],
+          sourcePackageFilter: PackageName => Boolean
+      ): F[Unit] =
+        sourcePackages.flatMap { knownPacks =>
+          if (knownPacks.exists(sourcePackageFilter)) moduleIOMonad.unit
+          else
+            moduleIOMonad.raiseError[Unit](
+              ClangTranspiler.NoPackagesMatchedFilter(filterRegexes, knownPacks)
+            )
+        }
 
       case class CheckState(
           prevThis: Option[DecodedLibrary[Algo.Blake3]],
@@ -459,44 +625,19 @@ object Command {
         def packageMap(
             colorize: Colorize,
             sourcePackageFilter: Option[PackageName => Boolean] = None,
-            compileOptions: CompileOptions
-        ): F[PackageMap.Inferred] =
+            compileOptions: CompileOptions,
+            lintMode: LintMode,
+            compileCacheDirOpt: Option[P] = None
+        ): F[PackageMap.Compiled] =
           PathGen
             .recursiveChildren(confDir, ".bosatsu")(platformIO)
             .read
             .flatMap { inputSrcs =>
-              def parsedPackageMetaFor(
-                  path: P
-              ): F[Option[(PackageName, List[PackageName])]] = {
-                val defaultPack = inputRes.packageNameFor(path)(platformIO)
-                PathParseError
-                  .parseFile(
-                    Package.parser(defaultPack),
-                    path,
-                    platformIO
-                  )
-                  .map {
-                    case Validated.Valid((_, pack)) =>
-                      Some((pack.name, pack.imports.map(_.pack)))
-                    case Validated.Invalid(_)       => None
-                  }
-              }
-
               val selectedInputsF: F[List[P]] = sourcePackageFilter match {
                 case None       => moduleIOMonad.pure(inputSrcs)
                 case Some(keep) =>
-                  val pathPackBySource =
-                    inputSrcs.map(p => (p, inputRes.packageNameFor(p)(platformIO)))
-
-                  inputSrcs
-                    .traverse(p => parsedPackageMetaFor(p).map(p -> _))
-                    .map { parsedBySource =>
-                      val parsedEntries =
-                        parsedBySource.collect {
-                          case (path, Some((pack, imports))) =>
-                            (path, pack, imports)
-                        }
-
+                  sourceFileMetadata(inputSrcs)
+                    .map { parsedEntries =>
                       val importsByPackage =
                         parsedEntries
                           .groupMap(_._2)(_._3)
@@ -521,19 +662,15 @@ object Command {
                         }
 
                       val rootPackages =
-                        (parsedEntries.collect {
+                        parsedEntries.collect {
                           case (_, pack, _) if keep(pack) => pack
-                        } ::: pathPackBySource.collect {
-                          case (_, Some(pack)) if keep(pack) => pack
-                        }).distinct
+                        }.distinct
 
                       val selectedPackages = transitiveClosure(rootPackages, Set.empty)
 
-                      (selectedPackages.iterator.flatMap { pack =>
+                      selectedPackages.iterator.flatMap { pack =>
                         packageToPaths.getOrElse(pack, Nil)
-                      }.toSet ++ pathPackBySource.collect {
-                        case (path, Some(pack)) if selectedPackages(pack) => path
-                      }.toSet).toList
+                      }.toSet.toList
                         .sorted(using platformIO.pathOrdering)
                     }
               }
@@ -543,7 +680,7 @@ object Command {
                   case Some(inputNel) =>
                     platformIO
                       .withEC {
-                        CompilerApi.typeCheck(
+                        CompilerApi.typeCheckWithLintMode(
                           platformIO,
                           inputNel,
                           pubDecodes.flatMap(_.interfaces) ::: privDecodes
@@ -552,7 +689,9 @@ object Command {
                             ),
                           colorize,
                           inputRes,
-                          compileOptions
+                          compileOptions,
+                          lintMode,
+                          compileCacheDirOpt
                         )
                       }
                       .map(_._1)
@@ -583,10 +722,19 @@ object Command {
       def docPackages(
           colorize: Colorize,
           outdir: P,
-          includePredef: Boolean
+          includePredef: Boolean,
+          excludePrivatePackages: Boolean,
+          sourceRepoUrlOpt: Option[String],
+          remoteDocLinksHtml: Boolean,
+          compileCacheDirOpt: Option[P] = None
       ): F[List[(P, Doc)]] =
         for {
           cs <- checkState
+          packageBaseUrls <- moduleIOMonad.fromEither(
+            CommandSupport.dependencyPackageDocBaseUrls(
+              cs.pubDecodes ::: cs.privDecodes
+            )
+          )
           inputSources <- PathGen
             .recursiveChildren(confDir, ".bosatsu")(platformIO)
             .read
@@ -606,32 +754,104 @@ object Command {
               ),
               colorize,
               inputRes,
-              CompileOptions.Default
+              CompileOptions.Default,
+              compileCacheDirOpt
             )
           }
           (compiled, sourcePaths) = checked
+          sourceLinksByPackage = sourceRepoUrlOpt match {
+            case Some(sourceRepoUrl) =>
+              val normalizedRepoUrl =
+                if (sourceRepoUrl.endsWith("/")) sourceRepoUrl
+                else sourceRepoUrl + "/"
+              sourcePaths.toList
+                .foldLeft(Map.empty[PackageName, List[(String, String)]]) {
+                  case (acc, (path, packageName)) =>
+                    platformIO.relativize(gitRoot, path) match {
+                      case Some(relPath) =>
+                        val relPathString =
+                          platformIO.pathToString(relPath).replace('\\', '/')
+                        val sourceLink =
+                          (relPathString, normalizedRepoUrl + relPathString)
+                        acc.updated(
+                          packageName,
+                          sourceLink :: acc.getOrElse(packageName, Nil)
+                        )
+                      case None =>
+                        acc
+                    }
+                }
+                .view
+                .mapValues(_.distinct.sortBy(_._1))
+                .toMap
+            case None =>
+              Map.empty[PackageName, List[(String, String)]]
+          }
+          packageVisibility = compiled.toMap.valuesIterator
+            .filterNot(_.name == PackageName.PredefName)
+            .map { pack =>
+              val visibility =
+                if (conf.exportedPackages.exists(_.accepts(pack.name))) {
+                  MarkdownDoc.PackageVisibility.Exported
+                } else {
+                  MarkdownDoc.PackageVisibility.Private
+                }
+              pack.name -> visibility
+            }
+            .toMap
           compiledPacks = {
             val packs0 = compiled.toMap.values.toList
-            if (includePredef) packs0
-            else packs0.filterNot(_.name == PackageName.PredefName)
+            val packs1 =
+              if (
+                includePredef && !packs0.exists(
+                  _.name == PackageName.PredefName
+                )
+              ) {
+                // If dependencies provide a Predef interface, typecheck may not include
+                // the internal Predef package in `compiled`; include it explicitly so
+                // `--include_predef` still emits local Bosatsu/Predef docs.
+                PackageMap.predefCompiledForMode(CompileOptions.Default.mode) :: packs0
+              } else packs0
+
+            packs1.filter { pack =>
+              if (pack.name == PackageName.PredefName) includePredef
+              else {
+                // We always typecheck all packages above; this only controls emitted docs.
+                val isExported = conf.exportedPackages.exists(_.accepts(pack.name))
+                if (excludePrivatePackages) isExported
+                else true
+              }
+            }
           }
           docs <- MarkdownDoc.generate(
             platformIO,
             compiledPacks,
             sourcePaths.toList,
             outdir,
-            colorize
+            colorize,
+            sourceLinksByPackage,
+            packageBaseUrls,
+            packageVisibility,
+            remoteDocLinksHtml
           )
         } yield docs
 
       def check(
           colorize: Colorize,
           sourcePackageFilter: Option[PackageName => Boolean] = None,
-          compileOptions: CompileOptions
+          compileOptions: CompileOptions,
+          lintMode: LintMode,
+          compileCacheDirOpt: Option[P] = None
       ): F[LibConfig.ValidationResult] =
         for {
           cs <- checkState
-          allPacks <- cs.packageMap(colorize, sourcePackageFilter, compileOptions)
+          allPacks <- cs.packageMap(
+            colorize,
+            sourcePackageFilter,
+            compileOptions,
+            lintMode,
+            compileCacheDirOpt
+          )
           res <- sourcePackageFilter match {
             case None =>
               val validated = conf.validate(
@@ -650,11 +870,19 @@ object Command {
 
       def decodedWithDeps(
           colorize: Colorize,
-          compileOptions: CompileOptions
+          compileOptions: CompileOptions,
+          lintMode: LintMode,
+          compileCacheDirOpt: Option[P] = None
       ): F[DecodedLibraryWithDeps[Algo.Blake3]] =
         for {
           cs <- checkState
-          allPacks <- cs.packageMap(colorize, None, compileOptions)
+          allPacks <- cs.packageMap(
+            colorize,
+            None,
+            compileOptions,
+            lintMode,
+            compileCacheDirOpt
+          )
           validated = conf.validate(
             cs.prevThis,
             allPacks.toMap.values.toList,
@@ -673,21 +901,25 @@ object Command {
       def decodedWithDepsFiltered(
           colorize: Colorize,
           sourcePackageFilter: PackageName => Boolean,
-          compileOptions: CompileOptions
+          compileOptions: CompileOptions,
+          lintMode: LintMode,
+          compileCacheDirOpt: Option[P] = None
       ): F[DecodedLibraryWithDeps[Algo.Blake3]] =
         for {
           cs <- checkState
           allPacks <- cs.packageMap(
             colorize,
             Some(sourcePackageFilter),
-            compileOptions
+            compileOptions,
+            lintMode,
+            compileCacheDirOpt
           )
           decWithLibs <- decodedWithDepsFromPackages(cs, allPacks, Nil)
         } yield decWithLibs
 
       private def decodedWithDepsFromPackages(
           cs: CheckState,
-          allPacks: PackageMap.Inferred,
+          allPacks: PackageMap.Compiled,
           unusedTransitiveDeps: List[proto.LibDependency]
       ): F[DecodedLibraryWithDeps[Algo.Blake3]] =
         for {
@@ -731,7 +963,7 @@ object Command {
                           Doc.text(
                             s"missing ${dep.name} $version"
                           ) + Doc.line + Doc.text(
-                            "run `lib fetch` to insert these libraries into the cas."
+                            "run `fetch` to insert these libraries into the cas."
                           )
                         )
                       )
@@ -743,24 +975,41 @@ object Command {
 
       def decodedWithDepsFilteredForTest(
           colorize: Colorize,
-          sourcePackageFilter: PackageName => Boolean
+          sourcePackageFilter: PackageName => Boolean,
+          lintMode: LintMode,
+          compileCacheDirOpt: Option[P] = None
       ): F[DecodedLibraryWithDeps[Algo.Blake3]] =
         decodedWithDepsFiltered(
           colorize,
           sourcePackageFilter,
-          CompileOptions.Default
+          CompileOptions.Default,
+          lintMode,
+          compileCacheDirOpt
         )
 
       def build(
           colorize: Colorize,
           trans: Transpiler.Optioned[F, P],
-          sourcePackageFilter: Option[PackageName => Boolean] = None
+          sourcePackageFilter: Option[PackageName => Boolean] = None,
+          lintMode: LintMode,
+          compileCacheDirOpt: Option[P] = None
       ): F[Doc] =
         for {
           decWithLibs <- sourcePackageFilter match {
-            case None         => decodedWithDeps(colorize, CompileOptions.Default)
+            case None         =>
+              decodedWithDeps(
+                colorize,
+                CompileOptions.Default,
+                lintMode,
+                compileCacheDirOpt
+              )
             case Some(filter) =>
-              decodedWithDepsFilteredForTest(colorize, filter)
+              decodedWithDepsFilteredForTest(
+                colorize,
+                filter,
+                lintMode,
+                compileCacheDirOpt
+              )
           }
           outputs <- platformIO.withEC {
             trans.renderAll(decWithLibs)
@@ -770,13 +1019,19 @@ object Command {
           }
         } yield Doc.empty
 
-      def buildLibrary(vcsIdent: String, colorize: Colorize): F[proto.Library] =
+      def buildLibrary(
+          vcsIdent: String,
+          colorize: Colorize,
+          compileCacheDirOpt: Option[P] = None
+      ): F[proto.Library] =
         for {
           cs <- checkState
           allPacks <- cs.packageMap(
             colorize,
             None,
-            CompileOptions.Default
+            CompileOptions.Default,
+            LintMode.Strict,
+            compileCacheDirOpt = compileCacheDirOpt
           )
           validated = conf.assemble(
             vcsIdent = vcsIdent,
@@ -815,7 +1070,7 @@ object Command {
               CliException(
                 "missing dep from cas",
                 Doc.text(
-                  show"missing public dependency $name $version in CAS, run `lib fetch`."
+                  show"missing public dependency $name $version in CAS, run `fetch`."
                 )
               )
             )
@@ -885,7 +1140,7 @@ object Command {
             conf <- readLibConf(name, confPath(confDir, name))
             casDir = casDirFn(gitRoot)
             cas = new Cas(casDir, platformIO)
-          } yield ConfigConf(conf, cas, confDir)
+          } yield ConfigConf(conf, cas, confDir, gitRoot)
         }
     }
 
@@ -988,8 +1243,8 @@ object Command {
                   )
                 else moduleIOMonad.unit
               conf1 = cc.conf.copy(
-                publicDeps = pubRemoved,
-                privateDeps = privRemoved
+                public_deps = pubRemoved,
+                private_deps = privRemoved
               )
               out = confOutput(cc.confDir, conf1)
             } yield (out: Output[P])
@@ -1256,7 +1511,7 @@ object Command {
                             DecodedLibrary[Algo.Blake3]
                           ]](
                             CliException.Basic(
-                              "missing previous public deps from CAS; run `lib fetch`, pass --dep for these libraries, or use --fetch-prev-deps to download them."
+                              "missing previous public deps from CAS; run `fetch`, pass --dep for these libraries, or use --fetch-prev-deps to download them."
                             )
                           )
                         }
@@ -1349,7 +1604,7 @@ object Command {
                 case None =>
                   moduleIOMonad.raiseError[List[proto.LibDependency]](
                     CliException.Basic(
-                      show"previous library ${dep.name} not found in CAS, run `lib fetch`."
+                      show"previous library ${dep.name} not found in CAS, run `fetch`."
                     )
                   )
               }
@@ -1373,16 +1628,30 @@ object Command {
         "check all the code, but do not build the final output library (faster than build)."
       ) {
         val sourceFilterOpt: Opts[Option[PackageName => Boolean]] =
-          ClangTranspiler.Mode.testOpts[F](Opts(false)).map(_.filter)
+          ClangTranspiler.Mode.testFilterOpts
 
-        (ConfigConf.opts, sourceFilterOpt, Colorize.optsConsoleDefault).mapN {
-          (fcc, sourceFilter, colorize) =>
+        (
+          ConfigConf.opts,
+          sourceFilterOpt,
+          lintMode,
+          compileCacheDirOpt,
+          Colorize.optsConsoleDefault
+        ).mapN { (fcc, sourceFilter, lintMode, cacheDirFn, colorize) =>
             for {
               cc <- fcc
+              cacheDir = cacheDirFn(cc.gitRoot)
+              compileOptions =
+                lintMode match {
+                  case LintMode.Strict          => CompileOptions.NoOptimize
+                  case LintMode.Warn | LintMode.Lax =>
+                    CompileOptions.TypeCheckOnly
+                }
               _ <- cc.check(
                 colorize,
                 sourceFilter,
-                CompileOptions.TypeCheckOnly
+                compileOptions,
+                lintMode,
+                cacheDir
               )
               msg = Doc.text("")
             } yield (Output.Basic(msg, None): Output[P])
@@ -1487,22 +1756,28 @@ object Command {
             )
             .orFalse,
           Opts.arguments[String]("arg").orEmpty,
+          compileCacheDirOpt,
           Colorize.optsConsoleDefault
-        ).mapN { (fcc, target, runMain, runArgs, colorize) =>
+        ).mapN { (fcc, target, runMain, positionalRunArgs, cacheDirFn, colorize) =>
           def toCliException(ex: Throwable): Throwable =
             CliException.Basic(Option(ex.getMessage).getOrElse(ex.toString))
+
+          val effectiveRunArgs = positionalRunArgs ::: evalPassthroughArgs
 
           val sourcePackageFilter: PackageName => Boolean =
             _ == target._1
 
           for {
             cc <- fcc
+            cacheDir = cacheDirFn(cc.gitRoot)
             out <- platformIO.withEC {
               for {
                 dec <- cc.decodedWithDepsFiltered(
                   colorize,
                   sourcePackageFilter,
-                  CompileOptions.Default
+                  CompileOptions.Default,
+                  LintMode.Strict,
+                  compileCacheDirOpt = cacheDir
                 )
                 ev = LibraryEvaluation(dec, BosatsuPredef.evalExternals)
                 (scope, value, tpe) <- moduleIOMonad.fromEither {
@@ -1515,7 +1790,12 @@ object Command {
                 out <- if (runMain) {
                   if (tpe == progMainType) {
                     val run =
-                      memoE.map(PredefImpl.runProgMain(_, runArgs))
+                      memoE.map(
+                        PredefImpl.runProgMainWithSystemStdin(
+                          _,
+                          PredefImpl.evalRunArgs(effectiveRunArgs)
+                        )
+                      )
                     moduleIOMonad.pure(Output.RunMainResult(run): Output[P])
                   } else {
                     val actual =
@@ -1526,7 +1806,7 @@ object Command {
                       )
                     )
                   }
-                } else if (runArgs.nonEmpty) {
+                } else if (effectiveRunArgs.nonEmpty) {
                   moduleIOMonad.raiseError(
                     CliException.Basic("trailing args require --run")
                   )
@@ -1557,6 +1837,88 @@ object Command {
         "show fully type-checked packages from this library or dependency tree (EDN by default; JSON with --json)"
       ) {
         import ShowSelection.{typeArgument, valueArgument}
+        import ShowSupport.{matchlessPassArgument, showIrArgument, typedPassArgument}
+
+        val irOpt =
+          Opts
+            .option[Output.ShowIr](
+              "ir",
+              help = "which IR to render: typedexpr or matchless"
+            )
+            .withDefault(Output.ShowIr.TypedExpr)
+
+        val disableTypedPassOpt =
+          Opts
+            .options[CompileOptions.TypedPass](
+              "disable-typed-pass",
+              help =
+                "disable a typed pass: loop-recur-lowering, normalize, discard-unused"
+            )
+            .orEmpty
+            .map(_.toSet)
+
+        val disableMatchlessPassOpt =
+          Opts
+            .options[dev.bosatsu.Matchless.Pass](
+              "disable-matchless-pass",
+              help =
+                "disable a Matchless pass: hoist-invariant-loop-lets, reuse-constructors, global-inlining"
+            )
+            .orEmpty
+            .map(_.toSet)
+
+        def defsInOriginalOrder[A](
+            pack: dev.bosatsu.Package.Typed[Any],
+            lets: List[(dev.bosatsu.Identifier.Bindable, A)]
+        ): List[(dev.bosatsu.Identifier.Bindable, A)] = {
+          val byName = lets.toMap
+          pack.lets.flatMap { case (name, _, _) =>
+            byName.get(name).map(name -> _)
+          }
+        }
+
+        def matchlessShowValue(
+            request: ShowSupport.Request,
+            dec: DecodedLibraryWithDeps[Algo.Blake3],
+            selectedPacks: List[dev.bosatsu.Package.Typed[Any]]
+        )(implicit ec: Par.EC): Output.ShowValue.Matchless = {
+          val localPassOptions = request.matchlessPassOptions.localPassOptions
+
+          if (request.matchlessPassOptions.enableGlobalInlining) {
+            val namespace =
+              CompilationSource
+                .namespace[DecodedLibraryWithDeps[Algo.Blake3], (Name, Version)](
+                  dec
+                )
+                .treeShake(ShowSupport.matchlessRoots(selectedPacks))
+            val compiled =
+              namespace.compiledWithMatchlessOptions(
+                localPassOptions,
+                enableGlobalInlining = true
+              )
+
+            ShowSupport.matchlessShowValue(selectedPacks, request, pack => {
+              val scope = namespace.depFor(namespace.rootKey, pack.name)
+              val lets =
+                compiled
+                  .get(scope)
+                  .flatMap(_.get(pack.name))
+                  .getOrElse(Nil)
+              defsInOriginalOrder(pack, lets)
+            })
+          } else {
+            val compiled =
+              MatchlessFromTypedExpr.compile(
+                (),
+                PackageMap.fromIterable(selectedPacks),
+                localPassOptions
+              )
+
+            ShowSupport.matchlessShowValue(selectedPacks, request, pack =>
+              defsInOriginalOrder(pack, compiled.getOrElse(pack.name, Nil))
+            )
+          }
+        }
 
         (
           ConfigConf.opts,
@@ -1587,6 +1949,12 @@ object Command {
             .orFalse,
           Opts
             .flag(
+              "package-names",
+              help = "show only package names in package entries"
+            )
+            .orFalse,
+          Opts
+            .flag(
               "no-opt",
               help = "disable normalization/optimization to inspect typed expressions before optimization"
             )
@@ -1597,7 +1965,18 @@ object Command {
               help = "emit JSON instead of EDN for easier machine parsing"
             )
             .orFalse,
+          Opts
+            .flag(
+              "validate-typedexpr",
+              help =
+                "run the TypedExpr TypeValidator on the shown packages before rendering; fails on invalid TypedExpr IR"
+            )
+            .orFalse,
+          irOpt,
+          disableTypedPassOpt,
+          disableMatchlessPassOpt,
           Opts.option[P]("output", help = "output path").orNone,
+          compileCacheDirOpt,
           Colorize.optsConsoleDefault
         ).mapN {
           (
@@ -1606,52 +1985,115 @@ object Command {
               types,
               values,
               externalsOnly,
+              packageNamesOnly,
               noOpt,
               jsonOut,
+              validateTypedExpr,
+              ir,
+              disabledTypedPasses,
+              disabledMatchlessPasses,
               output,
+              cacheDirFn,
               colorize
           ) =>
-          val compileOptions =
-            if (noOpt) CompileOptions.NoOptimize else CompileOptions.Default
-          val request =
+          val selection =
             ShowSelection.Request(packages, types, values, externalsOnly)
+          val showRequest =
+            ShowSupport
+              .request(
+                selection,
+                ir,
+                noOpt,
+                disabledTypedPasses,
+                disabledMatchlessPasses,
+                packageNamesOnly = packageNamesOnly,
+                validateTypedExpr = validateTypedExpr
+              )
+              .toEither
+              .leftMap(errs => CliException.Basic(errs.toList.mkString("\n")))
           val sourceFilterOpt =
-            if (request.isEmpty) None
+            if (selection.isEmpty) None
             else {
-              val requestedSet = request.requestedPackages.toSet
+              val requestedSet = selection.requestedPackages.toSet
               Some((pn: PackageName) => requestedSet(pn))
             }
           for {
             cc <- fcc
+            cacheDir = cacheDirFn(cc.gitRoot)
             out <- platformIO.withEC {
               for {
+                request <- moduleIOMonad.fromEither(showRequest)
                 dec <- sourceFilterOpt match {
                   case None =>
-                    cc.decodedWithDeps(colorize, compileOptions)
+                    cc.decodedWithDeps(
+                      colorize,
+                      request.compileOptions,
+                      LintMode.Strict,
+                      compileCacheDirOpt = cacheDir
+                    )
                   case Some(sourceFilter) =>
                     cc.decodedWithDepsFiltered(
                       colorize,
                       sourceFilter,
-                      compileOptions
+                      request.compileOptions,
+                      LintMode.Strict,
+                      compileCacheDirOpt = cacheDir
                     )
                 }
                 ev = LibraryEvaluation(dec, BosatsuPredef.jvmExternals)
                 requestedPackages =
-                  if (request.isEmpty) Nil else request.requestedPackages
-                packs0 <- moduleIOMonad.fromEither(
+                  if (request.selection.isEmpty) Nil
+                  else request.selection.requestedPackages
+                packs0Scoped <- moduleIOMonad.fromEither(
                   ev
-                    .packagesForShowEither(requestedPackages)
+                    .packagesForShowScopedEither(requestedPackages)
                     .leftMap(evalLookupError)
                 )
+                packs0 = packs0Scoped.map(_._2)
                 packs <- moduleIOMonad.fromEither(
                   ShowSelection
-                    .selectPackages(packs0, request)
+                    .selectPackages(packs0, request.selection)
                     .leftMap(CliException.Basic(_))
                 )
+                selectedPackNames = packs.iterator.map(_.name).toSet
+                selectedScoped =
+                  packs0Scoped.filter { case (_, pack) =>
+                    selectedPackNames(pack.name)
+                  }
+                _ <-
+                  if (request.validateTypedExpr)
+                    moduleIOMonad.fromEither(
+                      TypeValidator
+                        .validationFailureMessage(
+                          "show typedexpr",
+                          selectedScoped
+                            .map { case (scope, pack) =>
+                              TypeValidator.validatePackagesInEnv(
+                                pack :: Nil,
+                                ev.packagesForValidationOf(scope, pack),
+                                "show typedexpr"
+                              )
+                            }
+                            .sequence_
+                        )
+                        .toLeft(())
+                        .leftMap(CliException.Basic(_))
+                    )
+                  else moduleIOMonad.unit
+                showValue =
+                  request.ir match {
+                    case Output.ShowIr.TypedExpr =>
+                      ShowSupport.typedShowValue(packs, Nil, request)
+                    case Output.ShowIr.Matchless =>
+                      matchlessShowValue(request, dec, packs)
+                  }
               } yield (
                 if (jsonOut)
-                  Output.JsonOutput(ShowEdn.showJson(packs, Nil), output)
-                else Output.ShowOutput(packs, Nil, output): Output[P]
+                  Output.JsonOutput(
+                    ShowEdn.showJson(showValue),
+                    output
+                  )
+                else Output.ShowOutput(showValue, output): Output[P]
               )
             }
           } yield out
@@ -1672,11 +2114,50 @@ object Command {
               help = "include Bosatsu/Predef in generated docs"
             )
             .orFalse,
+          Opts
+            .flag(
+              "exclude_private_packages",
+              help = "exclude docs for non-exported packages in this library"
+            )
+            .orFalse,
+          Opts
+            .option[String](
+              "source_repo_url",
+              help =
+                "optional URL to the repo root used to generate source code links in docs"
+            )
+            .orNone,
+          Opts
+            .flag(
+              "remote_doc_links_html",
+              help =
+                "rewrite dependency doc links from `.md` to `.html` for links resolved via `doc_base_url`"
+            )
+            .orFalse,
+          compileCacheDirOpt,
           Colorize.optsConsoleDefault
-        ).mapN { (fcc, outdir, includePredef, colorize) =>
+        ).mapN {
+          (
+              fcc,
+              outdir,
+              includePredef,
+              excludePrivatePackages,
+              sourceRepoUrlOpt,
+              remoteDocLinksHtml,
+              cacheDirFn,
+              colorize
+          ) =>
           for {
             cc <- fcc
-            docs <- cc.docPackages(colorize, outdir, includePredef)
+            docs <- cc.docPackages(
+              colorize,
+              outdir,
+              includePredef,
+              excludePrivatePackages,
+              sourceRepoUrlOpt,
+              remoteDocLinksHtml,
+              cacheDirFn(cc.gitRoot)
+            )
           } yield (Output.TranspileOut(docs): Output[P])
         }
       }
@@ -1745,8 +2226,9 @@ object Command {
             .orFalse,
           mainOpt,
           outputOpt,
+          compileCacheDirOpt,
           Colorize.optsConsoleDefault
-        ).mapN { (fcc, mode, yamlOut, target, output, colorize) =>
+        ).mapN { (fcc, mode, yamlOut, target, output, cacheDirFn, colorize) =>
           def showError[A](prefix: String, str: String, idx: Int): F[A] = {
             val errMsg0 = str.substring(idx + 1)
             val errMsg =
@@ -1820,9 +2302,15 @@ object Command {
 
           for {
             cc <- fcc
+            cacheDir = cacheDirFn(cc.gitRoot)
             out <- platformIO.withEC {
               for {
-                dec <- cc.decodedWithDeps(colorize, CompileOptions.Default)
+                dec <- cc.decodedWithDeps(
+                  colorize,
+                  CompileOptions.Default,
+                  LintMode.Strict,
+                  compileCacheDirOpt = cacheDir
+                )
                 ev = LibraryEvaluation(dec, BosatsuPredef.jvmExternals)
                 evaluated <- moduleIOMonad.fromEither {
                   target match {
@@ -1992,14 +2480,6 @@ object Command {
             help = "name of output c code file.",
             short = "o"
           )
-
-        val outDirOrFileOpt: Opts[Ior[P, P]] =
-          (Transpiler.outDir[P], outFileOpt.orNone)
-            .mapN {
-              case (outDir, Some(outFile)) => Ior.both(outDir, outFile)
-              case (outDir, None)          => Ior.left(outDir)
-            }
-            .orElse(outFileOpt.map(Ior.right(_)))
         val ccFlagsOpt =
           Opts
             .options[String](
@@ -2021,7 +2501,8 @@ object Command {
 
         val outputSpecOpt: Opts[(Option[P], ClangTranspiler.Output[F, P])] =
           (
-            outDirOrFileOpt,
+            Transpiler.outDir[P].orNone,
+            outFileOpt.orNone,
             Opts("output.c").mapValidated(platformIO.path(_)),
             (
               Opts.option[P](
@@ -2033,41 +2514,33 @@ object Command {
             ).tupled.orNone,
             ccFlagsOpt,
             ccLibsOpt
-          ).mapN { (outDirOrFile, defaultOut, exeOut, ccFlags, ccLibs) =>
-            outDirOrFile match {
-              case Ior.Left(outDir) =>
+          ).tupled.mapValidated {
+            case (outDirOpt, outOpt, defaultOut, exeOut, ccFlags, ccLibs) =>
+            if (outDirOpt.isDefined || outOpt.isDefined || exeOut.isDefined) {
+              val (cOut, cOutRelativeToOutDir) =
+                outOpt match {
+                  case Some(out) => (out, false)
+                  case None      => (defaultOut, true)
+                }
+
+              Validated.validNel(
                 (
-                  Some(outDir),
+                  outDirOpt,
                   ClangTranspiler.Output(
-                    defaultOut,
-                    cOutRelativeToOutDir = true,
+                    cOut = cOut,
+                    cOutRelativeToOutDir = cOutRelativeToOutDir,
                     exeOut = exeOut,
+                    // If --outdir is omitted, we compile in a temp dir but keep -e relative to cwd.
+                    exeOutRelativeToOutDir = outDirOpt.isDefined,
                     ccFlags = ccFlags,
                     ccLibs = ccLibs
                   )
                 )
-              case Ior.Both(outDir, out) =>
-                (
-                  Some(outDir),
-                  ClangTranspiler.Output(
-                    out,
-                    cOutRelativeToOutDir = false,
-                    exeOut = exeOut,
-                    ccFlags = ccFlags,
-                    ccLibs = ccLibs
-                  )
-                )
-              case Ior.Right(out) =>
-                (
-                  None,
-                  ClangTranspiler.Output(
-                    out,
-                    cOutRelativeToOutDir = false,
-                    exeOut = exeOut,
-                    ccFlags = ccFlags,
-                    ccLibs = ccLibs
-                  )
-                )
+              )
+            } else {
+              Validated.invalidNel(
+                "expected one of --outdir, -o/--output, -e/--exe_out"
+              )
             }
           }
 
@@ -2076,12 +2549,23 @@ object Command {
             ConfigConf.opts,
             mainPack,
             outputSpecOpt,
+            compileCacheDirOpt,
             ClangTranspiler.EmitMode.opts,
             ClangTranspiler.GenExternalsMode.opts
           ).tupled
 
         (buildArgs, Colorize.optsConsoleDefault).mapN {
-          case ((fcc, mainPackOpt, (outDirOpt, output), emit, gen), colorize) =>
+          case (
+                (
+                  fcc,
+                  mainPackOpt,
+                  (outDirOpt, output),
+                  cacheDirFn,
+                  emit,
+                  gen
+                ),
+                colorize
+              ) =>
             def mode(cc: ConfigConf): F[ClangTranspiler.Mode[F]] =
               mainPackOpt match {
                 case Some(m) =>
@@ -2120,7 +2604,12 @@ object Command {
                     platformIO
                   )
                 }
-                msg <- cc.build(colorize, trans)
+                msg <- cc.build(
+                  colorize,
+                  trans,
+                  lintMode = LintMode.Strict,
+                  compileCacheDirOpt = cacheDirFn(cc.gitRoot)
+                )
               } yield (Output.Basic(msg, None): Output[P])
 
             outDirOpt match {
@@ -2164,9 +2653,10 @@ object Command {
             ccLibsOpt
           ).mapN { (o, e, conf, ccFlags, ccLibs) =>
             ClangTranspiler.Output(
-              o,
+              cOut = o,
               cOutRelativeToOutDir = true,
-              Some((e, conf)),
+              exeOut = Some((e, conf)),
+              exeOutRelativeToOutDir = true,
               ccFlags = ccFlags,
               ccLibs = ccLibs
             )
@@ -2177,14 +2667,16 @@ object Command {
             ConfigConf.opts,
             // we want to run the test after generating it
             ClangTranspiler.Mode.testOpts[F](executeOpts = Opts(true)),
+            lintMode,
             clangOut,
             ClangTranspiler.EmitMode.opts,
             ClangTranspiler.GenExternalsMode.opts,
+            compileCacheDirOpt,
             Transpiler.outDir[P].orNone
           ).tupled
 
         (testArgs, Colorize.optsConsoleDefault).mapN {
-          case ((fcc, test, out, emit, gen, outDirOpt), colorize) =>
+          case ((fcc, test, lintMode, out, emit, gen, cacheDirFn, outDirOpt), colorize) =>
             def runtimePreflight(
                 output: ClangTranspiler.Output[F, P]
             ): F[ClangTranspiler.Output[F, P]] =
@@ -2202,7 +2694,7 @@ object Command {
                       val detail = Option(err.getMessage).getOrElse(err.toString)
                       moduleIOMonad.raiseError(
                         CliException.Basic(
-                          show"runtime readiness preflight failed before running `lib test`.\n\n$detail"
+                          show"runtime readiness preflight failed before running `test`.\n\n$detail"
                         )
                       )
                   }
@@ -2211,6 +2703,16 @@ object Command {
             def useOutDir(outDir: P): F[Output[P]] = {
               for {
                 preflightOut <- runtimePreflight(out)
+                cc <- fcc
+                _ <- test.selection match {
+                  case ClangTranspiler.Mode.Test.SelectionMode.ByFilter(
+                        filterRegexes,
+                        Some(sourcePackageFilter)
+                      ) =>
+                    cc.validateTestFilterMatches(filterRegexes, sourcePackageFilter)
+                  case _ =>
+                    moduleIOMonad.unit
+                }
                 trans = Transpiler.optioned(ClangTranspiler) {
                   ClangTranspiler.Arguments(
                     test,
@@ -2221,9 +2723,14 @@ object Command {
                     platformIO
                   )
                 }
-                cc <- fcc
                 // build is the same as test, Transpiler controls the difference
-                msg <- cc.build(colorize, trans, test.filter)
+                msg <- cc.build(
+                  colorize,
+                  trans,
+                  test.sourceFilter,
+                  lintMode,
+                  cacheDirFn(cc.gitRoot)
+                )
               } yield (Output.Basic(msg, None): Output[P])
             }
 
@@ -2259,80 +2766,125 @@ object Command {
           Colorize.optsConsoleDefault,
           gitShaOpt,
           Transpiler.outDir[P],
+          compileCacheDirOpt,
           Opts
             .option[String](
               long = "uri-base",
               short = "u",
               help = "uri prefix where all the libraries will be accessible."
             )
-            .orNone
-        ).mapN { (readGitLibs, casDirFn, colorize, gitShaF, outDir, uriBaseOpt) =>
+            .orNone,
+          Opts
+            .flag(
+              "dry-run",
+              help =
+                "run publish validations and emit libraries without mutating config files or CAS"
+            )
+            .orFalse
+        ).mapN {
+          (
+              readGitLibs,
+              casDirFn,
+              colorize,
+              gitShaF,
+              outDir,
+              cacheDirFn,
+              uriBaseOpt,
+              dryRun
+          ) =>
           for {
             gitRootlibs <- readGitLibs
             gitSha <- gitShaF
             (gitRoot, libs) = gitRootlibs
             casDir = casDirFn(gitRoot)
             cas = new Cas(casDir, platformIO)
-            allLibs <- libs.transform { case (name, (conf, path)) =>
-              val cc = ConfigConf(conf, cas, path)
-              val libOut: P = libraryPath(outDir, name, conf.nextVersion)
-              for {
-                protoLib <- cc.buildLibrary(vcsIdent = gitSha, colorize)
-                hashedLib = Hashed(
-                  Algo[Algo.Blake3].hashBytes(protoLib.toByteArray),
-                  protoLib
-                )
-                _ <- cas.putIfAbsent(hashedLib)
-              } yield (hashedLib, libOut, cc)
-            }.parSequence
-            // if we get here, we have successfully built all the libraries, now update the libconfig
-            // and mutate those
-            confOuts = allLibs.values.iterator.map { case (hashedLib, _, cc) =>
-              val uris = uriBaseOpt match {
-                case None          => Nil
-                case Some(uriBase) =>
-                  val uriBase1 =
-                    if (uriBase.endsWith("/")) uriBase else s"${uriBase}/"
-                  val uri = uriBase1 + Library.defaultFileName(
-                    cc.conf.name,
-                    cc.conf.nextVersion
-                  )
+            cacheDirOpt = cacheDirFn(gitRoot)
+            out <- {
+              def publishAll(
+                  compileCacheDirOpt: Option[P]
+              ): F[Output[P]] =
+                libs.transform { case (name, (conf, path)) =>
+                  val cc = ConfigConf(conf, cas, path, gitRoot)
+                  val libOut: P = libraryPath(outDir, name, conf.nextVersion)
+                  for {
+                    protoLib <- cc.buildLibrary(
+                      vcsIdent = gitSha,
+                      colorize = colorize,
+                      compileCacheDirOpt = compileCacheDirOpt
+                    )
+                    hashedLib = Hashed(
+                      Algo[Algo.Blake3].hashBytes(protoLib.toByteArray),
+                      protoLib
+                    )
+                    _ <-
+                      if (dryRun) moduleIOMonad.unit
+                      else cas.putIfAbsent(hashedLib)
+                  } yield (hashedLib, libOut, cc)
+                }.parSequence.map { allLibs =>
+                  val libOuts = allLibs.iterator.map { case (_, (lib, path, _)) =>
+                    (Output.Library(lib.arg, path): Output[P])
+                  }
+                  val allOutputs =
+                    if (dryRun) libOuts
+                    else {
+                      // if we get here, we have successfully built all the libraries, now update the libconfig
+                      // and mutate those
+                      val confOuts = allLibs.values.iterator.map {
+                        case (hashedLib, _, cc) =>
+                          val uris = uriBaseOpt match {
+                            case None          => Nil
+                            case Some(uriBase) =>
+                              val uriBase1 =
+                                if (uriBase.endsWith("/")) uriBase
+                                else s"${uriBase}/"
+                              val uri = uriBase1 + Library.defaultFileName(
+                                cc.conf.name,
+                                cc.conf.nextVersion
+                              )
 
-                  uri :: Nil
+                              uri :: Nil
+                          }
+                          val conf1 = cc.conf.copy(
+                            previous = Some(toDesc(hashedLib, uris)),
+                            next_version = cc.conf.nextVersion.nextPatch
+                          )
+
+                          confOutput(cc.confDir, conf1)
+                      }
+                      libOuts ++ confOuts
+                    }
+
+                  Output.Many(Chain.fromIterableOnce(allOutputs))
+                }
+
+              if (dryRun && cacheDirOpt.isDefined) {
+                platformIO.withTempPrefix("publish_infer_cache") { tempCache =>
+                  publishAll(Some(tempCache))
+                }
+              } else {
+                publishAll(cacheDirOpt)
               }
-              val conf1 = cc.conf.copy(
-                previous = Some(toDesc(hashedLib, uris)),
-                nextVersion = cc.conf.nextVersion.nextPatch
-              )
-
-              confOutput(cc.confDir, conf1)
             }
-            out = Output.Many(
-              Chain.fromIterableOnce(
-                allLibs.iterator.map { case (_, (lib, path, _)) =>
-                  Output.Library(lib.arg, path)
-                } ++
-                  confOuts
-              )
-            )
           } yield (out: Output[P])
         }
       }
 
+    // Decline help preserves the left-to-right construction order, so keep this
+    // list aligned with the canonical top-level command surface.
     MonoidK[Opts].combineAllK(
-      initCommand ::
-        listCommand ::
-        depsCommand ::
-        evalCommand ::
-        jsonCommand ::
-        showCommand ::
-        docCommand ::
-        assembleCommand ::
-        fetchCommand ::
-        checkCommand ::
-        buildCommand ::
+      checkCommand ::
         testCommand ::
+        buildCommand ::
+        jsonCommand ::
+        docCommand ::
         publishCommand ::
+        evalCommand ::
+        fetchCommand ::
+        depsCommand ::
+        listCommand ::
+        showCommand ::
+        assembleCommand ::
+        initCommand ::
         Nil
     )
   }
@@ -2505,7 +3057,7 @@ object Command {
                       Doc.text(
                         "missing "
                       ) + pubDoc + Doc.line + privDoc + Doc.line + Doc.text(
-                        "run `lib fetch` to insert these libraries into the cas."
+                        "run `fetch` to insert these libraries into the cas."
                       )
                     )
                   )

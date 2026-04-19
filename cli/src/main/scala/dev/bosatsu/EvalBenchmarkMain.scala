@@ -168,8 +168,8 @@ object EvalBenchmarkMain extends IOApp {
     loop(args, Config())
   }
 
-  private def compileBenchmarkEvaluation(): Either[String, Evaluation[Declaration]] = {
-    val parsed = Parser.unsafeParse(Package.parser(None), benchmarkSource)
+  private def compileBenchmarkEvaluation(): Either[String, Evaluation[Region]] = {
+    val parsed = Parser.unsafeParse(Package.parser, benchmarkSource)
     val locMap = LocationMap(benchmarkSource)
 
     val result = Par.noParallelism {

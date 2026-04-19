@@ -31,7 +31,12 @@ object EvalCommand {
       args: List[String]
   ): Either[Exception & CliException, Output[Path]] =
     if (result.tpe == progMainType) {
-      val run = result.value.map(PredefImpl.runProgMain(_, args))
+      val run = result.value.map(
+        PredefImpl.runProgMainWithSystemStdin(
+          _,
+          PredefImpl.evalRunArgs(args)
+        )
+      )
       Right(Output.RunMainResult(run))
     } else {
       val actual = rankn.Type.fullyResolvedDocument.document(result.tpe).render(80)
@@ -97,7 +102,8 @@ object EvalCommand {
 
   def opts[F[_], Path](
       platformIO: PlatformIO[F, Path],
-      commonOpts: CommonOpts[F, Path]
+      commonOpts: CommonOpts[F, Path],
+      evalPassthroughArgs: List[String] = Nil
   ): Opts[F[Output[Path]]] = {
     import platformIO.moduleIOMonad
     import LocationMap.Colorize
@@ -132,6 +138,8 @@ object EvalCommand {
           runArgs,
           errColor
       ) =>
+        val effectiveRunArgs = runArgs ::: evalPassthroughArgs
+
         platformIO.withEC {
           runEval(
             platformIO,
@@ -146,8 +154,8 @@ object EvalCommand {
             errColor
           ).flatMap { case (_, result) =>
             if (runMain) {
-              moduleIOMonad.fromEither(runOutput(result, runArgs))
-            } else if (runArgs.nonEmpty) {
+              moduleIOMonad.fromEither(runOutput(result, effectiveRunArgs))
+            } else if (effectiveRunArgs.nonEmpty) {
               moduleIOMonad.raiseError(
                 CliException.Basic("trailing args require --run")
               )

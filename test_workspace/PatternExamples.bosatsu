@@ -8,9 +8,7 @@ combine = "foo: ${foo} bar: ${bar}"
 def operator ==(a, b):
   cmp_String(a, b) matches EQ
 
-def operator &&(a, b):
-    if a: b
-    else: False
+operator && = and
 
 fb = match combine:
     case "foo: ${f} bar: ${b}" if (f == foo) && (b == bar):

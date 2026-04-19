@@ -13,6 +13,55 @@ import java.util.regex.Pattern
 object CommandSupport {
   type DepDecode[Path] = (Path, DecodedLibrary[Algo.Blake3])
 
+  def dependencyPackageDocBaseUrls(
+      dependencies: Iterable[DecodedLibrary[Algo.Blake3]]
+  ): Either[CliException.Basic, Map[PackageName, String]] = {
+    val packageBaseEntries =
+      for {
+        dep <- dependencies.iterator.toList.sortBy(dep =>
+          (dep.name.name, dep.version.render)
+        )
+        // A library-level base URL applies to each package it exports.
+        baseUrl <- dep.docBaseUrl.toList
+        iface <- dep.interfaces.iterator
+      } yield (iface.name, baseUrl, dep.name.name, dep.version.render)
+
+    val groupedByPackage =
+      packageBaseEntries.groupBy(_._1).toList.sortBy(_._1.asString)
+
+    val conflicts =
+      groupedByPackage.flatMap { case (pn, entries) =>
+        val byBaseUrl = entries.groupBy(_._2).toList.sortBy(_._1)
+        if (byBaseUrl.size <= 1) Nil
+        else {
+          // Same package should resolve to one docs site; mixed bases are ambiguous.
+          val details = byBaseUrl.map { case (baseUrl, baseEntries) =>
+            val providers = baseEntries
+              .map { case (_, _, depName, depVersion) =>
+                show"$depName $depVersion"
+              }
+              .distinct
+              .sorted
+              .mkString(", ")
+            show"$baseUrl from $providers"
+          }
+          show"${pn.asString}: ${details.mkString("; ")}" :: Nil
+        }
+      }
+
+    if (conflicts.isEmpty) {
+      Right(groupedByPackage.iterator.map { case (pn, entries) =>
+        pn -> entries.head._2
+      }.toMap)
+    } else {
+      Left(
+        CliException.Basic(
+          show"conflicting doc_base_url values for dependency packages: ${conflicts.mkString(" | ")}"
+        )
+      )
+    }
+  }
+
   def noInputs[F[_], Path, A](
       platformIO: PlatformIO[F, Path],
       commandName: String
@@ -28,7 +77,7 @@ object CommandSupport {
       platformIO: PlatformIO[F, Path],
       path: Path
   ): F[DecodedLibrary[Algo.Blake3]] = {
-    import platformIO.moduleIOMonad
+    import platformIO.{canPromiseF, moduleIOMonad}
 
     for {
       lib <- platformIO.readLibrary(path)
@@ -45,14 +94,14 @@ object CommandSupport {
 
     val conf = LibConfig(
       name = Name("_tool"),
-      repoUri = "",
-      nextVersion = Version.zero,
+      repo_uri = "",
+      next_version = Version.zero,
       previous = None,
-      exportedPackages = Nil,
-      allPackages = LibConfig.PackageFilter.Regex(Pattern.compile(".*")) :: Nil,
-      publicDeps = pub.map(_.toDep),
-      privateDeps = priv.map(_.toDep),
-      defaultMain = None
+      exported_packages = Nil,
+      all_packages = LibConfig.PackageFilter.Regex(Pattern.compile(".*")) :: Nil,
+      public_deps = pub.map(_.toDep),
+      private_deps = priv.map(_.toDep),
+      default_main = None
     )
     val validated = conf.validateDeps(pub ::: priv)
     moduleIOMonad.fromTry(LibConfig.Error.toTry(validated)).void

@@ -6,7 +6,7 @@ import java.math.BigInteger
 import java.nio.charset.StandardCharsets
 import dev.bosatsu.codegen.{CompilationNamespace, CompilationSource, Idents}
 import dev.bosatsu.rankn.{DataRepr, Type}
-import dev.bosatsu.{Identifier, Lit, Matchless, Predef, PackageName}
+import dev.bosatsu.{Identifier, InSetCompiler, Lit, Matchless, Package, Predef, PackageName}
 import dev.bosatsu.Matchless.Expr
 import dev.bosatsu.Identifier.Bindable
 import org.typelevel.paiges.Doc
@@ -20,6 +20,9 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
   given Show[K] = ns.keyShow
   // (function ident, isClosure, arity)
   type DirectFnRef = (Code.Ident, Boolean, Int)
+  private val int64PackageName = PackageName.parts("Bosatsu", "Num", "Int64")
+  private val intToInt64Name = Identifier.Name("int_to_Int64")
+  private val intLowBitsToInt64Name = Identifier.Name("int_low_bits_to_Int64")
   def generateExternalsStub: SortedMap[String, Doc] =
     ExternalResolver.stdExternals.generateExternalsStub
 
@@ -204,7 +207,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
     render(env.renderMain(pn, value, runner))
 
   def renderTests(
-      values: List[(PackageName, Bindable)]
+      values: List[(PackageName, Package.TestEntry[Any])]
   ): Either[Error, Doc] =
     render(env.renderTests(values))
 
@@ -282,6 +285,14 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
           codePoint
         )
 
+      def lessThanOrEqualChar(
+          expr: Code.Expression,
+          codePoint: Int
+      ): Code.Expression =
+        Code
+          .Ident("bsts_char_code_point_from_value")(expr)
+          .bin(Code.BinOp.LtEq, Code.IntLiteral(codePoint))
+
       def pv(e: Code.ValueLike): T[Code.ValueLike] = monadImpl.pure(e)
 
       def andCode(l: Code.ValueLike, r: Code.ValueLike): T[Code.ValueLike] =
@@ -343,6 +354,28 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                   fnName <- liftedFnName(fn)
                   result <- bind(arg, Some((fnName, false, fn.arity)))(in)
                 } yield result
+              case Global(k, pack, fnName) =>
+                // Preserve direct-call metadata through simple aliases:
+                // let f = globalFn in f(x) should stay a direct call.
+                directFn(k, pack, fnName).flatMap {
+                  case Some((ident, arity)) =>
+                    bind(arg, Some((ident, false, arity)))(in)
+                  case None =>
+                    // arg isn't in scope for argV
+                    innerToValue(argV).flatMap { v =>
+                      bind(arg, directFn = None) {
+                        for {
+                          name <- getBinding(arg)
+                          result <- in
+                          stmt <- Code.ValueLike.declareVar(
+                            Code.TypeIdent.BValue,
+                            name,
+                            v
+                          )(newLocalName)
+                        } yield stmt +: result
+                      }
+                    }
+                }
               case _ =>
                 // arg isn't in scope for argV
                 innerToValue(argV).flatMap { v =>
@@ -377,41 +410,179 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
               }
         }
       // The type of this value must be a C _Bool
+      def compareRelBinOp(rel: Matchless.CompareRel): Code.BinOp =
+        rel match {
+          case Matchless.CompareRel.Eq  => Code.BinOp.Eq
+          case Matchless.CompareRel.Ne  => Code.BinOp.NotEq
+          case Matchless.CompareRel.Lt  => Code.BinOp.Lt
+          case Matchless.CompareRel.Lte => Code.BinOp.LtEq
+          case Matchless.CompareRel.Gt  => Code.BinOp.Gt
+          case Matchless.CompareRel.Gte => Code.BinOp.GtEq
+        }
+
+      def compareCmpResult(
+          cmp: Code.Expression,
+          rel: Matchless.CompareRel
+      ): Code.Expression =
+        cmp.bin(compareRelBinOp(rel), Code.IntLiteral.Zero)
+
+      def charCodePoint(expr: Code.Expression): Code.Expression =
+        Code.Ident("bsts_char_code_point_from_value")(expr)
+
+      def compareIntExpr(
+          left: Code.Expression,
+          rel: Matchless.CompareRel,
+          right: Code.ValueLike
+      ): T[Code.ValueLike] =
+        rel match {
+          case Matchless.CompareRel.Eq | Matchless.CompareRel.Ne =>
+            Code.ValueLike
+              .applyArgs(
+                Code.Ident("bsts_integer_equals"),
+                NonEmptyList(left, right :: Nil)
+              )(newLocalName)
+              .map {
+                case expr: Code.Expression
+                    if rel == Matchless.CompareRel.Ne =>
+                  !expr
+                case other =>
+                  other
+              }
+          case _ =>
+            Code.ValueLike
+              .applyArgs(
+                Code.Ident("bsts_integer_cmp"),
+                NonEmptyList(left, right :: Nil)
+              )(newLocalName)
+              .flatMap(_.onExpr(cmp => pv(compareCmpResult(cmp, rel)))(newLocalName))
+        }
+
+      def compareIntZeroExpr(
+          left: Code.Expression,
+          rel: Matchless.CompareRel
+      ): T[Code.ValueLike] =
+        Code.ValueLike
+          .applyArgs(
+            Code.Ident("bsts_integer_cmp_zero"),
+            NonEmptyList.one(left)
+          )(newLocalName)
+          .flatMap(_.onExpr(cmp => pv(compareCmpResult(cmp, rel)))(newLocalName))
+
+      def compareInt64Expr(
+          left: Code.Expression,
+          rel: Matchless.CompareRel,
+          right: Code.Expression
+      ): T[Code.ValueLike] = {
+        val lhs = Code.Ident("bsts_int64_to_int64")(left)
+        val rhs = Code.Ident("bsts_int64_to_int64")(right)
+        pv(lhs.bin(compareRelBinOp(rel), rhs))
+      }
+
+      def compareFloat64Expr(
+          left: Code.Expression,
+          rel: Matchless.CompareRel,
+          right: Code.ValueLike
+      ): T[Code.ValueLike] =
+        rel match {
+          case Matchless.CompareRel.Eq | Matchless.CompareRel.Ne =>
+            Code.ValueLike
+              .applyArgs(
+                Code.Ident("bsts_float64_equals"),
+                NonEmptyList(left, right :: Nil)
+              )(newLocalName)
+              .map {
+                case expr: Code.Expression
+                    if rel == Matchless.CompareRel.Ne =>
+                  !expr
+                case other =>
+                  other
+              }
+          case _ =>
+            Code.ValueLike
+              .applyArgs(
+                Code.Ident("bsts_float64_cmp_total"),
+                NonEmptyList(left, right :: Nil)
+              )(newLocalName)
+              .flatMap(_.onExpr(cmp => pv(compareCmpResult(cmp, rel)))(newLocalName))
+        }
+
       def boolToValue(boolExpr: BoolExpr[K]): T[Code.ValueLike] =
         boolExpr match {
-          case EqualsLit(expr, lit) =>
+          case CompareLit(expr, rel, lit) =>
             innerToValue(expr).flatMap { vl =>
               lit match {
-                case c @ Lit.Chr(_) =>
-                  vl.onExpr(e => pv(equalsChar(e, c.toCodePoint)))(newLocalName)
+                case c: Lit.Chr =>
+                  vl.onExpr { e =>
+                    pv(charCodePoint(e).bin(compareRelBinOp(rel), Code.IntLiteral(c.toCodePoint)))
+                  }(newLocalName)
                 case Lit.Str(_) =>
                   vl.onExpr { e =>
                     literal(lit).flatMap { litStr =>
-                      Code.ValueLike.applyArgs(
-                        Code.Ident("bsts_string_equals"),
-                        NonEmptyList(e, litStr :: Nil)
-                      )(newLocalName)
+                      rel match {
+                        case Matchless.CompareRel.Eq | Matchless.CompareRel.Ne =>
+                          Code.ValueLike
+                            .applyArgs(
+                              Code.Ident("bsts_string_equals"),
+                              NonEmptyList(e, litStr :: Nil)
+                            )(newLocalName)
+                            .map {
+                              case expr: Code.Expression
+                                  if rel == Matchless.CompareRel.Ne =>
+                                !expr
+                              case other =>
+                                other
+                            }
+                        case _ =>
+                          Code.ValueLike
+                            .applyArgs(
+                              Code.Ident("bsts_string_cmp"),
+                              NonEmptyList(e, litStr :: Nil)
+                            )(newLocalName)
+                            .flatMap(
+                              _.onExpr(cmp => pv(compareCmpResult(cmp, rel)))(newLocalName)
+                            )
+                      }
                     }
                   }(newLocalName)
                 case Lit.Integer(_) =>
                   vl.onExpr { e =>
                     literal(lit).flatMap { litStr =>
-                      Code.ValueLike.applyArgs(
-                        Code.Ident("bsts_integer_equals"),
-                        NonEmptyList(e, litStr :: Nil)
-                      )(newLocalName)
+                      compareIntExpr(e, rel, litStr)
                     }
                   }(newLocalName)
                 case _: Lit.Float64 =>
                   vl.onExpr { e =>
                     literal(lit).flatMap { litFloat =>
-                      Code.ValueLike.applyArgs(
-                        Code.Ident("bsts_float64_equals"),
-                        NonEmptyList(e, litFloat :: Nil)
-                      )(newLocalName)
+                      compareFloat64Expr(e, rel, litFloat)
                     }
                   }(newLocalName)
               }
+            }
+          case CompareInt(left, rel, right) =>
+            (innerToValue(left), innerToValue(right)).flatMapN { (lv, rv) =>
+              lv.onExpr { leftExpr =>
+                rv.onExpr {
+                  case Code.Apply(
+                        Code.Ident("bsts_integer_from_int"),
+                        Code.IntLiteral(0) :: Nil
+                      ) =>
+                    compareIntZeroExpr(leftExpr, rel)
+                  case rightExpr =>
+                    compareIntExpr(leftExpr, rel, rightExpr)
+                }(newLocalName)
+              }(newLocalName)
+            }
+          case CompareInt64(left, rel, right) =>
+            (innerToValue(left), innerToValue(right)).flatMapN { (lv, rv) =>
+              lv.onExpr(leftExpr => rv.onExpr(compareInt64Expr(leftExpr, rel, _))(newLocalName))(
+                newLocalName
+              )
+            }
+          case CompareFloat64(left, rel, right) =>
+            (innerToValue(left), innerToValue(right)).flatMapN { (lv, rv) =>
+              lv.onExpr(leftExpr => rv.onExpr(compareFloat64Expr(leftExpr, rel, _))(newLocalName))(
+                newLocalName
+              )
             }
           case EqualsNat(expr, nat) =>
             val fn = nat match {
@@ -434,12 +605,80 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                 pv(Code.Ident(fn)(expr) =:= Code.IntLiteral(expect))
               }(newLocalName)
             }
+          case CheckVariantSet(expr, expect, _, famArities) =>
+            innerToValue(expr).flatMap { vl =>
+              val fn =
+                if (famArities.forall(_ == 0)) "get_variant_value"
+                else "get_variant"
+              val inSet = InSetCompiler.compile(famArities.length, expect)
+
+              def renderMembership(
+                  variant: Code.Expression,
+                  membership: InSetCompiler.BoolExpr
+              ): Code.Expression =
+                membership match {
+                  case InSetCompiler.BoolExpr.TrueConst =>
+                    Code.TrueLit
+                  case InSetCompiler.BoolExpr.FalseConst =>
+                    Code.FalseLit
+                  case InSetCompiler.BoolExpr.Compare(op, rhs) =>
+                    val lit = Code.IntLiteral(rhs)
+                    op match {
+                      case InSetCompiler.CmpOp.Eq =>
+                        variant =:= lit
+                      case InSetCompiler.CmpOp.Ne =>
+                        variant.bin(Code.BinOp.NotEq, lit)
+                      case InSetCompiler.CmpOp.Lt =>
+                        variant :< lit
+                      case InSetCompiler.CmpOp.Ge =>
+                        // Ge means variant >= rhs.
+                        variant.bin(Code.BinOp.GtEq, lit)
+                    }
+                  case InSetCompiler.BoolExpr.And(left, right) =>
+                    renderMembership(variant, left)
+                      .bin(
+                        Code.BinOp.And,
+                        renderMembership(variant, right)
+                      )
+                  case InSetCompiler.BoolExpr.Or(left, right) =>
+                    renderMembership(variant, left)
+                      .bin(
+                        Code.BinOp.Or,
+                        renderMembership(variant, right)
+                      )
+                  case InSetCompiler.BoolExpr.Not(value) =>
+                    !renderMembership(variant, value)
+                }
+
+              vl.onExpr { expr =>
+                val variant = Code.Ident(fn)(expr)
+                if (InSetCompiler.comparisonCount(inSet) <= 1)
+                  pv(renderMembership(variant, inSet))
+                else
+                  newLocalName("variant").map { variantName =>
+                    Code.DeclareVar(
+                      Nil,
+                      Code.TypeIdent.Int,
+                      variantName,
+                      Some(variant)
+                    ) +: renderMembership(variantName, inSet)
+                  }
+              }(newLocalName)
+            }
           case SetMut(LocalAnonMut(idx), expr) =>
             for {
               name <- getAnon(idx)
               vl <- innerToValue(expr)
             } yield (name := vl) +: Code.TrueLit
           case TrueConst               => pv(Code.TrueLit)
+          case LetBool(name @ Left(LocalAnon(_)), argV, in)
+              if !Matchless.BoolExpr.usesBinding(in, name) =>
+            (innerToValue(argV), boolToValue(in)).mapN { (value, result) =>
+              value.discardValue match {
+                case Some(effect) => effect +: result
+                case None         => result
+              }
+            }
           case LetBool(name, argV, in) =>
             handleLet(name, argV, boolToValue(in))
           case LetMutBool(LocalAnonMut(m), span) =>
@@ -522,29 +761,43 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
               pv(Code.Ident("bsts_integer_from_int")(Code.IntLiteral(iv)))
             } catch {
               case _: ArithmeticException =>
-                // emit the uint32 words and sign
-                val isPos = toBigInteger.signum >= 0
-                var current = if (isPos) toBigInteger else toBigInteger.negate()
-                val two32 = BigInteger.ONE.shiftLeft(32)
-                val bldr = List.newBuilder[Code.IntLiteral]
-                while (current.compareTo(BigInteger.ZERO) > 0) {
-                  bldr += Code.IntLiteral(current.mod(two32).longValue())
-                  current = current.shiftRight(32)
-                }
-                val lits = bldr.result()
-                // call:
-                // bsts_integer_from_words_copy(_Bool is_pos, size_t size, int32_t* words);
-                newLocalName("int").map { ident =>
-                  Code.DeclareArray(
-                    Code.TypeIdent.UInt32,
-                    ident,
-                    Right(lits)
-                  ) +:
-                    Code.Ident("bsts_integer_from_words_copy")(
-                      if (isPos) Code.TrueLit else Code.FalseLit,
-                      Code.IntLiteral(lits.length),
-                      ident
+                try {
+                  val lv = toBigInteger.longValueExact()
+                  val int64Const =
+                    if (lv == Long.MinValue) Code.Ident("INT64_MIN")
+                    else Code.IntLiteral(BigInt(lv))
+                  pv(
+                    Code.Ident("bsts_integer_from_int64")(
+                      int64Const
                     )
+                  )
+                } catch {
+                  case _: ArithmeticException =>
+                    // emit the uint32 words and sign
+                    val isPos = toBigInteger.signum >= 0
+                    var current =
+                      if (isPos) toBigInteger else toBigInteger.negate()
+                    val two32 = BigInteger.ONE.shiftLeft(32)
+                    val bldr = List.newBuilder[Code.IntLiteral]
+                    while (current.compareTo(BigInteger.ZERO) > 0) {
+                      bldr += Code.IntLiteral(current.mod(two32).longValue())
+                      current = current.shiftRight(32)
+                    }
+                    val lits = bldr.result()
+                    // call:
+                    // bsts_integer_from_words_copy(_Bool is_pos, size_t size, int32_t* words);
+                    newLocalName("int").map { ident =>
+                      Code.DeclareArray(
+                        Code.TypeIdent.UInt32,
+                        ident,
+                        Right(lits)
+                      ) +:
+                        Code.Ident("bsts_integer_from_words_copy")(
+                          if (isPos) Code.TrueLit else Code.FalseLit,
+                          Code.IntLiteral(lits.length),
+                          ident
+                        )
+                    }
                 }
             }
 
@@ -558,30 +811,68 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
             )
         }
 
+      def int64LiteralExpr(value: Long): Code.Expression = {
+        val int64Const =
+          if (value == Long.MinValue) Code.Ident("INT64_MIN")
+          else Code.IntLiteral(BigInt(value))
+        Code.Ident("bsts_int64_from_int64")(int64Const)
+      }
+
+      def int64SomeLiteral(value: Long): T[Code.ValueLike] =
+        pv(
+          Code.Ident("alloc_enum1")(
+            Code.IntLiteral(1),
+            int64LiteralExpr(value)
+          )
+        )
+
+      def int64NoneLiteral: T[Code.ValueLike] =
+        pv(Code.Ident("alloc_enum0")(Code.IntLiteral(0)))
+
+      def optimizeInt64LiteralCall(
+          pack: PackageName,
+          fnName: Bindable,
+          args: NonEmptyList[Expr[K]]
+      ): Option[T[Code.ValueLike]] =
+        args match {
+          case NonEmptyList(Literal(Lit.Integer(value)), Nil)
+              if pack == int64PackageName && fnName == intToInt64Name =>
+            try Some(int64SomeLiteral(value.longValueExact()))
+            catch {
+              case _: ArithmeticException => Some(int64NoneLiteral)
+            }
+          case NonEmptyList(Literal(Lit.Integer(value)), Nil)
+              if pack == int64PackageName && fnName == intLowBitsToInt64Name =>
+            Some(pv(int64LiteralExpr(value.longValue())))
+          case _ => None
+        }
+
       def innerApp[K1 <: K](app: App[K1]): T[Code.ValueLike] =
         app match {
           case App(Global(k, pack, fnName), args) =>
-            directFn(k, pack, fnName).flatMap {
-              case Some((ident, _)) =>
-                // directly invoke instead of by treating them like lambdas
-                args.traverse(innerToValue(_)).flatMap { argsVL =>
-                  Code.ValueLike.applyArgs(ident, argsVL)(newLocalName)
-                }
-              case None =>
-                // the ref be holding the result of another function call
-                (globalIdent(k, pack, fnName), args.traverse(innerToValue(_)))
-                  .flatMapN { (fnVL, argsVL) =>
-                    // we need to invoke call_fn<idx>(fn, arg0, arg1, ....)
-                    // but since these are ValueLike, we need to handle more carefully
-                    val fnValue = fnVL.onExpr(e => pv(e()))(newLocalName);
-                    fnValue.flatMap { fnValue =>
-                      val fnSize = argsVL.length
-                      val callFn = Code.Ident(s"call_fn$fnSize")
-                      Code.ValueLike.applyArgs(callFn, fnValue :: argsVL)(
-                        newLocalName
-                      )
-                    }
+            optimizeInt64LiteralCall(pack, fnName, args).getOrElse {
+              directFn(k, pack, fnName).flatMap {
+                case Some((ident, _)) =>
+                  // directly invoke instead of by treating them like lambdas
+                  args.traverse(innerToValue(_)).flatMap { argsVL =>
+                    Code.ValueLike.applyArgs(ident, argsVL)(newLocalName)
                   }
+                case None =>
+                  // the ref be holding the result of another function call
+                  (globalIdent(k, pack, fnName), args.traverse(innerToValue(_)))
+                    .flatMapN { (fnVL, argsVL) =>
+                      // we need to invoke call_fn<idx>(fn, arg0, arg1, ....)
+                      // but since these are ValueLike, we need to handle more carefully
+                      val fnValue = fnVL.onExpr(e => pv(e()))(newLocalName);
+                      fnValue.flatMap { fnValue =>
+                        val fnSize = argsVL.length
+                        val callFn = Code.Ident(s"call_fn$fnSize")
+                        Code.ValueLike.applyArgs(callFn, fnValue :: argsVL)(
+                          newLocalName
+                        )
+                      }
+                    }
+              }
             }
           case App(Local(fnName), args) =>
             directFn(fnName).flatMap {
@@ -651,6 +942,14 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
       def innerToValue(expr: Expr[K]): T[Code.ValueLike] =
         expr match {
           case fn @ Lambda(_, _, _, _) => innerFn(fn)
+          case Let(name @ Left(LocalAnon(_)), argV, in)
+              if !Expr.usesBinding(in, name) =>
+            (innerToValue(argV), innerToValue(in)).mapN { (value, result) =>
+              value.discardValue match {
+                case Some(effect) => effect +: result
+                case None         => result
+              }
+            }
           case Let(name, argV, in)     =>
             handleLet(name, argV, innerToValue(in))
           case app @ App(_, _)       => innerApp(app)
@@ -690,11 +989,58 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
               } yield decl +: res
             }
           case Literal(lit)                 => literal(lit)
+          case LitInt64(value)              => pv(int64LiteralExpr(value))
           case If(cond, thenExpr, elseExpr) =>
             (boolToValue(cond), innerToValue(thenExpr), innerToValue(elseExpr))
               .flatMapN { (c, thenC, elseC) =>
                 Code.ValueLike.ifThenElseV(c, thenC, elseC)(newLocalName)
               }
+          case SwitchVariant(on, famArities, cases, default) =>
+            innerToValue(on).flatMap { onVL =>
+              onVL.onExpr { onExpr =>
+                for {
+                  variantName <- newLocalName("variant")
+                  resultName <- newLocalName("switch_res")
+                  caseBlocks <- cases.traverse { case (variant, branch) =>
+                    innerToValue(branch).map { branchVL =>
+                      (
+                        Code.IntLiteral(variant),
+                        Code.block(resultName := branchVL, Code.Break)
+                      )
+                    }
+                  }
+                  defaultVL <- default.traverse(innerToValue)
+                } yield {
+                  val variantGetter =
+                    if (famArities.forall(_ == 0)) "get_variant_value"
+                    else "get_variant"
+
+                  val switchStmt =
+                    Code.Switch(
+                      variantName,
+                      caseBlocks,
+                      defaultVL.map(v => Code.block(resultName := v, Code.Break))
+                    )
+
+                  Code.WithValue(
+                    Code.DeclareVar(
+                      Nil,
+                      Code.TypeIdent.Int,
+                      variantName,
+                      Some(Code.Ident(variantGetter)(onExpr))
+                    ) +
+                      Code.DeclareVar(
+                        Nil,
+                        Code.TypeIdent.BValue,
+                        resultName,
+                        None
+                      ) +
+                      switchStmt,
+                    resultName
+                  )
+                }
+              }(newLocalName)
+            }
           case Always.SetChain(setmuts, result) =>
             (
               setmuts.traverse { case (LocalAnonMut(mut), v) =>
@@ -860,7 +1206,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
       def renderTop(k: K, p: PackageName, b: Bindable, expr: Expr[K]): T[Unit] =
         inTop(k, p, b) {
           expr match {
-            case fn: Lambda[K] =>
+            case fn: Lambda[K] if fn.captures.isEmpty =>
               for {
                 fnName <- globalIdent(k, p, b)
                 stmt <- fnStatement(fnName, fn)
@@ -924,7 +1270,9 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
         } yield ()
 
       def renderMain(p: PackageName, b: Bindable, mainRun: Code.Ident): T[Unit]
-      def renderTests(values: List[(PackageName, Bindable)]): T[Unit]
+      def renderTests(values: List[(PackageName, Package.TestEntry[Any])]): T[
+        Unit
+      ]
     }
 
     object Env {
@@ -1210,21 +1558,35 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
               b: Bindable
           ): T[Option[(Code.Ident, Int)]] =
             StateT { s =>
-              val depKey = ns.depFor(k, pack)
-              val key = (depKey, pack, b)
-              s.allValues.get(key) match {
-                case Some((fn: Matchless.Lambda[K], ident)) =>
-                  result(s, Some((ident, fn.arity)))
-                case None =>
-                  // this is external
-                  s.externals(depKey, pack, b) match {
-                    case Some((incl, ident, arity)) if arity > 0 =>
-                      val withIncl = s.include(incl)
-                      result(withIncl, Some((ident, arity)))
-                    case _ => result(s, None)
+              def loop(
+                  state: State,
+                  key: (K, PackageName, Bindable),
+                  seen: Set[(K, PackageName, Bindable)]
+              ): EitherT[Eval, Error, (State, Option[(Code.Ident, Int)])] = {
+                if (seen(key)) result(state, None)
+                else
+                  state.allValues.get(key) match {
+                    case Some((fn: Matchless.Lambda[K], ident))
+                        if fn.captures.isEmpty =>
+                      result(state, Some((ident, fn.arity)))
+                    case Some((Matchless.Global(nextK, nextPack, nextB), _)) =>
+                      val nextKey = (ns.depFor(nextK, nextPack), nextPack, nextB)
+                      loop(state, nextKey, seen + key)
+                    case None =>
+                      // this is external
+                      val (depKey, pn, bn) = key
+                      state.externals(depKey, pn, bn) match {
+                        case Some((incl, ident, arity)) if arity > 0 =>
+                          val withIncl = state.include(incl)
+                          result(withIncl, Some((ident, arity)))
+                        case _ => result(state, None)
+                      }
+                    case _ =>
+                      result(state, None)
                   }
-                case _ => result(s, None)
               }
+
+              loop(s, (ns.depFor(k, pack), pack, b), Set.empty)
             }
 
           def directFn(b: Bindable): T[Option[DirectFnRef]] =
@@ -1390,11 +1752,19 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
               )
             }
 
-          def renderTests(values: List[(PackageName, Bindable)]): T[Unit] =
+          def renderTests(
+              values: List[(PackageName, Package.TestEntry[Any])]
+          ): T[Unit] =
             values
-              .traverse { case (p, b) =>
-                globalIdent(ns.rootKey, p, b).map { i =>
-                  (Code.StrLiteral(p.asString), i)
+              .traverse { case (p, entry) =>
+                globalIdent(ns.rootKey, p, entry.bindable).map { i =>
+                  val runFn = entry match {
+                    case Package.TestEntry.PlainTest(_, _, _) =>
+                      Code.Ident("bsts_test_run")
+                    case Package.TestEntry.ProgTest(_, _, _)  =>
+                      Code.Ident("bsts_test_run_prog")
+                  }
+                  (Code.StrLiteral(p.asString), i, runFn)
                 }
               }
               .flatMap { packVals =>
@@ -1415,11 +1785,11 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                 val results = Code.Ident("results")
                 val quiet = Code.Ident("quiet")
                 val quietFn = Code.Ident("bsts_test_argv_has_quiet")
-                val runFn = Code.Ident("bsts_test_run")
                 val summaryFn = Code.Ident("bsts_test_result_print_summary")
                 val testCount = packVals.length
-                val allTests = packVals.mapWithIndex { case ((n, tv), idx) =>
-                  results.bracket(Code.IntLiteral(idx)) := runFn(n, tv, quiet)
+                val allTests = packVals.mapWithIndex {
+                  case ((n, tv, runFn), idx) =>
+                    results.bracket(Code.IntLiteral(idx)) := runFn(n, tv, quiet)
                 }
                 val header = Code.Statements(
                   Code.Ident("GC_init")().stmt,

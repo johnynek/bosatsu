@@ -12,7 +12,7 @@ import cats.syntax.all._
 case class DefStatement[A, B](
     name: Bindable,
     typeArgs: Option[NonEmptyList[(TypeRef.TypeVar, Option[Kind])]],
-    args: NonEmptyList[NonEmptyList[A]],
+    args: NonEmptyList[List[A]],
     retType: Option[TypeRef],
     result: B
 )
@@ -39,12 +39,15 @@ object DefStatement {
       val argDoc =
         Doc.intercalate(
           Doc.empty,
-          args.toList.map { args =>
-            Doc.char('(') +
+          args.toList.map { group =>
+            val argDocs = group.map(Document[A].document(_))
+            val inner =
               Doc.intercalate(
                 commaSpace,
-                args.map(Document[A].document(_)).toList
-              ) +
+                argDocs
+              )
+            Doc.char('(') +
+              inner +
               Doc.char(')')
           }
         )
@@ -61,7 +64,7 @@ object DefStatement {
       argParser: P[A],
       resultTParser: P[B]
   ): P[DefStatement[A, B]] = {
-    val args = argParser.parensLines1Cut
+    val args: P[List[A]] = argParser.parensLines0Cut
     val result = (P.string("->") *> maybeSpacesAndLines *> TypeRef.parser).?
     val kindAnnot: P[Kind] =
       (maybeSpace.soft.with1 *> (P.char(
