@@ -3720,6 +3720,93 @@ def poly[a](n: Nat, x: a) -> Nat:
     }
   }
 
+  test("normalization keeps shadowed MatchGuard loop args in outer recur slots") {
+    val xName = Identifier.Name("x")
+    val yName = Identifier.Name("y")
+    val xVar = TypedExpr.Local(xName, intTpe, ())
+    val yVar = TypedExpr.Local(yName, intTpe, ())
+    val yMinusOne =
+      TypedExpr.App(PredefSub, NonEmptyList.of(yVar, int(1)), intTpe, ())
+    val loopBody = TypedExpr.Match(
+      yVar,
+      NonEmptyList.of(
+        branch(Pattern.Literal(Lit.fromInt(0)), xVar),
+        matchGuardBranch(
+          Pattern.WildCard,
+          yMinusOne,
+          Pattern.Var(xName): Pattern[(PackageName, Constructor), Type],
+          None,
+          TypedExpr.Recur(NonEmptyList.of(xVar, yMinusOne), intTpe, ())
+        )
+      ),
+      ()
+    )
+    val loopExpr = TypedExpr.Loop(
+      NonEmptyList.of((xName, int(10)), (yName, int(2))),
+      loopBody,
+      ()
+    )
+    val normalized = TypedExprNormalization.normalize(loopExpr).getOrElse(loopExpr)
+
+    def findLoop(
+        expr: TypedExpr[Unit]
+    ): Option[(NonEmptyList[(Bindable, TypedExpr[Unit])], TypedExpr[Unit])] =
+      expr match {
+        case TypedExpr.Loop(args, body, _) =>
+          Some((args, body))
+        case TypedExpr.Annotation(in, _, _) =>
+          findLoop(in)
+        case TypedExpr.Generic(_, in) =>
+          findLoop(in)
+        case TypedExpr.Let(_, _, in, RecursionKind.NonRecursive, _) =>
+          findLoop(in)
+        case _ =>
+          None
+      }
+
+    def recurArities(expr: TypedExpr[Unit]): List[Int] =
+      expr match {
+        case TypedExpr.Recur(args, _, _) =>
+          List(args.length)
+        case TypedExpr.Generic(_, in) =>
+          recurArities(in)
+        case TypedExpr.Annotation(in, _, _) =>
+          recurArities(in)
+        case TypedExpr.AnnotatedLambda(_, in, _) =>
+          recurArities(in)
+        case TypedExpr.App(fn, args, _, _) =>
+          recurArities(fn) ::: args.toList.flatMap(recurArities)
+        case TypedExpr.Let(_, expr0, in, _, _) =>
+          recurArities(expr0) ::: recurArities(in)
+        case TypedExpr.Loop(args, body, _) =>
+          args.toList.flatMap { case (_, init) =>
+            recurArities(init)
+          } ::: recurArities(body)
+        case TypedExpr.Match(arg, branches, _) =>
+          recurArities(arg) ::: branches.toList.flatMap { branch =>
+            branch.guardExprIterator.toList.flatMap(recurArities) ::: recurArities(
+              branch.expr
+            )
+          }
+        case TypedExpr.Local(_, _, _) | TypedExpr.Global(_, _, _, _) |
+            TypedExpr.Literal(_, _, _) =>
+          Nil
+      }
+
+    TestUtils.assertValid(normalized)
+    findLoop(normalized) match {
+      case Some((loopArgs, body)) =>
+        assertEquals(
+          loopArgs.toList.map(_._1),
+          List(xName, yName),
+          normalized.reprString
+        )
+        assertEquals(recurArities(body), List(2), normalized.reprString)
+      case None =>
+        fail(s"expected normalized loop with both recur slots, got: ${normalized.repr}")
+    }
+  }
+
   test("normalization removes non-recursive identity let bindings") {
     val xName = Identifier.Name("x")
     val xVar = TypedExpr.Local(xName, intTpe, ())
@@ -4845,6 +4932,153 @@ def sum_plus(y: Int, zs: L[Int]) -> Int:
   loop(zs)
 """
     ) { _ => () }
+  }
+
+  test("closure rewrite keeps MatchGuard-shadowed local calls in inner scope") {
+    val xName = Identifier.Name("x")
+    val condName = Identifier.Name("cond")
+    val fName = Identifier.Name("f")
+    val zName = Identifier.Name("z")
+    val innerArgName = Identifier.Name("inner")
+    val fnTpe = Type.Fun(NonEmptyList.one(intTpe), intTpe)
+
+    val xVar = TypedExpr.Local(xName, intTpe, ())
+    val condVar = TypedExpr.Local(condName, intTpe, ())
+    val outerFVar = TypedExpr.Local(fName, fnTpe, ())
+    val zVar = TypedExpr.Local(zName, intTpe, ())
+    val innerArgVar = TypedExpr.Local(innerArgName, intTpe, ())
+    val outerLambda =
+      TypedExpr.AnnotatedLambda(
+        NonEmptyList.one((zName, intTpe)),
+        addExpr(xVar, zVar),
+        ()
+      )
+    val shadowLambda =
+      TypedExpr.AnnotatedLambda(
+        NonEmptyList.one((innerArgName, intTpe)),
+        innerArgVar,
+        ()
+      )
+
+    def directLocalCall(name: Bindable, arg: Int): TypedExpr[Unit] =
+      TypedExpr.App(
+        TypedExpr.Local(name, fnTpe, ()),
+        NonEmptyList.one(int(arg)),
+        intTpe,
+        ()
+      )
+
+    val guardedBranch = TypedExpr.Branch.fromGuardNode(
+      Pattern.Literal(Lit.fromInt(0)),
+      Some(
+        TypedExpr.MatchGuard(
+          shadowLambda,
+          Pattern.Var(fName): Pattern[(PackageName, Constructor), Type],
+          Some(eqIntExpr(directLocalCall(fName, 1), int(1)))
+        )(using Region.empty)
+      ),
+      directLocalCall(fName, 2)
+    )(using Region.empty)
+    val fallbackBranch =
+      branch(Pattern.WildCard, TypedExpr.App(outerFVar, NonEmptyList.one(int(3)), intTpe, ()))
+    val root = TypedExpr.AnnotatedLambda(
+      NonEmptyList.of((xName, intTpe), (condName, intTpe)),
+      TypedExpr.Let(
+        fName,
+        outerLambda,
+        TypedExpr.Match(condVar, NonEmptyList.of(guardedBranch, fallbackBranch), ()),
+        RecursionKind.NonRecursive,
+        ()
+      ),
+      ()
+    )
+    val normalized = TypedExprNormalization.normalize(root).getOrElse(root)
+
+    def findShadowedBranch(
+        expr: TypedExpr[Unit]
+    ): Option[TypedExpr.Branch[Unit]] =
+      expr match {
+        case TypedExpr.Match(_, branches, _) =>
+          branches.toList.find(_.guardBindings.contains(fName)).orElse(
+            branches.toList.collectFirst(Function.unlift(branch =>
+              findShadowedBranch(branch.expr)
+            ))
+          )
+        case TypedExpr.Generic(_, in) =>
+          findShadowedBranch(in)
+        case TypedExpr.Annotation(in, _, _) =>
+          findShadowedBranch(in)
+        case TypedExpr.AnnotatedLambda(_, in, _) =>
+          findShadowedBranch(in)
+        case TypedExpr.App(fn, args, _, _) =>
+          findShadowedBranch(fn).orElse(
+            args.toList.collectFirst(Function.unlift(findShadowedBranch))
+          )
+        case TypedExpr.Let(_, expr0, in, _, _) =>
+          findShadowedBranch(expr0).orElse(findShadowedBranch(in))
+        case TypedExpr.Loop(args, body, _) =>
+          args.toList
+            .map(_._2)
+            .collectFirst(Function.unlift(findShadowedBranch))
+            .orElse(findShadowedBranch(body))
+        case TypedExpr.Recur(args, _, _) =>
+          args.toList.collectFirst(Function.unlift(findShadowedBranch))
+        case TypedExpr.Local(_, _, _) | TypedExpr.Global(_, _, _, _) |
+            TypedExpr.Literal(_, _, _) =>
+          None
+      }
+
+    def directLocalCallArities(
+        expr: TypedExpr[Unit],
+        name: Bindable
+    ): List[Int] =
+      expr match {
+        case TypedExpr.App(TypedExpr.Local(`name`, _, _), args, _, _) =>
+          args.length :: args.toList.flatMap(directLocalCallArities(_, name))
+        case TypedExpr.Generic(_, in) =>
+          directLocalCallArities(in, name)
+        case TypedExpr.Annotation(in, _, _) =>
+          directLocalCallArities(in, name)
+        case TypedExpr.AnnotatedLambda(_, in, _) =>
+          directLocalCallArities(in, name)
+        case TypedExpr.App(fn, args, _, _) =>
+          directLocalCallArities(fn, name) ::: args.toList.flatMap(
+            directLocalCallArities(_, name)
+          )
+        case TypedExpr.Let(_, expr0, in, _, _) =>
+          directLocalCallArities(expr0, name) ::: directLocalCallArities(in, name)
+        case TypedExpr.Loop(args, body, _) =>
+          args.toList.flatMap { case (_, init) =>
+            directLocalCallArities(init, name)
+          } ::: directLocalCallArities(body, name)
+        case TypedExpr.Recur(args, _, _) =>
+          args.toList.flatMap(directLocalCallArities(_, name))
+        case TypedExpr.Match(arg, branches, _) =>
+          directLocalCallArities(arg, name) ::: branches.toList.flatMap { branch =>
+            branch.guardExprIterator.toList.flatMap(directLocalCallArities(_, name)) :::
+              directLocalCallArities(branch.expr, name)
+          }
+        case TypedExpr.Local(_, _, _) | TypedExpr.Global(_, _, _, _) |
+            TypedExpr.Literal(_, _, _) =>
+          Nil
+      }
+
+    TestUtils.assertValid(normalized)
+    findShadowedBranch(normalized) match {
+      case Some(branch) =>
+        val innerGuardArities =
+          branch.guardNode match {
+            case Some(TypedExpr.MatchGuard(_, _, Some(innerGuard))) =>
+              directLocalCallArities(innerGuard, fName)
+            case _ =>
+              fail(s"expected MatchGuard with inner predicate, got: ${branch.guardNode}")
+          }
+        val bodyArities = directLocalCallArities(branch.expr, fName)
+        assertEquals(innerGuardArities, List(1), normalized.reprString)
+        assertEquals(bodyArities, List(1), normalized.reprString)
+      case None =>
+        fail(s"expected MatchGuard branch that shadows $fName, got: ${normalized.repr}")
+    }
   }
 
   test("normalization keeps closures when non-recursive local functions escape") {

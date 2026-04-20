@@ -705,10 +705,19 @@ object TypedExprNormalization {
     }
 
   private def isSameLocalRef[A](expected: Bindable, te: TypedExpr[A]): Boolean =
-    stripTypeWrappers(te) match {
-      case Local(n, _, _) => n == expected
-      case _              => false
-    }
+    isSameLocalRef(expected, te, expectedVisible = true)
+
+  private def isSameLocalRef[A](
+      expected: Bindable,
+      te: TypedExpr[A],
+      expectedVisible: Boolean
+  ): Boolean =
+    if (!expectedVisible) false
+    else
+      stripTypeWrappers(te) match {
+        case Local(n, _, _) => n == expected
+        case _              => false
+      }
 
   private def combineInvariantFlags(
       left: Option[Vector[Boolean]],
@@ -737,7 +746,30 @@ object TypedExprNormalization {
       te: TypedExpr[A],
       loopNames: Vector[Bindable],
       inNestedLoop: Boolean
+  ): Option[Vector[Boolean]] =
+    outerRecurInvariantFlags(
+      te,
+      loopNames,
+      inNestedLoop,
+      shadowedLoopNames = Set.empty
+    )
+
+  private def outerRecurInvariantFlags[A](
+      te: TypedExpr[A],
+      loopNames: Vector[Bindable],
+      inNestedLoop: Boolean,
+      shadowedLoopNames: Set[Bindable]
   ): Option[Vector[Boolean]] = {
+    val loopNameSet = loopNames.toSet
+
+    def addShadowed(
+        shadowed: Set[Bindable],
+        bound: Iterable[Bindable]
+    ): Set[Bindable] =
+      bound.iterator.foldLeft(shadowed) { (acc, name) =>
+        if (loopNameSet(name)) acc + name else acc
+      }
+
     def loopList(
         exprs: List[TypedExpr[A]],
         init: Option[Vector[Boolean]]
@@ -745,39 +777,82 @@ object TypedExprNormalization {
       exprs.foldLeft(init) { (acc, e) =>
         combineInvariantFlags(
           acc,
-          outerRecurInvariantFlags(e, loopNames, inNestedLoop)
+          outerRecurInvariantFlags(
+            e,
+            loopNames,
+            inNestedLoop,
+            shadowedLoopNames
+          )
         )
       }
 
     te match {
       case Generic(_, in) =>
-        outerRecurInvariantFlags(in, loopNames, inNestedLoop)
+        outerRecurInvariantFlags(
+          in,
+          loopNames,
+          inNestedLoop,
+          shadowedLoopNames
+        )
       case Annotation(in, _, _) =>
-        outerRecurInvariantFlags(in, loopNames, inNestedLoop)
-      case AnnotatedLambda(_, in, _) =>
-        outerRecurInvariantFlags(in, loopNames, inNestedLoop)
+        outerRecurInvariantFlags(
+          in,
+          loopNames,
+          inNestedLoop,
+          shadowedLoopNames
+        )
+      case AnnotatedLambda(args, in, _) =>
+        outerRecurInvariantFlags(
+          in,
+          loopNames,
+          inNestedLoop,
+          addShadowed(shadowedLoopNames, args.toList.map(_._1))
+        )
       case App(fn, args, _, _) =>
         combineInvariantFlags(
-          outerRecurInvariantFlags(fn, loopNames, inNestedLoop),
+          outerRecurInvariantFlags(
+            fn,
+            loopNames,
+            inNestedLoop,
+            shadowedLoopNames
+          ),
           loopList(args.toList, None)
         )
       case let @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
         val (lets, tail) = TypedExpr.flattenLets(let)
-        val fromLets = lets.foldLeft(Option.empty[Vector[Boolean]]) {
-          case (acc, (_, rhs, _)) =>
+        val (fromLets, shadowedTail) =
+          lets.foldLeft(
+            (Option.empty[Vector[Boolean]], shadowedLoopNames)
+          ) { case ((acc, shadowed), (name, rhs, _)) =>
             combineInvariantFlags(
               acc,
-              outerRecurInvariantFlags(rhs, loopNames, inNestedLoop)
-            )
-        }
+              outerRecurInvariantFlags(rhs, loopNames, inNestedLoop, shadowed)
+            ) -> addShadowed(shadowed, name :: Nil)
+          }
         combineInvariantFlags(
           fromLets,
-          outerRecurInvariantFlags(tail, loopNames, inNestedLoop)
+          outerRecurInvariantFlags(
+            tail,
+            loopNames,
+            inNestedLoop,
+            shadowedTail
+          )
         )
-      case Let(_, expr, in, _, _) =>
+      case Let(arg, expr, in, _, _) =>
+        val shadowedIn = addShadowed(shadowedLoopNames, arg :: Nil)
         combineInvariantFlags(
-          outerRecurInvariantFlags(expr, loopNames, inNestedLoop),
-          outerRecurInvariantFlags(in, loopNames, inNestedLoop)
+          outerRecurInvariantFlags(
+            expr,
+            loopNames,
+            inNestedLoop,
+            shadowedIn
+          ),
+          outerRecurInvariantFlags(
+            in,
+            loopNames,
+            inNestedLoop,
+            shadowedIn
+          )
         )
       case Loop(loopArgs, loopBody, _) =>
         val initFlags =
@@ -785,19 +860,35 @@ object TypedExprNormalization {
             case (acc, (_, initExpr)) =>
               combineInvariantFlags(
                 acc,
-                outerRecurInvariantFlags(initExpr, loopNames, inNestedLoop)
+                outerRecurInvariantFlags(
+                  initExpr,
+                  loopNames,
+                  inNestedLoop,
+                  shadowedLoopNames
+                )
               )
           }
         combineInvariantFlags(
           initFlags,
-          outerRecurInvariantFlags(loopBody, loopNames, inNestedLoop = true)
+          outerRecurInvariantFlags(
+            loopBody,
+            loopNames,
+            inNestedLoop = true,
+            addShadowed(shadowedLoopNames, loopArgs.toList.map(_._1))
+          )
         )
       case Recur(args, _, _) if !inNestedLoop =>
         if (args.length == loopNames.length) {
           Some(
             args.iterator
               .zip(loopNames.iterator)
-              .map { case (arg, expected) => isSameLocalRef(expected, arg) }
+              .map { case (arg, expected) =>
+                isSameLocalRef(
+                  expected,
+                  arg,
+                  expectedVisible = !shadowedLoopNames(expected)
+                )
+              }
               .toVector
           )
         } else {
@@ -808,14 +899,47 @@ object TypedExprNormalization {
         None
       case Match(arg, branches, _) =>
         combineInvariantFlags(
-          outerRecurInvariantFlags(arg, loopNames, inNestedLoop),
+          outerRecurInvariantFlags(
+            arg,
+            loopNames,
+            inNestedLoop,
+            shadowedLoopNames
+          ),
           branches.toList.foldLeft(Option.empty[Vector[Boolean]]) {
-            case (acc, Branch(_, guard, branchExpr)) =>
-              val guardFlags = guard.fold(Option.empty[Vector[Boolean]]) {
-                outerRecurInvariantFlags(_, loopNames, inNestedLoop)
-              }
+            case (acc, branch) =>
+              val outerShadowed =
+                addShadowed(shadowedLoopNames, branch.pattern.names)
+              val innerShadowed =
+                addShadowed(outerShadowed, branch.guardBindings)
+              val guardFlags = branch.foldGuardExprScoped(Option.empty[Vector[Boolean]])(
+                (guardAcc, guardExpr) =>
+                  combineInvariantFlags(
+                    guardAcc,
+                    outerRecurInvariantFlags(
+                      guardExpr,
+                      loopNames,
+                      inNestedLoop,
+                      outerShadowed
+                    )
+                  ),
+                (guardAcc, guardExpr) =>
+                  combineInvariantFlags(
+                    guardAcc,
+                    outerRecurInvariantFlags(
+                      guardExpr,
+                      loopNames,
+                      inNestedLoop,
+                      innerShadowed
+                    )
+                  )
+              )
               val bodyFlags =
-                outerRecurInvariantFlags(branchExpr, loopNames, inNestedLoop)
+                outerRecurInvariantFlags(
+                  branch.expr,
+                  loopNames,
+                  inNestedLoop,
+                  innerShadowed
+                )
               combineInvariantFlags(
                 acc,
                 combineInvariantFlags(guardFlags, bodyFlags)
@@ -1076,10 +1200,18 @@ object TypedExprNormalization {
         args.exists(hasEscapingFnRef(_, fnName, fnVisible))
       case Match(arg, branches, _) =>
         hasEscapingFnRef(arg, fnName, fnVisible) || branches.exists {
-          case Branch(p, guard, branchExpr) =>
-            val fnVisibleBranch = fnVisible && !p.names.contains(fnName)
-            guard.exists(hasEscapingFnRef(_, fnName, fnVisibleBranch)) ||
-            hasEscapingFnRef(branchExpr, fnName, fnVisibleBranch)
+          case branch =>
+            val fnVisibleOuter =
+              fnVisible && !branch.pattern.names.contains(fnName)
+            val fnVisibleInner =
+              fnVisibleOuter && !branch.guardBindings.contains(fnName)
+            branch.foldGuardExprScoped(false)(
+              (acc, guardExpr) =>
+                acc || hasEscapingFnRef(guardExpr, fnName, fnVisibleOuter),
+              (acc, guardExpr) =>
+                acc || hasEscapingFnRef(guardExpr, fnName, fnVisibleInner)
+            ) ||
+            hasEscapingFnRef(branch.expr, fnName, fnVisibleInner)
         }
       case Local(n, _, _) =>
         fnVisible && (n == fnName)
@@ -1168,17 +1300,20 @@ object TypedExprNormalization {
       case m @ Match(arg, branches, tag) =>
         val arg1 = prependArgsToFnCalls(arg, fnName, extraArgs, fnVisible)
         val branches1 = ListUtil.mapConserveNel(branches) { branch =>
-          val p = branch.pattern
-          val fnVisibleBranch = fnVisible && !p.names.contains(fnName)
-          val guard1 = branch.mapGuardNodeExpr(
-            prependArgsToFnCalls(_, fnName, extraArgs, fnVisibleBranch)
+          val fnVisibleOuter =
+            fnVisible && !branch.pattern.names.contains(fnName)
+          val fnVisibleInner =
+            fnVisibleOuter && !branch.guardBindings.contains(fnName)
+          val guard1 = branch.mapGuardNodeExprScoped(
+            prependArgsToFnCalls(_, fnName, extraArgs, fnVisibleOuter),
+            prependArgsToFnCalls(_, fnName, extraArgs, fnVisibleInner)
           )
           val branchExpr1 =
             prependArgsToFnCalls(
               branch.expr,
               fnName,
               extraArgs,
-              fnVisibleBranch
+              fnVisibleInner
             )
           if (guard1.eq(branch.guardNode) && (branchExpr1 eq branch.expr)) branch
           else branch.copyNode(guardNode = guard1, expr = branchExpr1)

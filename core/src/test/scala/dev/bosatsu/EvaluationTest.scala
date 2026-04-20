@@ -3350,6 +3350,45 @@ test = TestSuite("match branch MatchGuards", [
     )
   }
 
+  test("MatchGuard shadowing preserves closure semantics after normalization") {
+    runBosatsuTest(
+      List("""
+package Foo
+
+def shadow_fn():
+  n -> n.add(100)
+
+def closure_guarded(y, cond):
+  f = z -> y.add(z)
+  match cond:
+    case 0 if shadow_fn() matches f if f(1).eq_Int(101):
+      f(2)
+    case _:
+      f(3)
+
+def closure_explicit(y, cond):
+  f = z -> y.add(z)
+  match cond:
+    case 0:
+      match shadow_fn():
+        case f if f(1).eq_Int(101):
+          f(2)
+        case _:
+          f(3)
+    case _:
+      f(3)
+
+test = TestSuite("MatchGuard shadowing", [
+  Assertion(closure_guarded(10, 0).eq_Int(closure_explicit(10, 0)), "shadowed closure binder matches explicit nested match"),
+  Assertion(closure_guarded(10, 0).eq_Int(102), "shadowed closure binder keeps inner lambda calls"),
+  Assertion(closure_guarded(10, 1).eq_Int(closure_explicit(10, 1)), "outer fallback still uses captured closure")
+])
+"""),
+      "Foo",
+      3
+    )
+  }
+
   test("array externals evaluate") {
     runBosatsuTest(
       List(

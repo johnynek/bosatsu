@@ -9,20 +9,20 @@
 - Issue: `#2331` Allow binding if matches syntax in patterns.
 - Source design doc: `docs/design/2331-allow-binding-if-matches-syntax-in-patterns.md`
 - Pending steps: `1`
-- Completed steps: `8`
-- Total steps: `9`
+- Completed steps: `9`
+- Total steps: `10`
 
 ## Summary
 
-Finish scoped match-branch guards so every compiler phase and typed IR tool, including the remaining binder-sensitive `TypedExprNormalization` Match walkers, honors the same binder model for `case p_outer if expr matches p_inner:`: match the outer pattern first, evaluate the guard scrutinee once, check the inner guard pattern and optional inner guard, then run the branch body in `outerBindings ++ guardBindings`. Preserve right-most-wins shadowing through normalization, typed substitution, recursion analysis, loop/recur lowering, Matchless lowering, and proto/EDN tooling, and close the last normalization gap around shadowed loop-invariant and closure-call rewrites before PR handoff.
+Carry scoped match-branch guards through every compiler phase and typed IR tool. This round finished the last typed-normalization walker gap around shadowed recur invariance and closure-call rewriting, and the only remaining follow-up before PR handoff is an adjacent source-level explicit `loop`/`recur` shadowing case discovered while trying to land the end-to-end shadowed-loop regression.
 
 ## Current State
 
-The candidate branch already carries the scoped `MatchGuard` pipeline through parsing, typing, lowering, serialization, docs, and most typed-normalization follow-through. In `TypedExprNormalization.scala`, the branch has already made hoisting, alpha-renaming, leading/trailing-guard rewrites, constant-branch fast paths, let sinking, and lambda pushdown `MatchGuard`-aware, but pre-PR review found that some binder-sensitive Match helpers still inspect branch bodies as though only `branch.pattern.names` could shadow outer locals.
+The candidate branch now carries the scoped `MatchGuard` pipeline through parsing, typing, lowering, serialization, docs, typed substitution, recursive consumers, and the previously-missing binder-sensitive `TypedExprNormalization` walkers. In `TypedExprNormalization.scala`, `outerRecurInvariantFlags`, `hasEscapingFnRef`, and `prependArgsToFnCalls` now split outer guard-scrutinee scope from inner guard/body scope, with new typed-normalization regressions for shadowed recur slots and closure-call rewriting plus an end-to-end closure regression all passing. While closing this slice, an adjacent source-level explicit `loop`/`recur` shadowing case still normalized as if the guard binder never reached the recur body; that follow-up is tracked below.
 
 ## Problem
 
-The remaining binder-sensitive normalization helpers can still change semantics when a guard-local binder shadows an outer loop or function name. `outerRecurInvariantFlags` and its `isSameLocalRef` check can incorrectly mark an outer loop slot invariant and drop the real recur argument, while `hasEscapingFnRef` plus `prependArgsToFnCalls` can rewrite a call through a guard-bound `f` as though it targeted the captured closure binding. Until those Match walkers split outer guard-scrutinee scope from inner guard/body scope and land focused regressions, the branch is not ready for the next review round.
+The remaining branch gap is no longer inside the typed-normalization walker set. An explicit source-level `loop`/`recur` branch with a top-level guard `matches` that shadows a recursive slot can still lower and normalize as if the guard binder were not threaded into the recursive body, collapsing a shadowed-loop example to the outer accumulator. Until that earlier pipeline gap is fixed and covered end to end, the branch is not ready for final PR handoff.
 
 ## Steps
 
@@ -225,7 +225,7 @@ Address the first wave of normalization follow-through for `MatchGuard`: keep th
 
 `TypedExprNormalization.scala` now preserves `MatchGuard` structure and scope through `shareImmutableValues`, `unshadowInlineBranch`, the leading/trailing-guard rewrites, constructor/literal branch selection, let sinking, and lambda pushdown. Those changes added focused `TypedExprTest` regressions for binder scope, guarded branch rewrites, constant branch selection, and hoisting, and reran `sbt "coreJVM/test:compile"`, `sbt "coreJVM/testOnly dev.bosatsu.TypedExprTest"`, `sbt "coreJVM/testOnly dev.bosatsu.EvaluationTest"`, and `scripts/test_basic.sh`; a later pre-PR review found the remaining binder-sensitive Match walkers tracked in the pending step below.
 
-9. [ ] `finish-binder-sensitive-normalization-match-walkers` Finish Binder-Sensitive Match Walkers in TypedExprNormalization
+9. [x] `finish-binder-sensitive-normalization-match-walkers` Finish Binder-Sensitive Match Walkers in TypedExprNormalization
 
 Close the remaining portion of blocking review finding `F1` by teaching the binder-sensitive Match helpers in `TypedExprNormalization.scala` to distinguish outer guard-scrutinee scope from inner guard/body scope. Update `outerRecurInvariantFlags` and the local-ref matching it relies on so a `MatchGuard` binder that shadows a loop name cannot make the outer loop slot look invariant or drop the real recur argument. In the same slice, update `hasEscapingFnRef`, `prependArgsToFnCalls`, and the `rewriteNonEscapingClosureBinding` gate/rewrite so a guard-bound function name masks the captured closure binding inside the optional inner guard and same branch body. Reuse the existing `TypedExpr.Branch` scoped guard helpers instead of adding another ad hoc branch walker.
 
@@ -243,5 +243,29 @@ Close the remaining portion of blocking review finding `F1` by teaching the bind
 
 - Add a `TypedExprTest` regression for the shadowed loop-invariant case from review finding `F1`, asserting normalization does not drop or reorder outer `recur` arguments when a `MatchGuard` binder reuses a loop name.
 - Add a `TypedExprTest` regression for the shadowed closure-call case from review finding `F1`, asserting normalization does not prepend captured closure arguments through a `MatchGuard`-bound `f` in the optional inner guard or branch body.
-- Add an `EvaluationTest` end-to-end regression for one shadowed loop example and one shadowed closure example, comparing compiled behavior with an equivalent explicit nested `match` so the remaining normalization fixes are pinned semantically.
+- Add an `EvaluationTest` end-to-end regression for a shadowed closure example, comparing compiled behavior with an equivalent explicit nested `match` so the closure-side normalization fix is pinned semantically.
 - Run `sbt "coreJVM/test:compile"`, `sbt "coreJVM/testOnly dev.bosatsu.TypedExprTest dev.bosatsu.EvaluationTest"`, and `scripts/test_basic.sh`.
+
+#### Completion Notes
+
+`TypedExprNormalization.scala` now threads shadowed-name visibility through `outerRecurInvariantFlags`, `hasEscapingFnRef`, and `prependArgsToFnCalls`, reusing the scoped guard walkers so the guard scrutinee keeps outer scope while the optional inner guard and branch body see `branch.allBindings`. That keeps a guard-bound loop name from looking invariant in normalized `Recur` analysis and keeps a guard-bound `f` from taking rewritten closure arguments in the inner guard/body path. Added focused `TypedExprTest` regressions for the shadowed loop-slot and closure-call cases plus an `EvaluationTest` closure regression, then reran `sbt "coreJVM/test:compile"`, `sbt "coreJVM/testOnly dev.bosatsu.TypedExprTest dev.bosatsu.EvaluationTest"`, and `scripts/test_basic.sh`, all of which passed. Attempting the analogous explicit `loop`/`recur` end-to-end regression exposed a broader source-level follow-up, which is now tracked below.
+
+10. [ ] `fix-source-loop-recur-shadowing-followthrough` Fix Source-Level Loop/Recur Shadowing Follow-Through
+
+Finish the adjacent explicit `loop`/`recur` surface uncovered while landing the normalization walker fixes. A source-level branch like `case (S(prev), _) if prev matches x: loop_guarded(prev, x)` currently lowers to valid typed `MatchGuard` IR but still normalizes to the outer accumulator, so some earlier source-level lowering or recursive-loop follow-through is still losing the intended right-most binder before the final normalized form. Trace that boundary, keep the explicit loop slot alive, and land the missing end-to-end shadowed loop regression.
+
+#### Invariants
+
+- Explicit source-level `loop`/`recur` branches use the same binder model as ordinary match branches: the guard scrutinee sees outer pattern names only, and the optional inner guard plus branch body see `outerBindings ++ guardBindings`.
+- A guard-bound shadow inside an explicit source-level `loop`/`recur` branch must not collapse a recur slot to the outer accumulator or erase the recursive state update during normalization.
+- The fix must preserve the newly-landed typed-normalization walker behavior and the closure-shadowing regression coverage from the completed step above.
+
+#### Property Tests
+
+- None recorded.
+
+#### Assertion Tests
+
+- Add a `TypedExprTest` or equivalent source-level lowering regression that `loop (n, x): case (S(prev), _) if prev matches x: ...` still lowers and normalizes with both recur slots intact.
+- Add an `EvaluationTest` end-to-end regression for a shadowed explicit `loop`/`recur` example compared with an equivalent explicit nested `match`.
+- Run `sbt "coreJVM/test:compile"`, focused `TypedExprTest`/`EvaluationTest`/`TypedExprRecursionCheckTest`, and `scripts/test_basic.sh`.
