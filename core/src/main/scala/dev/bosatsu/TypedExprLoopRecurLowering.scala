@@ -169,6 +169,66 @@ object TypedExprLoopRecurLowering {
       case other             => other
     }
 
+  private def isPredefBoolCtor[A](
+      te: TypedExpr[A],
+      ctorName: String
+  ): Boolean =
+    stripTypeWrappers(te) match {
+      case Global(
+            PackageName.PredefName,
+            Identifier.Constructor(`ctorName`),
+            _,
+            _
+          ) =>
+        true
+      case _ =>
+        false
+    }
+
+  private def decodeSourceLoopMatchGuard[A](
+      guardExpr: TypedExpr[A]
+  ): Option[TypedExpr.MatchGuard[A]] =
+    stripTypeWrappers(guardExpr) match {
+      // Recursive source `loop`/`recur` branches should have already
+      // classified whole-guard `matches` forms as scoped guards. If such a
+      // branch still reaches loop lowering in the canonical `match ... True/False`
+      // encoding, recover the scoped form before binder-sensitive rewrites.
+      case Match(argExpr, branches, _) =>
+        branches.toList match {
+          case head :: tail :: Nil
+              if tail.pattern == Pattern.WildCard &&
+                tail.guardNode.isEmpty &&
+                isPredefBoolCtor(head.expr, "True") &&
+                isPredefBoolCtor(tail.expr, "False") =>
+            Some(
+              TypedExpr.MatchGuard(
+                argExpr,
+                head.pattern,
+                head.guard
+              )(using head.patternRegion)
+            )
+          case _ =>
+            None
+        }
+      case _ =>
+        None
+    }
+
+  private def restoreRecursiveMatchGuard[A](
+      branch: TypedExpr.Branch[A]
+  ): TypedExpr.Branch[A] =
+    branch.guardNode match {
+      case Some(TypedExpr.BoolGuard(guardExpr)) =>
+        decodeSourceLoopMatchGuard(guardExpr) match {
+          case Some(matchGuard) =>
+            branch.copyNode(guardNode = Some(matchGuard))
+          case None             =>
+            branch
+        }
+      case _ =>
+        branch
+    }
+
   private case class GroupedLambda[A](
       groups: Vector[NonEmptyList[(Bindable, Type)]],
       terminalBody: TypedExpr[A],
@@ -843,8 +903,12 @@ object TypedExprLoopRecurLowering {
         if (args1 eq args) recur
         else Recur(args1, tpe, tag)
       case m @ Match(arg, branches, tag) =>
+        val branches0 =
+          if (m.matchKind.isRecursive)
+            ListUtil.mapConserveNel(branches)(restoreRecursiveMatchGuard(_))
+          else branches
         val arg1 = lowerExpr(arg)
-        val branches1 = ListUtil.mapConserveNel(branches) { branch =>
+        val branches1 = ListUtil.mapConserveNel(branches0) { branch =>
           val guard1 = branch.mapGuardNodeExpr(lowerExpr(_))
           val expr1 = lowerExpr(branch.expr)
           if (guard1.eq(branch.guardNode) && (expr1 eq branch.expr)) branch

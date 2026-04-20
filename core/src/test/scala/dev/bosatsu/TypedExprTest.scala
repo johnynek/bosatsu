@@ -3807,6 +3807,52 @@ def poly[a](n: Nat, x: a) -> Nat:
     }
   }
 
+  test(
+    "source-level loop/recur shadowing keeps MatchGuard recur slots through normalization"
+  ) {
+    val source = normalizeSource(
+      """
+      enum Nat: Z, S(prev: Nat)
+
+      def keep_nat(n: Nat) -> Option[Nat]:
+        Some(n)
+
+      def loop_guarded(n: Nat, x: Nat) -> Nat:
+        loop (n, x):
+          case (S(prev), _) if keep_nat(prev) matches Some(x):
+            loop_guarded(prev, x)
+          case (_, final_x):
+            final_x
+      """
+    )
+    val (lowered, normalized) =
+      inferLoweredAndNormalizedExpr(source, "loop_guarded")
+
+    assert(hasMatchGuard(lowered), lowered.reprString)
+    TestUtils.assertValid(normalized)
+    assertEquals(
+      count(normalized) { case TypedExpr.Loop(args, _, _) if args.length == 2 =>
+        true
+      },
+      1,
+      normalized.reprString
+    )
+    assertEquals(
+      count(normalized) { case TypedExpr.Recur(args, _, _) if args.length == 2 =>
+        true
+      },
+      1,
+      normalized.reprString
+    )
+    assertEquals(
+      count(normalized) { case TypedExpr.Recur(args, _, _) if args.length != 2 =>
+        true
+      },
+      0,
+      normalized.reprString
+    )
+  }
+
   test("normalization removes non-recursive identity let bindings") {
     val xName = Identifier.Name("x")
     val xVar = TypedExpr.Local(xName, intTpe, ())

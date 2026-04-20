@@ -3389,6 +3389,58 @@ test = TestSuite("MatchGuard shadowing", [
     )
   }
 
+  test("MatchGuard shadowing keeps explicit loop/recur slots through normalization") {
+    runBosatsuTest(
+      List("""
+package Foo
+
+enum Nat: Z, S(prev: Nat)
+
+def to_int(n: Nat) -> Int:
+  recur n:
+    case Z: 0
+    case S(prev): to_int(prev).add(1)
+
+def keep_nat(n: Nat) -> Option[Nat]:
+  Some(n)
+
+def guarded(n: Nat, x: Nat) -> Nat:
+  loop (n, x):
+    case (S(prev), _) if keep_nat(prev) matches Some(x):
+      guarded(prev, x)
+    case (_, final_x):
+      final_x
+
+def explicit(n: Nat, x: Nat) -> Nat:
+  loop (n, x):
+    case (S(prev), _):
+      match keep_nat(prev):
+        case Some(x):
+          explicit(prev, x)
+        case _:
+          x
+    case (_, final_x):
+      final_x
+
+start_n = S(S(Z))
+start_x = S(S(S(Z)))
+
+test = TestSuite("MatchGuard loop/recur shadowing", [
+  Assertion(
+    to_int(guarded(start_n, start_x)).eq_Int(to_int(explicit(start_n, start_x))),
+    "guarded loop matches explicit nested match"
+  ),
+  Assertion(
+    to_int(guarded(start_n, start_x)).eq_Int(0),
+    "shadowed recur slot follows the inner MatchGuard binder"
+  )
+])
+"""),
+      "Foo",
+      2
+    )
+  }
+
   test("array externals evaluate") {
     runBosatsuTest(
       List(
