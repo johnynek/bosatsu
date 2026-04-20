@@ -779,6 +779,35 @@ foo = _ -> 1
         false
     }
 
+  def branchGuardKinds[A](te: TypedExpr[A]): List[TypedExpr.BranchGuardKind] =
+    te match {
+      case TypedExpr.Generic(_, in) =>
+        branchGuardKinds(in)
+      case TypedExpr.Annotation(in, _, _) =>
+        branchGuardKinds(in)
+      case TypedExpr.AnnotatedLambda(_, in, _) =>
+        branchGuardKinds(in)
+      case TypedExpr.App(fn, args, _, _) =>
+        branchGuardKinds(fn) ::: args.toList.flatMap(branchGuardKinds)
+      case TypedExpr.Let(_, expr, in, _, _) =>
+        branchGuardKinds(expr) ::: branchGuardKinds(in)
+      case TypedExpr.Loop(args, body, _) =>
+        args.toList.flatMap { case (_, initExpr) =>
+          branchGuardKinds(initExpr)
+        } ::: branchGuardKinds(body)
+      case TypedExpr.Recur(args, _, _) =>
+        args.toList.flatMap(branchGuardKinds)
+      case TypedExpr.Match(arg, branches, _) =>
+        branchGuardKinds(arg) ::: branches.toList.flatMap { branch =>
+          branch.guardNode.toList.map(TypedExpr.BranchGuard.kind) :::
+            branch.guardExprIterator.toList.flatMap(branchGuardKinds) :::
+            branchGuardKinds(branch.expr)
+        }
+      case TypedExpr.Local(_, _, _) | TypedExpr.Global(_, _, _, _) |
+          TypedExpr.Literal(_, _, _) =>
+        Nil
+    }
+
   def lowerAndNormalize(te: TypedExpr[Unit]): TypedExpr[Unit] = {
     val lowered = TypedExprLoopRecurLowering.lower(te).getOrElse(te)
     TypedExprNormalization.normalize(lowered).getOrElse(lowered)
@@ -3829,6 +3858,10 @@ def poly[a](n: Nat, x: a) -> Nat:
       inferLoweredAndNormalizedExpr(source, "loop_guarded")
 
     assert(hasMatchGuard(lowered), lowered.reprString)
+    assert(
+      branchGuardKinds(lowered).contains(TypedExpr.BranchGuardKind.Match),
+      lowered.reprString
+    )
     TestUtils.assertValid(normalized)
     assertEquals(
       count(normalized) { case TypedExpr.Loop(args, _, _) if args.length == 2 =>
@@ -3851,6 +3884,92 @@ def poly[a](n: Nat, x: a) -> Nat:
       0,
       normalized.reprString
     )
+  }
+
+  test("source-level loop bool guards keep recursive lowering on BoolGuard") {
+    val source = normalizeSource(
+      """
+      enum Nat: Z, S(prev: Nat)
+
+      def keep_nat(n: Nat) -> Option[Nat]:
+        Some(n)
+
+      def use_nat(n: Nat) -> Bool:
+        match n:
+          case Z: True
+          case S(_): True
+
+      def bool_loop(n: Nat, x: Nat) -> Nat:
+        loop (n, x):
+          case (S(prev), _) if (match keep_nat(prev):
+            case Some(x): use_nat(x)
+            case _: False):
+            bool_loop(prev, x)
+          case (_, final_x):
+            final_x
+      """
+    )
+    val (lowered, normalized) =
+      inferLoweredAndNormalizedExpr(source, "bool_loop")
+
+    assertEquals(branchGuardKinds(lowered), List(TypedExpr.BranchGuardKind.Bool))
+    assertEquals(hasMatchGuard(lowered), false, lowered.reprString)
+    TestUtils.assertValid(normalized)
+    assertEquals(
+      count(normalized) { case TypedExpr.Loop(args, _, _) if args.length == 2 =>
+        true
+      },
+      1,
+      normalized.reprString
+    )
+    assertEquals(
+      count(normalized) { case TypedExpr.Recur(args, _, _) if args.length == 2 =>
+        true
+      },
+      1,
+      normalized.reprString
+    )
+    assertEquals(
+      count(normalized) { case TypedExpr.Recur(args, _, _) if args.length != 2 =>
+        true
+      },
+      0,
+      normalized.reprString
+    )
+  }
+
+  test("source-level recur bool guards keep recursive lowering on BoolGuard") {
+    val source = normalizeSource(
+      """
+      enum Nat: Z, S(prev: Nat)
+
+      def keep_nat(n: Nat) -> Option[Nat]:
+        Some(n)
+
+      def use_nat(n: Nat) -> Bool:
+        match n:
+          case Z: True
+          case S(_): True
+
+      def id_nat(n: Nat) -> Nat:
+        n
+
+      def bool_recur(n: Nat, x: Nat) -> Nat:
+        recur n:
+          case S(prev) if (match keep_nat(prev):
+            case Some(x): use_nat(x)
+            case _: False):
+            id_nat(bool_recur(prev, x))
+          case _:
+            x
+      """
+    )
+    val (lowered, normalized) =
+      inferLoweredAndNormalizedExpr(source, "bool_recur")
+
+    assertEquals(branchGuardKinds(lowered), List(TypedExpr.BranchGuardKind.Bool))
+    assertEquals(hasMatchGuard(lowered), false, lowered.reprString)
+    TestUtils.assertValid(normalized)
   }
 
   test("normalization removes non-recursive identity let bindings") {

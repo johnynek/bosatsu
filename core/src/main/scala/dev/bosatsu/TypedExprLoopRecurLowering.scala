@@ -214,10 +214,27 @@ object TypedExprLoopRecurLowering {
         None
     }
 
+  private def recursiveGuardRecoveryProvenance(
+      tag: Any,
+      branchCount: Int
+  ): Option[Vector[Boolean]] =
+    tag match {
+      case Declaration.Match(kind, _, cases) if kind.isRecursive =>
+        val provenance =
+          cases.get.toList.map(_.guard.exists(Declaration.ConditionalMatch.unapply(_).nonEmpty))
+        if (provenance.lengthCompare(branchCount) == 0)
+          Some(provenance.toVector)
+        else None
+      case _ =>
+        None
+    }
+
   private def restoreRecursiveMatchGuard[A](
-      branch: TypedExpr.Branch[A]
+      branch: TypedExpr.Branch[A],
+      allowRecovery: Boolean
   ): TypedExpr.Branch[A] =
-    branch.guardNode match {
+    if (!allowRecovery) branch
+    else branch.guardNode match {
       case Some(TypedExpr.BoolGuard(guardExpr)) =>
         decodeSourceLoopMatchGuard(guardExpr) match {
           case Some(matchGuard) =>
@@ -904,9 +921,18 @@ object TypedExprLoopRecurLowering {
         else Recur(args1, tpe, tag)
       case m @ Match(arg, branches, tag) =>
         val branches0 =
-          if (m.matchKind.isRecursive)
-            ListUtil.mapConserveNel(branches)(restoreRecursiveMatchGuard(_))
-          else branches
+          recursiveGuardRecoveryProvenance(tag, branches.length) match {
+            case Some(provenance) =>
+              val restored =
+                branches.toList
+                  .zip(provenance.iterator)
+                  .map { case (branch, allowRecovery) =>
+                    restoreRecursiveMatchGuard(branch, allowRecovery)
+                  }
+              NonEmptyList.fromListUnsafe(restored)
+            case None =>
+              branches
+          }
         val arg1 = lowerExpr(arg)
         val branches1 = ListUtil.mapConserveNel(branches0) { branch =>
           val guard1 = branch.mapGuardNodeExpr(lowerExpr(_))

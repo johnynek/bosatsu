@@ -3441,6 +3441,103 @@ test = TestSuite("MatchGuard loop/recur shadowing", [
     )
   }
 
+  test("explicit boolean recursive guards keep guard binders local to the guard") {
+    runBosatsuTest(
+      List("""
+package Foo
+
+enum Nat: Z, S(prev: Nat)
+
+def to_int(n: Nat) -> Int:
+  recur n:
+    case Z: 0
+    case S(prev): to_int(prev).add(1)
+
+def keep_nat(n: Nat) -> Option[Nat]:
+  Some(n)
+
+def use_nat(n: Nat) -> Bool:
+  match n:
+    case Z: True
+    case S(_): True
+
+def id_nat(n: Nat) -> Nat:
+  n
+
+def match_loop(n: Nat, x: Nat) -> Nat:
+  loop (n, x):
+    case (S(prev), _) if keep_nat(prev) matches Some(x):
+      match_loop(prev, x)
+    case (_, final_x):
+      final_x
+
+def bool_loop(n: Nat, x: Nat) -> Nat:
+  loop (n, x):
+    case (S(prev), _) if (match keep_nat(prev):
+      case Some(x): use_nat(x)
+      case _: False):
+      bool_loop(prev, x)
+    case (_, final_x):
+      final_x
+
+def explicit_bool_loop(n: Nat, x: Nat) -> Nat:
+  loop (n, x):
+    case (S(prev), _) if (match keep_nat(prev):
+      case Some(inner_x): use_nat(inner_x)
+      case _: False):
+      explicit_bool_loop(prev, x)
+    case (_, final_x):
+      final_x
+
+def bool_recur(n: Nat, x: Nat) -> Nat:
+  recur n:
+    case S(prev) if (match keep_nat(prev):
+      case Some(x): use_nat(x)
+      case _: False):
+      id_nat(bool_recur(prev, x))
+    case _:
+      x
+
+def explicit_bool_recur(n: Nat, x: Nat) -> Nat:
+  recur n:
+    case S(prev) if (match keep_nat(prev):
+      case Some(inner_x): use_nat(inner_x)
+      case _: False):
+      id_nat(explicit_bool_recur(prev, x))
+    case _:
+      x
+
+start_n = S(S(Z))
+start_x = S(S(S(Z)))
+
+test = TestSuite("recursive bool guards", [
+  Assertion(
+    to_int(match_loop(start_n, start_x)).eq_Int(0),
+    "whole-guard matches still shadow the recur slot"
+  ),
+  Assertion(
+    to_int(bool_loop(start_n, start_x)).eq_Int(to_int(explicit_bool_loop(start_n, start_x))),
+    "explicit boolean loop guard matches explicit guard evaluation"
+  ),
+  Assertion(
+    to_int(bool_loop(start_n, start_x)).eq_Int(3),
+    "explicit boolean loop guard keeps the outer branch binder"
+  ),
+  Assertion(
+    to_int(bool_recur(start_n, start_x)).eq_Int(to_int(explicit_bool_recur(start_n, start_x))),
+    "explicit boolean recur guard matches explicit guard evaluation"
+  ),
+  Assertion(
+    to_int(bool_recur(start_n, start_x)).eq_Int(3),
+    "explicit boolean recur guard keeps the outer branch binder"
+  )
+])
+"""),
+      "Foo",
+      5
+    )
+  }
+
   test("array externals evaluate") {
     runBosatsuTest(
       List(
