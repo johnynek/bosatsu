@@ -8,8 +8,8 @@
 - Flow: `implementation`
 - Issue: `#2331` Allow binding if matches syntax in patterns.
 - Source design doc: `docs/design/2331-allow-binding-if-matches-syntax-in-patterns.md`
-- Pending steps: `1`
-- Completed steps: `7`
+- Pending steps: `0`
+- Completed steps: `8`
 - Total steps: `8`
 
 ## Summary
@@ -18,11 +18,11 @@ Finish scoped match-branch guards so every compiler phase and typed IR tool, inc
 
 ## Current State
 
-The branch already lands the explicit branch-guard ADT, source/typechecker support, Matchless lowering, docs, recursive-consumer follow-through, and fail-fast proto decoding for `MatchGuard`. However, the current plan has no pending step for the remaining pre-PR blocker: review of the authoritative candidate patch found that `TypedExprNormalization` still has approval-blocking scope holes where some rewrites and hoist/rename helpers use the synthetic `branch.guard` view or only `branch.pattern.names`, so normalization can still drop or capture guard-local binders. The prior focused suites and `scripts/test_basic.sh` were green on the post-review revision, but they did not pin these normalization-specific binder cases.
+The branch now lands the full scoped branch-guard implementation, including the remaining `TypedExprNormalization.scala` scope fixes from review finding `F1`. Normalization now distinguishes outer-pattern scope from inner guard/body scope when hoisting, alpha-renaming, and branch-moving rewrites touch `MatchGuard`; bool-style rewrites and constant-folding fast paths only route through the synthetic boolean guard when `guardBindings` is empty; and directly coupled branch rewrites that sink lets or push lambdas through matches now respect `branch.allBindings`. Focused `TypedExprTest` and `EvaluationTest` coverage, `coreJVM/test:compile`, and the required `scripts/test_basic.sh` gate all passed on the final branch state.
 
 ## Problem
 
-Blocking review finding `F1` shows that normalization is still not semantics-preserving for scoped branch guards. In `TypedExprNormalization.scala`, `rewriteLeadingWildcardGuard`, `rewriteTrailingGuardPair`, the constructor/literal `chooseBranch` fast paths, `shareImmutableValues`, and `unshadowInlineBranch` can move, select, hoist, or rename `branch.expr` after looking only at the synthetic boolean guard or the outer branch-pattern binders. A branch like `case _ if opt matches Some(x): x` can therefore normalize into an expression where `x` is free, captured, or otherwise no longer scoped only to that branch's inner guard/body path. Until normalization becomes `guardNode`/`guardBindings` aware and gains regressions that exercise inner-guard/body uses of guard-local binders, the branch is not ready for another review round.
+The implementation work tracked by this plan is complete. There is no known remaining compiler-side blocker for issue #2331 on this branch; the next step is PR review and merge rather than more scoped-matchguard implementation work.
 
 ## Steps
 
@@ -199,25 +199,30 @@ Close review finding `F3` by tightening `ProtoConverter.decodeGuard` so a presen
 
 `ProtoConverter.decodeGuard` now treats a present `BranchGuard` whose `oneof` is unset as invalid typed-AST input and returns failure instead of `None`, so malformed or forward-incompatible payloads cannot erase guarded branches during decode. Added a `ProtoConverterTest` regression that mutates an encoded match branch to carry `Some(proto.BranchGuard())` and asserts decode failure, then reran `sbt "coreJVM/test:compile" "coreJVM/testOnly dev.bosatsu.ProtoConverterTest dev.bosatsu.TypedExprTest dev.bosatsu.TypedExprRecursionCheckTest"` and `scripts/test_basic.sh`, all of which passed.
 
-8. [ ] `fix-typedexprnormalization-matchguard-scope` Make TypedExprNormalization Preserve MatchGuard Scope
+8. [x] `fix-typedexprnormalization-matchguard-scope` Make TypedExprNormalization Preserve MatchGuard Scope
 
-Close blocking review finding `F1` by making `TypedExprNormalization.scala` `guardNode`/`guardBindings` aware end to end. `rewriteLeadingWildcardGuard`, `rewriteTrailingGuardPair`, and the constructor/literal `chooseBranch` fast paths must either preserve `MatchGuard` binders when they rebuild or select branch bodies, or explicitly skip the rewrite for `MatchGuard` instead of routing through the synthetic `branch.guard` view. In the same slice, update `shareImmutableValues` and `unshadowInlineBranch` to use outer-pattern binders for the guard-scrutinee scope and `branch.allBindings` for the optional inner guard plus branch body, so hoisting and alpha-renaming cannot move, duplicate, or capture guard-local names.
+Close blocking review finding `F1` by making `TypedExprNormalization.scala` `guardNode`/`guardBindings` aware end to end. `rewriteLeadingWildcardGuard`, `rewriteTrailingGuardPair`, and the constructor/literal `chooseBranch` fast paths must either preserve `MatchGuard` binders when they rebuild or select branch bodies, or explicitly skip the rewrite for `MatchGuard` instead of routing through the synthetic `branch.guard` view. In the same slice, update `shareImmutableValues` and `unshadowInlineBranch` to use outer-pattern binders for the guard-scrutinee scope and `branch.allBindings` for the optional inner guard plus branch body, so hoisting and alpha-renaming cannot move, duplicate, or capture guard-local names. Absorb the directly coupled `sinkLetIntoBranchingBody` and branch-lambda pushdown rewrites into the same fix so every normalization rewrite that relocates code across a branch now respects the same binder split.
 
 #### Invariants
 
 - After normalization, `MatchGuard` binders remain in scope for the optional inner guard and same branch body only; no rewrite may materialize a body that refers to those names outside that combined scope.
 - Guard-scrutinee transforms run under outer branch-pattern binders only, while hoisting, alpha-renaming, and branch-body rewrites treat `branch.allBindings` as the live blocker set for the optional inner guard and branch body.
-- Bool-only normalization fast paths remain available for `BoolGuard` branches, but `MatchGuard` branches may only take those paths when the transformed result explicitly preserves the same binder scope and single-evaluation behavior.
+- Bool-only normalization fast paths remain available for `BoolGuard` branches and `MatchGuard` branches with empty `guardBindings`, but `MatchGuard` branches that introduce binders may only take those paths when the transformed result explicitly preserves the same binder scope and single-evaluation behavior.
 - When a scope-preserving rewrite is not local or obvious, the normalizer may leave a `MatchGuard` branch unchanged rather than collapsing it through the synthetic boolean view.
+- Normalization rewrites that move lets or lambdas across branch boundaries must treat `branch.allBindings` as capturing binders for the branch body and optional inner guard.
 
 #### Property Tests
 
-- Add a targeted `TypedExprTest` property that normalizing a `MatchGuard` branch with distinct outer and inner binder names keeps those binders non-free in the normalized root when the optional inner guard and branch body both reference them.
+- None recorded.
 
 #### Assertion Tests
 
-- Add a `TypedExprTest` regression for the leading-wildcard rewrite on `case _ if opt matches Some(x): x`, asserting normalization either preserves the `MatchGuard` or rebuilds an equivalent nested match whose successful arm still binds `x`.
-- Add a `TypedExprTest` regression for the trailing-guard-pair rewrite where the guarded branch body uses the inner `MatchGuard` binder, asserting the rewrite does not drop the binder or evaluate the guard scrutinee twice.
-- Add `TypedExprTest` regressions for the constructor and literal `chooseBranch` fast paths, proving constant-folded branch selection keeps `MatchGuard` binders in scope for the selected body.
-- Add a `TypedExprTest` regression that `shareImmutableValues` and `unshadowInlineBinders` do not hoist or capture expressions across a `MatchGuard` inner binder used in the inner guard and branch body.
-- Run `sbt "coreJVM/test:compile"`, focused `coreJVM/testOnly dev.bosatsu.TypedExprTest dev.bosatsu.EvaluationTest`, then rerun `scripts/test_basic.sh` on the post-fix branch state.
+- Add `TypedExprTest` regressions that normalized source-level `MatchGuard` branches keep outer and inner binders non-free in the normalized root.
+- Add `TypedExprTest` regressions for leading-wildcard and trailing-guard-pair rewrites where the branch body uses a guard-pattern binder, asserting the binder stays scoped and the guard scrutinee still appears once in the normalized result.
+- Add `TypedExprTest` regressions for literal and constructor branch-selection fast paths with `Some(1) matches Some(x)` guards, asserting selected bodies do not leak `x`.
+- Add a `TypedExprTest` regression that repeated `Some(x)` expressions inside a `MatchGuard` branch do not hoist `x` out of scope during normalization.
+- Run `sbt "coreJVM/test:compile"`, `sbt "coreJVM/testOnly dev.bosatsu.TypedExprTest"`, `sbt "coreJVM/testOnly dev.bosatsu.EvaluationTest"`, and `scripts/test_basic.sh`.
+
+#### Completion Notes
+
+`TypedExprNormalization.scala` now treats `MatchGuard` binder scope explicitly instead of routing all rewrites through `branch.guard`. `shareImmutableValues` and `unshadowInlineBranch` now use outer-pattern binders for the guard scrutinee and `branch.allBindings` for the optional inner guard plus branch body; `rewriteLeadingWildcardGuard`, `rewriteTrailingGuardPair`, and the constructor/literal `chooseBranch` fast paths only reuse the synthetic boolean guard when `guardBindings` is empty, otherwise they leave the guarded branch shape intact; and the directly coupled let-sinking and lambda-pushdown rewrites now respect `branch.allBindings` so they cannot capture guard-local names while moving code across branch boundaries. Added focused `TypedExprTest` regressions for binder scope, guarded branch rewrites, constant branch selection, and hoisting, then reran `sbt "coreJVM/test:compile"`, `sbt "coreJVM/testOnly dev.bosatsu.TypedExprTest"`, `sbt "coreJVM/testOnly dev.bosatsu.EvaluationTest"`, and `scripts/test_basic.sh`, all of which passed.

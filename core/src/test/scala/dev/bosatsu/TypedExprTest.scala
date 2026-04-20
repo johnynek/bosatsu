@@ -665,6 +665,33 @@ foo = _ -> 1
   ): TypedExpr.Branch[Unit] =
     TypedExpr.Branch(p, None, e)
 
+  def eqIntExpr(
+      left: TypedExpr[Unit],
+      right: TypedExpr[Unit]
+  ): TypedExpr[Unit] =
+    TypedExpr.App(PredefEqInt, NonEmptyList.of(left, right), boolTpe, ())
+
+  def addExpr(
+      left: TypedExpr[Unit],
+      right: TypedExpr[Unit]
+  ): TypedExpr[Unit] =
+    TypedExpr.App(PredefAdd, NonEmptyList.of(left, right), intTpe, ())
+
+  def matchGuardBranch(
+      pattern: Pattern[(PackageName, Constructor), Type],
+      argExpr: TypedExpr[Unit],
+      guardPattern: Pattern[(PackageName, Constructor), Type],
+      guardOpt: Option[TypedExpr[Unit]],
+      expr: TypedExpr[Unit]
+  ): TypedExpr.Branch[Unit] =
+    TypedExpr.Branch.fromGuardNode(
+      pattern,
+      Some(
+        TypedExpr.MatchGuard(argExpr, guardPattern, guardOpt)(using Region.empty)
+      ),
+      expr
+    )(using Region.empty)
+
   def hasLoop(te: TypedExpr[Unit]): Boolean =
     te match {
       case TypedExpr.Loop(_, _, _) =>
@@ -718,7 +745,7 @@ foo = _ -> 1
         false
     }
 
-  def hasMatchGuard(te: TypedExpr[Unit]): Boolean =
+  def hasMatchGuard[A](te: TypedExpr[A]): Boolean =
     te match {
       case TypedExpr.Generic(_, in) =>
         hasMatchGuard(in)
@@ -977,6 +1004,149 @@ foo = _ -> 1
       case other =>
         fail(s"expected single-branch match after substitution, got: $other")
     }
+  }
+
+  test("normalize keeps MatchGuard outer and inner binders non-free") {
+    val (_, normalized) = inferLoweredAndNormalizedExpr(
+      """
+      main = foo -> opt ->
+        match foo:
+          case 0 if opt matches Some(inner): inner
+          case outer if Some(outer) matches Some(bound): bound
+          case _: 9
+      """,
+      "main"
+    )
+    val frees = TypedExpr.freeVarsSet(normalized :: Nil).toSet
+
+    assert(!frees(Identifier.Name("inner")), normalized.reprString)
+    assert(!frees(Identifier.Name("outer")), normalized.reprString)
+    assert(!frees(Identifier.Name("bound")), normalized.reprString)
+  }
+
+  test("normalize keeps MatchGuard scope for leading wildcard guard rewrites") {
+    val (lowered, normalized) = inferLoweredAndNormalizedExpr(
+      """
+      main = foo -> opt ->
+        match foo:
+          case _ if opt matches Some(x): x
+          case 1: 7
+          case _: 9
+      """,
+      "main"
+    )
+    val xName = Identifier.Name("x")
+    val guardArg =
+      lowered match {
+        case TypedExpr.AnnotatedLambda(
+              _,
+              TypedExpr.AnnotatedLambda(
+                _,
+                TypedExpr.Match(_, NonEmptyList(branch, _ :: _), _),
+                _
+              ),
+              _
+            ) =>
+          branch.guardNode match {
+            case Some(TypedExpr.MatchGuard(argExpr, _, _)) =>
+              argExpr
+            case other =>
+              fail(s"expected lowered MatchGuard, got: $other")
+          }
+        case other =>
+          fail(s"expected lowered lambda/match shape, got: ${other.reprString}")
+      }
+    val frees = TypedExpr.freeVarsSet(normalized :: Nil).toSet
+
+    assert(hasMatchGuard(lowered), lowered.reprString)
+    assert(!frees(xName), normalized.reprString)
+    assertEquals(countExpr(normalized, guardArg), 1, normalized.reprString)
+  }
+
+  test("normalize keeps MatchGuard scope for trailing guard pair rewrites") {
+    val (lowered, normalized) = inferLoweredAndNormalizedExpr(
+      """
+      main = foo -> opt ->
+        match foo:
+          case 0 if opt matches Some(x): x
+          case _: 9
+      """,
+      "main"
+    )
+    val xName = Identifier.Name("x")
+    val guardArg =
+      lowered match {
+        case TypedExpr.AnnotatedLambda(
+              _,
+              TypedExpr.AnnotatedLambda(
+                _,
+                TypedExpr.Match(_, NonEmptyList(branch, _), _),
+                _
+              ),
+              _
+            ) =>
+          branch.guardNode match {
+            case Some(TypedExpr.MatchGuard(argExpr, _, _)) =>
+              argExpr
+            case other =>
+              fail(s"expected lowered MatchGuard, got: $other")
+          }
+        case other =>
+          fail(s"expected lowered lambda/match shape, got: ${other.reprString}")
+      }
+    val frees = TypedExpr.freeVarsSet(normalized :: Nil).toSet
+
+    assert(hasMatchGuard(lowered), lowered.reprString)
+    assert(!frees(xName), normalized.reprString)
+    assertEquals(countExpr(normalized, guardArg), 1, normalized.reprString)
+  }
+
+  test("normalize keeps MatchGuard scope for literal constant branch selection") {
+    val (lowered, normalized) = inferLoweredAndNormalizedExpr(
+      """
+      main = match 0:
+        case 0 if Some(1) matches Some(x): x
+        case _: 9
+      """,
+      "main"
+    )
+    val frees = TypedExpr.freeVarsSet(normalized :: Nil).toSet
+
+    assert(hasMatchGuard(lowered), lowered.reprString)
+    assert(!frees(Identifier.Name("x")), normalized.reprString)
+  }
+
+  test("normalize keeps MatchGuard scope for constructor constant branch selection") {
+    val (lowered, normalized) = inferLoweredAndNormalizedExpr(
+      """
+      main = match True:
+        case True if Some(1) matches Some(x): x
+        case _: 9
+      """,
+      "main"
+    )
+    val frees = TypedExpr.freeVarsSet(normalized :: Nil).toSet
+
+    assert(hasMatchGuard(lowered), lowered.reprString)
+    assert(!frees(Identifier.Name("x")), normalized.reprString)
+  }
+
+  test("normalize does not hoist MatchGuard-bound immutable values") {
+    val (_, normalized) = inferLoweredAndNormalizedExpr(
+      """
+      main = opt ->
+        match 0:
+          case _ if opt matches Some(x):
+            match Some(x):
+              case Some(_): Some(x)
+              case None: None
+          case _: None
+      """,
+      "main"
+    )
+    val frees = TypedExpr.freeVarsSet(normalized :: Nil).toSet
+
+    assert(!frees(Identifier.Name("x")), normalized.reprString)
   }
 
   test("let x = y in x == y") {
@@ -4243,7 +4413,7 @@ x = Foo
       statement: String,
       letName: String
   ): (TypedExpr[Declaration], TypedExpr[Declaration]) = {
-    val stmts = Parser.unsafeParse(Statement.parser, statement)
+    val stmts = Parser.unsafeParse(Statement.parser, normalizeSource(statement))
     val (fullTypeEnv, unoptProgram) =
       Package.inferBodyUnopt(
         TestUtils.testPackage,

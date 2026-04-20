@@ -196,12 +196,21 @@ object TypedExprNormalization {
           args.iterator.foreach(collect(_, blocked, blockedTy, inSuspension))
         case Match(arg, branches, _) =>
           collect(arg, blocked, blockedTy, inSuspension)
-          branches.iterator.foreach { case Branch(pat, guard, branchExpr) =>
-            val blockedBranch = blocked ++ pat.names
-            guard.iterator.foreach(
-              collect(_, blockedBranch, blockedTy, inSuspension)
-            )
-            collect(branchExpr, blockedBranch, blockedTy, inSuspension)
+          branches.iterator.foreach { branch =>
+            val blockedOuter = blocked ++ branch.pattern.names
+            val blockedBody = blocked ++ branch.allBindings
+            branch.guardNode match {
+              case Some(TypedExpr.BoolGuard(guardExpr)) =>
+                collect(guardExpr, blockedOuter, blockedTy, inSuspension)
+              case Some(TypedExpr.MatchGuard(argExpr, _, guardOpt)) =>
+                collect(argExpr, blockedOuter, blockedTy, inSuspension)
+                guardOpt.foreach(
+                  collect(_, blockedBody, blockedTy, inSuspension)
+                )
+              case None =>
+                ()
+            }
+            collect(branch.expr, blockedBody, blockedTy, inSuspension)
           }
         case Local(_, _, _) | Global(_, _, _, _) | Literal(_, _, _) =>
           ()
@@ -327,12 +336,14 @@ object TypedExprNormalization {
               case m @ Match(arg, branches, tag) =>
                 val arg1 = replace(arg, blocked, blockedTy, inSuspension)
                 val branches1 = ListUtil.mapConserveNel(branches) { branch =>
-                  val blockedBranch = blocked ++ branch.pattern.names
-                  val guard1 = branch.mapGuardNodeExpr(
-                    replace(_, blockedBranch, blockedTy, inSuspension)
+                  val blockedOuter = blocked ++ branch.pattern.names
+                  val blockedBody = blocked ++ branch.allBindings
+                  val guard1 = branch.mapGuardNodeExprScoped(
+                    replace(_, blockedOuter, blockedTy, inSuspension),
+                    replace(_, blockedBody, blockedTy, inSuspension)
                   )
                   val expr1 =
-                    replace(branch.expr, blockedBranch, blockedTy, inSuspension)
+                    replace(branch.expr, blockedBody, blockedTy, inSuspension)
                   if (guard1.eq(branch.guardNode) && (expr1 eq branch.expr)) branch
                   else branch.copyNode(guardNode = guard1, expr = expr1)
                 }
@@ -422,49 +433,87 @@ object TypedExprNormalization {
   private def unshadowInlineBranch[A](
       branch: Branch[A],
       avoid: Set[Bindable]
-  ): Branch[A] =
-    NonEmptyList.fromList(branch.pattern.names) match {
-      case None =>
-        val guard1 = branch.mapGuardNodeExpr(unshadowInlineBinders(_, avoid))
-        val expr1 = unshadowInlineBinders(branch.expr, avoid)
-        if ((guard1 eq branch.guardNode) && (expr1 eq branch.expr)) branch
-        else branch.copyNode(guardNode = guard1, expr = expr1)
-      case Some(args) =>
-        val clashArgs = args.filter(avoid)
-        val branchAvoid =
-          avoid ++ TypedExpr.freeVarsSet(branch.expr :: branch.guardExprIterator.toList)
-        val (pattern1, guard0, expr0, avoid1) =
-          if (clashArgs.isEmpty) {
-            (branch.pattern, branch.guardNode, branch.expr, avoid ++ args.toList)
-          } else {
-            val fresh = Identifier.Bindable.freshSyntheticIterator(branchAvoid)
-            val newArgs = clashArgs.map(_ => fresh.next())
-            val argRenames = clashArgs.iterator.zip(newArgs.iterator).toMap
-            val resSub =
-              argRenames.iterator.map { case (oldArg, newArg) =>
-                oldArg -> { (loc: Local[A]) =>
-                  (Local(newArg, loc.tpe, loc.tag): TypedExpr[A])
-                }
-              }.toMap
-            val expr1 =
-              TypedExpr.substituteAll(resSub, branch.expr, enterLambda = true).get
-            val guard1 = branch.mapGuardNodeExpr(
-              TypedExpr.substituteAll(resSub, _, enterLambda = true).get
-            )
-            val pattern2 = branch.pattern.substitute(argRenames)
-            (pattern2, guard1, expr1, avoid ++ pattern2.names.toList)
-          }
-        val guard1 = guard0.map(
-          TypedExpr.BranchGuard.mapExpr(_)(unshadowInlineBinders(_, avoid1))
-        )
-        val expr1 = unshadowInlineBinders(expr0, avoid1)
-        if (
-          (pattern1 == branch.pattern) &&
-          (guard1 eq branch.guardNode) &&
-          (expr1 eq branch.expr)
-        ) branch
-        else branch.copyNode(pattern = pattern1, guardNode = guard1, expr = expr1)
+  ): Branch[A] = {
+    def replacementSubstitution(
+        renames: Map[Bindable, Bindable]
+    ): Map[Bindable, Local[A] => TypedExpr[A]] =
+      renames.iterator.map { case (oldArg, newArg) =>
+        oldArg -> { (loc: Local[A]) =>
+          (Local(newArg, loc.tpe, loc.tag): TypedExpr[A])
+        }
+      }.toMap
+
+    def freshRenames(
+        clashes: List[Bindable],
+        avoidSet: Set[Bindable]
+    ): Map[Bindable, Bindable] = {
+      val fresh = Identifier.Bindable.freshSyntheticIterator(avoidSet)
+      clashes.iterator.map(oldArg => oldArg -> fresh.next()).toMap
     }
+
+    val branchFree =
+      TypedExpr.freeVarsSet(branch.expr :: branch.guardExprIterator.toList)
+    val branchAvoid = avoid ++ branchFree
+    val outerClashes = branch.pattern.names.filter(avoid)
+    val branch1 =
+      if (outerClashes.isEmpty) branch
+      else {
+        val argRenames =
+          freshRenames(outerClashes, branchAvoid ++ branch.pattern.names.toSet)
+        val resSub = replacementSubstitution(argRenames)
+        val expr1 =
+          TypedExpr.substituteAll(resSub, branch.expr, enterLambda = true).get
+        val guard1 = branch.mapGuardNodeExpr(
+          TypedExpr.substituteAll(resSub, _, enterLambda = true).get
+        )
+        val pattern1 = branch.pattern.substitute(argRenames)
+        branch.copyNode(pattern = pattern1, guardNode = guard1, expr = expr1)
+      }
+
+    val outerAvoid = avoid ++ branch1.pattern.names.toSet
+    val branch2 =
+      branch1.guardNode match {
+        case Some(guard @ TypedExpr.MatchGuard(argExpr, pattern, guardOpt)) =>
+          val innerClashes = pattern.names.filter(outerAvoid)
+          if (innerClashes.isEmpty) branch1
+          else {
+            val renamedFree =
+              TypedExpr.freeVarsSet(branch1.expr :: branch1.guardExprIterator.toList)
+            val argRenames =
+              freshRenames(
+                innerClashes,
+                outerAvoid ++ branch1.pattern.names.toSet ++ renamedFree
+              )
+            val resSub = replacementSubstitution(argRenames)
+            val expr1 =
+              TypedExpr.substituteAll(resSub, branch1.expr, enterLambda = true).get
+            val guardOpt1 =
+              guardOpt.map(TypedExpr.substituteAll(resSub, _, enterLambda = true).get)
+            val pattern1 = pattern.substitute(argRenames)
+            val guard1 =
+              TypedExpr.MatchGuard(argExpr, pattern1, guardOpt1)(using
+                guard.patternRegion
+              )
+            branch1.copyNode(guardNode = Some(guard1), expr = expr1)
+          }
+        case _ =>
+          branch1
+      }
+
+    val bodyAvoid = outerAvoid ++ branch2.guardBindings.toSet
+    val guard1 = branch2.mapGuardNodeExprScoped(
+      unshadowInlineBinders(_, outerAvoid),
+      unshadowInlineBinders(_, bodyAvoid)
+    )
+    val expr1 = unshadowInlineBinders(branch2.expr, bodyAvoid)
+
+    if (
+      (branch2.pattern == branch.pattern) &&
+      (guard1 eq branch.guardNode) &&
+      (expr1 eq branch.expr)
+    ) branch
+    else branch2.copyNode(guardNode = guard1, expr = expr1)
+  }
 
   // After inlining we can splice a whole subtree under a lexical scope that
   // already uses some of the same names. The node-local `unshadow` helpers only
@@ -1249,9 +1298,13 @@ object TypedExprNormalization {
             if !rec.isRecursive &&
               marg.notFree(arg) &&
               branches.exists { branch =>
-                branch.pattern.names.contains(arg) ||
-                (branch.guardExprIterator.forall(_.notFree(arg)) &&
-                  branch.expr.notFree(arg))
+                val outerShadowed = branch.pattern.names.contains(arg)
+                val bodyShadowed = branch.allBindings.contains(arg)
+                outerShadowed ||
+                (branch.foldGuardExprScoped(true)(
+                  (acc, guardExpr) => acc && guardExpr.notFree(arg),
+                  (acc, guardExpr) => acc && (bodyShadowed || guardExpr.notFree(arg))
+                ) && (bodyShadowed || branch.expr.notFree(arg)))
               } =>
           // x = y
           // match z:
@@ -1269,19 +1322,26 @@ object TypedExprNormalization {
           val b1 = branches.map { branch =>
             val p = branch.pattern
             val r = branch.expr
+            val outerShadowed = p.names.contains(arg)
+            val bodyShadowed = branch.allBindings.contains(arg)
             if (
-              p.names.contains(arg) || (branch.guardExprIterator.forall(
-                _.notFree(arg)
-              ) && r.notFree(arg))
+              outerShadowed || (branch.foldGuardExprScoped(true)(
+                (acc, guardExpr) => acc && guardExpr.notFree(arg),
+                (acc, guardExpr) => acc && (bodyShadowed || guardExpr.notFree(arg))
+              ) && (bodyShadowed || r.notFree(arg)))
             )
               branch
             else {
-              val guard1 = branch.mapGuardNodeExpr { g =>
-                  if (g.notFree(arg)) g
+              val guard1 = branch.mapGuardNodeExprScoped(
+                g =>
+                  if (outerShadowed || g.notFree(arg)) g
+                  else Let(arg, expr, g, rec, tag),
+                g =>
+                  if (bodyShadowed || g.notFree(arg)) g
                   else Let(arg, expr, g, rec, tag)
-              }
+              )
               val r1 =
-                if (r.notFree(arg)) r
+                if (bodyShadowed || r.notFree(arg)) r
                 else Let(arg, expr, r, rec, tag)
               branch.copyNode(guardNode = guard1, expr = r1)
             }
@@ -1425,11 +1485,10 @@ object TypedExprNormalization {
               // convert to match z: x -> w
               // but don't bother if the arg is simple or there is only 1 branch + simple arg
               val b1 = branches.traverse { branch =>
-                val p = branch.pattern
                 val b = branch.expr
                 if (
                   !lamArgs.exists { case (arg, _) =>
-                    p.names.contains(arg)
+                    branch.allBindings.contains(arg)
                   } &&
                   branch.guardExprIterator.forall { g =>
                     lamArgs.forall { case (arg, _) => g.notFree(arg) }
@@ -1838,14 +1897,15 @@ object TypedExprNormalization {
             bs: NonEmptyList[Branch[A]]
         ): Option[TypedExpr[A]] =
           bs.toList match {
-            case Branch(p, Some(g), e1) :: tail
-                if totalityCheck.isWildLike(p) =>
-              NonEmptyList.fromList(tail).map { tailNel =>
+            case head :: tail
+                if totalityCheck.isWildLike(head.pattern) &&
+                  head.guardBindings.isEmpty =>
+              (head.guard, NonEmptyList.fromList(tail)).mapN { (g, tailNel) =>
                 val fallback = Match(m.matchKind, arg1, tailNel, tag)
                 Match(
                   g,
                   NonEmptyList.of(
-                    Branch(TruePattern, None, e1),
+                    Branch(TruePattern, None, head.expr),
                     Branch(FalsePattern, None, fallback)
                   ),
                   g.tag
@@ -1859,19 +1919,27 @@ object TypedExprNormalization {
             bs: NonEmptyList[Branch[A]]
         ): Option[NonEmptyList[Branch[A]]] =
           bs.toList match {
-            case init :+ Branch(p1, Some(g), e1) :+ Branch(p2, None, e2)
-                if p2.names.isEmpty &&
-                  p1.ambiguousBindings.intersect(g.freeVarsDup.toSet).isEmpty =>
-              val rewrittenHead = Branch(p1, None, ifThenElse(g, e1, e2))
-              val rewritten =
-                if (totalityCheck.difference(p2, p1).isEmpty)
-                  NonEmptyList.ofInitLast(init, rewrittenHead)
-                else
-                  NonEmptyList.ofInitLast(
-                    init :+ rewrittenHead,
-                    Branch(p2, None, e2)
-                  )
-              Some(rewritten)
+            case init :+ head :+ Branch(p2, None, e2)
+                if p2.names.isEmpty && head.guardBindings.isEmpty =>
+              head.guard match {
+                case Some(g)
+                    if head.pattern.ambiguousBindings
+                      .intersect(g.freeVarsDup.toSet)
+                      .isEmpty =>
+                  val rewrittenHead =
+                    Branch(head.pattern, None, ifThenElse(g, head.expr, e2))
+                  val rewritten =
+                    if (totalityCheck.difference(p2, head.pattern).isEmpty)
+                      NonEmptyList.ofInitLast(init, rewrittenHead)
+                    else
+                      NonEmptyList.ofInitLast(
+                        init :+ rewrittenHead,
+                        Branch(p2, None, e2)
+                      )
+                  Some(rewritten)
+                case _ =>
+                  None
+              }
             case _ =>
               None
           }
@@ -2789,19 +2857,21 @@ object TypedExprNormalization {
                       chooseBranch(tail)
                     case (Some(pat), br) :: tail =>
                       val bodyExpr = bindConsPattern(pat, br.expr)
-                      br.guard match {
-                        case None =>
-                          bodyExpr
-                        case Some(guard) =>
-                          bindConsPattern(pat, guard).flatMap(evalBool) match {
-                            case Some(true) =>
-                              bodyExpr
-                            case Some(false) =>
-                              chooseBranch(tail)
-                            case None =>
-                              None
-                          }
-                      }
+                      if (br.guardBindings.nonEmpty) None
+                      else
+                        br.guard match {
+                          case None =>
+                            bodyExpr
+                          case Some(guard) =>
+                            bindConsPattern(pat, guard).flatMap(evalBool) match {
+                              case Some(true) =>
+                                bodyExpr
+                              case Some(false) =>
+                                chooseBranch(tail)
+                              case None =>
+                                None
+                            }
+                        }
                   }
 
                 chooseBranch(branches.toList)
@@ -2885,24 +2955,28 @@ object TypedExprNormalization {
             rem match {
               case Nil =>
                 None
-              case Branch(pat, guard, rhs) :: tail =>
+              case br :: tail =>
+                val pat = br.pattern
+                val rhs = br.expr
                 bindLiteralPattern(pat, rhs) match {
                   case None =>
                     chooseBranch(tail)
                   case Some(body) =>
-                    guard match {
-                      case None =>
-                        Some(body)
-                      case Some(g) =>
-                        bindLiteralPattern(pat, g).flatMap(evalBool) match {
-                          case Some(true) =>
-                            Some(body)
-                          case Some(false) =>
-                            chooseBranch(tail)
-                          case None =>
-                            None
-                        }
-                    }
+                    if (br.guardBindings.nonEmpty) None
+                    else
+                      br.guard match {
+                        case None =>
+                          Some(body)
+                        case Some(g) =>
+                          bindLiteralPattern(pat, g).flatMap(evalBool) match {
+                            case Some(true) =>
+                              Some(body)
+                            case Some(false) =>
+                              chooseBranch(tail)
+                            case None =>
+                              None
+                          }
+                      }
                 }
             }
 
