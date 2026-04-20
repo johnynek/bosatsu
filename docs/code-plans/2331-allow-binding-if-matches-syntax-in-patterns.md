@@ -8,21 +8,21 @@
 - Flow: `implementation`
 - Issue: `#2331` Allow binding if matches syntax in patterns.
 - Source design doc: `docs/design/2331-allow-binding-if-matches-syntax-in-patterns.md`
-- Pending steps: `0`
+- Pending steps: `1`
 - Completed steps: `10`
-- Total steps: `10`
+- Total steps: `11`
 
 ## Summary
 
-Carry scoped match-branch guards through every compiler phase and typed IR tool. This round closed the last explicit source-level `loop`/`recur` shadowing gap by restoring recursive whole-guard `matches` to `MatchGuard` before binder-sensitive rewrites, and all planned steps for issue `#2331` are now complete with `scripts/test_basic.sh` green.
+Finish issue `#2331` by making recursive guard recovery provenance-safe: preserve scoped whole-guard `matches` behavior in recursive branches, but keep explicit boolean `match ... True/False` guards on the plain `BoolGuard` path so guard-local binders never leak into branch bodies.
 
 ## Current State
 
-The branch now carries the scoped `MatchGuard` pipeline through parsing, typing, lowering, serialization, docs, typed substitution, recursive consumers, binder-sensitive normalization walkers, and the final explicit source-level `loop`/`recur` follow-through. `TypedExprLoopRecurLowering.scala` now reconstructs recursive source `loop`/`recur` whole-guard `matches` nodes that still arrive as canonical boolean guard matches before binder-sensitive rewrites, so shadowed guard binders survive alpha-renaming, recur lowering, normalization, and evaluation. Added focused `TypedExprTest` and `EvaluationTest` regressions for the shadowed loop case, reran focused compile and regression coverage plus `scripts/test_basic.sh`, and all passed.
+The branch already carries the scoped `MatchGuard` pipeline through parsing, typing, lowering, serialization, docs, typed substitution, recursive consumers, and binder-sensitive normalization, and it now has positive recursive `loop`/`recur` coverage for genuine whole-guard `matches`. The candidate branch also added a shape-based recovery in `TypedExprLoopRecurLowering.scala` so the `loop_guarded` positive case survives lowering, normalization, and evaluation, and the focused regressions plus `scripts/test_basic.sh` currently pass. Pre-PR review found that this recovery is too broad: any recursive `BoolGuard` spelled as `match ... { case p [if g]: True; case _: False }` is currently reclassified as `MatchGuard`, even when the user wrote an ordinary boolean guard and its inner binder should stay local to the guard expression.
 
 ## Problem
 
-The last known implementation gap was that explicit source-level `loop`/`recur` branches with a top-level guard `matches` could still reach recursive lowering as canonical boolean guard matches, hiding the right-most guard binder from alpha-renaming and recur-slot rewrites and collapsing the recursive update back to the outer accumulator. This round closes that boundary, and no additional implementation gaps are currently known on the branch.
+The plan currently assumes the last recursive `loop`/`recur` gap is closed, but review finding `F1` shows the new shape-based `BoolGuard` -> `MatchGuard` restoration breaks the core scope contract. Only whole-guard conditional `matches` classified by `SourceConverter` may open branch-body scope; an explicit boolean guard written as `match ... True/False` must remain a `BoolGuard`, even in recursive branches. Without that distinction, recursive lowering can leak guard-local binders into branch bodies and change recur-slot or closure-shadowing behavior for programs that never used the scoped `matches` syntax.
 
 ## Steps
 
@@ -272,4 +272,26 @@ Finish the adjacent explicit `loop` or `recur` surface uncovered while landing t
 
 #### Completion Notes
 
-`TypedExprLoopRecurLowering.scala` now reconstructs scoped `MatchGuard` nodes from recursive source `loop` or `recur` branches whose whole-guard `matches` still arrive as canonical boolean `match ... True/False` guards before binder-sensitive rewrites run, so outer-arg alpha-renaming and recur-slot analysis preserve the right-most guard binder instead of collapsing back to the outer accumulator. Added a `TypedExprTest` regression that a source-level `loop_guarded` example still lowers with `MatchGuard` and normalizes with exactly one two-slot `Loop` and `Recur`, plus an `EvaluationTest` regression comparing the guarded loop against an equivalent explicit nested `match`. Reran `coreJVM/test:compile`, focused `TypedExprTest`, `EvaluationTest`, and `TypedExprRecursionCheckTest`, and `scripts/test_basic.sh`, and all passed.
+`TypedExprLoopRecurLowering.scala` now keeps the positive source-level `loop_guarded` whole-guard `matches` case alive through lowering, normalization, and evaluation, and the focused `TypedExprTest` and `EvaluationTest` regressions for that case passed with `coreJVM/test:compile`, `TypedExprRecursionCheckTest`, and `scripts/test_basic.sh`. Pre-PR review later found that the current shape-based recursive guard restoration is over-broad for explicit boolean `match ... True/False` guards, so a provenance-safe follow-up remains before PR handoff.
+
+11. [ ] `make-recursive-matchguard-recovery-provenance-safe` Make Recursive MatchGuard Recovery Provenance-Safe
+
+Address review finding `F1` by replacing the shape-only `BoolGuard` -> `MatchGuard` recovery in `TypedExprLoopRecurLowering.scala` with a small provenance refactor. Carry enough source-classification information from the whole-guard conditional-`matches` pipeline, or through the adjacent recursive lowering staging that consumes it, so recursive `loop`/`recur` lowering restores only genuine scoped guards before binder-sensitive rewrites and leaves user-written boolean `match ... True/False` guards on the plain `BoolGuard` path.
+
+#### Invariants
+
+- Recursive lowering never reconstructs `TypedExpr.MatchGuard` from typed AST shape alone; only guards proven to originate from source whole-guard conditional `matches` may reopen branch-body scope.
+- User-written boolean guards shaped as `match ... { case p [if g]: True; case _: False }` remain `BoolGuard`s through `loop`/`recur` lowering, so guard-local binders stay local to the guard expression and cannot change recur-slot or closure-shadowing behavior in the branch body.
+- The valid source `expr matches pattern` recursive case from the previous step still keeps single guard-scrutinee evaluation and right-most-wins shadowing for the genuine guard binder.
+
+#### Property Tests
+
+- None recorded.
+
+#### Assertion Tests
+
+- Extend the existing `TypedExprTest` source-level `loop_guarded` regression to assert the provenance-aware path still yields `MatchGuard` for genuine recursive whole-guard `matches` after the refactor.
+- Add a `TypedExprTest` regression that a recursive `loop` branch with an explicit boolean `match keep_nat(prev): case Some(x): True; case _: False` guard still lowers as `BoolGuard`, and normalization keeps the outer `x` recur slot instead of the guard-local `x`.
+- Add the analogous recursive `recur` regression, again using an inner `Some(x)` binder that shadows an outer `x`, to prove the binder remains guard-local and does not retarget recursive branch semantics.
+- Add `EvaluationTest` comparisons for the explicit boolean `loop` and `recur` guard forms against equivalent explicit nested matches, pinning that the branch body sees the outer binder while genuine whole-guard `matches` keep the existing scoped behavior.
+- Run `coreJVM/test:compile`, focused `TypedExprTest`, `EvaluationTest`, and `TypedExprRecursionCheckTest`, plus `scripts/test_basic.sh`.
