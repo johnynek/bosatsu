@@ -7,25 +7,25 @@
 
 - Flow: `small_job`
 - Issue: `#2334` scalawasiz3 failure
-- Pending steps: `2`
-- Completed steps: `0`
+- Pending steps: `0`
+- Completed steps: `2`
 - Total steps: `2`
 
 ## Summary
 
-Move Bosatsu onto `scalawasiz3` `0.0.13`, the published upstream fix for the embedded Z3 trap, and add a deterministic regression around the reported `pathImplies` soundness counterexample so the repo-required test gate can stay shippable.
+Consume `scalawasiz3` `0.0.13` in Bosatsu, pin the reported `pathImplies` soundness counterexample with a deterministic regression, and keep the branch shippable by rerunning the focused SMT suites plus `scripts/test_basic.sh`.
 
 ## Current State
 
-On `main`, `project/Dependencies.scala` still pins `dev.bosatsu` `%%%` `scalawasiz3` at `0.0.12`, and that shared setting flows into the cross-built `core` module. `core/src/test/scala/dev/bosatsu/smt/SmtExprNormalizeAndPathImpliesTest.scala` already validates `pathImplies` against a live `Z3Platform` runner, but the issue's `goal = Lte(IntConst(1), Var(z))` with `facts = List(Lt(Var(v), Add(Vector(Var(z), Var(v)))))` failure is only covered indirectly through the randomized soundness property. The issue comments point to upstream `scalawasiz3` `v0.0.13` as the published fix, but the repo has not yet adopted that release or pinned the exact regression case.
+On this branch, `project/Dependencies.scala` now pins `dev.bosatsu` `%%%` `scalawasiz3` at `0.0.13`, so the shared solver dependency used by `core` and downstream modules resolves the published upstream trap fix referenced from the issue comments. `core/src/test/scala/dev/bosatsu/smt/SmtExprNormalizeAndPathImpliesTest.scala` now contains a deterministic regression for `goal = Lte(IntConst(1), Var(z))` with `facts = List(Lt(Var(v), Add(Vector(Var(z), Var(v)))))` that exercises the existing live `z3Implies` helper instead of depending on a ScalaCheck seed override. Verification completed on 2026-04-21: `sbt -batch "coreJVM/testOnly dev.bosatsu.smt.SmtExprNormalizeAndPathImpliesTest -- --log=failure"`, `sbt -batch "coreJVM/testOnly dev.bosatsu.smt.Z3ApiTest -- --log=failure"`, and `scripts/test_basic.sh` all passed.
 
 ## Problem
 
-Because Bosatsu still resolves the broken `0.0.12` solver bundle, `coreJVM` tests can fail nondeterministically when the existing property test hits the known z3.wasm trap. Leaving the failure seed-dependent is not sufficient for a reviewable fix: the branch needs to consume the fixed upstream release and add a deterministic Bosatsu-level regression so future solver regressions are caught without depending on ScalaCheck exploration. The final change also has to clear the configured required gate, `scripts/test_basic.sh`, before the PR can be considered shippable.
+This issue existed because `main` resolved the broken `0.0.12` solver bundle, so `coreJVM` tests could fail nondeterministically when the existing `pathImplies` soundness property hit the known z3.wasm trap. Relying on the recorded ScalaCheck seed was not sufficient for a reviewable fix: Bosatsu needed to consume the published upstream `0.0.13` release, pin the exact Bosatsu-level regression, and clear the required gate `scripts/test_basic.sh` so the dependency upgrade stayed shippable.
 
 ## Steps
 
-1. [ ] `upgrade-scalawasiz3-and-pin-the-trap-case` Adopt the Fixed scalawasiz3 Release and Add a Deterministic Regression
+1. [x] `upgrade-scalawasiz3-and-pin-the-trap-case` Adopt the Fixed scalawasiz3 Release and Add a Deterministic Regression
 
 Update `project/Dependencies.scala` so the shared `scalawasiz3` setting resolves `0.0.13`, which is the published upstream fix referenced from the issue. In the same slice, add a focused regression to `core/src/test/scala/dev/bosatsu/smt/SmtExprNormalizeAndPathImpliesTest.scala` for the exact issue input, using the existing live-solver helper so Bosatsu still exercises its own SMT encoding rather than reaching into `scalawasiz3` internals. If a small test-only helper extraction makes the case clearer, keep it local to the suite and leave production SMT logic unchanged.
 
@@ -43,7 +43,11 @@ Update `project/Dependencies.scala` so the shared `scalawasiz3` setting resolves
 
 - Add a case-based regression in `SmtExprNormalizeAndPathImpliesTest` for `goal = Lte(IntConst(1), Var(z))` and `facts = List(Lt(Var(v), Add(Vector(Var(z), Var(v)))))`, asserting that the live `z3Implies` path no longer fails and that `pathImplies` remains sound for that exact input.
 
-2. [ ] `reverify-smt-solver-integration` Re-run Focused SMT Coverage and the Required Gate
+#### Completion Notes
+
+Bumped the shared `scalawasiz3` version pin in `project/Dependencies.scala` from `0.0.12` to `0.0.13`, so every `core` target consumes the published upstream trap fix through the existing single dependency setting. Added the deterministic regression `pathImplies soundness handles the reported scalawasiz3 trap case` to `SmtExprNormalizeAndPathImpliesTest`, covering `goal = Lte(IntConst(1), Var(z))` with `facts = List(Lt(Var(v), Add(Vector(Var(z), Var(v)))))` via the existing live `z3Implies` helper. The regression asserts that the live solver now proves the implication and that `pathImplies` remains within its soundness contract, without changing production SMT logic.
+
+2. [x] `reverify-smt-solver-integration` Re-run Focused SMT Coverage and the Required Gate
 
 After the version bump and regression land, re-run the touched SMT suites first to confirm the issue is fixed at the Bosatsu integration boundary, then run the repo-required gate `scripts/test_basic.sh`. This keeps the branch shippable and catches any fallout from the shared dependency upgrade in `core`, including the existing `TypedExprRecursionCheck` and CLI-transitive test surfaces that rely on the same `core` artifact.
 
@@ -62,3 +66,7 @@ After the version bump and regression land, re-run the touched SMT suites first 
 - Run `sbt -batch "coreJVM/testOnly dev.bosatsu.smt.SmtExprNormalizeAndPathImpliesTest -- --log=failure"`.
 - Run `sbt -batch "coreJVM/testOnly dev.bosatsu.smt.Z3ApiTest -- --log=failure"`.
 - Run `scripts/test_basic.sh`.
+
+#### Completion Notes
+
+Completed on 2026-04-21. `sbt -batch "coreJVM/testOnly dev.bosatsu.smt.SmtExprNormalizeAndPathImpliesTest -- --log=failure"` passed with 17 tests after the version bump and regression addition. `sbt -batch "coreJVM/testOnly dev.bosatsu.smt.Z3ApiTest -- --log=failure"` also passed with 6 tests, covering the directly adjacent live-solver integration surface that shares the upgraded dependency. The repo-required gate `scripts/test_basic.sh` then passed end-to-end.
