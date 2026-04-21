@@ -1160,6 +1160,50 @@ foo = _ -> 1
     assert(!frees(Identifier.Name("x")), normalized.reprString)
   }
 
+  test("normalize does not pick nested constructor branch from outer tag alone") {
+    val normalized = Par.withEC {
+      var out: Option[TypedExpr[Unit]] = None
+      TestUtils.testInferred(
+        List("""
+package Test
+
+enum Nat:
+  Zero
+  Succ(prev: Nat)
+
+one = Succ(Zero)
+two = Succ(one)
+
+main = match two:
+  case Zero if Zero matches Zero: 100
+  case Zero: 200
+  case Succ(Zero): 1
+  case Succ(_): 2
+"""),
+        "Test",
+        { (pm, mainPack) =>
+          val pack = pm.toMap(mainPack)
+          val mainExpr = pack.lets.find(_._1 == Identifier.Name("main")) match {
+            case Some((_, _, te)) => te
+            case None             =>
+              fail(s"missing let main in ${pack.lets.map(_._1)}")
+          }
+          out = Some(
+            TypedExprNormalization.normalize(mainExpr).getOrElse(mainExpr).void
+          )
+        }
+      )
+      out.getOrElse(fail("failed to infer normalized expression for main"))
+    }
+
+    normalized match {
+      case TypedExpr.Literal(lit, _, _) =>
+        assertEquals(lit, Lit.fromInt(2))
+      case other =>
+        fail(s"expected normalized literal, got: ${other.repr}")
+    }
+  }
+
   test("normalize does not hoist MatchGuard-bound immutable values") {
     val (_, normalized) = inferLoweredAndNormalizedExpr(
       """
@@ -3970,6 +4014,47 @@ def poly[a](n: Nat, x: a) -> Nat:
     assertEquals(branchGuardKinds(lowered), List(TypedExpr.BranchGuardKind.Bool))
     assertEquals(hasMatchGuard(lowered), false, lowered.reprString)
     TestUtils.assertValid(normalized)
+  }
+
+  test(
+    "annotation pushdown preserves MatchGuard scope for existential scrutinees"
+  ) {
+    checkEnvExpr(
+      normalizeSource(
+        """
+        enum Option[a]: None, Some(value: a)
+        enum Nat: Z, S(prev: Nat)
+        struct Packed(f, x)
+
+        def id_nat(x: Nat) -> Nat:
+          x
+
+        keep: exists a. Option[Packed[a -> Nat, a]] = Some(Packed(id_nat, Z))
+
+        main = ((match keep:
+          case _ if keep matches Some(Packed(fn, x)): fn(x)
+          case _: Z): Nat)
+        """
+      )
+    ) { (_, lets) =>
+      val te = lets.lastOption match {
+        case Some((_, _, expr)) => expr
+        case None               => fail("expected at least one typed let")
+      }
+
+      assert(hasMatchGuard(te), te.reprString)
+      te.traverseType[cats.Id] {
+        case t @ Type.TyVar(Type.Var.Skolem(_, _, _, _)) =>
+          fail(s"illegal skolem ($t) escaped in ${te.reprString}")
+          t
+        case t @ Type.TyMeta(_) =>
+          fail(s"illegal meta ($t) escaped in ${te.reprString}")
+          t
+        case good =>
+          good
+      }: Unit
+      TestUtils.assertValid(te)
+    }
   }
 
   test("normalization removes non-recursive identity let bindings") {

@@ -1,7 +1,7 @@
 package dev.bosatsu
 
 import cats.{Monad, Monoid, Order}
-import cats.data.{Chain, NonEmptyList, WriterT}
+import cats.data.{Chain, NonEmptyList, OptionT, WriterT}
 import dev.bosatsu.pattern.StrPart
 import dev.bosatsu.rankn.{DataRepr, Type, RefSpace}
 
@@ -6306,8 +6306,21 @@ object Matchless {
                     (
                       loop(argExpr, slots.unname),
                       guardOpt.traverse(loop(_, slots.unname))
-                    ).mapN { (argExpr1, guardOpt1) =>
-                      Some(ScopedMatchBranchGuard(argExpr1, pattern, guardOpt1))
+                    ).tupled.flatMap { case (argExpr1, guardOpt1) =>
+                      if (pattern.names.isEmpty)
+                        bindingFreeMatchGuardExpr(argExpr1, pattern, guardOpt1)
+                          .map {
+                            case Some(guardExpr) =>
+                              Some(BoolMatchBranchGuard(guardExpr))
+                            case None            =>
+                              Some(
+                                ScopedMatchBranchGuard(argExpr1, pattern, guardOpt1)
+                              )
+                          }
+                      else
+                        Monad[F].pure(
+                          Some(ScopedMatchBranchGuard(argExpr1, pattern, guardOpt1))
+                        )
                     }
                 }
 
@@ -7972,10 +7985,20 @@ object Matchless {
         )
     }
 
+    def prependSetChain(
+        muts: NonEmptyList[(LocalAnonMut, Expr[B])],
+        boolExpr: BoolExpr[B]
+    ): BoolExpr[B] =
+      muts.toList.foldRight(boolExpr) { case ((mut, value), acc) =>
+        SetMut(mut, value) && acc
+      }
+
     def directGuardBoolExpr(expr: Expr[B]): Option[BoolExpr[B]] =
       expr match {
         case Let(arg, value, in) =>
           directGuardBoolExpr(in).map(LetBool(arg, value, _))
+        case Always.SetChain(muts, in) =>
+          directGuardBoolExpr(in).map(prependSetChain(muts, _))
         case If(cond, TrueExpr, FalseExpr) =>
           Some(cond)
         case _ =>
@@ -7986,6 +8009,8 @@ object Matchless {
       expr match {
         case Let(arg, value, in) =>
           selectorGuardToBoolExpr(in).map(LetBool(arg, value, _))
+        case Always.SetChain(muts, in) =>
+          selectorGuardToBoolExpr(in).map(prependSetChain(muts, _))
         case selectorExpr @ If(cond, _, _) =>
           cond match {
             case CheckVariant(arg, _, size, famArities)
@@ -8033,6 +8058,119 @@ object Matchless {
         extraPreLets: List[LocalAnonMut],
         extraBinds: List[(Bindable, Expr[B])]
     )
+
+    def boolExprToExpr(cond: BoolExpr[B]): Expr[B] =
+      If(cond, TrueExpr, FalseExpr)
+
+    def bindingFreePatternBool(
+        argExpr: Expr[B],
+        pattern: Pattern[(PackageName, Constructor), Type],
+        mustMatch: Boolean
+    ): OptionT[F, BoolExpr[B]] =
+      if (pattern.names.nonEmpty) OptionT.none
+      else
+        argExpr match {
+          case cheap: CheapExpr[B] =>
+            bindingFreePatternBoolCheap(cheap, pattern, mustMatch)
+          case notCheap =>
+            OptionT.liftF(makeAnon.map(LocalAnon(_))).flatMap { tmp =>
+              bindingFreePatternBoolCheap(tmp, pattern, mustMatch)
+                .map(LetBool(Left(tmp), notCheap, _))
+            }
+        }
+
+    def bindingFreePatternBoolCheap(
+        arg: CheapExpr[B],
+        pattern: Pattern[(PackageName, Constructor), Type],
+        mustMatch: Boolean
+    ): OptionT[F, BoolExpr[B]] =
+      pattern match {
+        case Pattern.WildCard =>
+          OptionT.some(TrueConst)
+        case Pattern.Literal(lit) =>
+          OptionT.some(
+            if (mustMatch) TrueConst
+            else CompareLit(arg, CompareRel.Eq, lit)
+          )
+        case Pattern.Annotation(p, _) =>
+          bindingFreePatternBoolCheap(arg, p, mustMatch)
+        case lp @ Pattern.ListPat(_) =>
+          Pattern.ListPat.toPositionalStruct(lp, empty, cons) match {
+            case Right(p) =>
+              bindingFreePatternBoolCheap(arg, p, mustMatch)
+            case Left(_)  =>
+              OptionT.none
+          }
+        case Pattern.PositionalStruct((pack, cname), params) =>
+          variantOf(pack, cname) match {
+            case Some(DataRepr.Struct(size)) if params.length == size =>
+              params.toList.zipWithIndex
+                .traverse { case (param, idx) =>
+                  bindingFreePatternBool(
+                    GetStructElement(arg, idx, size),
+                    param,
+                    mustMatch
+                  )
+                }
+                .map(_.foldLeft(TrueConst: BoolExpr[B])(_ && _))
+            case Some(DataRepr.NewType) if params.length == 1 =>
+              params.toList.zipWithIndex
+                .traverse { case (param, idx) =>
+                  bindingFreePatternBool(
+                    GetStructElement(arg, idx, 1),
+                    param,
+                    mustMatch
+                  )
+                }
+                .map(_.foldLeft(TrueConst: BoolExpr[B])(_ && _))
+            case Some(DataRepr.Enum(vidx, size, famArities))
+                if params.length == size =>
+              params.toList.zipWithIndex
+                .traverse { case (param, idx) =>
+                  bindingFreePatternBool(
+                    GetEnumElement(arg, vidx, idx, size),
+                    param,
+                    mustMatch
+                  )
+                }
+                .map(_.foldLeft(
+                  if (mustMatch) TrueConst
+                  else CheckVariant(arg, vidx, size, famArities): BoolExpr[B]
+                )(_ && _))
+            case Some(DataRepr.ZeroNat) if params.isEmpty =>
+              OptionT.some(
+                if (mustMatch) TrueConst
+                else EqualsNat(arg, DataRepr.ZeroNat)
+              )
+            case Some(DataRepr.SuccNat) if params.length == 1 =>
+              bindingFreePatternBool(PrevNat(arg), params.head, mustMatch)
+                .map(
+                  (if (mustMatch) TrueConst
+                   else EqualsNat(arg, DataRepr.SuccNat): BoolExpr[B]) && _
+                )
+            case _ =>
+              OptionT.none
+          }
+        case Pattern.StrPat(_) | Pattern.Var(_) | Pattern.Named(_, _) |
+            Pattern.Union(_, _) =>
+          OptionT.none
+      }
+
+    def bindingFreeMatchGuardExpr(
+        argExpr: Expr[B],
+        pattern: Pattern[(PackageName, Constructor), Type],
+        guardExpr: Option[Expr[B]]
+    ): F[Option[Expr[B]]] =
+      bindingFreePatternBool(argExpr, pattern, mustMatch = false).value.map {
+        _.map { patternBool =>
+          guardExpr match {
+            case Some(innerGuardExpr) =>
+              If(patternBool, innerGuardExpr, FalseExpr)
+            case None                 =>
+              boolExprToExpr(patternBool)
+          }
+        }
+      }
 
     def scopedGuardUnionMatchToExpr(
         matches: UnionMatch,

@@ -136,14 +136,21 @@ class SourceConverterTest extends munit.ScalaCheckSuite {
       expectCheckExpr: Boolean
   ): Unit =
     branch.guardNode match {
-      case Some(guard @ Expr.MatchGuard(arg, pattern, guardOpt, checkExpr)) =>
+      case Some(
+            guard @ Expr.MatchGuard(
+              arg,
+              pattern,
+              guardOpt,
+              wholeGuardCheckExpr
+            )
+          ) =>
         assertEquals(localName(arg), expectedArg)
         assertEquals(
           pattern.names,
           Parser.unsafeParse(Identifier.bindableParser, expectedBound) :: Nil
         )
         assertEquals(guardOpt, None)
-        assertEquals(checkExpr.isDefined, expectCheckExpr)
+        assertEquals(wholeGuardCheckExpr.isDefined, expectCheckExpr)
         assertEquals(localName(branch.expr), expectedBound)
         assertEquals(branch.isEffectivelyUnguarded, pattern.definitelyTotal)
         val _ = guard.patternRegion

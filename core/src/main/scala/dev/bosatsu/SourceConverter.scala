@@ -568,38 +568,35 @@ final class SourceConverter(
       guardDecl match {
         case None =>
           success((None, Nil))
-        case Some(condDecl) =>
-          ConditionalMatch.unapply(condDecl) match {
-            case Some((condMatches, annots)) =>
-              val guardNames = condMatches.pattern.names
-              checkMatchesGuardShape(condMatches.guard).flatMap { _ =>
-                (
-                  withBound(condMatches.arg, outerNames),
-                  convertPattern(condMatches.pattern, condDecl.region),
-                  condMatches.guard
-                    .traverse(withBound(_, outerNames ++ guardNames))
-                    .map(_.filterNot(isPredefBoolConst(_, Constructor("True")))),
-                  conditionalAnnotationCheck(condDecl, annots)
-                ).parMapN { (arg, pattern, guardOpt, checkExpr) =>
-                  (
-                    Some(
-                      Expr.MatchGuard(arg, pattern, guardOpt, checkExpr)(using
-                        condDecl.region
-                      )
-                    ),
-                    guardNames
+        case Some(condDecl @ ConditionalMatch(condMatches, annots)) =>
+          val guardNames = condMatches.pattern.names
+          checkMatchesGuardShape(condMatches.guard).flatMap { _ =>
+            (
+              withBound(condMatches.arg, outerNames),
+              convertPattern(condMatches.pattern, condDecl.region),
+              condMatches.guard
+                .traverse(withBound(_, outerNames ++ guardNames))
+                .map(_.filterNot(isPredefBoolConst(_, Constructor("True")))),
+              conditionalAnnotationCheck(condDecl, annots)
+            ).parMapN { (arg, pattern, guardOpt, checkExpr) =>
+              (
+                Some(
+                  Expr.MatchGuard(arg, pattern, guardOpt, checkExpr)(using
+                    condDecl.region
                   )
-                }
-              }
-            case None =>
-              withBound(condDecl, outerNames).map { guardExpr =>
-                (
-                  Option(guardExpr)
-                    .filterNot(isPredefBoolConst(_, Constructor("True")))
-                    .map(Expr.BoolGuard(_)),
-                  Nil
-                )
-              }
+                ),
+                guardNames
+              )
+            }
+          }
+        case Some(condDecl) =>
+          withBound(condDecl, outerNames).map { guardExpr =>
+            (
+              Option(guardExpr)
+                .filterNot(isPredefBoolConst(_, Constructor("True")))
+                .map(Expr.BoolGuard(_)),
+              Nil
+            )
           }
       }
 

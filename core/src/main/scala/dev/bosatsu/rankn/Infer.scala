@@ -2533,9 +2533,9 @@ object Infer {
                 branches.map { branch =>
                   // we have to put the tag to be r.tag
                   // because that's where the regions come from
-                  Expr.Branch(
+                  Expr.Branch.fromGuardNode(
                     branch.pattern,
-                    branch.guard,
+                    branch.guardNode,
                     Annotation(branch.expr, tpe, branch.expr.tag)
                   )(using branch.patternRegion)
                 },
@@ -2777,7 +2777,7 @@ object Infer {
         case Some(Expr.BoolGuard(guardExpr)) =>
           extendEnvList(outerBindings)(checkRho(guardExpr, Type.BoolType))
             .map(guard => (Some(TypedExpr.BoolGuard(guard)), Nil))
-        case Some(guard @ Expr.MatchGuard(argExpr, pattern, guardOpt, checkExpr)) =>
+        case Some(guard @ Expr.MatchGuard(argExpr, pattern, guardOpt, wholeGuardCheckExpr)) =>
           extendEnvList(outerBindings) {
             inferSigma(argExpr).flatMap { targ =>
               skolemizeExistsOnly(targ.getType).flatMap { case (_, scrutineeType) =>
@@ -2786,14 +2786,17 @@ object Infer {
                   Expected.Check((scrutineeType, region(argExpr))),
                   guard.patternRegion
                 ).flatMap { case (typedPattern, guardBindings) =>
-                  val branchBindings = outerBindings ++ guardBindings
                   for {
-                    typedInnerGuard <- extendEnvList(branchBindings)(
+                    // We are already inside extendEnvList(outerBindings).
+                    // Only the optional inner guard opens the extra pattern
+                    // bindings from the whole-guard `matches`.
+                    // `wholeGuardCheckExpr` is just the synthetic re-check of
+                    // wrappers on the original guard site (currently
+                    // annotations), so it must stay in the outer scope.
+                    typedInnerGuard <- extendEnvList(guardBindings)(
                       guardOpt.traverse(checkRho(_, Type.BoolType))
                     )
-                    _ <- extendEnvList(branchBindings)(
-                      checkExpr.traverse(checkRho(_, Type.BoolType)).void
-                    )
+                    _ <- wholeGuardCheckExpr.traverse(checkRho(_, Type.BoolType)).void
                   } yield {
                     val typedGuard =
                       TypedExpr.MatchGuard(targ, typedPattern, typedInnerGuard)(using
@@ -2803,9 +2806,9 @@ object Infer {
                   }
                 }
               }
+            }
           }
       }
-    }
     }
 
     def checkBranch[A: HasRegion](
@@ -2820,6 +2823,9 @@ object Infer {
           branch.patternRegion
         )
         (tguard, guardBindings) <- typeCheckBranchGuard(branch, bindings)
+        // Reuse the exact binding types computed while checking the guard.
+        // If they still contain metas, the guard and body share those same
+        // refs, so the body is not re-inferring a fresh environment here.
         branchBindings = bindings ++ guardBindings
         inferredResType <- extendEnvList(branchBindings)(
           inferRho(branch.expr).peek.map {

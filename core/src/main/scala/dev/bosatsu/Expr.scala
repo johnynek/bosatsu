@@ -248,13 +248,11 @@ object Expr {
     }
   }
   case class Literal[T](lit: Lit, tag: T) extends Expr[T]
-  sealed trait BranchGuard[T]
+  sealed trait BranchGuard[T] {
+    def foldExpr[A](init: A)(fn: (A, Expr[T]) => A): A =
+      BranchGuard.foldScopedExpr(this, init)(fn, fn)
+  }
   object BranchGuard {
-    def foldExpr[T, A](guard: BranchGuard[T], init: A)(
-        fn: (A, Expr[T]) => A
-    ): A =
-      foldScopedExpr(guard, init)(fn, fn)
-
     def foldScopedExpr[T, A](guard: BranchGuard[T], init: A)(
         outerFn: (A, Expr[T]) => A,
         innerFn: (A, Expr[T]) => A
@@ -262,10 +260,10 @@ object Expr {
       guard match {
         case BoolGuard(expr) =>
           outerFn(init, expr)
-        case MatchGuard(arg, _, guardOpt, checkExpr) =>
+        case MatchGuard(arg, _, guardOpt, wholeGuardCheckExpr) =>
           val withArg = outerFn(init, arg)
           val withGuard = guardOpt.fold(withArg)(innerFn(withArg, _))
-          checkExpr.fold(withGuard)(outerFn(withGuard, _))
+          wholeGuardCheckExpr.fold(withGuard)(outerFn(withGuard, _))
       }
 
     def iterator[T](guard: BranchGuard[T]): Iterator[Expr[T]] =
@@ -290,12 +288,12 @@ object Expr {
       guard match {
         case BoolGuard(expr) =>
           BoolGuard(outerFn(expr))
-        case guard @ MatchGuard(arg, pattern, guardOpt, checkExpr) =>
+        case guard @ MatchGuard(arg, pattern, guardOpt, wholeGuardCheckExpr) =>
           MatchGuard(
             outerFn(arg),
             pattern,
             guardOpt.map(innerFn),
-            checkExpr.map(outerFn)
+            wholeGuardCheckExpr.map(outerFn)
           )(using guard.patternRegion)
       }
 
@@ -313,11 +311,11 @@ object Expr {
       guard match {
         case BoolGuard(expr) =>
           outerFn(expr).map(BoolGuard(_))
-        case guard @ MatchGuard(arg, pattern, guardOpt, checkExpr) =>
+        case guard @ MatchGuard(arg, pattern, guardOpt, wholeGuardCheckExpr) =>
           (
             outerFn(arg),
             guardOpt.traverse(innerFn),
-            checkExpr.traverse(outerFn)
+            wholeGuardCheckExpr.traverse(outerFn)
           ).mapN { (arg1, guard1, check1) =>
             MatchGuard(arg1, pattern, guard1, check1)(using guard.patternRegion)
           }
@@ -356,11 +354,17 @@ object Expr {
       }
   }
   final case class BoolGuard[T](expr: Expr[T]) extends BranchGuard[T]
+  // A whole-guard conditional `matches`, e.g.:
+  // `case branchPat if arg matches guardPat if innerGuard: body`
+  // Unlike BoolGuard, `guardPat` bindings are in scope for `innerGuard` and
+  // the same branch body. `wholeGuardCheckExpr` preserves any outer
+  // bool-position wrapper (such as annotations) that must still typecheck at
+  // the original guard site.
   final case class MatchGuard[T](
       arg: Expr[T],
       pattern: Pattern[(PackageName, Constructor), Type],
       guard: Option[Expr[T]],
-      checkExpr: Option[Expr[T]]
+      wholeGuardCheckExpr: Option[Expr[T]]
   )(using val patternRegion: Region)
       extends BranchGuard[T]
 
@@ -374,7 +378,7 @@ object Expr {
 
     def foldGuardExpr[A](init: A)(fn: (A, Expr[T]) => A): A =
       guardNode match {
-        case Some(guard) => BranchGuard.foldExpr(guard, init)(fn)
+        case Some(guard) => guard.foldExpr(init)(fn)
         case None        => init
       }
 
@@ -550,11 +554,11 @@ object Expr {
               bodyNames
             case Some(BoolGuard(guardExpr)) =>
               bodyNames | allNames(guardExpr)
-            case Some(MatchGuard(arg, pattern, guardOpt, checkExpr)) =>
+            case Some(MatchGuard(arg, pattern, guardOpt, wholeGuardCheckExpr)) =>
               bodyNames ++ pattern.names |
                 allNames(arg) |
                 guardOpt.fold(SortedSet.empty[Bindable])(allNames) |
-                checkExpr.fold(SortedSet.empty[Bindable])(allNames)
+                wholeGuardCheckExpr.fold(SortedSet.empty[Bindable])(allNames)
           }
         }
     }
@@ -565,18 +569,21 @@ object Expr {
   /*
    * Allocate these once
    */
+  private val TrueCtor = Constructor("True")
+  private val FalseCtor = Constructor("False")
+
   private val TruePat: Pattern[(PackageName, Constructor), Type] =
-    Pattern.PositionalStruct((PackageName.PredefName, Constructor("True")), Nil)
+    Pattern.PositionalStruct((PackageName.PredefName, TrueCtor), Nil)
   private val FalsePat: Pattern[(PackageName, Constructor), Type] =
     Pattern.PositionalStruct(
-      (PackageName.PredefName, Constructor("False")),
+      (PackageName.PredefName, FalseCtor),
       Nil
     )
 
   private def boolConstExpr[T](value: Boolean, tag: T): Expr[T] =
     Global(
       PackageName.PredefName,
-      Constructor(if (value) "True" else "False"),
+      if (value) TrueCtor else FalseCtor,
       tag
     )
 

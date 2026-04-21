@@ -2876,23 +2876,47 @@ object TypedExprNormalization {
 
       evaluate(m.arg, scope, totalityCheck).flatMap {
         case EvalResult.Cons(p, c, args) =>
-          val alen = args.length
-
           // The Option signals we can't complete
-          def filterPat(pat: Pat): Option[Option[Pat]] =
+          def filterPatAgainst(
+              pat: Pat,
+              evaluated: EvalResult[A]
+          ): Option[Option[Pat]] =
             pat match {
               case ps @ Pattern.PositionalStruct((p0, c0), args0) =>
-                if (p0 == p && c0 == c && args0.length == alen)
-                  Some(Some(ps))
-                else Some(None) // we definitely don't match this branch
+                evaluated match {
+                  case EvalResult.Cons(p1, c1, args1) =>
+                    if ((p0 == p1) && (c0 == c1) && (args0.length == args1.length))
+                      // Matching the outer constructor is not sufficient when the
+                      // pattern has nested structure: we must verify the child
+                      // patterns against the already-evaluated constructor args or
+                      // normalization can commit to the wrong branch.
+                      args0.iterator.zip(args1.iterator).toList
+                        .traverse { case (pat1, arg1) =>
+                          evaluate(arg1, scope, totalityCheck).flatMap {
+                            filterPatAgainst(pat1, _)
+                          }
+                        }
+                        .map {
+                          case filteredArgs if filteredArgs.forall(_.nonEmpty) =>
+                            Some(ps)
+                          case _ =>
+                            None
+                        }
+                    else Some(None) // we definitely don't match this branch
+                  case EvalResult.Constant(_) =>
+                    Some(None)
+                }
               case Pattern.Named(n, p) =>
-                filterPat(p).map { p1 =>
+                filterPatAgainst(p, evaluated).map { p1 =>
                   p1.map(bp => Pattern.Named(n, bp))
                 }
               case Pattern.Annotation(p, tpe) =>
-                filterPat(p).map(_.map(Pattern.Annotation(_, tpe)))
+                filterPatAgainst(p, evaluated).map(_.map(Pattern.Annotation(_, tpe)))
               case Pattern.Union(h, t) =>
-                (filterPat(h), t.traverse(filterPat))
+                (
+                  filterPatAgainst(h, evaluated),
+                  t.traverse(filterPatAgainst(_, evaluated))
+                )
                   .mapN { (optP1, p2s) =>
                     val flatP2s: List[Pat] = p2s.toList.flatten
                     optP1 match {
@@ -2908,7 +2932,16 @@ object TypedExprNormalization {
               case Pattern.ListPat(_)                =>
                 // TODO some of these patterns we could evaluate
                 None
-              case _ => None
+              case Pattern.Literal(litj) =>
+                evaluated match {
+                  case EvalResult.Constant(li) =>
+                    if (li === litj) Some(Some(pat))
+                    else Some(None)
+                  case EvalResult.Cons(_, _, _) =>
+                    Some(None)
+                }
+              case Pattern.StrPat(_) =>
+                None
             }
 
           object MaybeNamedStruct {
@@ -2976,7 +3009,8 @@ object TypedExprNormalization {
 
           m.branches
             .traverse { branch =>
-              filterPat(branch.pattern).map((_, branch))
+              filterPatAgainst(branch.pattern, EvalResult.Cons(p, c, args))
+                .map((_, branch))
             }
             // if we can check all the branches for a match, maybe we can evaluate
             .flatMap { branches =>
