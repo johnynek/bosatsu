@@ -14,6 +14,8 @@ import TestUtils.{checkEnvExpr, checkLast}
 import rankn.{Type, NTypeGen, RefSpace}
 
 class TypedExprTest extends munit.ScalaCheckSuite {
+  given Region = Region.empty
+
   override def scalaCheckTestParameters =
     // PropertyCheckConfiguration(minSuccessful = 5000)
     super.scalaCheckTestParameters.withMinSuccessfulTests(
@@ -663,7 +665,7 @@ foo = _ -> 1
       p: Pattern[(PackageName, Constructor), Type],
       e: TypedExpr[Unit]
   ): TypedExpr.Branch[Unit] =
-    TypedExpr.Branch(p, None, e)
+    TypedExpr.Branch(p, None, e)(using Region.empty)
 
   def eqIntExpr(
       left: TypedExpr[Unit],
@@ -5226,6 +5228,91 @@ def sum_plus(y: Int, zs: L[Int]) -> Int:
   loop(zs)
 """
     ) { _ => () }
+  }
+
+  test("closure rewrite keeps MatchGuard-shadowed capture types from inner binders") {
+    val xName = Identifier.Name("x")
+    val condName = Identifier.Name("cond")
+    val fName = Identifier.Name("f")
+    val yName = Identifier.Name("y")
+    val fnTpe = Type.Fun(NonEmptyList.one(intTpe), intTpe)
+
+    val xIntVar = TypedExpr.Local(xName, intTpe, ())
+    val xBoolVar = TypedExpr.Local(xName, boolTpe, ())
+    val condVar = TypedExpr.Local(condName, intTpe, ())
+    val fVar = TypedExpr.Local(fName, fnTpe, ())
+    val yVar = TypedExpr.Local(yName, intTpe, ())
+
+    val truePat: Pattern[(PackageName, Constructor), Type] =
+      Pattern.PositionalStruct((PackageName.PredefName, Constructor("True")), Nil)
+    val falsePat: Pattern[(PackageName, Constructor), Type] =
+      Pattern.PositionalStruct((PackageName.PredefName, Constructor("False")), Nil)
+
+    val innerBoolMatch =
+      TypedExpr.Match(
+        xBoolVar,
+        NonEmptyList.of(
+          TypedExpr.Branch(truePat, None, int(0))(using Region.empty),
+          TypedExpr.Branch(falsePat, None, int(1))(using Region.empty)
+        ),
+        ()
+      )
+
+    val guardedBranch = TypedExpr.Branch.fromGuardNode(
+      Pattern.Literal(Lit.fromInt(0)),
+      Some(
+        TypedExpr.MatchGuard(
+          bool(true),
+          Pattern.Var(xName): Pattern[(PackageName, Constructor), Type],
+          None
+        )(using Region.empty)
+      ),
+      innerBoolMatch
+    )(using Region.empty)
+    val fallbackBranch =
+      branch(Pattern.WildCard, addExpr(xIntVar, yVar))
+
+    val outerLambda =
+      TypedExpr.AnnotatedLambda(
+        NonEmptyList.one((yName, intTpe)),
+        TypedExpr.App(
+          PredefAdd,
+          NonEmptyList.of(
+            TypedExpr.Match(condVar, NonEmptyList.of(guardedBranch, fallbackBranch), ()),
+            yVar
+          ),
+          intTpe,
+          ()
+        ),
+        ()
+      )
+
+    val root =
+      TypedExpr.AnnotatedLambda(
+        NonEmptyList.of((xName, intTpe), (condName, intTpe)),
+        TypedExpr.Let(
+          fName,
+          outerLambda,
+          TypedExpr.App(
+            PredefAdd,
+            NonEmptyList.of(
+              TypedExpr.App(fVar, NonEmptyList.one(int(1)), intTpe, ()),
+              TypedExpr.App(fVar, NonEmptyList.one(int(2)), intTpe, ())
+            ),
+            intTpe,
+            ()
+          ),
+          RecursionKind.NonRecursive,
+          ()
+        ),
+        ()
+      )
+
+    val normalized = TypedExprNormalization.normalize(root).getOrElse(root)
+
+    assert(countLambdaCapturing(root, xName) > 0, root.reprString)
+    assertEquals(countLambdaCapturing(normalized, xName), 0, normalized.reprString)
+    TestUtils.assertValid(normalized)
   }
 
   test("closure rewrite keeps MatchGuard-shadowed local calls in inner scope") {

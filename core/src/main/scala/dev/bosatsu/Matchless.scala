@@ -6150,16 +6150,17 @@ object Matchless {
             recurToSelfCall(loopName, loopType, arg, inNestedLoop),
             branches.map { branch =>
               branch.copyNode(
-                guardNode = branch.mapGuardNodeExpr(
+                branch.pattern,
+                branch.mapGuardNodeExpr(
                   recurToSelfCall(loopName, loopType, _, inNestedLoop)
                 ),
-                expr = recurToSelfCall(
+                recurToSelfCall(
                   loopName,
                   loopType,
                   branch.expr,
                   inNestedLoop
                 )
-              )
+              )(using branch.patternRegion)
             },
             tag
           )

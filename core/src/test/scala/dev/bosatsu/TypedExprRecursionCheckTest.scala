@@ -1444,7 +1444,9 @@ def f(opt: Int, y: Int) -> Int:
           ),
           shadowedLocal
         )(using Region.empty),
-        TypedExpr.Branch(Pattern.WildCard, None, TypedExpr.Literal(Lit.fromInt(0), intType, fTag))
+        TypedExpr.Branch(Pattern.WildCard, None, TypedExpr.Literal(Lit.fromInt(0), intType, fTag))(using
+          Region.empty
+        )
       ),
       fTag
     )

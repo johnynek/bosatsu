@@ -345,7 +345,12 @@ object TypedExprNormalization {
                   val expr1 =
                     replace(branch.expr, blockedBody, blockedTy, inSuspension)
                   if (guard1.eq(branch.guardNode) && (expr1 eq branch.expr)) branch
-                  else branch.copyNode(guardNode = guard1, expr = expr1)
+                  else
+                    branch.copyNode(
+                      branch.pattern,
+                      guard1,
+                      expr1
+                    )(using branch.patternRegion)
                 }
                 if ((arg1 eq arg) && (branches1 eq branches)) m
                 else Match(m.matchKind, arg1, branches1, tag)
@@ -467,7 +472,7 @@ object TypedExprNormalization {
           TypedExpr.substituteAll(resSub, _, enterLambda = true).get
         )
         val pattern1 = branch.pattern.substitute(argRenames)
-        branch.copyNode(pattern = pattern1, guardNode = guard1, expr = expr1)
+        branch.copyNode(pattern1, guard1, expr1)(using branch.patternRegion)
       }
 
     val outerAvoid = avoid ++ branch1.pattern.names.toSet
@@ -494,7 +499,9 @@ object TypedExprNormalization {
               TypedExpr.MatchGuard(argExpr, pattern1, guardOpt1)(using
                 guard.patternRegion
               )
-            branch1.copyNode(guardNode = Some(guard1), expr = expr1)
+            branch1.copyNode(branch1.pattern, Some(guard1), expr1)(using
+              branch1.patternRegion
+            )
           }
         case _ =>
           branch1
@@ -512,7 +519,7 @@ object TypedExprNormalization {
       (guard1 eq branch.guardNode) &&
       (expr1 eq branch.expr)
     ) branch
-    else branch2.copyNode(guardNode = guard1, expr = expr1)
+    else branch2.copyNode(branch2.pattern, guard1, expr1)(using branch2.patternRegion)
   }
 
   // After inlining we can splice a whole subtree under a lexical scope that
@@ -642,8 +649,8 @@ object TypedExprNormalization {
         Match(
           cond,
           NonEmptyList.of(
-            Branch(TruePattern, None, thenCase),
-            Branch(FalsePattern, None, elseCase)
+            Branch(TruePattern, None, thenCase)(using Region.empty),
+            Branch(FalsePattern, None, elseCase)(using Region.empty)
           ),
           cond.tag
         )
@@ -686,7 +693,9 @@ object TypedExprNormalization {
           boolConst(inner.expr).map { cond =>
             val selected = if (cond) ifTrue else ifFalse
             if (selected eq inner.expr) inner
-            else inner.copyNode(expr = selected)
+            else inner.copyNode(inner.pattern, inner.guardNode, selected)(using
+              inner.patternRegion
+            )
           }
         }.map { mapped =>
           Match(inner.matchKind, innerArg, mapped, tag)
@@ -1031,7 +1040,12 @@ object TypedExprNormalization {
           val branchExpr1 =
             dropOuterRecurArgs(branch.expr, dropPositions, inNestedLoop)
           if (guard1.eq(branch.guardNode) && (branchExpr1 eq branch.expr)) branch
-          else branch.copyNode(guardNode = guard1, expr = branchExpr1)
+          else
+            branch.copyNode(
+              branch.pattern,
+              guard1,
+              branchExpr1
+            )(using branch.patternRegion)
         }
         if ((arg1 eq arg) && (branches1 eq branches)) m
         else Match(m.matchKind, arg1, branches1, tag)
@@ -1088,12 +1102,25 @@ object TypedExprNormalization {
         case Recur(args, _, _) =>
           args.foldLeft(acc)((acc0, a) => loop(a, bound, acc0))
         case Match(arg, branches, _) =>
-          val acc1 = loop(arg, bound, acc)
-          branches.toList.foldLeft(acc1) { case (acc0, Branch(p, guard, b)) =>
-            val bound1 = bound ++ p.names
-            val acc1 = guard.fold(acc0)(loop(_, bound1, acc0))
-            loop(b, bound1, acc1)
+          var acc1 = loop(arg, bound, acc)
+          branches.toList.foreach { branch =>
+            val outerBound = bound ++ branch.pattern.names
+            branch.guardNode match {
+              case Some(TypedExpr.BoolGuard(guardExpr)) =>
+                acc1 = loop(guardExpr, outerBound, acc1)
+                acc1 = loop(branch.expr, outerBound, acc1)
+              case Some(TypedExpr.MatchGuard(argExpr, pattern, guardOpt)) =>
+                val bodyBound = outerBound ++ pattern.names
+                acc1 = loop(argExpr, outerBound, acc1)
+                guardOpt.foreach { innerGuard =>
+                  acc1 = loop(innerGuard, bodyBound, acc1)
+                }
+                acc1 = loop(branch.expr, bodyBound, acc1)
+              case None =>
+                acc1 = loop(branch.expr, outerBound, acc1)
+            }
           }
+          acc1
         case Local(n, tpe, _) =>
           if (bound(n)) acc
           else addType(acc, n, tpe)
@@ -1316,7 +1343,12 @@ object TypedExprNormalization {
               fnVisibleInner
             )
           if (guard1.eq(branch.guardNode) && (branchExpr1 eq branch.expr)) branch
-          else branch.copyNode(guardNode = guard1, expr = branchExpr1)
+          else
+            branch.copyNode(
+              branch.pattern,
+              guard1,
+              branchExpr1
+            )(using branch.patternRegion)
         }
         if ((arg1 eq arg) && (branches1 eq branches)) m
         else Match(m.matchKind, arg1, branches1, tag)
@@ -1478,7 +1510,7 @@ object TypedExprNormalization {
               val r1 =
                 if (bodyShadowed || r.notFree(arg)) r
                 else Let(arg, expr, r, rec, tag)
-              branch.copyNode(guardNode = guard1, expr = r1)
+              branch.copyNode(branch.pattern, guard1, r1)(using branch.patternRegion)
             }
           }
           Some(Match(m.matchKind, marg, b1, mtag))
@@ -1629,7 +1661,13 @@ object TypedExprNormalization {
                     lamArgs.forall { case (arg, _) => g.notFree(arg) }
                   }
                 ) {
-                  Some(branch.copyNode(expr = AnnotatedLambda(lamArgs, b, tag)))
+                  Some(
+                    branch.copyNode(
+                      branch.pattern,
+                      branch.guardNode,
+                      AnnotatedLambda(lamArgs, b, tag)
+                    )(using branch.patternRegion)
+                  )
                 } else None
               }
               b1 match {
@@ -1988,7 +2026,13 @@ object TypedExprNormalization {
               }
 
             if (dropped)
-              BranchNorm(guardChanged, branch.copyNode(guardNode = guard1), true)
+              BranchNorm(
+                guardChanged,
+                branch.copyNode(branch.pattern, guard1, branch.expr)(using
+                  branch.patternRegion
+                ),
+                true
+              )
             else {
               val (exprChanged, expr1) = ncount(outerShadowed | innerShadowed, branch.expr)
               val freeGuard =
@@ -2006,7 +2050,7 @@ object TypedExprNormalization {
               val patChanged = if (p1 == p) 0 else 1
               BranchNorm(
                 guardChanged + exprChanged + patChanged,
-                Branch.fromGuardNode(p1, guard1, expr1),
+                Branch.fromGuardNode(p1, guard1, expr1)(using branch.patternRegion),
                 false
               )
             }
@@ -2040,8 +2084,8 @@ object TypedExprNormalization {
                 Match(
                   g,
                   NonEmptyList.of(
-                    Branch(TruePattern, None, head.expr),
-                    Branch(FalsePattern, None, fallback)
+                    Branch(TruePattern, None, head.expr)(using Region.empty),
+                    Branch(FalsePattern, None, fallback)(using Region.empty)
                   ),
                   g.tag
                 )
@@ -2054,22 +2098,28 @@ object TypedExprNormalization {
             bs: NonEmptyList[Branch[A]]
         ): Option[NonEmptyList[Branch[A]]] =
           bs.toList match {
-            case init :+ head :+ Branch(p2, None, e2)
-                if p2.names.isEmpty && head.guardBindings.isEmpty =>
+            case init :+ head :+ tailBranch
+                if tailBranch.guard.isEmpty &&
+                  tailBranch.pattern.names.isEmpty &&
+                  head.guardBindings.isEmpty =>
+              val p2 = tailBranch.pattern
+              val e2 = tailBranch.expr
               head.guard match {
                 case Some(g)
                     if head.pattern.ambiguousBindings
                       .intersect(g.freeVarsDup.toSet)
                       .isEmpty =>
                   val rewrittenHead =
-                    Branch(head.pattern, None, ifThenElse(g, head.expr, e2))
+                    Branch(head.pattern, None, ifThenElse(g, head.expr, e2))(using
+                      head.patternRegion
+                    )
                   val rewritten =
                     if (totalityCheck.difference(p2, head.pattern).isEmpty)
                       NonEmptyList.ofInitLast(init, rewrittenHead)
                     else
                       NonEmptyList.ofInitLast(
                         init :+ rewrittenHead,
-                        Branch(p2, None, e2)
+                        Branch(p2, None, e2)(using tailBranch.patternRegion)
                       )
                   Some(rewritten)
                 case _ =>
@@ -2991,7 +3041,7 @@ object TypedExprNormalization {
                           Match(
                             m.matchKind,
                             a,
-                            NonEmptyList.one(Branch(p, None, tr)),
+                            NonEmptyList.one(Branch(p, None, tr)(using Region.empty)),
                             m.tag
                           )
                       }
@@ -3067,7 +3117,7 @@ object TypedExprNormalization {
                       m.matchKind,
                       m.arg,
                       NonEmptyList(h, t).map { case (pat, rhs) =>
-                        Branch(pat, None, rhs)
+                        Branch(pat, None, rhs)(using Region.empty)
                       },
                       m.tag
                     )

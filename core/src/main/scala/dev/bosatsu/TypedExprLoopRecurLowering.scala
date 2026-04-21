@@ -116,7 +116,12 @@ object TypedExprLoopRecurLowering {
           val branchExpr1 =
             rewriteTailCalls(name, branch.expr, tailPos, canRecurInner)
           if (guard1.eq(branch.guardNode) && (branchExpr1 eq branch.expr)) branch
-          else branch.copyNode(guardNode = guard1, expr = branchExpr1)
+          else
+            branch.copyNode(
+              branch.pattern,
+              guard1,
+              branchExpr1
+            )(using branch.patternRegion)
         }
         if ((arg1 eq arg) && (branches1 eq branches)) m
         else Match(m.matchKind, arg1, branches1, tag)
@@ -238,7 +243,9 @@ object TypedExprLoopRecurLowering {
       case Some(TypedExpr.BoolGuard(guardExpr)) =>
         decodeSourceLoopMatchGuard(guardExpr) match {
           case Some(matchGuard) =>
-            branch.copyNode(guardNode = Some(matchGuard))
+            branch.copyNode(branch.pattern, Some(matchGuard), branch.expr)(using
+              branch.patternRegion
+            )
           case None             =>
             branch
         }
@@ -547,9 +554,8 @@ object TypedExprLoopRecurLowering {
                 val sawSelf = guardSawSelf || expr1.sawSelfRef
                 val branch1 =
                   if (changed) {
-                    branch.copyNode(
-                      guardNode = guardNode1,
-                      expr = expr1.expr
+                    branch.copyNode(branch.pattern, guardNode1, expr1.expr)(using
+                      branch.patternRegion
                     )
                   } else branch
                 (branch1, changed, sawSelf)
@@ -938,7 +944,9 @@ object TypedExprLoopRecurLowering {
           val guard1 = branch.mapGuardNodeExpr(lowerExpr(_))
           val expr1 = lowerExpr(branch.expr)
           if (guard1.eq(branch.guardNode) && (expr1 eq branch.expr)) branch
-          else branch.copyNode(guardNode = guard1, expr = expr1)
+          else branch.copyNode(branch.pattern, guard1, expr1)(using
+            branch.patternRegion
+          )
         }
         if ((arg1 eq arg) && (branches1 eq branches)) m
         else Match(m.matchKind, arg1, branches1, tag)

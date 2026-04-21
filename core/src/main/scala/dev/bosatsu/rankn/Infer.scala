@@ -2757,7 +2757,9 @@ object Infer {
               Error.Direction.ExpectRight
             )
               .map { coerce =>
-                branch.copyNode(expr = coerce(te))
+                branch.copyNode(branch.pattern, branch.guardNode, coerce(te))(using
+                  branch.patternRegion
+                )
               }
           } else pure(branch)
         }

@@ -14,6 +14,8 @@ import scala.collection.immutable.SortedMap
 import scala.util.Try
 
 class MatchlessTest extends munit.ScalaCheckSuite {
+  given Region = Region.empty
+
   given Order[Unit] = Order.fromOrdering
 
   // Large ScalaCheck sizes can build very deep typed packages here, which

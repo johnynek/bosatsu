@@ -892,7 +892,7 @@ object ShowEdn {
           branches <- branchesRaw.traverse {
             case EList(ESymbol("branch") :: patEdn :: exprEdn :: Nil) =>
               (decodePattern(patEdn), decodeTypedExpr(exprEdn)).mapN {
-                (pat, expr) => TypedExpr.Branch(pat, None, expr)
+                (pat, expr) => TypedExpr.Branch(pat, None, expr)(using Region.empty)
               }
             case EList(
                   ESymbol("branch") :: patEdn :: guardEdn :: exprEdn :: Nil
@@ -902,7 +902,9 @@ object ShowEdn {
                 decodeBranchGuard(guardEdn),
                 decodeTypedExpr(exprEdn)
               ).mapN { (pat, guard, expr) =>
-                TypedExpr.Branch.fromGuardNode(pat, Some(guard), expr)
+                TypedExpr.Branch.fromGuardNode(pat, Some(guard), expr)(using
+                  Region.empty
+                )
               }
             case other =>
               err[TypedExpr.Branch[Unit]](s"invalid branch: ${rendered(other)}")

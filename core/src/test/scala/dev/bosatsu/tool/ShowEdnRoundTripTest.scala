@@ -112,12 +112,12 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
           Pattern.WildCard,
           Some(guardExpr),
           TypedExpr.Literal(Lit.fromInt(7), intType, ())
-        ),
+        )(using Region.empty),
         TypedExpr.Branch(
           Pattern.WildCard,
           None,
           TypedExpr.Literal(Lit.fromInt(0), intType, ())
-        )
+        )(using Region.empty)
       ),
       ()
     )
@@ -174,12 +174,12 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
             )
           ),
           TypedExpr.Local(even, intType, ())
-        ),
+        )(using Region.empty),
         TypedExpr.Branch(
           Pattern.WildCard,
           None,
           TypedExpr.Literal(Lit.fromInt(0), intType, ())
-        )
+        )(using Region.empty)
       ),
       ()
     )
@@ -346,12 +346,12 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
             shallowPattern,
             None,
             TypedExpr.Local(Identifier.Name("x"), Type.IntType, ())
-          ),
+          )(using Region.empty),
           TypedExpr.Branch(
             deepPattern,
             None,
             TypedExpr.Local(Identifier.Name("y"), Type.IntType, ())
-          )
+          )(using Region.empty)
         ),
         ()
       )

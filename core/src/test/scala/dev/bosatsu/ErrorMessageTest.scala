@@ -3463,7 +3463,7 @@ x = 1.0 + 2.0
       TypedExpr.Literal[Declaration](Lit.Integer(0L), rankn.Type.IntType, tag)
     val matchExpr = TypedExpr.Match(
       lit,
-      cats.data.NonEmptyList.one(TypedExpr.Branch(pat, None, lit)),
+      cats.data.NonEmptyList.one(TypedExpr.Branch(pat, None, lit)(using Region(0, 1))),
       tag
     )
     val totalityErr = PackageError.TotalityCheckError(
