@@ -6415,6 +6415,168 @@ def make(y: Int):
     assertEquals(Type.metaTvs(zonked.allTypes.toList), SortedSet.empty[Type.Meta])
   }
 
+  test("TypedExpr.zonkMeta zonks MatchGuard guard-pattern annotation types") {
+    val meta = Type.Meta(Kind.Type, 3001L, existential = false, RefSpace.constRef(None))
+    val guardPattern: Pattern[(PackageName, Constructor), Type] =
+      Pattern.Annotation(Pattern.WildCard, Type.TyMeta(meta))
+    val branch = TypedExpr.Branch.fromGuardNode(
+      Pattern.WildCard,
+      Some(
+        TypedExpr.MatchGuard(
+          int(0),
+          guardPattern,
+          None
+        )(using Region.empty)
+      ),
+      int(1)
+    )(using Region.empty)
+    val expr: TypedExpr[Unit] = TypedExpr.Match(int(2), NonEmptyList.one(branch), ())
+
+    val zonked = TypedExpr.zonkMeta[cats.Id, Unit](expr) { m =>
+      if (m.id == meta.id) Some(Type.Tau(Type.IntType)) else None
+    }
+
+    zonked match {
+      case TypedExpr.Match(_, NonEmptyList(branch1, Nil), _) =>
+        branch1.guardNode match {
+          case Some(
+                TypedExpr.MatchGuard(
+                  _,
+                  Pattern.Annotation(Pattern.WildCard, annTpe),
+                  None
+                )
+              ) =>
+            assertEquals(annTpe: Type, Type.IntType)
+          case other =>
+            fail(
+              s"expected MatchGuard with zonked annotated wildcard pattern, got: $other"
+            )
+        }
+      case other =>
+        fail(s"expected single-branch match after zonking, got: ${other.reprString}")
+    }
+  }
+
+  test("TypedExpr.quantify quantifies MatchGuard guard-pattern annotation metas") {
+    val meta = Type.Meta(Kind.Type, 3002L, existential = false, RefSpace.constRef(None))
+    val guardPattern: Pattern[(PackageName, Constructor), Type] =
+      Pattern.Annotation(Pattern.WildCard, Type.TyMeta(meta))
+    val branch = TypedExpr.Branch.fromGuardNode(
+      Pattern.WildCard,
+      Some(
+        TypedExpr.MatchGuard(
+          int(0),
+          guardPattern,
+          None
+        )(using Region.empty)
+      ),
+      int(1)
+    )(using Region.empty)
+    val rho = TypedExpr.Rho.assertRho(
+      TypedExpr.Match(int(2), NonEmptyList.one(branch), ())
+    )
+
+    type S[A] = State[Map[Type.Meta, Type.Tau], A]
+    val readFn: Type.Meta => S[Option[Type.Tau]] = m => State.inspect(_.get(m))
+    val writeFn: (Type.Meta, Type.Tau) => S[Unit] =
+      (m, t) => State.modify(_.updated(m, t))
+
+    val quantified =
+      TypedExpr
+        .quantify[S, Unit](
+          Map.empty,
+          rho,
+          readFn,
+          writeFn
+        )
+        .runA(Map.empty)
+        .value
+
+    quantified match {
+      case TypedExpr.Generic(quant, TypedExpr.Match(_, NonEmptyList(branch1, Nil), _)) =>
+        branch1.guardNode match {
+          case Some(
+                TypedExpr.MatchGuard(
+                  _,
+                  Pattern.Annotation(Pattern.WildCard, Type.TyVar(v: Type.Var.Bound)),
+                  None
+                )
+              ) =>
+            assertEquals(quant.forallList.map(_._1.name).toList, List(v.name))
+          case other =>
+            fail(
+              s"expected quantified MatchGuard guard pattern annotation, got: $other"
+            )
+        }
+      case other =>
+        fail(s"expected quantified generic match, got: ${other.reprString}")
+    }
+  }
+
+  test("TypedExpr.quantify does not add nested generics for MatchGuard-bound local meta types") {
+    val xName = Identifier.Name("x")
+    val meta = Type.Meta(Kind.Type, 3003L, existential = false, RefSpace.constRef(None))
+    val guardPattern: Pattern[(PackageName, Constructor), Type] =
+      Pattern.Annotation(Pattern.Var(xName), Type.TyMeta(meta))
+    val body =
+      TypedExpr.Annotation(
+        TypedExpr.Local(xName, Type.TyMeta(meta), ()),
+        Type.IntType,
+        None
+      )
+    val branch = TypedExpr.Branch.fromGuardNode(
+      Pattern.WildCard,
+      Some(
+        TypedExpr.MatchGuard(
+          int(0),
+          guardPattern,
+          None
+        )(using Region.empty)
+      ),
+      body
+    )(using Region.empty)
+    val rho = TypedExpr.Rho.assertRho(
+      TypedExpr.Match(int(2), NonEmptyList.one(branch), ())
+    )
+
+    @annotation.tailrec
+    def stripOuterGenerics(te: TypedExpr[Unit]): TypedExpr[Unit] =
+      te match {
+        case TypedExpr.Generic(_, in) => stripOuterGenerics(in)
+        case other                    => other
+      }
+
+    type S[A] = State[Map[Type.Meta, Type.Tau], A]
+    val readFn: Type.Meta => S[Option[Type.Tau]] = m => State.inspect(_.get(m))
+    val writeFn: (Type.Meta, Type.Tau) => S[Unit] =
+      (m, t) => State.modify(_.updated(m, t))
+
+    val quantified =
+      TypedExpr
+        .quantify[S, Unit](
+          Map.empty,
+          rho,
+          readFn,
+          writeFn
+        )
+        .runA(Map.empty)
+        .value
+
+    stripOuterGenerics(quantified) match {
+      case TypedExpr.Match(_, NonEmptyList(branch1, Nil), _) =>
+        branch1.expr match {
+          case _: TypedExpr.Generic[?] =>
+            fail(
+              s"expected MatchGuard-bound branch body to stay in scope, got: ${branch1.expr.reprString}"
+            )
+          case _ =>
+            ()
+        }
+      case other =>
+        fail(s"expected quantified match, got: ${other.reprString}")
+    }
+  }
+
   test("TypedExpr.quantify handles metas and skolems inside quantifier evidence") {
     type S[A] = State[Map[Type.Meta, Type.Tau], A]
     val k = Kind.Type

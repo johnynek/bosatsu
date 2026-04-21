@@ -387,6 +387,9 @@ object Expr {
     ): Option[BranchGuard[U]] =
       mapGuardNodeExprScoped(fn, fn)
 
+    def guardPattern: Option[Pattern[(PackageName, Constructor), Type]] =
+      guardNode.collect { case MatchGuard(_, pattern, _, _) => pattern }
+
     def mapGuardNodeExprScoped[U](
         outerFn: Expr[T] => Expr[U],
         innerFn: Expr[T] => Expr[U]
@@ -396,13 +399,36 @@ object Expr {
     def traverseGuardNodeExpr[U, F[_]: Applicative](
         fn: Expr[T] => F[Expr[U]]
     ): F[Option[BranchGuard[U]]] =
-      traverseGuardNodeExprScoped(fn, fn)
+      traverseGuardNodeScoped(Applicative[F].pure(_), fn, fn)
+
+    def traverseGuardNodeScoped[U, F[_]: Applicative](
+        patternFn: Pattern[(PackageName, Constructor), Type] => F[
+          Pattern[(PackageName, Constructor), Type]
+        ],
+        outerFn: Expr[T] => F[Expr[U]],
+        innerFn: Expr[T] => F[Expr[U]]
+    ): F[Option[BranchGuard[U]]] =
+      guardNode.traverse {
+        case BoolGuard(expr) =>
+          outerFn(expr).map(BoolGuard(_))
+        case guard @ MatchGuard(argExpr, pattern, guardExpr, wholeGuardCheckExpr) =>
+          (
+            patternFn(pattern),
+            outerFn(argExpr),
+            guardExpr.traverse(innerFn),
+            wholeGuardCheckExpr.traverse(outerFn)
+          ).mapN { (pattern1, argExpr1, guardExpr1, checkExpr1) =>
+            MatchGuard(argExpr1, pattern1, guardExpr1, checkExpr1)(using
+              guard.patternRegion
+            )
+          }
+      }
 
     def traverseGuardNodeExprScoped[U, F[_]: Applicative](
         outerFn: Expr[T] => F[Expr[U]],
         innerFn: Expr[T] => F[Expr[U]]
     ): F[Option[BranchGuard[U]]] =
-      guardNode.traverse(BranchGuard.traverseExprScoped(_)(outerFn, innerFn))
+      traverseGuardNodeScoped(Applicative[F].pure(_), outerFn, innerFn)
 
     def guardExprIterator: Iterator[Expr[T]] =
       guardNode.iterator.flatMap(BranchGuard.iterator(_))
@@ -712,7 +738,11 @@ object Expr {
         def branchFn(b: B): F[B] =
           (
             b.pattern.traverseType(fn(_, bound)),
-            b.traverseGuardNodeExpr(traverseType[T, F](_, bound)(fn)),
+            b.traverseGuardNodeScoped(
+              _.traverseType(fn(_, bound)),
+              traverseType[T, F](_, bound)(fn),
+              traverseType[T, F](_, bound)(fn)
+            ),
             traverseType[T, F](b.expr, bound)(fn)
           ).mapN { (pat, guard, expr) =>
             Branch.fromGuardNode(pat, guard, expr)(using b.patternRegion)
@@ -807,6 +837,9 @@ object Expr {
                 stack = ExprWork(branch.expr, bound) :: stack
                 branch.guardExprIterator.foreach { guard =>
                   stack = ExprWork(guard, bound) :: stack
+                }
+                branch.guardPattern.foreach { pattern =>
+                  stack = PatternWork(pattern, bound) :: stack
                 }
                 stack = PatternWork(branch.pattern, bound) :: stack
               }

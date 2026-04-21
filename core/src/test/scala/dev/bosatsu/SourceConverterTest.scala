@@ -1590,4 +1590,46 @@ main = foo(1)
         fail("expected nested helper to contain a MatchGuard")
     }
   }
+
+  test(
+    "nested defs quantify free type vars from MatchGuard guard-pattern annotations"
+  ) {
+    val code = """#
+def foo(x):
+  def helper(y):
+    match y:
+      case _ if y matches (_: a):
+        0
+      case _:
+        1
+  helper(x)
+
+main = foo(1)
+"""
+
+    val fooExpr = convertProgram(code)
+      .getLet(Identifier.Name("foo"))
+      .getOrElse(fail("expected a `foo` binding"))
+      ._2
+
+    val generics = genericBinders(fooExpr)
+    assertEquals(generics.length, 1)
+    assertEquals(generics.head.map(_._1.name).toList, List("a"))
+    firstMatchGuard(fooExpr) match {
+      case Some(
+            Expr.MatchGuard(
+              _,
+              Pattern.Annotation(
+                Pattern.WildCard,
+                rankn.Type.TyVar(a: rankn.Type.Var.Bound)
+              ),
+              None,
+              _
+            )
+          ) =>
+        assertEquals(a.name, "a")
+      case other =>
+        fail(s"expected MatchGuard with annotated wildcard pattern, got: $other")
+    }
+  }
 }

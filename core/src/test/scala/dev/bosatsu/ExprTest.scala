@@ -60,7 +60,11 @@ class ExprTest extends munit.ScalaCheckSuite {
         def branchFn(b: B): F[B] =
           (
             b.pattern.traverseType(fn(_, bound)),
-            b.traverseGuardNodeExpr(traverseTypeOracle[T, F](_, bound)(fn)),
+            b.traverseGuardNodeScoped(
+              _.traverseType(fn(_, bound)),
+              traverseTypeOracle[T, F](_, bound)(fn),
+              traverseTypeOracle[T, F](_, bound)(fn)
+            ),
             traverseTypeOracle[T, F](b.expr, bound)(fn)
           ).mapN { (pat, guardNode, expr) =>
             Expr.Branch.fromGuardNode(pat, guardNode, expr)(using b.patternRegion)
@@ -178,6 +182,31 @@ class ExprTest extends munit.ScalaCheckSuite {
 
     assertEquals(Expr.freeBoundTyVars(expr), List(a))
     assertEquals(Expr.freeBoundTyVars(expr), freeBoundTyVarsViaTraverseType(expr))
+  }
+
+  test("freeBoundTyVars includes MatchGuard guard-pattern annotations") {
+    val a = Type.Var.Bound("a")
+    val guardPattern: Pattern[(PackageName, Identifier.Constructor), Type] =
+      Pattern.Annotation(Pattern.WildCard, Type.TyVar(a))
+    val branch = Expr.Branch.fromGuardNode(
+      Pattern.WildCard,
+      Some(
+        Expr.MatchGuard(
+          Expr.Local(Identifier.Name("x"), 0),
+          guardPattern,
+          None,
+          None
+        )(using Region.empty)
+      ),
+      Expr.Literal(Lit.fromInt(0), 1)
+    )(using Region.empty)
+    val expr = Expr.Match(
+      Expr.Local(Identifier.Name("root"), 2),
+      NonEmptyList.one(branch),
+      3
+    )
+
+    assertEquals(Expr.freeBoundTyVars(expr), List(a))
   }
 
   test("Expr flattenApp2/rebuildApp2 round trips right-deep binary app chains") {
