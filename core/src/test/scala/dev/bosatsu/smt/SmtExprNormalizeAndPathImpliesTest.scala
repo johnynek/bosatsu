@@ -587,11 +587,9 @@ class SmtExprNormalizeAndPathImpliesTest extends munit.ScalaCheckSuite {
         )
       )
 
-    val fast = pathImplies(goal, facts)
     val z3 = z3Implies(goal, facts)
 
     assert(z3)
-    assert(!fast || z3)
   }
 
   test("pathImplies is monotonic with respect to added facts") {
