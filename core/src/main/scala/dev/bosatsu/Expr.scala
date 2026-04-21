@@ -270,8 +270,8 @@ object Expr {
       guard match {
         case BoolGuard(expr) =>
           Iterator.single(expr)
-        case MatchGuard(arg, _, guardOpt, _) =>
-          Iterator.single(arg) ++ guardOpt.iterator
+        case MatchGuard(arg, _, guardOpt, wholeGuardCheckExpr) =>
+          Iterator.single(arg) ++ guardOpt.iterator ++ wholeGuardCheckExpr.iterator
       }
 
     def mapExpr[T, U](

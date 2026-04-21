@@ -279,7 +279,9 @@ object PackageCustoms {
           loop(arg)
           branches.toList.foreach { branch =>
             addPatternConstructors(branch.pattern)
-            branch.guard.foreach(loop)
+            branch.foldGuardExpr(()) { (_, guardExpr) =>
+              loop(guardExpr)
+            }
             loop(branch.expr)
           }
       }

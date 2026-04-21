@@ -434,6 +434,36 @@ main = todo(42)
     invalid(typeCheckParsed(pack :: Nil, CompileOptions.Default))
   }
 
+  test("removed kind refs are detected through MatchGuard wrapper annotations") {
+    val pack = parse("""
+package Foo
+
+type Bad = Int[Int]
+
+def helper(x):
+  match x:
+    case _ if ((x matches _) : Bad):
+      0
+    case _:
+      1
+
+main = 1
+""")
+
+    resolveThenInfer(List(pack)) match {
+      case Validated.Invalid(errs) =>
+        errs.toList.foreach {
+          case _: PackageError.KindInferenceError => ()
+          case other =>
+            fail(
+              s"expected only kind inference errors after pruning removed refs, got: ${errs.toList.mkString(" | ")}; offending error: $other"
+            )
+        }
+      case Validated.Valid(value) =>
+        fail(s"expected kind inference failure, got: $value")
+    }
+  }
+
   test("internal predef exports todo only in type-check mode") {
     val emitExports =
       PackageMap

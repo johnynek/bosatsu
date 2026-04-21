@@ -1035,6 +1035,50 @@ foo = _ -> 1
     }
   }
 
+  test("mapGuardNodeExprScoped preserves and rebuilds MatchGuard nodes correctly") {
+    val region = Region(1, 2)
+    val argExpr = TypedExpr.Local(Identifier.Name("x"), intTpe, ())
+    val innerGuard = TypedExpr.Local(Identifier.Name("cond"), boolTpe, ())
+    val pattern =
+      Pattern.Var(Identifier.Name("matched")): Pattern[
+        (PackageName, Constructor),
+        Type
+      ]
+    val branch = TypedExpr.Branch.fromGuardNode(
+      Pattern.WildCard,
+      Some(
+        TypedExpr.MatchGuard(argExpr, pattern, Some(innerGuard))(using region)
+      ),
+      int(0)
+    )(using Region.empty)
+
+    val unchanged = branch.mapGuardNodeExprScoped(identity, identity)
+    assert(unchanged eq branch.guardNode)
+
+    val changed = branch.mapGuardNodeExprScoped(
+      identity,
+      TypedExpr.Annotation(_, boolTpe, None)
+    )
+    assert(!(changed eq branch.guardNode))
+
+    changed match {
+      case Some(
+            guard @ TypedExpr.MatchGuard(
+              argExpr1,
+              pattern1,
+              Some(TypedExpr.Annotation(innerGuard1, guardTpe, None))
+            )
+          ) =>
+        assertEquals(argExpr1, argExpr)
+        assertEquals(pattern1, pattern)
+        assertEquals(innerGuard1, innerGuard)
+        assertEquals(guardTpe, boolTpe)
+        assertEquals(guard.patternRegion, region)
+      case other =>
+        fail(s"expected rebuilt MatchGuard with preserved region, got: $other")
+    }
+  }
+
   test("normalize keeps MatchGuard outer and inner binders non-free") {
     val (_, normalized) = inferLoweredAndNormalizedExpr(
       """
