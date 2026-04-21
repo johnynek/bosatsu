@@ -335,29 +335,19 @@ message Region {
   int32 end = 2;
 }
 
-message BoolGuard {
-  int32 expr = 1;
-}
-
 message MatchGuard {
   int32 argExpr = 1;
   int32 pattern = 2;
-  optional int32 guardExpr = 3;
+  int32 guardExpr = 3;
   Region patternRegion = 4;
-}
-
-message BranchGuard {
-  oneof value {
-    BoolGuard boolGuard = 1;
-    MatchGuard matchGuard = 2;
-  }
 }
 
 message Branch {
   int32 pattern = 1;
   int32 resultExpr = 2;
-  BranchGuard guard = 3;
+  int32 guardExpr = 3;
   Region patternRegion = 4;
+  MatchGuard matchGuard = 5;
 }
 
 message MatchExpr {

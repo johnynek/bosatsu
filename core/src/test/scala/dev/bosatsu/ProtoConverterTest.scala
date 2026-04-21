@@ -340,6 +340,59 @@ class ProtoConverterTest extends munit.ScalaCheckSuite with ParTest {
     testFn(guardedMatch)
   }
 
+  test("TypedExpr proto encodes BoolGuard on legacy guardExpr field") {
+    val intType = rankn.Type.IntType
+    val boolType = rankn.Type.BoolType
+    val x = Identifier.Name("x")
+    val xExpr = TypedExpr.Local(x, intType, Region(1, 2))
+    val eqInt = TypedExpr.Global(
+      PackageName.PredefName,
+      Identifier.Name("eq_Int"),
+      rankn.Type.Fun(NonEmptyList.of(intType, intType), boolType),
+      Region(2, 3)
+    )
+    val guardExpr = TypedExpr.App(
+      eqInt,
+      NonEmptyList.of(
+        xExpr,
+        TypedExpr.Literal(Lit.fromInt(1), intType, Region(3, 4))
+      ),
+      boolType,
+      Region(4, 5)
+    )
+    val guardedMatch = TypedExpr.Match(
+      xExpr,
+      NonEmptyList.of(
+        TypedExpr.Branch(
+          Pattern.WildCard,
+          Some(guardExpr),
+          TypedExpr.Literal(Lit.fromInt(7), intType, Region(5, 6))
+        )(using Region(6, 7))
+      ),
+      Region(7, 8)
+    )
+
+    val encoded = ProtoConverter.runTab(
+      ProtoConverter.typedExprToProto(guardedMatch)
+    ).map { case (ss, idx) =>
+      ss.expressions.inOrder(idx - 1)
+    }
+
+    encoded match {
+      case Success(rootExprProto) =>
+        rootExprProto.value match {
+          case proto.TypedExpr.Value.MatchExpr(matchProto) =>
+            val branch = matchProto.branches.head
+            assertNotEquals(branch.guardExpr, 0)
+            assertEquals(branch.matchGuard, None)
+          case other =>
+            fail(s"expected encoded match expr, got $other")
+        }
+      case Failure(err) =>
+        fail(s"expected encoding to succeed, got $err")
+    }
+  }
+
   test("we can roundtrip match branch pattern regions through proto") {
     val intType = rankn.Type.IntType
     val x = Identifier.Name("x")
@@ -673,7 +726,7 @@ bar = 1
     testFn(expr)
   }
 
-  test("TypedExpr proto decode rejects present but unset branch guards") {
+  test("TypedExpr proto decode rejects branches with both guard encodings set") {
     val intType = rankn.Type.IntType
     val value = Identifier.Name("value")
     val expr = TypedExpr.Match(
@@ -706,7 +759,10 @@ bar = 1
               matchProto.copy(
                 branches = matchProto.branches.updated(
                   0,
-                  matchProto.branches.head.copy(guard = Some(proto.BranchGuard()))
+                  matchProto.branches.head.copy(
+                    guardExpr = 1,
+                    matchGuard = Some(proto.MatchGuard())
+                  )
                 )
               )
             )
@@ -733,7 +789,7 @@ bar = 1
 
     decoded match {
       case Failure(err) =>
-        assert(err.getMessage.contains("invalid unset branch guard"))
+        assert(err.getMessage.contains("both guardExpr and matchGuard set"))
       case Success(decodedValue) =>
         fail(s"expected invalid guard decode failure, got $decodedValue")
     }
