@@ -577,6 +577,21 @@ class SmtExprNormalizeAndPathImpliesTest extends munit.ScalaCheckSuite {
     }
   }
 
+  test("pathImplies soundness handles the reported scalawasiz3 trap case") {
+    val goal = Lte(IntConst(BigInt(1)), Var[SmtSort.IntSort]("z"))
+    val facts =
+      List(
+        Lt(
+          Var[SmtSort.IntSort]("v"),
+          Add(Vector(Var[SmtSort.IntSort]("z"), Var[SmtSort.IntSort]("v")))
+        )
+      )
+
+    val z3 = z3Implies(goal, facts)
+
+    assert(z3)
+  }
+
   test("pathImplies is monotonic with respect to added facts") {
     forAll(boolExprGen(5), Gen.listOf(boolExprGen(4)), boolExprGen(4)) {
       (goal, facts, extraFact) =>
