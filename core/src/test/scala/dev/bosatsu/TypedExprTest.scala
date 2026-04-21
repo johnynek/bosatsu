@@ -1081,6 +1081,98 @@ foo = _ -> 1
     }
   }
 
+  test("eqTypedExpr distinguishes MatchGuard from equivalent BoolGuard desugaring") {
+    val guardPattern: Pattern[(PackageName, Constructor), Type] =
+      Pattern.Var(Identifier.Name("captured"))
+    val matchGuard =
+      TypedExpr.MatchGuard(
+        int(0),
+        guardPattern,
+        Some(bool(true))
+      )(using Region.empty)
+
+    val withMatchGuard =
+      TypedExpr.Match(
+        int(1),
+        NonEmptyList.one(
+          TypedExpr.Branch.fromGuardNode(
+            Pattern.WildCard,
+            Some(matchGuard),
+            int(2)
+          )(using Region.empty)
+        ),
+        ()
+      )
+
+    val withBoolGuard =
+      TypedExpr.Match(
+        int(1),
+        NonEmptyList.one(
+          TypedExpr.Branch(
+            Pattern.WildCard,
+            Some(TypedExpr.BranchGuard.toExpr(matchGuard)),
+            int(2)
+          )(using Region.empty)
+        ),
+        ()
+      )
+
+    assertEquals(
+      TypedExpr.eqTypedExpr(using Eq[Unit]).eqv(withMatchGuard, withBoolGuard),
+      false
+    )
+  }
+
+  test("usedGlobals includes constructors referenced only in MatchGuard patterns") {
+    val guardPkg = PackageName.parts("Guard", "Only")
+    val guardCtor = Identifier.Constructor("Hit")
+    val guardPattern: Pattern[(PackageName, Constructor), Type] =
+      Pattern.PositionalStruct((guardPkg, guardCtor), Nil)
+
+    val expr =
+      TypedExpr.Match(
+        int(0),
+        NonEmptyList.one(
+          TypedExpr.Branch.fromGuardNode(
+            Pattern.WildCard,
+            Some(TypedExpr.MatchGuard(int(1), guardPattern, None)(using Region.empty)),
+            int(2)
+          )(using Region.empty)
+        ),
+        ()
+      )
+
+    assertEquals(
+      TypedExpr.usedGlobals(expr).runS(Set.empty).value,
+      Set((guardPkg, guardCtor: Identifier))
+    )
+  }
+
+  test("globals includes constructors referenced only in MatchGuard patterns") {
+    val guardPkg = PackageName.parts("Guard", "Globals")
+    val guardCtor = Identifier.Constructor("Hit")
+    val guardPattern: Pattern[(PackageName, Constructor), Type] =
+      Pattern.PositionalStruct((guardPkg, guardCtor), Nil)
+
+    val expr =
+      TypedExpr.Match(
+        int(0),
+        NonEmptyList.one(
+          TypedExpr.Branch.fromGuardNode(
+            Pattern.WildCard,
+            Some(TypedExpr.MatchGuard(int(1), guardPattern, None)(using Region.empty)),
+            int(2)
+          )(using Region.empty)
+        ),
+        ()
+      )
+
+    assertEquals(
+      expr.globals,
+      Set((guardPkg, guardCtor: Identifier))
+    )
+  }
+
   test("normalize keeps MatchGuard outer and inner binders non-free") {
     val (_, normalized) = inferLoweredAndNormalizedExpr(
       """

@@ -491,11 +491,29 @@ object TypedExpr {
           right: NonEmptyList[Branch[A]]
       ): Boolean =
         eqNel(left, right) { case (lb, rb) =>
-          val guardsEq = (lb.guard, rb.guard) match {
-            case (None, None)                      => true
-            case (Some(lg), Some(rg))              => loop(lg, rg)
-            case (None, Some(_)) | (Some(_), None) => false
-          }
+          def eqGuardNode(
+              left: Option[BranchGuard[A]],
+              right: Option[BranchGuard[A]]
+          ): Boolean =
+            (left, right) match {
+              case (None, None) => true
+              case (Some(BoolGuard(lg)), Some(BoolGuard(rg))) =>
+                loop(lg, rg)
+              case (
+                    Some(MatchGuard(larg, lpattern, lguard)),
+                    Some(MatchGuard(rarg, rpattern, rguard))
+                  ) =>
+                loop(larg, rarg) &&
+                eqPattern(lpattern, rpattern) &&
+                ((lguard, rguard) match {
+                  case (Some(lg), Some(rg)) => loop(lg, rg)
+                  case (None, None)         => true
+                  case _                    => false
+                })
+              case _ => false
+            }
+
+          val guardsEq = eqGuardNode(lb.guardNode, rb.guardNode)
           guardsEq && eqPattern(lb.pattern, rb.pattern) && loop(
             lb.expr,
             rb.expr
@@ -2604,12 +2622,7 @@ object TypedExpr {
     /** Here are all the global names inside this expression
       */
     def globals: Set[(PackageName, Identifier)] = {
-      type GlobalsWriter[A] = Writer[Set[(PackageName, Identifier)], A]
-      traverseUp[GlobalsWriter] {
-        case g @ Global(p, i, _, _) =>
-          Writer(Set[(PackageName, Identifier)]((p, i)), g)
-        case notG => Monad[GlobalsWriter].pure(notG)
-      }.written
+      TypedExpr.collectGlobalRefs(self)
     }
   }
 
@@ -4343,31 +4356,44 @@ object TypedExpr {
     }
   }
 
+  private def collectPatternGlobalRefs(
+      pattern: Pattern[(PackageName, Identifier.Constructor), Type]
+  ): Set[(PackageName, Identifier)] = {
+    type GlobalsWriter[X] = Writer[Set[(PackageName, Identifier)], X]
+    pattern
+      .traverseStruct[GlobalsWriter, (PackageName, Identifier.Constructor)] {
+        (name, parts) =>
+          Writer.tell(Set((name._1, name._2: Identifier))) *> parts.map(inner =>
+            Pattern.PositionalStruct(name, inner)
+          )
+      }
+      .written
+  }
+
+  private def collectGlobalRefs[A](
+      te: TypedExpr[A]
+  ): Set[(PackageName, Identifier)] = {
+    type GlobalsWriter[X] = Writer[Set[(PackageName, Identifier)], X]
+    te.traverseUp[GlobalsWriter] {
+      case g @ Global(p, i, _, _) =>
+        Writer.tell(Set[(PackageName, Identifier)]((p, i))).as(g)
+      case m @ Match(_, branches, _) =>
+        Writer
+          .tell(
+            branches.foldMap { branch =>
+              collectPatternGlobalRefs(branch.pattern) |
+                branch.guardPattern.foldMap(collectPatternGlobalRefs)
+            }
+          )
+          .as(m)
+      case notG =>
+        Monad[GlobalsWriter].pure(notG)
+    }.written
+  }
+
   def usedGlobals[A](
       te: TypedExpr[A]
-  ): State[Set[(PackageName, Identifier)], TypedExpr[A]] = {
-    type VSet = Set[(PackageName, Identifier)]
-    type VState[X] = State[VSet, X]
-    te.traverseUp[VState] {
-      case g @ TypedExpr.Global(p, n, _, _) =>
-        State(s => (s + ((p, n)), g))
-      case m @ Match(_, branches, _) =>
-        branches
-          .traverse_ { branch =>
-            branch.pattern
-              .traverseStruct[
-                VState,
-                (PackageName, Identifier.Constructor)
-              ] { (n, parts) =>
-                State.modify[VSet](_ + n) *>
-                  parts.map { inner =>
-                    Pattern.PositionalStruct(n, inner)
-                  }
-              }
-              .void
-          }
-          .as(m)
-      case te => Monad[VState].pure(te)
-    }
-  }
+  ): State[Set[(PackageName, Identifier)], TypedExpr[A]] =
+    State.modify[Set[(PackageName, Identifier)]](_ ++ collectGlobalRefs(te))
+      .as(te)
 }

@@ -278,6 +278,32 @@ main = 2
     invalid(resolveThenInfer(List(p3, p4)))
   }
 
+  test("constructor imports used only in MatchGuard patterns count as used") {
+    val p1 = parse("""
+package Flags
+export Flag()
+
+enum Flag: Hit, Miss
+
+main = Hit
+""")
+
+    val p2 = parse("""
+package UsesGuard
+from Flags import Hit, Miss
+export main
+
+def classify(x):
+  match x:
+    case _ if x matches Hit: 1
+    case _: 0
+
+main = classify(Miss)
+""")
+
+    valid(resolveThenInfer(List(p1, p2)))
+  }
+
   test("type imports used in external declarations are counted as used") {
     val p1 = parse("""
 package BytesPkg

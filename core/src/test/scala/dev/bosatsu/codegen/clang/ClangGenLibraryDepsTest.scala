@@ -10,6 +10,7 @@ import dev.bosatsu.library.{
   Name,
   Version
 }
+import dev.bosatsu.codegen.CompilationSource
 import dev.bosatsu.{
   CompileOptions,
   Identifier,
@@ -473,6 +474,88 @@ class ClangGenLibraryDepsTest extends munit.FunSuite {
         case Left(err) =>
           fail(err.display.render(80))
       }
+    }
+  }
+
+  test(
+    "library tree shake keeps dependency scopes used only by MatchGuard constructors"
+  ) {
+    val predefIface = Package.interfaceOf(PackageMap.predefCompiled)
+    val depPackName = PackageName.parts("Dep", "Flag")
+    val rootPackName = PackageName.parts("Root", "Main")
+    val classifyName = Identifier.Name("classify")
+
+    val depSrc =
+      """package Dep/Flag
+        |
+        |export Flag()
+        |
+        |enum Flag: Hit, Miss
+        |""".stripMargin
+
+    val depPm = typeCheck(depSrc, predefIface :: Nil)
+    val depPack = depPm.toMap(depPackName)
+    val depIface = Package.interfaceOf(depPack)
+
+    val rootSrc =
+      """package Root/Main
+        |
+        |from Dep/Flag import Hit
+        |export classify
+        |exposes Dep/Flag
+        |
+        |def classify(x):
+        |  match x:
+        |    case _ if x matches Hit: 1
+        |    case _: 0
+        |""".stripMargin
+
+    val rootPm = typeCheck(rootSrc, predefIface :: depIface :: Nil)
+
+    val depVersion = Version(1, 0, 0)
+    val rootVersion = Version(1, 0, 0)
+
+    val depLib = DecodedLibrary[Algo.Blake3](
+      name = Name("dep"),
+      version = depVersion,
+      hashValue = HashValue[Algo.Blake3]("00"),
+      protoLib = proto.Library(
+        name = "dep",
+        descriptor =
+          Some(proto.LibDescriptor(version = Some(depVersion.toProto)))
+      ),
+      interfaces = depIface :: Nil,
+      implementations = depPm
+    )
+
+    val rootLib = DecodedLibrary[Algo.Blake3](
+      name = Name("root"),
+      version = rootVersion,
+      hashValue = HashValue[Algo.Blake3]("00"),
+      protoLib = proto.Library(
+        name = "root",
+        descriptor =
+          Some(proto.LibDescriptor(version = Some(rootVersion.toProto)))
+      ),
+      interfaces = Nil,
+      implementations = rootPm
+    )
+
+    val depDl = DecodedLibraryWithDeps(depLib, SortedMap.empty)
+    val rootDl =
+      DecodedLibraryWithDeps(
+        rootLib,
+        SortedMap(depDl.nameVersion -> depDl)
+      )
+
+    Par.withEC {
+      val namespace = CompilationSource.namespace(rootDl)
+      assertEquals(namespace.compiled.keySet.size, 2)
+
+      val shaken =
+        namespace.treeShake(Set((rootPackName, classifyName)))
+
+      assertEquals(shaken.compiled.keySet.size, 2)
     }
   }
 }

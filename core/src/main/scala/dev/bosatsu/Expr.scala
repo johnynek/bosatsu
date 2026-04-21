@@ -910,6 +910,91 @@ object Expr {
   private[bosatsu] def nameIterator(): Iterator[Bindable] =
     Identifier.Bindable.syntheticIterator
 
+  private[bosatsu] def globalRefs[A](
+      expr: Expr[A]
+  ): Set[(PackageName, Identifier)] = {
+    val out = Set.newBuilder[(PackageName, Identifier)]
+    var exprStack: List[Expr[A]] = expr :: Nil
+    var patternStack: List[Pattern[(PackageName, Constructor), Type]] = Nil
+
+    while (exprStack.nonEmpty || patternStack.nonEmpty) {
+      patternStack match {
+        case pattern :: rest =>
+          patternStack = rest
+          pattern match {
+            case Pattern.WildCard | Pattern.Literal(_) | Pattern.Var(_) |
+                Pattern.StrPat(_) =>
+              ()
+            case Pattern.Named(_, pat) =>
+              patternStack = pat :: patternStack
+            case Pattern.ListPat(items) =>
+              items.reverseIterator.foreach {
+                case Pattern.ListPart.Item(pat) =>
+                  patternStack = pat :: patternStack
+                case Pattern.ListPart.WildList | Pattern.ListPart.NamedList(_) =>
+                  ()
+              }
+            case Pattern.Annotation(pat, _) =>
+              patternStack = pat :: patternStack
+            case Pattern.PositionalStruct((pack, name), params) =>
+              out += ((pack, name: Identifier))
+              params.reverseIterator.foreach { pat =>
+                patternStack = pat :: patternStack
+              }
+            case Pattern.Union(head, tail) =>
+              tail.toList.reverseIterator.foreach { pat =>
+                patternStack = pat :: patternStack
+              }
+              patternStack = head :: patternStack
+          }
+
+        case Nil =>
+          exprStack match {
+            case next :: rest =>
+              exprStack = rest
+              next match {
+                case Annotation(inner, _, _) =>
+                  exprStack = inner :: exprStack
+                case Local(_, _)             =>
+                  ()
+                case Generic(_, inner)       =>
+                  exprStack = inner :: exprStack
+                case Global(pack, name, _)   =>
+                  out += ((pack, name))
+                case App(fn, args, _)        =>
+                  args.toList.reverseIterator.foreach { arg =>
+                    exprStack = arg :: exprStack
+                  }
+                  exprStack = fn :: exprStack
+                case Lambda(_, inner, _)     =>
+                  exprStack = inner :: exprStack
+                case Let(_, bound, in, _, _) =>
+                  exprStack = bound :: in :: exprStack
+                case Literal(_, _)           =>
+                  ()
+                case Match(arg, branches, _) =>
+                  branches.toList.reverseIterator.foreach { branch =>
+                    exprStack = branch.expr :: exprStack
+                    branch.guardExprIterator.foreach { guardExpr =>
+                      exprStack = guardExpr :: exprStack
+                    }
+                    branch.guardPattern.foreach { guardPattern =>
+                      patternStack = guardPattern :: patternStack
+                    }
+                    patternStack = branch.pattern :: patternStack
+                  }
+                  exprStack = arg :: exprStack
+              }
+
+            case Nil =>
+              ()
+          }
+      }
+    }
+
+    out.result()
+  }
+
   def buildPatternLambda[A](
       args: NonEmptyList[Pattern[(PackageName, Constructor), Type]],
       body: Expr[A],

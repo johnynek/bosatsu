@@ -209,6 +209,36 @@ class ExprTest extends munit.ScalaCheckSuite {
     assertEquals(Expr.freeBoundTyVars(expr), List(a))
   }
 
+  test("globalRefs includes constructors referenced only in MatchGuard patterns") {
+    val guardPkg = PackageName.parts("Guard", "Expr")
+    val guardCtor = Identifier.Constructor("Hit")
+    val guardPattern: Pattern[(PackageName, Identifier.Constructor), Type] =
+      Pattern.PositionalStruct((guardPkg, guardCtor), Nil)
+    val expr = Expr.Match(
+      Expr.Literal(Lit.fromInt(0), 0),
+      NonEmptyList.one(
+        Expr.Branch.fromGuardNode(
+          Pattern.WildCard,
+          Some(
+            Expr.MatchGuard(
+              Expr.Literal(Lit.fromInt(1), 1),
+              guardPattern,
+              None,
+              None
+            )(using Region.empty)
+          ),
+          Expr.Literal(Lit.fromInt(2), 2)
+        )(using Region.empty)
+      ),
+      3
+    )
+
+    assertEquals(
+      Expr.globalRefs(expr),
+      Set((guardPkg, guardCtor: Identifier))
+    )
+  }
+
   test("Expr flattenApp2/rebuildApp2 round trips right-deep binary app chains") {
     val app = deepRightApp2Chain(64) match {
       case app: Expr.App[Int] => app
