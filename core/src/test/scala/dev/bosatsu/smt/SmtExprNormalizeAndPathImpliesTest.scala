@@ -311,15 +311,15 @@ class SmtExprNormalizeAndPathImpliesTest extends munit.ScalaCheckSuite {
 
   private def z3Implies(goal: BoolExpr, facts: List[BoolExpr]): Boolean = {
     val pathCond = normalizeBoolForSolver(And(facts.toVector))
-    val goal1 = normalizeBoolForSolver(goal)
-    val vars = (varsInBool(goal1) ++ varsInBool(pathCond)).toList.sorted
+    val negatedGoal = normalizeBoolForSolver(Not(goal))
+    val vars = (varsInBool(negatedGoal) ++ varsInBool(pathCond)).toList.sorted
     val declarations = vars.map(name => DeclareConst(name, SmtSort.IntS))
     val script = SmtScript(
       Vector(SetLogic.QF_LIA) ++
         declarations ++
         Vector(
           Assert(pathCond),
-          Assert(Not(goal1)),
+          Assert(negatedGoal),
           CheckSat
         )
     )
@@ -577,6 +577,21 @@ class SmtExprNormalizeAndPathImpliesTest extends munit.ScalaCheckSuite {
     }
   }
 
+  test("pathImplies soundness handles the reported scalawasiz3 trap case") {
+    val goal = Lte(IntConst(BigInt(1)), Var[SmtSort.IntSort]("z"))
+    val facts =
+      List(
+        Lt(
+          Var[SmtSort.IntSort]("v"),
+          Add(Vector(Var[SmtSort.IntSort]("z"), Var[SmtSort.IntSort]("v")))
+        )
+      )
+
+    val z3 = z3Implies(goal, facts)
+
+    assert(z3)
+  }
+
   test("pathImplies is monotonic with respect to added facts") {
     forAll(boolExprGen(5), Gen.listOf(boolExprGen(4)), boolExprGen(4)) {
       (goal, facts, extraFact) =>
@@ -587,10 +602,13 @@ class SmtExprNormalizeAndPathImpliesTest extends munit.ScalaCheckSuite {
   }
 
   test("pathImplies either declines to judge or agrees with z3") {
-    forAll(z3SoundnessCaseGen) { case (goal, facts) =>
-      val fast = pathImplies(goal, facts)
-      val z3 = z3Implies(goal, facts)
-      assert(!fast || z3)
+    if (dev.bosatsu.Platform.isScalaJvm) {
+      val _ = forAll(z3SoundnessCaseGen) { case (goal, facts) =>
+        val fast = pathImplies(goal, facts)
+        val z3 = z3Implies(goal, facts)
+        assert(!fast || z3)
+      }
+      ()
     }
   }
 }
