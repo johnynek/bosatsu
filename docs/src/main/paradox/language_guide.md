@@ -528,6 +528,30 @@ For totality checking, only unguarded branches count as covering cases, so
 guarded branches still need an unguarded fallback.
 Syntax note: write at least one space between the pattern and `if`.
 
+If the whole branch guard is a `matches` condition, it behaves like a
+branch-local conditional match:
+```
+match foo:
+  case (x, y) if as_even(x) matches Some(even_x):
+    use(y, even_x)
+  case _:
+    fallback
+```
+The outer pattern runs first, then the `matches` scrutinee runs once for that
+branch attempt. Any names bound by the inner `matches` pattern are available in
+that `matches` guard, if it has one, and in the same branch body only. They are
+not available in later branches or after the whole `match`.
+
+This extra scope opens only when the entire branch guard is that `matches`
+form. If a `matches` appears inside a larger boolean expression, it behaves like
+an ordinary boolean subexpression and its pattern bindings stay local to that
+subexpression.
+
+For totality checking, these branch-guard `matches` forms are still treated as
+guarded unless the inner `matches` is trivially guaranteed to succeed, such as
+`value matches name` with no inner guard. In all other cases, keep an unguarded
+fallback branch.
+
 A common shorthand for checking if something matches is:
 ```
 long = match ["foo", "bar"]:

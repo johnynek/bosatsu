@@ -326,7 +326,10 @@ sealed abstract class Declaration derives CanEqual {
           args.get.foldLeft(acc1) { case (acc0, MatchBranch(pat, guard, res)) =>
             val bound1 = bound ++ pat.names
             val acc1 = guard.fold(acc0)(loop(_, bound1, acc0))
-            loop(res.get, bound1, acc1)
+            val bound2 = guard
+              .flatMap(ConditionalMatch.unapply(_))
+              .fold(bound1) { case (m, _) => bound1 ++ m.pattern.names }
+            loop(res.get, bound2, acc1)
           }
         case Matches(a, p, guard) =>
           val acc1 = loop(a, bound, acc)
@@ -448,7 +451,10 @@ sealed abstract class Declaration derives CanEqual {
           args.get.foldLeft(acc1) { case (acc0, MatchBranch(pat, guard, res)) =>
             val acc1 = acc0 ++ pat.names
             val acc2 = guard.fold(acc1)(loop(_, acc1))
-            loop(res.get, acc2)
+            val acc3 = guard
+              .flatMap(ConditionalMatch.unapply(_))
+              .fold(acc2) { case (m, _) => acc2 ++ m.pattern.names }
+            loop(res.get, acc3)
           }
         case Matches(a, p, guard) =>
           val acc1 = loop(a, acc ++ p.names)
@@ -689,7 +695,12 @@ object Declaration {
                   if (pnames.exists(masks)) None
                   else if (pnames.exists(shadows)) Some(branch)
                   else {
-                    (branch.guard.traverse(loop), branch.body.traverse(loopDec))
+                    val body1 = branch.guard
+                      .flatMap(ConditionalMatch.unapply(_))
+                      .fold(branch.body.traverse(loopDec)) { case (m, _) =>
+                        branch.body.traverse(loopScopedDecl(_, m.pattern.names))
+                      }
+                    (branch.guard.traverse(loop), body1)
                       .mapN { (guard, body) =>
                         MatchBranch(branch.pattern, guard, body)(using
                           branch.patternRegion

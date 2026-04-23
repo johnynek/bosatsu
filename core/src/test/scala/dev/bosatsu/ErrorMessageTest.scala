@@ -305,6 +305,74 @@ main = int_to_String(42) matches str
     assert(rendered.contains("Unknown name `x`."), rendered)
   }
 
+  test("match branch guard bindings are in scope for the inner guard and same branch body") {
+    Par.withEC {
+      testInferred(
+        List(
+          """package MatchBranchGuardScope
+            |
+            |def keep_even(i: Int) -> Option[Int]:
+            |  if i.mod_Int(2) matches 0:
+            |    Some(i)
+            |  else:
+            |    None
+            |
+            |main = match (2, 2):
+            |  case (x, y) if keep_even(x) matches Some(even_x) if even_x.eq_Int(y):
+            |    even_x
+            |  case _:
+            |    0
+            |""".stripMargin
+        ),
+        "MatchBranchGuardScope",
+        { (_, _) => () }
+      )
+    }
+  }
+
+  test("match branch guard bindings do not leak to later guards branches or after the match") {
+    val source =
+      """package MatchBranchGuardLeak
+        |
+        |def keep_even(i: Int) -> Option[Int]:
+        |  if i.mod_Int(2) matches 0:
+        |    Some(i)
+        |  else:
+        |    None
+        |
+        |tmp = match (2, 2):
+        |  case (x, y) if keep_even(x) matches Some(even_x) if even_x.eq_Int(y):
+        |    even_x
+        |  case _ if even_x.eq_Int(0):
+        |    even_x
+        |  case _:
+        |    even_x
+        |
+        |main = even_x
+        |""".stripMargin
+
+    val (errs, sourceMap) = compileErrors(source :: Nil)
+    val rendered = errs.toList.map(_.message(sourceMap, Colorize.None)).mkString("\n")
+
+    assert(rendered.contains("Unknown name `even_x`."), rendered)
+    assert(rendered.contains("This unknown name appears 4 times."), rendered)
+  }
+
+  test("fully shadowed outer branch binders still use the existing unused-binding diagnostic path") {
+    val source =
+      """package MatchBranchGuardUnused
+        |
+        |main = match (1, Some(2)):
+        |  case (x, opt) if opt matches Some(x):
+        |    x
+        |  case _:
+        |    0
+        |""".stripMargin
+
+    val message = unusedLetMessage(source)
+    assert(message.contains("unused value 'x'"), message)
+  }
+
   test("conditional matches preserve bad outer type annotations") {
     val source =
       """package ConditionalMatchAnnotation
@@ -3395,7 +3463,7 @@ x = 1.0 + 2.0
       TypedExpr.Literal[Declaration](Lit.Integer(0L), rankn.Type.IntType, tag)
     val matchExpr = TypedExpr.Match(
       lit,
-      cats.data.NonEmptyList.one(TypedExpr.Branch(pat, None, lit)),
+      cats.data.NonEmptyList.one(TypedExpr.Branch(pat, None, lit)(using Region(0, 1))),
       tag
     )
     val totalityErr = PackageError.TotalityCheckError(

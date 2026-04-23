@@ -243,50 +243,8 @@ object PackageCustoms {
 
   private def usedGlobalsExpr[A](
       expr: Expr[A]
-  ): Set[(PackageName, Identifier)] = {
-    val bldr = Set.newBuilder[(PackageName, Identifier)]
-
-    def addPatternConstructors(
-        pat: Pattern[(PackageName, Identifier.Constructor), Type]
-    ): Unit =
-      pat.traverseStruct[cats.Id, (PackageName, Identifier.Constructor)] {
-        (name, parts) =>
-          bldr += ((name._1, name._2))
-          Pattern.PositionalStruct(name, parts)
-      }: Unit
-
-    def loop(e: Expr[A]): Unit =
-      e match {
-        case Expr.Annotation(inner, _, _) =>
-          loop(inner)
-        case Expr.Local(_, _)             =>
-          ()
-        case Expr.Generic(_, inner)       =>
-          loop(inner)
-        case Expr.Global(pack, name, _)   =>
-          bldr += ((pack, name))
-        case Expr.App(fn, args, _)        =>
-          loop(fn)
-          args.toList.foreach(loop)
-        case Expr.Lambda(_, inner, _)     =>
-          loop(inner)
-        case Expr.Let(_, bound, in, _, _) =>
-          loop(bound)
-          loop(in)
-        case Expr.Literal(_, _)           =>
-          ()
-        case Expr.Match(arg, branches, _) =>
-          loop(arg)
-          branches.toList.foreach { branch =>
-            addPatternConstructors(branch.pattern)
-            branch.guard.foreach(loop)
-            loop(branch.expr)
-          }
-      }
-
-    loop(expr)
-    bldr.result()
-  }
+  ): Set[(PackageName, Identifier)] =
+    Expr.globalRefs(expr)
 
   def checkExprDagBindables[A: HasRegion](
       nm: PackageName,
