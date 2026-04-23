@@ -24,6 +24,23 @@ class DeclarationTest extends munit.ScalaCheckSuite {
 
   val genDecl = Generators.genDeclaration(depth = 4)
 
+  private val reservedNames =
+    Set(
+      "scrutinee",
+      "guard_input",
+      "guard_pred",
+      "branch_body",
+      "fallback",
+      "target",
+      "replacement"
+    )
+
+  private lazy val simpleNameGen: Gen[String] =
+    Gen
+      .nonEmptyListOf(Gen.alphaLowerChar)
+      .map(_.mkString)
+      .suchThat(n => !Declaration.keywords(n) && !reservedNames(n))
+
   lazy val genNonFree: Gen[Declaration.NonBinding] =
     genDecl.flatMap {
       case decl: Declaration.NonBinding if decl.freeVars.isEmpty =>
@@ -322,6 +339,71 @@ x""")
       )
 
     assertEquals(Declaration.substitute(y, zExpr, original), Some(expected))
+  }
+
+  test("conditional match branch guards expose inner bindings only in that branch body") {
+    val scrutinee = unsafeParse(Identifier.bindableParser, "scrutinee")
+    val guardInput = unsafeParse(Identifier.bindableParser, "guard_input")
+    val guardPred = unsafeParse(Identifier.bindableParser, "guard_pred")
+    val branchBody = unsafeParse(Identifier.bindableParser, "branch_body")
+    val fallback = unsafeParse(Identifier.bindableParser, "fallback")
+
+    forAll(simpleNameGen, simpleNameGen) { (outer, inner) =>
+      Prop.classify(outer == inner, "duplicate names skipped") {
+        if (outer == inner) Prop.passed
+        else {
+          val decl = unsafeParse(
+            Declaration.parser(""),
+            s"""match scrutinee:
+               |  case Some($outer) if guard_input matches Some($inner) if guard_pred($outer, $inner):
+               |    branch_body($outer, $inner)
+               |  case _:
+               |    fallback""".stripMargin
+          )
+
+          assertEquals(
+            decl.freeVars.toSet,
+            Set(scrutinee, guardInput, guardPred, branchBody, fallback)
+          )
+          assert(
+            decl.allNames(unsafeParse(Identifier.bindableParser, outer)),
+            s"expected $outer in allNames"
+          )
+          assert(
+            decl.allNames(unsafeParse(Identifier.bindableParser, inner)),
+            s"expected $inner in allNames"
+          )
+          Prop.passed
+        }
+      }
+    }
+  }
+
+  test("substitute treats outer and inner match-guard binders as masking the guarded branch") {
+    val target = unsafeParse(Identifier.bindableParser, "target")
+
+    forAll(simpleNameGen, simpleNameGen) { (outer, inner) =>
+      Prop.classify(outer == inner, "duplicate names skipped") {
+        if (outer == inner) Prop.passed
+        else {
+          val decl = unsafeParse(
+            Declaration.parser(""),
+            s"""match scrutinee:
+               |  case Some($outer) if guard_input matches Some($inner) if guard_pred(target, $outer, $inner):
+               |    target
+               |  case _:
+               |    fallback""".stripMargin
+          )
+
+          val outerExpr = unsafeParse(Declaration.parser(""), outer).toNonBinding
+          val innerExpr = unsafeParse(Declaration.parser(""), inner).toNonBinding
+
+          assertEquals(Declaration.substitute(target, outerExpr, decl), None)
+          assertEquals(Declaration.substitute(target, innerExpr, decl), None)
+          Prop.passed
+        }
+      }
+    }
   }
 
   test("test freeVars with explicit examples") {

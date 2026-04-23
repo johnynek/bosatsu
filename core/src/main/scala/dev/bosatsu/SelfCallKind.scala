@@ -137,18 +137,39 @@ object SelfCallKind {
                 val branchCalls =
                   if (branch.pattern.names.contains(n)) SelfCallKind.NoCall
                   else {
-                    val guardCalls = branch.guard
-                      .fold(SelfCallKind.NoCall: SelfCallKind)(
-                        applyWithMode(n, _, loweredLoopRecur, loopDepth).callNotTail
-                      )
-                    guardCalls.merge(
-                      applyWithMode(
-                        n,
-                        branch.expr,
-                        loweredLoopRecur,
-                        loopDepth
-                      )
-                    )
+                    val guardShadowed = branch.guardBindings.contains(n)
+                    val guardCalls =
+                      branch.guardNode match {
+                        case Some(TypedExpr.BoolGuard(guardExpr)) =>
+                          applyWithMode(n, guardExpr, loweredLoopRecur, loopDepth).callNotTail
+                        case Some(TypedExpr.MatchGuard(argExpr, _, guardOpt)) =>
+                          val argCalls =
+                            applyWithMode(n, argExpr, loweredLoopRecur, loopDepth).callNotTail
+                          val innerGuardCalls =
+                            if (guardShadowed) SelfCallKind.NoCall
+                            else
+                              guardOpt.fold(SelfCallKind.NoCall: SelfCallKind) {
+                                applyWithMode(
+                                  n,
+                                  _,
+                                  loweredLoopRecur,
+                                  loopDepth
+                                ).callNotTail
+                              }
+                          argCalls.merge(innerGuardCalls)
+                        case None                                   =>
+                          SelfCallKind.NoCall
+                      }
+                    val bodyCalls =
+                      if (guardShadowed) SelfCallKind.NoCall
+                      else
+                        applyWithMode(
+                          n,
+                          branch.expr,
+                          loweredLoopRecur,
+                          loopDepth
+                        )
+                    guardCalls.merge(bodyCalls)
                   }
                 acc.merge(branchCalls)
             }

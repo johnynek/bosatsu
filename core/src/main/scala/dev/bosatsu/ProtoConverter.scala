@@ -813,17 +813,51 @@ object ProtoConverter {
                   .mapN(TypedExpr.Literal(_, _, _))
             }
           case Value.MatchExpr(proto.MatchExpr(argId, branches, matchKind0, _)) =>
+            def decodeGuard(b: proto.Branch): Try[Option[TypedExpr.BranchGuard[Region]]] = {
+              val boolGuard = Option.when(b.guardExpr != 0)(b.guardExpr)
+              (boolGuard, b.matchGuard) match {
+                case (None, None) => Success(None)
+                case (Some(exprId), None) =>
+                  exprOf(exprId).map(expr => Some(TypedExpr.BoolGuard(expr)))
+                case (None, Some(protoMatchGuard)) =>
+                  val innerGuard =
+                    Option.when(protoMatchGuard.guardExpr != 0)(
+                      protoMatchGuard.guardExpr
+                    )
+                  (
+                    exprOf(protoMatchGuard.argExpr),
+                    ds.tryPattern(
+                      protoMatchGuard.pattern - 1,
+                      s"invalid guard pattern in $ex"
+                    ),
+                    innerGuard.traverse(exprOf),
+                    regionFromProto(protoMatchGuard.patternRegion)
+                  ).mapN { (argExpr, pattern, guardExpr, patternRegion) =>
+                    Some(
+                      TypedExpr.MatchGuard(argExpr, pattern, guardExpr)(using
+                        patternRegion
+                      )
+                    )
+                  }
+                case (Some(_), Some(_)) =>
+                  Failure(
+                    new Exception(
+                      s"invalid branch with both guardExpr and matchGuard set in $ex"
+                    )
+                  )
+              }
+            }
+
             def buildBranch(b: proto.Branch): Try[
               TypedExpr.Branch[Region]
             ] =
               (
                 ds.tryPattern(b.pattern - 1, s"invalid pattern in $ex"),
-                if (b.guardExpr > 0) exprOf(b.guardExpr).map(Some(_))
-                else Success(None),
+                decodeGuard(b),
                 exprOf(b.resultExpr),
                 regionFromProto(b.patternRegion)
-              ).mapN((pattern, guard, expr, patternRegion) =>
-                TypedExpr.Branch(pattern, guard, expr)(using patternRegion)
+              ).mapN((pattern, guardNode, expr, patternRegion) =>
+                TypedExpr.Branch.fromGuardNode(pattern, guardNode, expr)(using patternRegion)
               )
 
             NonEmptyList.fromList(branches.toList) match {
@@ -1309,20 +1343,48 @@ object ProtoConverter {
                   writeTypedExpr(lit, proto.TypedExpr.Value.LiteralExpr(ex))
                 }
             case m @ Match(argE, branches, _) =>
+              def encodeGuard(
+                  guard: TypedExpr.BranchGuard[A]
+              ): Tab[(Int, Option[proto.MatchGuard])] =
+                guard match {
+                  case TypedExpr.BoolGuard(guardExpr) =>
+                    recurse(guardExpr).map(exprId => (exprId, None))
+                  case guard @ TypedExpr.MatchGuard(argExpr, pattern, guardExpr) =>
+                    (
+                      recurse(argExpr),
+                      patternToProto(pattern),
+                      guardExpr.traverse(recurse)
+                    ).mapN { (argExprId, patternId, guardExprId) =>
+                      (
+                        0,
+                        Some(
+                          proto.MatchGuard(
+                            argExpr = argExprId,
+                            pattern = patternId,
+                            guardExpr = guardExprId.getOrElse(0),
+                            patternRegion = Some(regionToProto(guard.patternRegion))
+                          )
+                        )
+                      )
+                    }
+                }
+
               def encodeBranch(
                   p: TypedExpr.Branch[A]
               ): Tab[proto.Branch] =
                 (
                   patternToProto(p.pattern),
-                  p.guard.traverse(recurse),
+                  p.guardNode.traverse(encodeGuard),
                   recurse(p.expr)
                 )
-                  .mapN { (pat, guardExpr, expr) =>
+                  .mapN { (pat, guard, expr) =>
+                    val (guardExpr, matchGuard) = guard.getOrElse((0, None))
                     proto.Branch(
                       pattern = pat,
                       resultExpr = expr,
-                      guardExpr = guardExpr.getOrElse(0),
-                      patternRegion = Some(regionToProto(p.patternRegion))
+                      guardExpr = guardExpr,
+                      patternRegion = Some(regionToProto(p.patternRegion)),
+                      matchGuard = matchGuard
                     )
                   }
 

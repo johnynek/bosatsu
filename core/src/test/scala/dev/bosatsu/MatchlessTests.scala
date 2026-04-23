@@ -14,6 +14,8 @@ import scala.collection.immutable.SortedMap
 import scala.util.Try
 
 class MatchlessTest extends munit.ScalaCheckSuite {
+  given Region = Region.empty
+
   given Order[Unit] = Order.fromOrdering
 
   // Large ScalaCheck sizes can build very deep typed packages here, which
@@ -347,6 +349,82 @@ class MatchlessTest extends munit.ScalaCheckSuite {
 
   private def matchlessListOfInts(items: List[Int]): Matchless.Expr[Unit] =
     Matchless.ListExpr.listOf(items.map(i => Matchless.Literal(Lit.fromInt(i))))
+
+  private def matchlessNatOf(value: Int): Matchless.Expr[Unit] =
+    if (value <= 0) Matchless.ZeroNat
+    else Matchless.applyArgs(Matchless.SuccNat, NonEmptyList.one(matchlessNatOf(value - 1)))
+
+  private def hasLetBool(expr: Matchless.Expr[Unit]): Boolean =
+    exprBoolSubexpressions(expr).exists {
+      case Matchless.LetBool(_, _, _) => true
+      case _                          => false
+    }
+
+  private def hasMutableMatchState(expr: Matchless.Expr[Unit]): Boolean = {
+    def loopExpr(ex: Matchless.Expr[Unit]): Boolean =
+      ex match {
+        case Matchless.Lambda(captures, _, _, body) =>
+          captures.exists(loopExpr) || loopExpr(body)
+        case Matchless.WhileExpr(_, _, _) =>
+          true
+        case Matchless.App(fn, args) =>
+          loopExpr(fn) || args.toList.exists(loopExpr)
+        case Matchless.Let(_, value, in) =>
+          loopExpr(value) || loopExpr(in)
+        case Matchless.LetMut(_, _) =>
+          true
+        case Matchless.If(cond, thenExpr, elseExpr) =>
+          loopBool(cond) || loopExpr(thenExpr) || loopExpr(elseExpr)
+        case Matchless.SwitchVariant(on, _, cases, default) =>
+          loopExpr(on) ||
+            cases.toList.exists { case (_, branch) => loopExpr(branch) } ||
+            default.exists(loopExpr)
+        case Matchless.Always(cond, thenExpr) =>
+          loopBool(cond) || loopExpr(thenExpr)
+        case Matchless.GetEnumElement(of, _, _, _) =>
+          loopExpr(of)
+        case Matchless.GetStructElement(of, _, _) =>
+          loopExpr(of)
+        case Matchless.Local(_) | Matchless.Global(_, _, _) |
+            Matchless.ClosureSlot(_) | Matchless.LocalAnon(_) |
+            Matchless.LocalAnonMut(_) | Matchless.Literal(_) |
+            Matchless.LitInt64(_) | Matchless.MakeEnum(_, _, _) |
+            Matchless.MakeStruct(_) | Matchless.ZeroNat | Matchless.SuccNat =>
+          false
+        case Matchless.PrevNat(of) =>
+          loopExpr(of)
+      }
+
+    def loopBool(boolExpr: Matchless.BoolExpr[Unit]): Boolean =
+      boolExpr match {
+        case Matchless.CompareLit(expr, _, _) =>
+          loopExpr(expr)
+        case Matchless.CompareInt(left, _, right) =>
+          loopExpr(left) || loopExpr(right)
+        case Matchless.CompareInt64(left, _, right) =>
+          loopExpr(left) || loopExpr(right)
+        case Matchless.CompareFloat64(left, _, right) =>
+          loopExpr(left) || loopExpr(right)
+        case Matchless.EqualsNat(expr, _) =>
+          loopExpr(expr)
+        case Matchless.And(left, right) =>
+          loopBool(left) || loopBool(right)
+        case Matchless.CheckVariant(expr, _, _, _) =>
+          loopExpr(expr)
+        case Matchless.CheckVariantSet(expr, _, _, _) =>
+          loopExpr(expr)
+        case Matchless.SetMut(_, _) =>
+          true
+        case Matchless.TrueConst =>
+          false
+        case Matchless.LetBool(_, value, in) =>
+          loopExpr(value) || loopBool(in)
+        case Matchless.LetMutBool(_, _) =>
+          true
+      }
+
+    loopExpr(expr)
+  }
 
   private def checkMatchlessPackage[A](
       source: String
@@ -5106,6 +5184,249 @@ def seg_final_literal_char(s):
     )
   }
 
+  test("MatchGuard lowering evaluates the guard scrutinee once") {
+    val x = Identifier.Name("x")
+    val y = Identifier.Name("y")
+    val evenX = Identifier.Name("even_x")
+    val probeName = Identifier.Name("probe")
+    val out = Identifier.Name("match_guard_single_eval")
+    val intType = rankn.Type.IntType
+    val probeType = rankn.Type.Fun(NonEmptyList.one(intType), issue1732PairType)
+    val outerPattern =
+      Pattern.PositionalStruct(
+        (issue1732Package, issue1732Pair),
+        Pattern.Var(x) :: Pattern.Var(y) :: Nil
+      )
+    val guardPattern =
+      Pattern.PositionalStruct(
+        (issue1732Package, issue1732Pair),
+        Pattern.Var(evenX) :: Pattern.Literal(Lit.fromInt(0)) :: Nil
+      )
+    val probeCall = TypedExpr.App(
+      TypedExpr.Global(TestUtils.testPackage, probeName, probeType, ()),
+      NonEmptyList.one(TypedExpr.Local(x, intType, ())),
+      issue1732PairType,
+      ()
+    )
+    val expr = TypedExpr.Match(
+      pairCall(intLit(1), intType, intLit(2), intType),
+      NonEmptyList.of(
+        TypedExpr.Branch.fromGuardNode(
+          outerPattern,
+          Some(
+            TypedExpr.MatchGuard(probeCall, guardPattern, None)(using Region.empty)
+          ),
+          TypedExpr.Local(evenX, intType, ())
+        ),
+        TypedExpr.Branch(Pattern.WildCard, None, intLit(0))
+      ),
+      ()
+    )
+
+    val lowered =
+      Matchless.fromLet((), out, RecursionKind.NonRecursive, expr)(issue1732Fn)
+
+    assertEquals(countGlobalCalls(lowered, TestUtils.testPackage, probeName), 1)
+  }
+
+  test("MatchGuard without new bindings lowers directly and preserves semantics") {
+    val src = """
+package Bosatsu/Num/Nat
+
+enum Nat: Zero, Succ(prev: Nat)
+
+def guarded_zero(base: Nat, power: Nat) -> Int:
+  match base:
+    case Zero if power matches Zero: 1
+    case _: 0
+"""
+
+    checkMatchlessPackage(src) { binds =>
+      val natPack = PackageName.parts("Bosatsu", "Num", "Nat")
+      val byName = binds(natPack).toMap
+      val guardedZero = byName(Identifier.Name("guarded_zero"))
+      val guardBools = exprBoolSubexpressions(guardedZero)
+
+      assertEquals(
+        hasLetBool(guardedZero),
+        false,
+        s"expected direct MatchGuard lowering without LetBool, got: $guardedZero"
+      )
+      assert(
+        guardBools.exists {
+          case Matchless.EqualsNat(_, DataRepr.ZeroNat) => true
+          case _                                        => false
+        },
+        s"expected equals-nat check in lowered guard, got: $guardBools"
+      )
+
+      val evaluated =
+        MatchlessToValue
+          .traverse(
+            Vector(
+              Matchless.applyArgs(
+                guardedZero,
+                NonEmptyList.of(matchlessNatOf(0), matchlessNatOf(0))
+              ),
+              Matchless.applyArgs(
+                guardedZero,
+                NonEmptyList.of(matchlessNatOf(0), matchlessNatOf(1))
+              ),
+              Matchless.applyArgs(
+                guardedZero,
+                NonEmptyList.of(matchlessNatOf(1), matchlessNatOf(0))
+              )
+            )
+          )((_, _, _) => Eval.now(Value.UnitValue))
+          .map(_.value)
+
+      assertEquals(
+        evaluated,
+        Vector(Value.VInt(1), Value.VInt(0), Value.VInt(0))
+      )
+    }
+  }
+
+  test(
+    "MatchGuard without new bindings on projected fields avoids mutable scoped lowering"
+  ) {
+    val src = """
+package Matchless/MatchGuardScope
+
+struct Pair(value, keep)
+
+def direct(v):
+  match v:
+    case _ if v matches Pair(_, True): 1
+    case _: 0
+"""
+
+    checkMatchlessPackage(src) { binds =>
+      val pack = PackageName.parts("Matchless", "MatchGuardScope")
+      val byName = binds(pack).toMap
+      val direct = byName(Identifier.Name("direct"))
+      val guardBools = exprBoolSubexpressions(direct)
+
+      assertEquals(
+        hasMutableMatchState(direct),
+        false,
+        s"expected binding-free MatchGuard lowering to avoid mutable staging, got: $direct"
+      )
+      assertEquals(hasLetBool(direct), false, direct.toString)
+      assert(
+        guardBools.exists {
+          case Matchless.CheckVariant(_, 1, 0, famArities) =>
+            famArities == List(0, 0)
+          case _ =>
+            false
+        },
+        s"expected direct bool selector check in lowered guard, got: $guardBools"
+      )
+
+      val evaluated =
+        MatchlessToValue
+          .traverse(
+            Vector(
+              Matchless.applyArgs(
+                direct,
+                NonEmptyList.one(
+                  Matchless.applyArgs(
+                    Matchless.MakeStruct(2),
+                    NonEmptyList.of(
+                      Matchless.Literal(Lit.fromInt(4)),
+                      Matchless.TrueExpr
+                    )
+                  )
+                )
+              ),
+              Matchless.applyArgs(
+                direct,
+                NonEmptyList.one(
+                  Matchless.applyArgs(
+                    Matchless.MakeStruct(2),
+                    NonEmptyList.of(
+                      Matchless.Literal(Lit.fromInt(4)),
+                      Matchless.FalseExpr
+                    )
+                  )
+                )
+              )
+            )
+          )((_, _, _) => Eval.now(Value.UnitValue))
+          .map(_.value)
+
+      assertEquals(evaluated, Vector(Value.VInt(1), Value.VInt(0)))
+    }
+  }
+
+  test(
+    "MatchGuard bindings remain available to inner guard and branch body after lowering"
+  ) {
+    val src = """
+package Matchless/MatchGuardScope
+
+struct Pair(value, keep)
+
+def pick(v):
+  match v:
+    case _ if v matches Pair(value, keep) if keep: value
+    case _: -1
+"""
+
+    checkMatchlessPackage(src) { binds =>
+      val pack = PackageName.parts("Matchless", "MatchGuardScope")
+      val byName = binds(pack).toMap
+      val pick = byName(Identifier.Name("pick"))
+      val guardBools = exprBoolSubexpressions(pick)
+
+      assert(
+        hasMutableMatchState(pick),
+        s"expected scoped MatchGuard lowering when bindings escape into the branch, got: $pick"
+      )
+      assert(
+        guardBools.exists {
+          case Matchless.SetMut(_, _) => true
+          case _                      => false
+        },
+        s"expected scoped MatchGuard lowering to materialize guard bindings, got: $pick"
+      )
+
+      val evaluated =
+        MatchlessToValue
+          .traverse(
+            Vector(
+              Matchless.applyArgs(
+                pick,
+                NonEmptyList.one(
+                  Matchless.applyArgs(
+                    Matchless.MakeStruct(2),
+                    NonEmptyList.of(
+                      Matchless.Literal(Lit.fromInt(4)),
+                      Matchless.TrueExpr
+                    )
+                  )
+                )
+              ),
+              Matchless.applyArgs(
+                pick,
+                NonEmptyList.one(
+                  Matchless.applyArgs(
+                    Matchless.MakeStruct(2),
+                    NonEmptyList.of(
+                      Matchless.Literal(Lit.fromInt(4)),
+                      Matchless.FalseExpr
+                    )
+                  )
+                )
+              )
+            )
+          )((_, _, _) => Eval.now(Value.UnitValue))
+          .map(_.value)
+
+      assertEquals(evaluated, Vector(Value.VInt(4), Value.VInt(-1)))
+    }
+  }
+
   test("multiple whole-root bind branches can still avoid reconstruction") {
     val flag = Identifier.Name("flag")
     val left = Identifier.Name("left")
@@ -6023,6 +6344,28 @@ ${tmpLines}
           case Matchless.Lambda(Nil, None, args, Matchless.Local(arg))
               if args.toList == (arg :: Nil) =>
             ()
+          case Matchless.Lambda(
+                Nil,
+                None,
+                args,
+                Matchless.Let(
+                  Left(tmp @ Matchless.LocalAnon(_)),
+                  Matchless.App(
+                    Matchless.MakeEnum(1, 1, valueFamArities),
+                    NonEmptyList(Matchless.Local(arg), Nil)
+                  ),
+                  Matchless.If(
+                    Matchless.CheckVariant(checkArg, 1, 1, checkFamArities),
+                    Matchless.GetEnumElement(getArg, 1, 0, 1),
+                    Matchless.Literal(lit)
+                  )
+                )
+              )
+              if args.toList == (arg :: Nil) &&
+                (tmp == checkArg) &&
+                (tmp == getArg) &&
+                (valueFamArities == checkFamArities) =>
+            assertEquals(lit, Lit.fromInt(0))
           case other =>
             fail(
               s"expected constructor-known helper to collapse to the identity body, found: $other"
