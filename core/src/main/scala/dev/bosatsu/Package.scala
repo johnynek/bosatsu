@@ -612,7 +612,9 @@ object Package {
           hasRemovedExprRef(arg) ||
             branches.exists { branch =>
               hasRemovedPatternRef(branch.pattern) ||
-              branch.guard.exists(hasRemovedExprRef) ||
+              branch.foldGuardExpr(false) { (acc, guardExpr) =>
+                acc || hasRemovedExprRef(guardExpr)
+              } ||
               hasRemovedExprRef(branch.expr)
             }
       }

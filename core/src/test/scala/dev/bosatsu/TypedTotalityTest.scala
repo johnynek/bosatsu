@@ -216,6 +216,29 @@ def vacuous(z: Never) -> Never:
     )
   }
 
+  test("effectively-trivial match branch guards participate like unguarded branches") {
+    assertTotal(
+      """main = match 1:
+        |  case x if x matches y:
+        |    y
+        |""".stripMargin,
+      "main"
+    )
+  }
+
+  test("nontrivial match branch guards remain guarded for totality") {
+    assertNonTotal(
+      """def keep_zero(i: Int) -> Bool:
+        |  i.eq_Int(0)
+        |
+        |main = match 1:
+        |  case x if x matches y if keep_zero(y):
+        |    y
+        |""".stripMargin,
+      "main"
+    )
+  }
+
   test("irrefutable conditional matches still produce a totality diagnostic") {
     val statement =
       """package ConditionalIrrefutable

@@ -561,6 +561,45 @@ final class SourceConverter(
       }
     }
 
+    def convertMatchBranchGuard(
+        guardDecl: Option[Declaration.NonBinding],
+        outerNames: List[Bindable]
+    ): Result[(Option[Expr.BranchGuard[Declaration]], List[Bindable])] =
+      guardDecl match {
+        case None =>
+          success((None, Nil))
+        case Some(condDecl @ ConditionalMatch(condMatches, annots)) =>
+          val guardNames = condMatches.pattern.names
+          checkMatchesGuardShape(condMatches.guard).flatMap { _ =>
+            (
+              withBound(condMatches.arg, outerNames),
+              convertPattern(condMatches.pattern, condDecl.region),
+              condMatches.guard
+                .traverse(withBound(_, outerNames ++ guardNames))
+                .map(_.filterNot(isPredefBoolConst(_, Constructor("True")))),
+              conditionalAnnotationCheck(condDecl, annots)
+            ).parMapN { (arg, pattern, guardOpt, checkExpr) =>
+              (
+                Some(
+                  Expr.MatchGuard(arg, pattern, guardOpt, checkExpr)(using
+                    condDecl.region
+                  )
+                ),
+                guardNames
+              )
+            }
+          }
+        case Some(condDecl) =>
+          withBound(condDecl, outerNames).map { guardExpr =>
+            (
+              Option(guardExpr)
+                .filterNot(isPredefBoolConst(_, Constructor("True")))
+                .map(Expr.BoolGuard(_)),
+              Nil
+            )
+          }
+      }
+
     def lowerIfElse(
         ifCases: NonEmptyList[(Declaration.NonBinding, OptIndent[Declaration])],
         elseCase: OptIndent[Declaration],
@@ -778,12 +817,11 @@ final class SourceConverter(
           val branchDecl = branch.body.get
           val branchPatternRegion = branch.patternRegion
           val newPattern = convertPattern(pat, branchPatternRegion)
-          val guardExpr = branch.guard.traverse(withBound(_, pat.names))
-          val bodyExpr = withBound(branchDecl, pat.names)
-          (newPattern, guardExpr, bodyExpr).parMapN { (pat, guard, body) =>
-            val guard1 =
-              guard.filterNot(isPredefBoolConst(_, Constructor("True")))
-            Expr.Branch(pat, guard1, body)(using branchPatternRegion)
+          val guardNode = convertMatchBranchGuard(branch.guard, pat.names)
+          (newPattern, guardNode).tupled.flatMap { case (pat, (guard, extraNames)) =>
+            withBound(branchDecl, pat.names ++ extraNames).map { body =>
+              Expr.Branch.fromGuardNode(pat, guard, body)(using branchPatternRegion)
+            }
           }
         }
         (loop(arg), expBranches).parMapN(Expr.Match(kind, _, _, decl))

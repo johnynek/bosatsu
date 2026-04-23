@@ -335,11 +335,19 @@ message Region {
   int32 end = 2;
 }
 
+message MatchGuard {
+  int32 argExpr = 1;
+  int32 pattern = 2;
+  int32 guardExpr = 3;
+  Region patternRegion = 4;
+}
+
 message Branch {
   int32 pattern = 1;
   int32 resultExpr = 2;
   int32 guardExpr = 3;
   Region patternRegion = 4;
+  MatchGuard matchGuard = 5;
 }
 
 message MatchExpr {

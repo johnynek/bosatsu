@@ -340,6 +340,59 @@ class ProtoConverterTest extends munit.ScalaCheckSuite with ParTest {
     testFn(guardedMatch)
   }
 
+  test("TypedExpr proto encodes BoolGuard on legacy guardExpr field") {
+    val intType = rankn.Type.IntType
+    val boolType = rankn.Type.BoolType
+    val x = Identifier.Name("x")
+    val xExpr = TypedExpr.Local(x, intType, Region(1, 2))
+    val eqInt = TypedExpr.Global(
+      PackageName.PredefName,
+      Identifier.Name("eq_Int"),
+      rankn.Type.Fun(NonEmptyList.of(intType, intType), boolType),
+      Region(2, 3)
+    )
+    val guardExpr = TypedExpr.App(
+      eqInt,
+      NonEmptyList.of(
+        xExpr,
+        TypedExpr.Literal(Lit.fromInt(1), intType, Region(3, 4))
+      ),
+      boolType,
+      Region(4, 5)
+    )
+    val guardedMatch = TypedExpr.Match(
+      xExpr,
+      NonEmptyList.of(
+        TypedExpr.Branch(
+          Pattern.WildCard,
+          Some(guardExpr),
+          TypedExpr.Literal(Lit.fromInt(7), intType, Region(5, 6))
+        )(using Region(6, 7))
+      ),
+      Region(7, 8)
+    )
+
+    val encoded = ProtoConverter.runTab(
+      ProtoConverter.typedExprToProto(guardedMatch)
+    ).map { case (ss, idx) =>
+      ss.expressions.inOrder(idx - 1)
+    }
+
+    encoded match {
+      case Success(rootExprProto) =>
+        rootExprProto.value match {
+          case proto.TypedExpr.Value.MatchExpr(matchProto) =>
+            val branch = matchProto.branches.head
+            assertNotEquals(branch.guardExpr, 0)
+            assertEquals(branch.matchGuard, None)
+          case other =>
+            fail(s"expected encoded match expr, got $other")
+        }
+      case Failure(err) =>
+        fail(s"expected encoding to succeed, got $err")
+    }
+  }
+
   test("we can roundtrip match branch pattern regions through proto") {
     val intType = rankn.Type.IntType
     val x = Identifier.Name("x")
@@ -602,6 +655,144 @@ bar = 1
 
     assert(originalBranches.exists(b => !b.patternRegion.eqv(Region.empty)))
     assertEquals(decodedBranches.map(_.patternRegion), originalBranches.map(_.patternRegion))
+  }
+
+  test("TypedExpr proto roundtrip preserves MatchGuard branches") {
+    val intType = rankn.Type.IntType
+    val boolType = rankn.Type.BoolType
+    val pairPack = PackageName.parts("Proto", "MatchGuard")
+    val pairCtor = Constructor("Pair")
+    val pairType =
+      Type.TyConst(Type.Const.Defined(pairPack, TypeName(pairCtor)))
+    val value = Identifier.Name("value")
+    val even = Identifier.Name("even")
+    val valueExpr = TypedExpr.Local(value, pairType, Region(1, 2))
+    val eqInt = TypedExpr.Global(
+      PackageName.PredefName,
+      Identifier.Name("eq_Int"),
+      Type.Fun(NonEmptyList.of(intType, intType), boolType),
+      Region(2, 3)
+    )
+    val innerGuardExpr = TypedExpr.App(
+      eqInt,
+      NonEmptyList.of(
+        TypedExpr.Local(even, intType, Region(3, 4)),
+        TypedExpr.Literal(Lit.fromInt(4), intType, Region(4, 5))
+      ),
+      boolType,
+      Region(5, 6)
+    )
+    val guardPattern =
+      Pattern.PositionalStruct(
+        (pairPack, pairCtor),
+        Pattern.Var(even) :: Pattern.WildCard :: Nil
+      )
+    val expr = TypedExpr.Match(
+      valueExpr,
+      NonEmptyList.of(
+        TypedExpr.Branch.fromGuardNode(
+          Pattern.WildCard,
+          Some(
+            TypedExpr.MatchGuard(valueExpr, guardPattern, Some(innerGuardExpr))(using
+              Region(6, 7)
+            )
+          ),
+          TypedExpr.Local(even, intType, Region(7, 8))
+        )(using Region(8, 9)),
+        TypedExpr.Branch(
+          Pattern.WildCard,
+          None,
+          TypedExpr.Literal(Lit.fromInt(0), intType, Region(9, 10))
+        )(using Region(10, 11))
+      ),
+      Region(11, 12)
+    )
+
+    val testFn = tabLaw(ProtoConverter.typedExprToProto(_: TypedExpr[Region])) {
+      (ss, idx) =>
+        for {
+          tps <- ProtoConverter.buildTypes(ss.types.inOrder)
+          pats = ProtoConverter.buildPatterns(ss.patterns.inOrder)
+          patTab <- pats.local[ProtoConverter.DecodeState](_.withTypes(tps))
+          decodedExpr = ProtoConverter
+            .buildExprs(ss.expressions.inOrder)
+            .map(_(idx - 1))
+          res <- decodedExpr.local[ProtoConverter.DecodeState](
+            _.withTypes(tps).withPatterns(patTab)
+          )
+        } yield res
+    }
+
+    testFn(expr)
+  }
+
+  test("TypedExpr proto decode rejects branches with both guard encodings set") {
+    val intType = rankn.Type.IntType
+    val value = Identifier.Name("value")
+    val expr = TypedExpr.Match(
+      TypedExpr.Local(value, intType, Region(1, 2)),
+      NonEmptyList.of(
+        TypedExpr.Branch(
+          Pattern.WildCard,
+          None,
+          TypedExpr.Literal(Lit.fromInt(0), intType, Region(2, 3))
+        )(using Region(3, 4))
+      ),
+      Region(4, 5)
+    )
+
+    val decoded = ProtoConverter.runTab(ProtoConverter.typedExprToProto(expr)).flatMap {
+      case (ss, idx) =>
+        val decodedExpr = for {
+          rootExprProto <- ss.expressions.inOrder.lift(idx - 1) match {
+            case Some(exprProto) => Success(exprProto)
+            case None =>
+              Failure(new Exception(s"missing root expression at index $idx"))
+          }
+          matchProto <- rootExprProto.value match {
+            case proto.TypedExpr.Value.MatchExpr(m) => Success(m)
+            case other =>
+              Failure(new Exception(s"expected encoded match expr, got $other"))
+          }
+          mutatedRoot = rootExprProto.copy(
+            value = proto.TypedExpr.Value.MatchExpr(
+              matchProto.copy(
+                branches = matchProto.branches.updated(
+                  0,
+                  matchProto.branches.head.copy(
+                    guardExpr = 1,
+                    matchGuard = Some(proto.MatchGuard())
+                  )
+                )
+              )
+            )
+          )
+          mutatedExprs = ss.expressions.inOrder.updated(idx - 1, mutatedRoot)
+          ds = ProtoConverter.DecodeState.init(ss.strings.inOrder)
+          res <- {
+            for {
+              tps <- ProtoConverter.buildTypes(ss.types.inOrder)
+              pats = ProtoConverter.buildPatterns(ss.patterns.inOrder)
+              patTab <- pats.local[ProtoConverter.DecodeState](_.withTypes(tps))
+              res <- ProtoConverter
+                .buildExprs(mutatedExprs)
+                .map(_(idx - 1))
+                .local[ProtoConverter.DecodeState](
+                  _.withTypes(tps).withPatterns(patTab)
+                )
+            } yield res
+          }.run(ds)
+        } yield res
+
+        decodedExpr
+    }
+
+    decoded match {
+      case Failure(err) =>
+        assert(err.getMessage.contains("both guardExpr and matchGuard set"))
+      case Success(decodedValue) =>
+        fail(s"expected invalid guard decode failure, got $decodedValue")
+    }
   }
 
   test("packagesFromProto accepts interface/package name overlap") {

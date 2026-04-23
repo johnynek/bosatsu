@@ -85,7 +85,8 @@ sealed abstract class TypedExpr[+T] { self: Product =>
         args.foldMap(_.size)
       case Match(a, branches, _) =>
         a.size + branches.foldMap { branch =>
-          branch.guard.fold(0)(_.size) + branch.expr.size
+          branch.foldGuardExpr(0) { case (_, guardExpr) => guardExpr.size } +
+            branch.expr.size
         }
     }
 
@@ -193,8 +194,9 @@ sealed abstract class TypedExpr[+T] { self: Product =>
             cpat.document(p)
 
           val bstr = branches.toList.map { branch =>
-            val guardDoc =
-              branch.guard.fold(Doc.empty)(g => Doc.comma + Doc.line + loop(g))
+            val guardDoc = branch.foldGuardExpr(Doc.empty) {
+              case (_, guardExpr) => Doc.comma + Doc.line + loop(guardExpr)
+            }
             block(
               Doc.char('[') + pat(
                 branch.pattern
@@ -270,14 +272,27 @@ sealed abstract class TypedExpr[+T] { self: Product =>
         val argFree = arg.freeVarsDup
 
         val branchFrees = branches.toList.map { branch =>
-          // these are not free variables in this branch
-          val newBinds = branch.pattern.names.toSet
-          val bfree =
-            branch.guard.fold(Nil: List[Bindable])(
-              _.freeVarsDup
-            ) ::: branch.expr.freeVarsDup
-          if (newBinds.isEmpty) bfree
-          else ListUtil.filterNot(bfree)(newBinds)
+          val outerBinds = branch.pattern.names.toSet
+          val bodyBinds = branch.allBindings.toSet
+          branch.guardNode match {
+            case None =>
+              ListUtil.filterNot(branch.expr.freeVarsDup)(bodyBinds)
+            case Some(BoolGuard(guardExpr)) =>
+              val guardFree = ListUtil.filterNot(guardExpr.freeVarsDup)(outerBinds)
+              val bodyFree = ListUtil.filterNot(branch.expr.freeVarsDup)(bodyBinds)
+              guardFree ::: bodyFree
+            case Some(MatchGuard(argExpr, pattern, guardOpt)) =>
+              val innerBinds = pattern.names.toSet
+              val argExprFree = ListUtil.filterNot(argExpr.freeVarsDup)(outerBinds)
+              val innerGuardFree =
+                guardOpt.fold(Nil: List[Bindable]) { innerGuard =>
+                  ListUtil.filterNot(innerGuard.freeVarsDup)(
+                    outerBinds | innerBinds
+                  )
+                }
+              val bodyFree = ListUtil.filterNot(branch.expr.freeVarsDup)(bodyBinds)
+              argExprFree ::: innerGuardFree ::: bodyFree
+          }
         }
         // we can only take one branch, so count the max on each branch:
         val branchFreeMax = branchFrees.zipWithIndex
@@ -348,8 +363,19 @@ sealed abstract class TypedExpr[+T] { self: Product =>
       case Match(arg, branches, _) =>
         val argVars = arg.allVarsDup
         val branchVars = branches.toList.flatMap { branch =>
-          val gvars = branch.guard.fold(Nil: List[Bindable])(_.allVarsDup)
-          branch.pattern.names ::: (gvars ::: branch.expr.allVarsDup)
+          branch.guardNode match {
+            case None =>
+              branch.pattern.names ::: branch.expr.allVarsDup
+            case Some(BoolGuard(guardExpr)) =>
+              branch.pattern.names ::: (guardExpr.allVarsDup ::: branch.expr.allVarsDup)
+            case Some(MatchGuard(argExpr, pattern, guardOpt)) =>
+              val innerGuardVars = guardOpt.fold(Nil: List[Bindable])(_.allVarsDup)
+              branch.pattern.names ::: (
+                argExpr.allVarsDup ::: (
+                  pattern.names ::: (innerGuardVars ::: branch.expr.allVarsDup)
+                )
+              )
+          }
         }
         argVars ::: branchVars
     }
@@ -465,11 +491,29 @@ object TypedExpr {
           right: NonEmptyList[Branch[A]]
       ): Boolean =
         eqNel(left, right) { case (lb, rb) =>
-          val guardsEq = (lb.guard, rb.guard) match {
-            case (None, None)                      => true
-            case (Some(lg), Some(rg))              => loop(lg, rg)
-            case (None, Some(_)) | (Some(_), None) => false
-          }
+          def eqGuardNode(
+              left: Option[BranchGuard[A]],
+              right: Option[BranchGuard[A]]
+          ): Boolean =
+            (left, right) match {
+              case (None, None) => true
+              case (Some(BoolGuard(lg)), Some(BoolGuard(rg))) =>
+                loop(lg, rg)
+              case (
+                    Some(MatchGuard(larg, lpattern, lguard)),
+                    Some(MatchGuard(rarg, rpattern, rguard))
+                  ) =>
+                loop(larg, rarg) &&
+                eqPattern(lpattern, rpattern) &&
+                ((lguard, rguard) match {
+                  case (Some(lg), Some(rg)) => loop(lg, rg)
+                  case (None, None)         => true
+                  case _                    => false
+                })
+              case _ => false
+            }
+
+          val guardsEq = eqGuardNode(lb.guardNode, rb.guardNode)
           guardsEq && eqPattern(lb.pattern, rb.pattern) && loop(
             lb.expr,
             rb.expr
@@ -957,17 +1001,283 @@ object TypedExpr {
   ) extends TypedExpr[T]
   // TODO, this shouldn't have a type, we know the type from Lit currently
   case class Literal[T](lit: Lit, tpe: Type, tag: T) extends TypedExpr[T]
-  case class Branch[+T](
+  sealed trait BranchGuardKind
+  object BranchGuardKind {
+    case object Bool extends BranchGuardKind
+    case object Match extends BranchGuardKind
+  }
+
+  sealed trait BranchGuard[+T]
+  object BranchGuard {
+    def kind[T](guard: BranchGuard[T]): BranchGuardKind =
+      guard match {
+        case BoolGuard(_) => BranchGuardKind.Bool
+        case MatchGuard(_, _, _) => BranchGuardKind.Match
+      }
+
+    def foldExpr[T, A](guard: BranchGuard[T], init: A)(
+        fn: (A, TypedExpr[T]) => A
+    ): A =
+      foldScopedExpr(guard, init)(fn, fn)
+
+    def foldScopedExpr[T, A](guard: BranchGuard[T], init: A)(
+        outerFn: (A, TypedExpr[T]) => A,
+        innerFn: (A, TypedExpr[T]) => A
+    ): A =
+      guard match {
+        case BoolGuard(expr) =>
+          outerFn(init, expr)
+        case MatchGuard(arg, _, guardOpt) =>
+          val withArg = outerFn(init, arg)
+          guardOpt.fold(withArg)(innerFn(withArg, _))
+      }
+
+    def iterator[T](guard: BranchGuard[T]): Iterator[TypedExpr[T]] =
+      guard match {
+        case BoolGuard(expr) => Iterator.single(expr)
+        case MatchGuard(arg, _, guardOpt) =>
+          Iterator.single(arg) ++ guardOpt.iterator
+      }
+
+    def mapExpr[T, U](
+        guard: BranchGuard[T]
+    )(fn: TypedExpr[T] => TypedExpr[U]): BranchGuard[U] =
+      mapExprScoped(guard)(fn, fn)
+
+    def mapExprScoped[T, U](
+        guard: BranchGuard[T]
+    )(
+        outerFn: TypedExpr[T] => TypedExpr[U],
+        innerFn: TypedExpr[T] => TypedExpr[U]
+    ): BranchGuard[U] =
+      guard match {
+        case BoolGuard(expr) =>
+          BoolGuard(outerFn(expr))
+        case guard @ MatchGuard(arg, pattern, guardOpt) =>
+          MatchGuard(
+            outerFn(arg),
+            pattern,
+            guardOpt.map(innerFn)
+          )(using guard.patternRegion)
+      }
+
+    def traverseExpr[T, U, F[_]: Applicative](
+        guard: BranchGuard[T]
+    )(fn: TypedExpr[T] => F[TypedExpr[U]]): F[BranchGuard[U]] =
+      traverseExprScoped(guard)(fn, fn)
+
+    def traverseExprScoped[T, U, F[_]: Applicative](
+        guard: BranchGuard[T]
+    )(
+        outerFn: TypedExpr[T] => F[TypedExpr[U]],
+        innerFn: TypedExpr[T] => F[TypedExpr[U]]
+    ): F[BranchGuard[U]] =
+      guard match {
+        case BoolGuard(expr) =>
+          outerFn(expr).map(BoolGuard(_))
+        case guard @ MatchGuard(arg, pattern, guardOpt) =>
+          (
+            outerFn(arg),
+            guardOpt.traverse(innerFn)
+          ).mapN { (arg1, guard1) =>
+            MatchGuard(arg1, pattern, guard1)(using guard.patternRegion)
+          }
+      }
+
+    def bindNames[T](guard: BranchGuard[T]): List[Bindable] =
+      guard match {
+        case BoolGuard(_) => Nil
+        case MatchGuard(_, pattern, _) => pattern.names
+      }
+
+    def isEffectivelyUnguarded[T](guard: BranchGuard[T]): Boolean =
+      guard match {
+        case BoolGuard(_) => false
+        case MatchGuard(_, pattern, guardOpt) =>
+          pattern.definitelyTotal && guardOpt.isEmpty
+      }
+
+    def toExpr[T](guard: BranchGuard[T]): TypedExpr[T] =
+      guard match {
+        case BoolGuard(expr) =>
+          expr
+        case matchGuard @ MatchGuard(arg, pattern, guardOpt) =>
+          val trueExpr =
+            TypedExpr.Global(
+              PackageName.PredefName,
+              Constructor("True"),
+              Type.BoolType,
+              arg.tag
+            )
+          val falseExpr =
+            TypedExpr.Global(
+              PackageName.PredefName,
+              Constructor("False"),
+              Type.BoolType,
+              arg.tag
+            )
+          Match(
+            arg,
+            NonEmptyList.of(
+              Branch(pattern, guardOpt, trueExpr)(using matchGuard.patternRegion),
+              Branch(Pattern.WildCard, None, falseExpr)(using matchGuard.patternRegion)
+            ),
+            arg.tag
+          )
+      }
+  }
+  final case class BoolGuard[+T](expr: TypedExpr[T]) extends BranchGuard[T]
+  final case class MatchGuard[+T](
+      arg: TypedExpr[T],
       pattern: Pattern[(PackageName, Constructor), Type],
-      guard: Option[TypedExpr[T]],
+      guard: Option[TypedExpr[T]]
+  )(using val patternRegion: Region)
+      extends BranchGuard[T]
+
+  final case class Branch[+T] private (
+      pattern: Pattern[(PackageName, Constructor), Type],
+      guardNode: Option[BranchGuard[T]],
       expr: TypedExpr[T]
-  )(using val patternRegion: Region = Region.empty) {
-    private[bosatsu] def copy[T1 >: T](
-        pattern: Pattern[(PackageName, Constructor), Type] = this.pattern,
-        guard: Option[TypedExpr[T1]] = this.guard,
-        expr: TypedExpr[T1] = this.expr
-    )(using patternRegion: Region = this.patternRegion): Branch[T1] =
-      Branch(pattern, guard, expr)(using patternRegion)
+  )(using val patternRegion: Region) {
+    def guard: Option[TypedExpr[T]] =
+      guardNode.map(BranchGuard.toExpr(_))
+
+    def foldGuardExpr[A](init: A)(fn: (A, TypedExpr[T]) => A): A =
+      guardNode match {
+        case Some(guard) => BranchGuard.foldExpr(guard, init)(fn)
+        case None        => init
+      }
+
+    def foldGuardExprScoped[A](init: A)(
+        outerFn: (A, TypedExpr[T]) => A,
+        innerFn: (A, TypedExpr[T]) => A
+    ): A =
+      guardNode match {
+        case Some(guard) => BranchGuard.foldScopedExpr(guard, init)(outerFn, innerFn)
+        case None        => init
+      }
+
+    def mapGuardNodeExpr[T1 >: T](
+        fn: TypedExpr[T] => TypedExpr[T1]
+    ): Option[BranchGuard[T1]] =
+      mapGuardNodeScoped(identity, fn, fn)
+
+    def guardPattern: Option[Pattern[(PackageName, Constructor), Type]] =
+      guardNode.collect { case MatchGuard(_, pattern, _) => pattern }
+
+    def mapGuardNodeScoped[T1 >: T](
+        patternFn: Pattern[(PackageName, Constructor), Type] => Pattern[
+          (PackageName, Constructor),
+          Type
+        ],
+        outerFn: TypedExpr[T] => TypedExpr[T1],
+        innerFn: TypedExpr[T] => TypedExpr[T1]
+    ): Option[BranchGuard[T1]] =
+      guardNode match {
+        case Some(BoolGuard(guardExpr)) =>
+          val guardExpr1 = outerFn(guardExpr)
+          if (guardExpr1 eq guardExpr) guardNode
+          else Some(BoolGuard(guardExpr1))
+        case Some(guard @ MatchGuard(argExpr, pattern, guardExpr)) =>
+          val argExpr1 = outerFn(argExpr)
+          val argSame = argExpr1 eq argExpr
+          val pattern1 = patternFn(pattern)
+          val patternSame = pattern1 == pattern
+          val (guardExpr1, innerGuardSame) =
+            guardExpr match {
+              case Some(innerGuard) =>
+                val innerGuard1 = innerFn(innerGuard)
+                if (innerGuard1 eq innerGuard) (guardExpr, true)
+                else (Some(innerGuard1), false)
+              case None             =>
+                (None, true)
+            }
+          if (argSame && patternSame && innerGuardSame)
+            guardNode
+          else
+            Some(
+              MatchGuard(argExpr1, pattern1, guardExpr1)(using guard.patternRegion)
+            )
+        case None                      =>
+          None
+      }
+
+    def mapGuardNodeExprScoped[T1 >: T](
+        outerFn: TypedExpr[T] => TypedExpr[T1],
+        innerFn: TypedExpr[T] => TypedExpr[T1]
+    ): Option[BranchGuard[T1]] =
+      mapGuardNodeScoped(identity, outerFn, innerFn)
+
+    def traverseGuardNodeExpr[T1 >: T, F[_]: Applicative](
+        fn: TypedExpr[T] => F[TypedExpr[T1]]
+    ): F[Option[BranchGuard[T1]]] =
+      traverseGuardNodeScoped(Applicative[F].pure(_), fn, fn)
+
+    def traverseGuardNodeScoped[T1 >: T, F[_]: Applicative](
+        patternFn: Pattern[(PackageName, Constructor), Type] => F[
+          Pattern[(PackageName, Constructor), Type]
+        ],
+        outerFn: TypedExpr[T] => F[TypedExpr[T1]],
+        innerFn: TypedExpr[T] => F[TypedExpr[T1]]
+    ): F[Option[BranchGuard[T1]]] =
+      guardNode.traverse {
+        case BoolGuard(expr) =>
+          outerFn(expr).map(BoolGuard(_))
+        case guard @ MatchGuard(argExpr, pattern, guardExpr) =>
+          (
+            patternFn(pattern),
+            outerFn(argExpr),
+            guardExpr.traverse(innerFn)
+          ).mapN { (pattern1, argExpr1, guardExpr1) =>
+            MatchGuard(argExpr1, pattern1, guardExpr1)(using guard.patternRegion)
+          }
+      }
+
+    def traverseGuardNodeExprScoped[T1 >: T, F[_]: Applicative](
+        outerFn: TypedExpr[T] => F[TypedExpr[T1]],
+        innerFn: TypedExpr[T] => F[TypedExpr[T1]]
+    ): F[Option[BranchGuard[T1]]] =
+      traverseGuardNodeScoped(Applicative[F].pure(_), outerFn, innerFn)
+
+    def guardExprIterator: Iterator[TypedExpr[T]] =
+      guardNode.iterator.flatMap(BranchGuard.iterator(_))
+
+    def guardBindings: List[Bindable] =
+      guardNode.toList.flatMap(BranchGuard.bindNames(_))
+
+    def allBindings: List[Bindable] =
+      pattern.names ::: guardBindings
+
+    def isEffectivelyUnguarded: Boolean =
+      guardNode.forall(BranchGuard.isEffectivelyUnguarded(_))
+
+    private[bosatsu] def copyNode[T1 >: T](
+        pattern: Pattern[(PackageName, Constructor), Type],
+        guardNode: Option[BranchGuard[T1]],
+        expr: TypedExpr[T1]
+    )(using patternRegion: Region): Branch[T1] =
+      Branch.fromGuardNode(pattern, guardNode, expr)(using patternRegion)
+  }
+  object Branch {
+    @scala.annotation.targetName("applyTypedExprGuard")
+    def apply[T](
+        pattern: Pattern[(PackageName, Constructor), Type],
+        guard: Option[TypedExpr[T]],
+        expr: TypedExpr[T]
+    )(using patternRegion: Region): Branch[T] =
+      new Branch(pattern, guard.map(BoolGuard(_)), expr)
+
+    def fromGuardNode[T](
+        pattern: Pattern[(PackageName, Constructor), Type],
+        guardNode: Option[BranchGuard[T]],
+        expr: TypedExpr[T]
+    )(using patternRegion: Region): Branch[T] =
+      new Branch(pattern, guardNode, expr)
+
+    def unapply[T](
+        branch: Branch[T]
+    ): Some[(Pattern[(PackageName, Constructor), Type], Option[TypedExpr[T]], TypedExpr[T])] =
+      Some((branch.pattern, branch.guard, branch.expr))
   }
   final case class MatchExpr[+T](
       matchKind: MatchKind = MatchKind.Match,
@@ -1301,7 +1611,9 @@ object TypedExpr {
               // deal with this case
               None
             } else {
-              Some((n, branch.copy(expr = b1)))
+              Some((n, branch.copyNode(branch.pattern, branch.guardNode, b1)(using
+                branch.patternRegion
+              )))
             }
           }
         }
@@ -1431,7 +1743,8 @@ object TypedExpr {
         pattern: BranchPattern,
         patternRegion: Region,
         ctx: C,
-        guardF: Option[F[TypedExpr[B]]],
+        originalGuardNode: Option[BranchGuard[A]],
+        guardF: Option[F[BranchGuard[B]]],
         exprF: F[TypedExpr[B]]
     ): F[Branch[B]]
     def mtch(
@@ -1483,8 +1796,17 @@ object TypedExpr {
     ) extends Work
     case class RebuildRecur(result: Type, tag: A, argCount: Int, ctx: C)
         extends Work
+    sealed trait RebuildGuard
+    object RebuildGuard {
+      case object Bool extends RebuildGuard
+      final case class Match(
+          hasInnerGuard: Boolean,
+          guardRegion: Region
+      ) extends RebuildGuard
+    }
+
     case class RebuildMatch(
-        branches: NonEmptyList[(BranchPattern, Boolean, Region)],
+        branches: NonEmptyList[(BranchPattern, Option[BranchGuard[A]], Option[RebuildGuard], Region)],
         tag: A,
         matchKind: MatchKind,
         ctx: C
@@ -1567,7 +1889,17 @@ object TypedExpr {
               work =
                 RebuildMatch(
                   branches.map(b =>
-                    (b.pattern, b.guard.nonEmpty, b.patternRegion)
+                    (
+                      b.pattern,
+                      b.guardNode,
+                      b.guardNode.map {
+                        case BoolGuard(_) =>
+                          RebuildGuard.Bool
+                        case guard @ MatchGuard(_, _, guardOpt) =>
+                          RebuildGuard.Match(guardOpt.nonEmpty, guard.patternRegion)
+                      },
+                      b.patternRegion
+                    )
                   ),
                   tag,
                   m.matchKind,
@@ -1577,7 +1909,7 @@ object TypedExpr {
               while (revBranches.hasNext) {
                 val branch = revBranches.next()
                 work = Visit(branch.expr, ctx) :: work
-                branch.guard.foreach { guard =>
+                branch.guardExprIterator.toList.reverseIterator.foreach { guard =>
                   work = Visit(guard, ctx) :: work
                 }
               }
@@ -1628,13 +1960,35 @@ object TypedExpr {
           val branchFsRev = List.newBuilder[F[Branch[B]]]
           val revBranches = branches.toList.reverseIterator
           while (revBranches.hasNext) {
-            val (pattern, hasGuard, patternRegion) = revBranches.next()
+            val (pattern, originalGuardNode, guardKind, patternRegion) = revBranches.next()
             val exprF = popBuilt()
-            val guardF =
-              if (hasGuard) Some(popBuilt())
-              else None
+            val guardF = guardKind match {
+              case Some(kind) =>
+                kind match {
+                  case _: RebuildGuard.Bool.type =>
+                    Some(popBuilt().map[BranchGuard[B]](BoolGuard(_)))
+                  case RebuildGuard.Match(hasInnerGuard, guardRegion) =>
+                    val innerGuardF =
+                      if (hasInnerGuard) Some(popBuilt()) else None
+                    val argF = popBuilt()
+                    Some(
+                      (argF, innerGuardF.sequence).mapN { (argExpr, guardExpr) =>
+                        originalGuardNode match {
+                          case Some(MatchGuard(_, pattern1, _)) =>
+                            MatchGuard(argExpr, pattern1, guardExpr)(using guardRegion)
+                          case other =>
+                            throw new IllegalStateException(
+                              s"expected MatchGuard when rebuilding guard, found: $other"
+                            )
+                        }
+                      }
+                    )
+                }
+              case None    =>
+                None
+            }
             branchFsRev +=
-              handler.matchBranch(pattern, patternRegion, ctx, guardF, exprF)
+              handler.matchBranch(pattern, patternRegion, ctx, originalGuardNode, guardF, exprF)
           }
           val argF = popBuilt()
           val branchesF =
@@ -1772,7 +2126,8 @@ object TypedExpr {
             visitExpr(expr, shadowed)
             foreach(branches.iterator) { branch =>
               visitPattern(branch.pattern, shadowed)
-              foreach(branch.guard.iterator)(visitExpr(_, shadowed))
+              foreach(branch.guardPattern.iterator)(visitPattern(_, shadowed))
+              foreach(branch.guardExprIterator)(visitExpr(_, shadowed))
               visitExpr(branch.expr, shadowed)
             }
         }
@@ -1939,7 +2294,8 @@ object TypedExpr {
             loopExpr(expr)
             foreach(branches.iterator) { branch =>
               addPatternTypes(branch.pattern)
-              foreach(branch.guard.iterator)(loopExpr(_))
+              foreach(branch.guardPattern.iterator)(addPatternTypes(_))
+              foreach(branch.guardExprIterator)(loopExpr(_))
               loopExpr(branch.expr)
             }
         }
@@ -2072,20 +2428,48 @@ object TypedExpr {
               pattern: BranchPattern,
               patternRegion: Region,
               ctx: Set[Type.Var.Bound],
-              guardF: Option[F[TypedExpr[A]]],
+              originalGuardNode: Option[BranchGuard[A]],
+              guardF: Option[F[BranchGuard[A]]],
               exprF: F[TypedExpr[A]]
           ): F[Branch[A]] = {
             val patternF = pattern.traverseType(t => applyFn(t, ctx))
-            guardF match {
-              case Some(gf) =>
-                (patternF, gf, exprF).mapN((pat, guard, expr) =>
-                  Branch(pat, Some(guard), expr)(using patternRegion)
-                )
-              case None     =>
-                (patternF, exprF).mapN((pat, expr) =>
-                  Branch(pat, None, expr)(using patternRegion)
-                )
-            }
+            val guardNodeF =
+              originalGuardNode match {
+                case Some(original @ MatchGuard(_, guardPattern, _)) =>
+                  val rebuiltGuardF = guardF.getOrElse(
+                    throw new IllegalStateException(
+                      s"missing rebuilt MatchGuard for branch: $original"
+                    )
+                  )
+                  (
+                    guardPattern.traverseType(t => applyFn(t, ctx)),
+                    rebuiltGuardF
+                  ).mapN { (guardPattern1, guard) =>
+                    guard match {
+                      case MatchGuard(argExpr, _, guardExpr) =>
+                        Some(
+                          MatchGuard(argExpr, guardPattern1, guardExpr)(using
+                            original.patternRegion
+                          )
+                        )
+                      case other =>
+                        throw new IllegalStateException(
+                          s"expected rebuilt MatchGuard, found: $other"
+                        )
+                    }
+                  }
+                case Some(_: BoolGuard[A]) =>
+                  guardF.getOrElse(
+                    throw new IllegalStateException(
+                      "missing rebuilt BoolGuard for branch"
+                    )
+                  ).map(Some(_))
+                case None                  =>
+                  summon[Applicative[F]].pure(None)
+              }
+            (patternF, guardNodeF, exprF).mapN((pat, guard, expr) =>
+              Branch.fromGuardNode(pat, guard, expr)(using patternRegion)
+            )
           }
 
           def mtch(
@@ -2205,13 +2589,14 @@ object TypedExpr {
             pattern: BranchPattern,
             patternRegion: Region,
             ctx: Unit,
-            guardF: Option[F[TypedExpr[A]]],
+            originalGuardNode: Option[BranchGuard[A]],
+            guardF: Option[F[BranchGuard[A]]],
             exprF: F[TypedExpr[A]]
         ): F[Branch[A]] =
           guardF match {
             case Some(gf) =>
               mon.map2(gf, exprF)((guard, expr) =>
-                Branch(pattern, Some(guard), expr)(using patternRegion)
+                Branch.fromGuardNode(pattern, Some(guard), expr)(using patternRegion)
               )
             case None     =>
               exprF.map(expr => Branch(pattern, None, expr)(using patternRegion))
@@ -2237,12 +2622,7 @@ object TypedExpr {
     /** Here are all the global names inside this expression
       */
     def globals: Set[(PackageName, Identifier)] = {
-      type GlobalsWriter[A] = Writer[Set[(PackageName, Identifier)], A]
-      traverseUp[GlobalsWriter] {
-        case g @ Global(p, i, _, _) =>
-          Writer(Set[(PackageName, Identifier)]((p, i)), g)
-        case notG => Monad[GlobalsWriter].pure(notG)
-      }.written
+      TypedExpr.collectGlobalRefs(self)
     }
   }
 
@@ -2482,22 +2862,27 @@ object TypedExpr {
            */
           val allMatchMetas: F[SortedSet[Type.Meta]] =
             getMetaTyVars(arg.getType :: branches.foldMap { branch =>
-              allPatternTypes(branch.pattern) ++ branch.guard.fold(
-                Set.empty[Type]
-              )(_.allTypes)
+              branch.foldGuardExpr(allBranchPatternTypes(branch).toSet) {
+                case (acc, guardExpr) => acc ++ guardExpr.allTypes
+              }
             }.toList)
 
           val env1 = env + te.getType
           def handleBranch(br: Branch[A]): F[Branch[A]] = {
-            val p = br.pattern
-            val branchEnv = env1 ++ Pattern
-              .envOf(p, Map.empty)(ident => (None, ident))
-              .values
+            val outerBranchEnv = env1 ++ patternEnvTypes(br.pattern)
+            val innerBranchEnv =
+              br.guardPattern match {
+                case Some(pattern) => outerBranchEnv ++ patternEnvTypes(pattern)
+                case None          => outerBranchEnv
+              }
             mon.map2(
-              br.guard.traverse(deepQuantify(branchEnv, _)),
-              deepQuantify(branchEnv, br.expr)
+              br.traverseGuardNodeExprScoped(
+                deepQuantify(outerBranchEnv, _),
+                deepQuantify(innerBranchEnv, _)
+              ),
+              deepQuantify(innerBranchEnv, br.expr)
             ) { (guard, expr) =>
-              br.copy(guard = guard, expr = expr)
+              br.copyNode(br.pattern, guard, expr)(using br.patternRegion)
             }
           }
 
@@ -2639,13 +3024,14 @@ object TypedExpr {
               pattern: BranchPattern,
               patternRegion: Region,
               ctx: Unit,
-              guardF: Option[F[TypedExpr[S]]],
+              originalGuardNode: Option[BranchGuard[T]],
+              guardF: Option[F[BranchGuard[S]]],
               exprF: F[TypedExpr[S]]
           ): F[Branch[S]] =
             guardF match {
               case Some(gf) =>
                 (gf, exprF).mapN((guard, expr) =>
-                  Branch(pattern, Some(guard), expr)(using patternRegion)
+                  Branch.fromGuardNode(pattern, Some(guard), expr)(using patternRegion)
                 )
               case None     =>
                 exprF.map(expr => Branch(pattern, None, expr)(using patternRegion))
@@ -2725,7 +3111,7 @@ object TypedExpr {
                   while (revBranches.hasNext) {
                     val branch = revBranches.next()
                     work = Visit(branch.expr) :: work
-                    branch.guard.foreach { guard =>
+                    branch.guardExprIterator.foreach { guard =>
                       work = Visit(guard) :: work
                     }
                   }
@@ -2923,6 +3309,17 @@ object TypedExpr {
   private def allPatternTypes[N](p: Pattern[N, Type]): SortedSet[Type] =
     p.traverseType(t => Writer[SortedSet[Type], Type](SortedSet(t), t)).run._1
 
+  private def allBranchPatternTypes[A](branch: Branch[A]): SortedSet[Type] =
+    branch.guardPattern match {
+      case Some(pattern) =>
+        allPatternTypes(branch.pattern) | allPatternTypes(pattern)
+      case None          =>
+        allPatternTypes(branch.pattern)
+    }
+
+  private def patternEnvTypes[N](p: Pattern[N, Type]): Set[Type] =
+    Pattern.envOf(p, Map.empty)(ident => (None, ident)).values.toSet
+
   // Invariant, nel must have at least one item in common with quant.vars
   private def filterQuant(
       nel: NonEmptyList[Type.Var],
@@ -2961,8 +3358,9 @@ object TypedExpr {
       // we can do the same thing on Match
       case m @ Match(arg, branches, tag) =>
         val preTypes = branches.foldLeft(arg.allTypes) { case (ts, branch) =>
-          ts | allPatternTypes(branch.pattern) | branch.guard
-            .fold(SortedSet.empty[Type])(_.allTypes)
+          branch.foldGuardExpr(ts | allBranchPatternTypes(branch)) {
+            case (acc, guardExpr) => acc | guardExpr.allTypes
+          }
         }
         val argFree = Type.freeBoundTyVars(preTypes.toList).toSet
         if (Type.quantVars(g.quantType).exists { case (b, _) => argFree(b) }) {
@@ -2970,13 +3368,13 @@ object TypedExpr {
         } else {
           // the only the branches have generics
           val b1 = branches.map { branch =>
-            val g1 = branch.guard.map { guard =>
+            val g1 = branch.mapGuardNodeExpr { guard =>
               val gg = Generic(g.quant, guard)
               pushGeneric(gg).getOrElse(gg)
             }
             val gb = Generic(g.quant, branch.expr)
             val gb1 = pushGeneric(gb).getOrElse(gb)
-            branch.copy(guard = g1, expr = gb1)
+            branch.copyNode(branch.pattern, g1, gb1)(using branch.patternRegion)
           }
           Some(Match(m.matchKind, arg, b1, tag))
         }
@@ -3093,7 +3491,11 @@ object TypedExpr {
                 Match(
                   m.matchKind,
                   arg,
-                  branches.map(branch => branch.copy(expr = self(branch.expr))),
+                  branches.map(branch =>
+                    branch.copyNode(branch.pattern, branch.guardNode, self(branch.expr))(using
+                      branch.patternRegion
+                    )
+                  ),
                   tag
                 )
             }
@@ -3280,45 +3682,46 @@ object TypedExpr {
         case Recur(args, tpe, tag) =>
           args.traverse(loop(table, _)).map(Recur(_, tpe, tag))
         case m @ Match(arg, branches, tag) =>
+          def substitutionFreeSet(
+              table0: Map[Bindable, Local[A] => TypedExpr[A]],
+              dummyTpe: Type
+          ): Set[Bindable] =
+            table0.iterator
+              .map { case (n, v) =>
+                freeVarsSet(v(Local(n, tpe = dummyTpe, tag)) :: Nil)
+              }
+              .foldLeft(table0.keySet)(_ | _)
+
           // Maintain the order we encounter things:
           val arg1 = loop(table, arg)
           val b1 = branches.traverse { in =>
-            val p = in.pattern
-            // these are not free variables in this branch
-            val ns = p.names
-
-            val (table1, branch1) =
-              if (ns.isEmpty) (table, in)
-              else {
-                // the args here can shadow, so we have to remove any
-                // items from subMap that have the same Ident
-                val argsSet = ns.toSet
-                val nonShadowed =
-                  if (argsSet.isEmpty) table
-                  else table.filterNot { case (i, _) => argsSet(i) }
-
-                // if subFrees is empty, unshadow is a no-op.
-                // but that is efficiently handled by unshadow
-                val subFrees = nonShadowed.iterator
-                  .map { case (n, v) =>
-                    // TODO this isn't great but we just need to get the free vars from the function
-                    // this assumes the replacement free variables is constant over the type
-                    // which it should be otherwise we can make ill-typed TypedExpr
-                    val dummyTpe = in.expr.getType
-                    freeVarsSet(v(Local(n, tpe = dummyTpe, tag)) :: Nil)
-                  }
-                  .foldLeft(nonShadowed.keySet)(_ | _)
-
-                (nonShadowed, unshadowBranch[A](subFrees, in))
-              }
-            // now we know that none of args1 shadow anything in subFrees
-            // so we can just directly substitute nonShadowed on res1
-            // put another way: unshadow make substitute "commute" with lambda.
+            val outerShadowed = in.pattern.names.toSet
+            val bodyShadowed = in.allBindings.toSet
+            val outerTable =
+              if (outerShadowed.isEmpty) table
+              else table.filterNot { case (i, _) => outerShadowed(i) }
+            val bodyTable =
+              if (bodyShadowed == outerShadowed) outerTable
+              else table.filterNot { case (i, _) => bodyShadowed(i) }
+            val dummyTpe = in.expr.getType
+            val branch1 =
+              unshadowBranch[A](
+                substitutionFreeSet(outerTable, dummyTpe),
+                substitutionFreeSet(bodyTable, dummyTpe),
+                in
+              )
+            // `branch1` no longer captures any active substitutions in either
+            // the outer guard scope or the combined guard/body scope.
             (
-              branch1.guard.traverse(loop(table1, _)),
-              loop(table1, branch1.expr)
+              branch1.traverseGuardNodeExprScoped(
+                loop(outerTable, _),
+                loop(bodyTable, _)
+              ),
+              loop(bodyTable, branch1.expr)
             ).mapN { (guard, expr) =>
-              branch1.copy(guard = guard, expr = expr)
+              branch1.copyNode(branch1.pattern, guard, expr)(using
+                branch1.patternRegion
+              )
             }
           }
           (arg1, b1).mapN(Match(m.matchKind, _, _, tag))
@@ -3328,68 +3731,113 @@ object TypedExpr {
   }
 
   private def unshadowBranch[A](
-      freeSet: Set[Bindable],
+      outerFreeSet: Set[Bindable],
+      innerFreeSet: Set[Bindable],
       branch: Branch[A]
   ): Branch[A] = {
-    // we only get in here when p has some names
-    val p = branch.pattern
-    val b = branch.expr
-    val args = NonEmptyList.fromList(p.names) match {
-      case None          => return branch
-      case Some(argsNel) => argsNel
-    }
+    type I = Bindable
 
-    val clashIdent =
-      if (freeSet.isEmpty) Set.empty[Bindable]
-      else args.iterator.filter(freeSet).toSet
+    def inc(n: I, idx: Int): I =
+      n match {
+        case Identifier.Name(nm) => Identifier.Name(nm + idx.toString)
+        case _                   => Identifier.Name("a" + idx.toString)
+      }
 
-    if (clashIdent.isEmpty) branch
-    else {
-      // we have to allocate new variables
-      type I = Bindable
-      def inc(n: I, idx: Int): I =
-        n match {
-          case Identifier.Name(n) => Identifier.Name(n + idx.toString)
-          case _                  => Identifier.Name("a" + idx.toString)
-        }
-
-      def alloc(ident: I, tail: List[I], avoid: Set[I]): NonEmptyList[I] = {
+    def alloc(
+        args: NonEmptyList[I],
+        avoid: Set[I],
+        clashes: Set[I]
+    ): NonEmptyList[I] = {
+      def loop(ident: I, tail: List[I], seen: Set[I]): NonEmptyList[I] = {
         val ident1 =
-          if (clashIdent(ident)) {
-            // the following iterator is infinite and distinct, and the avoid
-            // set is finite, so the get here must terminate in at most avoid.size
-            // steps
+          if (clashes(ident)) {
             Iterator
               .from(0)
               .map(i => inc(ident, i))
-              .collectFirst { case n if !avoid(n) => n }
+              .collectFirst { case n if !seen(n) => n }
               .get
-
           } else ident
 
         tail match {
           case Nil    => NonEmptyList.one(ident1)
           case h :: t =>
-            ident1 :: alloc(h, t, avoid + ident1)
+            ident1 :: loop(h, t, seen + ident1)
         }
       }
 
-      val avoids = freeSet | freeVarsSet(b :: branch.guard.toList)
-      val newArgs = alloc(args.head, args.tail, avoids)
-      val resSub = args.iterator
-        .zip(newArgs.iterator.map { n1 => (loc: Local[A]) =>
-          Local(n1, loc.tpe, loc.tag)
-        })
-        .toMap
-
-      // calling .get is safe when enterLambda = true
-      val b1 = substituteAll(resSub, b, enterLambda = true).get
-      val g1 =
-        branch.guard.map(substituteAll(resSub, _, enterLambda = true).get)
-      val p1 = p.substitute(args.iterator.zip(newArgs.iterator).toMap)
-
-      branch.copy(pattern = p1, guard = g1, expr = b1)
+      loop(args.head, args.tail, avoid)
     }
+
+    def renameOuter(branch0: Branch[A]): Branch[A] =
+      NonEmptyList.fromList(branch0.pattern.names) match {
+        case None       => branch0
+        case Some(args) =>
+          val clashes =
+            if (outerFreeSet.isEmpty) Set.empty[Bindable]
+            else args.iterator.filter(outerFreeSet).toSet
+
+          if (clashes.isEmpty) branch0
+          else {
+            val avoids =
+              outerFreeSet | freeVarsSet(branch0.expr :: branch0.guardExprIterator.toList)
+            val newArgs = alloc(args, avoids, clashes)
+            val resSub = args.iterator
+              .zip(newArgs.iterator.map { n1 => (loc: Local[A]) =>
+                Local(n1, loc.tpe, loc.tag)
+              })
+              .toMap
+
+            val body1 = substituteAll(resSub, branch0.expr, enterLambda = true).get
+            val guard1 = branch0.mapGuardNodeExpr(
+              substituteAll(resSub, _, enterLambda = true).get
+            )
+            val pattern1 = branch0.pattern.substitute(args.iterator.zip(newArgs.iterator).toMap)
+
+            branch0.copyNode(pattern1, guard1, body1)(using branch0.patternRegion)
+          }
+      }
+
+    def renameInner(branch0: Branch[A]): Branch[A] =
+      branch0.guardNode match {
+        case Some(guard @ MatchGuard(argExpr, pattern, guardOpt)) =>
+          NonEmptyList.fromList(pattern.names) match {
+            case None       => branch0
+            case Some(args) =>
+              val clashes =
+                if (innerFreeSet.isEmpty) Set.empty[Bindable]
+                else args.iterator.filter(innerFreeSet).toSet
+
+              if (clashes.isEmpty) branch0
+              else {
+                val avoids =
+                  innerFreeSet |
+                    branch0.pattern.names.toSet |
+                    freeVarsSet(branch0.expr :: branch0.guardExprIterator.toList)
+                val newArgs = alloc(args, avoids, clashes)
+                val resSub = args.iterator
+                  .zip(newArgs.iterator.map { n1 => (loc: Local[A]) =>
+                    Local(n1, loc.tpe, loc.tag)
+                  })
+                  .toMap
+
+                val body1 = substituteAll(resSub, branch0.expr, enterLambda = true).get
+                val guardOpt1 =
+                  guardOpt.map(substituteAll(resSub, _, enterLambda = true).get)
+                val pattern1 =
+                  pattern.substitute(args.iterator.zip(newArgs.iterator).toMap)
+                val guard1 =
+                  MatchGuard(argExpr, pattern1, guardOpt1)(using guard.patternRegion)
+
+                branch0.copyNode(branch0.pattern, Some(guard1), body1)(using
+                  branch0.patternRegion
+                )
+              }
+          }
+        case _                                     =>
+          branch0
+      }
+
+    renameInner(renameOuter(branch))
   }
 
   def substituteTypeVar[A](
@@ -3488,9 +3936,13 @@ object TypedExpr {
         case m @ Match(expr, branches, tag) =>
           val branches1 = branches.map { branch =>
             val p1 = branch.pattern.mapType(Type.substituteVar(_, env))
-            val g1 = branch.guard.map(substituteTypeVar(_, env))
+            val g1 = branch.mapGuardNodeScoped(
+              _.mapType(Type.substituteVar(_, env)),
+              substituteTypeVar(_, env),
+              substituteTypeVar(_, env)
+            )
             val t1 = substituteTypeVar(branch.expr, env)
-            branch.copy(pattern = p1, guard = g1, expr = t1)
+            branch.copyNode(p1, g1, t1)(using branch.patternRegion)
           }
           val expr1 = substituteTypeVar(expr, env)
           Match(m.matchKind, expr1, branches1, tag)
@@ -3574,8 +4026,15 @@ object TypedExpr {
           branches.map { branch =>
             if (branch.pattern.names.contains(name)) branch
             else {
-              val g1 = branch.guard.map(recur)
-              branch.copy(guard = g1, expr = recur(branch.expr))
+              val recurInner: TypedExpr[A] => TypedExpr[A] =
+                if (branch.guardBindings.contains(name)) identity
+                else recur
+              val g1 = branch.mapGuardNodeExprScoped(recur, recurInner)
+              val expr1 = recurInner(branch.expr)
+              if (g1.eq(branch.guardNode) && (expr1 eq branch.expr)) branch
+              else branch.copyNode(branch.pattern, g1, expr1)(using
+                branch.patternRegion
+              )
             }
           },
           tag
@@ -3663,7 +4122,11 @@ object TypedExpr {
             Match(
               m.matchKind,
               arg,
-              branches.map(branch => branch.copy(expr = self(branch.expr))),
+              branches.map(branch =>
+                branch.copyNode(branch.pattern, branch.guardNode, self(branch.expr))(using
+                  branch.patternRegion
+                )
+              ),
               tag
             )
           case App(AnnotatedLambda(lamArgs, body, _), aArgs, _, tag) =>
@@ -3893,31 +4356,44 @@ object TypedExpr {
     }
   }
 
+  private def collectPatternGlobalRefs(
+      pattern: Pattern[(PackageName, Identifier.Constructor), Type]
+  ): Set[(PackageName, Identifier)] = {
+    type GlobalsWriter[X] = Writer[Set[(PackageName, Identifier)], X]
+    pattern
+      .traverseStruct[GlobalsWriter, (PackageName, Identifier.Constructor)] {
+        (name, parts) =>
+          Writer.tell(Set((name._1, name._2: Identifier))) *> parts.map(inner =>
+            Pattern.PositionalStruct(name, inner)
+          )
+      }
+      .written
+  }
+
+  private def collectGlobalRefs[A](
+      te: TypedExpr[A]
+  ): Set[(PackageName, Identifier)] = {
+    type GlobalsWriter[X] = Writer[Set[(PackageName, Identifier)], X]
+    te.traverseUp[GlobalsWriter] {
+      case g @ Global(p, i, _, _) =>
+        Writer.tell(Set[(PackageName, Identifier)]((p, i))).as(g)
+      case m @ Match(_, branches, _) =>
+        Writer
+          .tell(
+            branches.foldMap { branch =>
+              collectPatternGlobalRefs(branch.pattern) |
+                branch.guardPattern.foldMap(collectPatternGlobalRefs)
+            }
+          )
+          .as(m)
+      case notG =>
+        Monad[GlobalsWriter].pure(notG)
+    }.written
+  }
+
   def usedGlobals[A](
       te: TypedExpr[A]
-  ): State[Set[(PackageName, Identifier)], TypedExpr[A]] = {
-    type VSet = Set[(PackageName, Identifier)]
-    type VState[X] = State[VSet, X]
-    te.traverseUp[VState] {
-      case g @ TypedExpr.Global(p, n, _, _) =>
-        State(s => (s + ((p, n)), g))
-      case m @ Match(_, branches, _) =>
-        branches
-          .traverse_ { branch =>
-            branch.pattern
-              .traverseStruct[
-                VState,
-                (PackageName, Identifier.Constructor)
-              ] { (n, parts) =>
-                State.modify[VSet](_ + n) *>
-                  parts.map { inner =>
-                    Pattern.PositionalStruct(n, inner)
-                  }
-              }
-              .void
-          }
-          .as(m)
-      case te => Monad[VState].pure(te)
-    }
-  }
+  ): State[Set[(PackageName, Identifier)], TypedExpr[A]] =
+    State.modify[Set[(PackageName, Identifier)]](_ ++ collectGlobalRefs(te))
+      .as(te)
 }
