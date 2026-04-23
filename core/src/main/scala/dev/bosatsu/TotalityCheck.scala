@@ -272,7 +272,7 @@ case class TotalityCheck(inEnv: TypeEnv[Kind.Arg]) {
         if (isUninhabitedScrutinee) Nil
         else {
           val unguardedPatterns = branchesList.collect {
-            case branch if branch.guard.isEmpty => branch.pattern
+            case branch if branch.isEffectivelyUnguarded => branch.pattern
           }
 
           val uninhabitedMemo =
@@ -315,7 +315,7 @@ case class TotalityCheck(inEnv: TypeEnv[Kind.Arg]) {
                     .isEmpty
               }
               val covered1 =
-                if (branch.guard.isEmpty) branch.pattern :: covered
+                if (branch.isEffectivelyUnguarded) branch.pattern :: covered
                 else covered
               val acc1 =
                 if (isUnreachable) branch.pattern :: acc
@@ -339,7 +339,7 @@ case class TotalityCheck(inEnv: TypeEnv[Kind.Arg]) {
     val matchesAlwaysTrue: ValidatedNel[ExprError[Declaration], Unit] =
       matchExpr.tag match {
         case Declaration.Matches(_, _, None)
-            if branches.head.guard.isEmpty &&
+            if branches.head.isEffectivelyUnguarded &&
               !definitelyUninhabited(
                 Inhabitedness.check(
                   Type.exists(
@@ -463,10 +463,7 @@ case class TotalityCheck(inEnv: TypeEnv[Kind.Arg]) {
               val withBranches =
                 branches.toList.foldRight(withCheck) { (branch, rem) =>
                   val withExpr = Visit(branch.expr) :: rem
-                  branch.guard match {
-                    case Some(g) => Visit(g) :: withExpr
-                    case None    => withExpr
-                  }
+                  branch.guardExprIterator.foldRight(withExpr)(Visit(_) :: _)
                 }
               loop(Visit(arg) :: withBranches, errsRev)
           }

@@ -85,9 +85,29 @@ object NameCheck {
         case Expr.Match(arg, branches, _) =>
           branches.toList.reverseIterator.foreach { branch =>
             val withPat = scope ++ branch.pattern.names
-            stack = ExprWork(branch.expr, withPat) :: stack
-            branch.guard.foreach { guard =>
-              stack = ExprWork(guard, withPat) :: stack
+            branch.guardNode match {
+              case Some(
+                    Expr.MatchGuard(
+                      argExpr,
+                      pattern,
+                      guardOpt,
+                      wholeGuardCheckExpr
+                    )
+                  ) =>
+                val withGuard = withPat ++ pattern.names
+                stack = ExprWork(branch.expr, withGuard) :: stack
+                guardOpt.foreach { guard =>
+                  stack = ExprWork(guard, withGuard) :: stack
+                }
+                wholeGuardCheckExpr.foreach { guard =>
+                  stack = ExprWork(guard, withPat) :: stack
+                }
+                stack = ExprWork(argExpr, withPat) :: stack
+              case _ =>
+                stack = ExprWork(branch.expr, withPat) :: stack
+                branch.guard.foreach { guard =>
+                  stack = ExprWork(guard, withPat) :: stack
+                }
             }
           }
           stack = ExprWork(arg, scope) :: stack

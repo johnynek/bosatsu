@@ -25,7 +25,7 @@ class TestUtilsTypeValidationTest extends munit.FunSuite {
     val body = TypedExpr.Local(ch, Type.CharType, tag)
     val te = TypedExpr.Match(
       scrutinee,
-      NonEmptyList.one(TypedExpr.Branch(pattern, None, body)),
+      NonEmptyList.one(TypedExpr.Branch(pattern, None, body)(using Region.empty)),
       tag
     )
 
@@ -48,7 +48,7 @@ class TestUtilsTypeValidationTest extends munit.FunSuite {
     val body = TypedExpr.Local(ch, Type.StrType, tag)
     val te = TypedExpr.Match(
       scrutinee,
-      NonEmptyList.one(TypedExpr.Branch(pattern, None, body)),
+      NonEmptyList.one(TypedExpr.Branch(pattern, None, body)(using Region.empty)),
       tag
     )
 
@@ -243,7 +243,7 @@ class TestUtilsTypeValidationTest extends munit.FunSuite {
         aType,
         tag
       )
-    )
+    )(using Region.empty)
     val branch1 = TypedExpr.Branch(
       Pattern.WildCard,
       None,
@@ -253,7 +253,7 @@ class TestUtilsTypeValidationTest extends munit.FunSuite {
         aType,
         tag
       )
-    )
+    )(using Region.empty)
     val m = TypedExpr.Match(scrutinee, NonEmptyList.of(branch0, branch1), tag)
     val te = TypedExpr.Generic(
       TypedExpr.Quantification.ForAll(NonEmptyList.one((a, Kind.Type))),

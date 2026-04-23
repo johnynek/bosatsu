@@ -278,6 +278,32 @@ main = 2
     invalid(resolveThenInfer(List(p3, p4)))
   }
 
+  test("constructor imports used only in MatchGuard patterns count as used") {
+    val p1 = parse("""
+package Flags
+export Flag()
+
+enum Flag: Hit, Miss
+
+main = Hit
+""")
+
+    val p2 = parse("""
+package UsesGuard
+from Flags import Hit, Miss
+export main
+
+def classify(x):
+  match x:
+    case _ if x matches Hit: 1
+    case _: 0
+
+main = classify(Miss)
+""")
+
+    valid(resolveThenInfer(List(p1, p2)))
+  }
+
   test("type imports used in external declarations are counted as used") {
     val p1 = parse("""
 package BytesPkg
@@ -432,6 +458,36 @@ main = todo(42)
 
     valid(typeCheckParsed(pack :: Nil, CompileOptions.TypeCheckOnly))
     invalid(typeCheckParsed(pack :: Nil, CompileOptions.Default))
+  }
+
+  test("removed kind refs are detected through MatchGuard wrapper annotations") {
+    val pack = parse("""
+package Foo
+
+type Bad = Int[Int]
+
+def helper(x):
+  match x:
+    case _ if ((x matches _) : Bad):
+      0
+    case _:
+      1
+
+main = 1
+""")
+
+    resolveThenInfer(List(pack)) match {
+      case Validated.Invalid(errs) =>
+        errs.toList.foreach {
+          case _: PackageError.KindInferenceError => ()
+          case other =>
+            fail(
+              s"expected only kind inference errors after pruning removed refs, got: ${errs.toList.mkString(" | ")}; offending error: $other"
+            )
+        }
+      case Validated.Valid(value) =>
+        fail(s"expected kind inference failure, got: $value")
+    }
   }
 
   test("internal predef exports todo only in type-check mode") {

@@ -3,8 +3,10 @@ package dev.bosatsu
 import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
 import dev.bosatsu.rankn.NTypeGen
+import cats.data.NonEmptyList
 import dev.bosatsu.TestUtils.checkLast
 import dev.bosatsu.Identifier.Name
+import dev.bosatsu.rankn.Type
 
 class SelfCallKindTest extends munit.ScalaCheckSuite {
   override def scalaCheckTestParameters =
@@ -70,6 +72,37 @@ def for_all(xs: List[a], fn: a -> B) -> B:
         s"${te.repr}"
       )
     }
+  }
+
+  test("MatchGuard binders shadow self-call classification in branch bodies") {
+    val fName = Name("f")
+    val gName = Name("g")
+    val intType = Type.IntType
+    val fnType = Type.Fun(NonEmptyList.one(intType), intType)
+    val guarded = TypedExpr.Match(
+      TypedExpr.Literal(Lit.fromInt(0), intType, ()),
+      NonEmptyList.one(
+        TypedExpr.Branch.fromGuardNode(
+          Pattern.WildCard,
+          Some(
+            TypedExpr.MatchGuard(
+              TypedExpr.Local(gName, fnType, ()),
+              Pattern.Var(fName): Pattern[(PackageName, Identifier.Constructor), Type],
+              None
+            )(using Region.empty)
+          ),
+          TypedExpr.App(
+            TypedExpr.Local(fName, fnType, ()),
+            NonEmptyList.one(TypedExpr.Literal(Lit.fromInt(1), intType, ())),
+            intType,
+            ()
+          )
+        )(using Region.empty)
+      ),
+      ()
+    )
+
+    assertEquals(SelfCallKind(fName, guarded), SelfCallKind.NoCall)
   }
 
   test("TypedExpr.Let.selfCallKind terminates and doesn't throw") {

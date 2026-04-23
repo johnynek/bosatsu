@@ -105,22 +105,23 @@ object TypedExprLoopRecurLowering {
       case m @ Match(arg, branches, tag) =>
         val arg1 = rewriteTailCalls(name, arg, tailPos = false, canRecur)
         val branches1 = ListUtil.mapConserveNel(branches) { branch =>
-          val p = branch.pattern
-          val canRecurBranch =
-            canRecur && !p.names.contains(name)
-          val guard1 = branch.guard match {
-            case Some(g) =>
-              val g1 =
-                rewriteTailCalls(name, g, tailPos = false, canRecurBranch)
-              if (g1 eq g) branch.guard
-              else Some(g1)
-            case None =>
-              None
-          }
+          val canRecurOuter =
+            canRecur && !branch.pattern.names.contains(name)
+          val canRecurInner =
+            canRecurOuter && !branch.guardBindings.contains(name)
+          val guard1 = branch.mapGuardNodeExprScoped(
+            rewriteTailCalls(name, _, tailPos = false, canRecurOuter),
+            rewriteTailCalls(name, _, tailPos = false, canRecurInner)
+          )
           val branchExpr1 =
-            rewriteTailCalls(name, branch.expr, tailPos, canRecurBranch)
-          if (guard1.eq(branch.guard) && (branchExpr1 eq branch.expr)) branch
-          else branch.copy(guard = guard1, expr = branchExpr1)
+            rewriteTailCalls(name, branch.expr, tailPos, canRecurInner)
+          if (guard1.eq(branch.guardNode) && (branchExpr1 eq branch.expr)) branch
+          else
+            branch.copyNode(
+              branch.pattern,
+              guard1,
+              branchExpr1
+            )(using branch.patternRegion)
         }
         if ((arg1 eq arg) && (branches1 eq branches)) m
         else Match(m.matchKind, arg1, branches1, tag)
@@ -155,9 +156,9 @@ object TypedExprLoopRecurLowering {
         !inNestedLoop
       case Match(arg, branches, _) =>
         hasOuterRecur(arg, inNestedLoop) || branches.exists {
-          case Branch(_, guard, branchExpr) =>
-            guard.exists(hasOuterRecur(_, inNestedLoop)) ||
-            hasOuterRecur(branchExpr, inNestedLoop)
+          branch =>
+            branch.guardExprIterator.exists(hasOuterRecur(_, inNestedLoop)) ||
+            hasOuterRecur(branch.expr, inNestedLoop)
         }
       case Local(_, _, _) | Global(_, _, _, _) | Literal(_, _, _) =>
         false
@@ -171,6 +172,85 @@ object TypedExprLoopRecurLowering {
       case Generic(_, in)    => stripTypeWrappers(in)
       case Annotation(in, _, _) => stripTypeWrappers(in)
       case other             => other
+    }
+
+  private def isPredefBoolCtor[A](
+      te: TypedExpr[A],
+      ctorName: String
+  ): Boolean =
+    stripTypeWrappers(te) match {
+      case Global(
+            PackageName.PredefName,
+            Identifier.Constructor(`ctorName`),
+            _,
+            _
+          ) =>
+        true
+      case _ =>
+        false
+    }
+
+  private def decodeSourceLoopMatchGuard[A](
+      guardExpr: TypedExpr[A]
+  ): Option[TypedExpr.MatchGuard[A]] =
+    stripTypeWrappers(guardExpr) match {
+      // Recursive source `loop`/`recur` branches should have already
+      // classified whole-guard `matches` forms as scoped guards. If such a
+      // branch still reaches loop lowering in the canonical `match ... True/False`
+      // encoding, recover the scoped form before binder-sensitive rewrites.
+      case Match(argExpr, branches, _) =>
+        branches.toList match {
+          case head :: tail :: Nil
+              if tail.pattern == Pattern.WildCard &&
+                tail.guardNode.isEmpty &&
+                isPredefBoolCtor(head.expr, "True") &&
+                isPredefBoolCtor(tail.expr, "False") =>
+            Some(
+              TypedExpr.MatchGuard(
+                argExpr,
+                head.pattern,
+                head.guard
+              )(using head.patternRegion)
+            )
+          case _ =>
+            None
+        }
+      case _ =>
+        None
+    }
+
+  private def recursiveGuardRecoveryProvenance(
+      tag: Any,
+      branchCount: Int
+  ): Option[Vector[Boolean]] =
+    tag match {
+      case Declaration.Match(kind, _, cases) if kind.isRecursive =>
+        val provenance =
+          cases.get.toList.map(_.guard.exists(Declaration.ConditionalMatch.unapply(_).nonEmpty))
+        if (provenance.lengthCompare(branchCount) == 0)
+          Some(provenance.toVector)
+        else None
+      case _ =>
+        None
+    }
+
+  private def restoreRecursiveMatchGuard[A](
+      branch: TypedExpr.Branch[A],
+      allowRecovery: Boolean
+  ): TypedExpr.Branch[A] =
+    if (!allowRecovery) branch
+    else branch.guardNode match {
+      case Some(TypedExpr.BoolGuard(guardExpr)) =>
+        decodeSourceLoopMatchGuard(guardExpr) match {
+          case Some(matchGuard) =>
+            branch.copyNode(branch.pattern, Some(matchGuard), branch.expr)(using
+              branch.patternRegion
+            )
+          case None             =>
+            branch
+        }
+      case _ =>
+        branch
     }
 
   private case class GroupedLambda[A](
@@ -421,24 +501,61 @@ object TypedExprLoopRecurLowering {
             RewriteResult(expr1, changed, sawSelf)
           }
         case m @ Match(arg, branches, tag) =>
+          def rewriteGuard(
+              branch: TypedExpr.Branch[A],
+              canRecurOuter: Boolean,
+              canRecurInner: Boolean
+          ): Option[(Option[TypedExpr.BranchGuard[A]], Boolean, Boolean)] =
+            branch.guardNode match {
+              case Some(TypedExpr.BoolGuard(guardExpr)) =>
+                recur(guardExpr, canRecurOuter).map { guard1 =>
+                  val changed = guard1.changed
+                  val guardNode1 =
+                    if (changed) Some(TypedExpr.BoolGuard(guard1.expr))
+                    else branch.guardNode
+                  (guardNode1, changed, guard1.sawSelfRef)
+                }
+              case Some(guard @ TypedExpr.MatchGuard(argExpr, pattern, guardOpt)) =>
+                map2(
+                  recur(argExpr, canRecurOuter),
+                  guardOpt.traverse(recur(_, canRecurInner))
+                ) { (arg1, innerGuard1) =>
+                  val changed = arg1.changed || innerGuard1.exists(_.changed)
+                  val sawSelf = arg1.sawSelfRef || innerGuard1.exists(_.sawSelfRef)
+                  val guardNode1 =
+                    if (!changed) branch.guardNode
+                    else
+                      Some(
+                        TypedExpr.MatchGuard(
+                          arg1.expr,
+                          pattern,
+                          innerGuard1.map(_.expr)
+                        )(using guard.patternRegion)
+                      )
+                  (guardNode1, changed, sawSelf)
+                }
+              case None =>
+                Some((None, false, false))
+            }
+
           map2(
             recur(arg, canRecur),
             branches.traverse { branch =>
-              val canRecurBranch =
+              val canRecurOuter =
                 canRecur && !branch.pattern.names.contains(fnName)
+              val canRecurInner =
+                canRecurOuter && !branch.guardBindings.contains(fnName)
               map2(
-                branch.guard.traverse(recur(_, canRecurBranch)),
-                recur(branch.expr, canRecurBranch)
+                rewriteGuard(branch, canRecurOuter, canRecurInner),
+                recur(branch.expr, canRecurInner)
               ) { (guard1, expr1) =>
-                val changed =
-                  guard1.exists(_.changed) || expr1.changed
-                val sawSelf =
-                  guard1.exists(_.sawSelfRef) || expr1.sawSelfRef
+                val (guardNode1, guardChanged, guardSawSelf) = guard1
+                val changed = guardChanged || expr1.changed
+                val sawSelf = guardSawSelf || expr1.sawSelfRef
                 val branch1 =
                   if (changed) {
-                    branch.copy(
-                      guard = guard1.map(_.expr),
-                      expr = expr1.expr
+                    branch.copyNode(branch.pattern, guardNode1, expr1.expr)(using
+                      branch.patternRegion
                     )
                   } else branch
                 (branch1, changed, sawSelf)
@@ -553,19 +670,41 @@ object TypedExprLoopRecurLowering {
         case Match(arg, branches, _) =>
           loop(arg, canRecur, expectedVarsInScope, expectedVarsShadowed) &&
             branches.forall { branch =>
-              val canRecurBranch =
+              val canRecurOuter =
                 canRecur && !branch.pattern.names.contains(fnName)
-              branch.guard.forall(
-                loop(
-                  _,
-                  canRecurBranch,
-                  expectedVarsInScope,
-                  expectedVarsShadowed
-                )
-              ) &&
+              val canRecurInner =
+                canRecurOuter && !branch.guardBindings.contains(fnName)
+              val guardValid =
+                branch.guardNode match {
+                  case Some(TypedExpr.BoolGuard(guardExpr)) =>
+                    loop(
+                      guardExpr,
+                      canRecurOuter,
+                      expectedVarsInScope,
+                      expectedVarsShadowed
+                    )
+                  case Some(TypedExpr.MatchGuard(argExpr, _, guardOpt)) =>
+                    loop(
+                      argExpr,
+                      canRecurOuter,
+                      expectedVarsInScope,
+                      expectedVarsShadowed
+                    ) &&
+                      guardOpt.forall(
+                        loop(
+                          _,
+                          canRecurInner,
+                          expectedVarsInScope,
+                          expectedVarsShadowed
+                        )
+                      )
+                  case None =>
+                    true
+                }
+              guardValid &&
               loop(
                 branch.expr,
-                canRecurBranch,
+                canRecurInner,
                 expectedVarsInScope,
                 expectedVarsShadowed
               )
@@ -787,12 +926,27 @@ object TypedExprLoopRecurLowering {
         if (args1 eq args) recur
         else Recur(args1, tpe, tag)
       case m @ Match(arg, branches, tag) =>
+        val branches0 =
+          recursiveGuardRecoveryProvenance(tag, branches.length) match {
+            case Some(provenance) =>
+              val restored =
+                branches.toList
+                  .zip(provenance.iterator)
+                  .map { case (branch, allowRecovery) =>
+                    restoreRecursiveMatchGuard(branch, allowRecovery)
+                  }
+              NonEmptyList.fromListUnsafe(restored)
+            case None =>
+              branches
+          }
         val arg1 = lowerExpr(arg)
-        val branches1 = ListUtil.mapConserveNel(branches) { branch =>
-          val guard1 = branch.guard.map(lowerExpr(_))
+        val branches1 = ListUtil.mapConserveNel(branches0) { branch =>
+          val guard1 = branch.mapGuardNodeExpr(lowerExpr(_))
           val expr1 = lowerExpr(branch.expr)
-          if (guard1.eq(branch.guard) && (expr1 eq branch.expr)) branch
-          else branch.copy(guard = guard1, expr = expr1)
+          if (guard1.eq(branch.guardNode) && (expr1 eq branch.expr)) branch
+          else branch.copyNode(branch.pattern, guard1, expr1)(using
+            branch.patternRegion
+          )
         }
         if ((arg1 eq arg) && (branches1 eq branches)) m
         else Match(m.matchKind, arg1, branches1, tag)

@@ -237,6 +237,49 @@ class ShadowedBindingTypeCheckTest extends munit.FunSuite {
     }
   }
 
+  test("match guard pattern binder shadow with the same type passes") {
+    val source =
+      """
+      def keep(x: Int) -> Option[Int]:
+        Some(x)
+
+      main = match (1, 2):
+        case (x, y) if keep(x) matches Some(x):
+          x.add(y)
+        case _:
+          0
+      """
+
+    positiveCheck(source)
+    optimizedCompilePackagesSucceeds(
+      List(
+        s"""package MatchGuardSameShadow
+           |${normalizeSource(source)}
+           |""".stripMargin
+      ),
+      "MatchGuardSameShadow"
+    )
+  }
+
+  test("match guard pattern binder shadow with a different type fails") {
+    negativeCheck(
+      """
+      def as_string(x: Int) -> Option[String]:
+        Some(int_to_String(x))
+
+      main = match (1, 2):
+        case (x, y) if as_string(x) matches Some(x):
+          x
+      """
+    ) { (err, msg) =>
+      assertEquals(err.name, bindable("x"))
+      assertEquals(err.previous.site, BindingSite.PatternBinding)
+      assertEquals(err.current.site, BindingSite.PatternBinding)
+      assert(msg.contains("previous type: Int"), msg)
+      assert(msg.contains("current type: String"), msg)
+    }
+  }
+
   test("pattern binding cannot shadow a lambda arg with a different type") {
     negativeCheck(
       """

@@ -4,6 +4,7 @@ import cats.Show
 import cats.data.{NonEmptyList, Validated}
 import cats.data.Ior
 import IorMethods.IorExtension
+import dev.bosatsu.rankn.Type
 import scala.concurrent.duration.DurationInt
 import scala.util.Try
 
@@ -1391,6 +1392,99 @@ def walk(idx: Int, stack: List[Node]) -> Int:
     case _:
       idx
 """)
+  }
+
+  test("guard-bound names report illegal recursion shadowing before body use") {
+    val source = """#
+def f(opt: Int, y: Int) -> Int:
+  if opt.eq_Int(y):
+    opt
+  else:
+    y
+"""
+
+    val (env, lets, stmts) = typedLetsOf(source)
+    val fName = Identifier.Name("f")
+    val optName = Identifier.Name("opt")
+    val yName = Identifier.Name("y")
+    val intType = Type.IntType
+    val boolType = Type.BoolType
+    val fTag =
+      lets.collectFirst { case (`fName`, _, expr) => expr.tag } match {
+        case Some(tag) => tag
+        case None      => fail("expected typed let for f")
+      }
+    val eqInt = TypedExpr.Global(
+      PackageName.PredefName,
+      Identifier.Name("eq_Int"),
+      Type.Fun(NonEmptyList.of(intType, intType), boolType),
+      fTag
+    )
+    val optLocal = TypedExpr.Local(optName, intType, fTag)
+    val yLocal = TypedExpr.Local(yName, intType, fTag)
+    val shadowedLocal = TypedExpr.Local(fName, intType, fTag)
+    val guardedBody = TypedExpr.Match(
+      optLocal,
+      NonEmptyList.of(
+        TypedExpr.Branch.fromGuardNode(
+          Pattern.WildCard,
+          Some(
+            TypedExpr.MatchGuard(
+              yLocal,
+              Pattern.Var(fName): Pattern[(PackageName, Identifier.Constructor), Type],
+              Some(
+                TypedExpr.App(
+                  eqInt,
+                  NonEmptyList.of(shadowedLocal, yLocal),
+                  boolType,
+                  fTag
+                )
+              )
+            )(using Region.empty)
+          ),
+          shadowedLocal
+        )(using Region.empty),
+        TypedExpr.Branch(Pattern.WildCard, None, TypedExpr.Literal(Lit.fromInt(0), intType, fTag))(using
+          Region.empty
+        )
+      ),
+      fTag
+    )
+    val guardedExpr =
+      TypedExpr.AnnotatedLambda(
+        NonEmptyList.of((optName, intType), (yName, intType)),
+        guardedBody,
+        fTag
+      )
+
+    val rewrittenLets = lets.map {
+      case (`fName`, rec, _) =>
+        (fName, rec, guardedExpr)
+      case other =>
+        other
+    }
+
+    TypedExprRecursionCheck.checkLets(
+      pack,
+      env,
+      rewrittenLets,
+      TypedExprRecursionCheck.topLevelDefArgs(stmts)
+    ) match {
+      case Validated.Invalid(errs) =>
+        val errList = errs.iterator.toList
+        val illegalShadows = errList.collect {
+          case err: RecursionCheck.IllegalShadow =>
+            err.fnname
+        }
+        val invalidRecursions = errList.collect {
+          case err: RecursionCheck.InvalidRecursion =>
+            err.name
+        }
+        assert(illegalShadows.contains(fName), errList.mkString(", "))
+        assert(!invalidRecursions.contains(fName), errList.mkString(", "))
+      case Validated.Valid(_) =>
+        fail("expected recursion checker to reject the guard-bound shadow")
+    }
   }
 
   test("loop combines renamed subsumed guards with shared loop-variable guards") {

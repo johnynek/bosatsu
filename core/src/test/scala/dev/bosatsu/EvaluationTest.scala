@@ -3291,6 +3291,253 @@ test = TestSuite("conditional matches", [
     )
   }
 
+  test("match branch MatchGuards evaluate like explicit nested matches") {
+    runBosatsuTest(
+      List("""
+package Foo
+
+def split_even(i: Int) -> (Int, Int):
+  (i, i.mod_Int(2))
+
+def guarded(pair):
+  match pair:
+    case (x, y) if split_even(x) matches (even_x, 0):
+      add(even_x, y)
+    case (_, 0):
+      99
+    case (_, y):
+      y
+
+def explicit(pair):
+  match pair:
+    case (x, y):
+      match split_even(x):
+        case (even_x, 0):
+          add(even_x, y)
+        case _:
+          match pair:
+            case (_, 0):
+              99
+            case (_, y):
+              y
+
+def guarded_with_inner(pair):
+  match pair:
+    case (x, y) if split_even(x) matches (even_x, 0) if y.mod_Int(2) matches 1:
+      add(even_x, y)
+    case (_, y):
+      y
+
+def explicit_with_inner(pair):
+  match pair:
+    case (x, y):
+      match split_even(x):
+        case (even_x, 0) if y.mod_Int(2) matches 1:
+          add(even_x, y)
+        case _:
+          y
+
+test = TestSuite("match branch MatchGuards", [
+  Assertion(guarded((4, 2)).eq_Int(explicit((4, 2))), "success"),
+  Assertion(guarded((3, 0)).eq_Int(explicit((3, 0))), "guard pattern failure reaches later branch"),
+  Assertion(guarded((3, 2)).eq_Int(explicit((3, 2))), "guard pattern failure reaches fallback"),
+  Assertion(guarded_with_inner((4, 1)).eq_Int(explicit_with_inner((4, 1))), "inner guard success"),
+  Assertion(guarded_with_inner((4, 2)).eq_Int(explicit_with_inner((4, 2))), "inner guard failure")
+])
+"""),
+      "Foo",
+      5
+    )
+  }
+
+  test("MatchGuard shadowing preserves closure semantics after normalization") {
+    runBosatsuTest(
+      List("""
+package Foo
+
+def shadow_fn():
+  n -> n.add(100)
+
+def closure_guarded(y, cond):
+  f = z -> y.add(z)
+  match cond:
+    case 0 if shadow_fn() matches f if f(1).eq_Int(101):
+      f(2)
+    case _:
+      f(3)
+
+def closure_explicit(y, cond):
+  f = z -> y.add(z)
+  match cond:
+    case 0:
+      match shadow_fn():
+        case f if f(1).eq_Int(101):
+          f(2)
+        case _:
+          f(3)
+    case _:
+      f(3)
+
+test = TestSuite("MatchGuard shadowing", [
+  Assertion(closure_guarded(10, 0).eq_Int(closure_explicit(10, 0)), "shadowed closure binder matches explicit nested match"),
+  Assertion(closure_guarded(10, 0).eq_Int(102), "shadowed closure binder keeps inner lambda calls"),
+  Assertion(closure_guarded(10, 1).eq_Int(closure_explicit(10, 1)), "outer fallback still uses captured closure")
+])
+"""),
+      "Foo",
+      3
+    )
+  }
+
+  test("MatchGuard shadowing keeps explicit loop/recur slots through normalization") {
+    runBosatsuTest(
+      List("""
+package Foo
+
+enum Nat: Z, S(prev: Nat)
+
+def to_int(n: Nat) -> Int:
+  recur n:
+    case Z: 0
+    case S(prev): to_int(prev).add(1)
+
+def keep_nat(n: Nat) -> Option[Nat]:
+  Some(n)
+
+def guarded(n: Nat, x: Nat) -> Nat:
+  loop (n, x):
+    case (S(prev), _) if keep_nat(prev) matches Some(x):
+      guarded(prev, x)
+    case (_, final_x):
+      final_x
+
+def explicit(n: Nat, x: Nat) -> Nat:
+  loop (n, x):
+    case (S(prev), _):
+      match keep_nat(prev):
+        case Some(x):
+          explicit(prev, x)
+        case _:
+          x
+    case (_, final_x):
+      final_x
+
+start_n = S(S(Z))
+start_x = S(S(S(Z)))
+
+test = TestSuite("MatchGuard loop/recur shadowing", [
+  Assertion(
+    to_int(guarded(start_n, start_x)).eq_Int(to_int(explicit(start_n, start_x))),
+    "guarded loop matches explicit nested match"
+  ),
+  Assertion(
+    to_int(guarded(start_n, start_x)).eq_Int(0),
+    "shadowed recur slot follows the inner MatchGuard binder"
+  )
+])
+"""),
+      "Foo",
+      2
+    )
+  }
+
+  test("explicit boolean recursive guards keep guard binders local to the guard") {
+    runBosatsuTest(
+      List("""
+package Foo
+
+enum Nat: Z, S(prev: Nat)
+
+def to_int(n: Nat) -> Int:
+  recur n:
+    case Z: 0
+    case S(prev): to_int(prev).add(1)
+
+def keep_nat(n: Nat) -> Option[Nat]:
+  Some(n)
+
+def use_nat(n: Nat) -> Bool:
+  match n:
+    case Z: True
+    case S(_): True
+
+def id_nat(n: Nat) -> Nat:
+  n
+
+def match_loop(n: Nat, x: Nat) -> Nat:
+  loop (n, x):
+    case (S(prev), _) if keep_nat(prev) matches Some(x):
+      match_loop(prev, x)
+    case (_, final_x):
+      final_x
+
+def bool_loop(n: Nat, x: Nat) -> Nat:
+  loop (n, x):
+    case (S(prev), _) if (match keep_nat(prev):
+      case Some(x): use_nat(x)
+      case _: False):
+      bool_loop(prev, x)
+    case (_, final_x):
+      final_x
+
+def explicit_bool_loop(n: Nat, x: Nat) -> Nat:
+  loop (n, x):
+    case (S(prev), _) if (match keep_nat(prev):
+      case Some(inner_x): use_nat(inner_x)
+      case _: False):
+      explicit_bool_loop(prev, x)
+    case (_, final_x):
+      final_x
+
+def bool_recur(n: Nat, x: Nat) -> Nat:
+  recur n:
+    case S(prev) if (match keep_nat(prev):
+      case Some(x): use_nat(x)
+      case _: False):
+      id_nat(bool_recur(prev, x))
+    case _:
+      x
+
+def explicit_bool_recur(n: Nat, x: Nat) -> Nat:
+  recur n:
+    case S(prev) if (match keep_nat(prev):
+      case Some(inner_x): use_nat(inner_x)
+      case _: False):
+      id_nat(explicit_bool_recur(prev, x))
+    case _:
+      x
+
+start_n = S(S(Z))
+start_x = S(S(S(Z)))
+
+test = TestSuite("recursive bool guards", [
+  Assertion(
+    to_int(match_loop(start_n, start_x)).eq_Int(0),
+    "whole-guard matches still shadow the recur slot"
+  ),
+  Assertion(
+    to_int(bool_loop(start_n, start_x)).eq_Int(to_int(explicit_bool_loop(start_n, start_x))),
+    "explicit boolean loop guard matches explicit guard evaluation"
+  ),
+  Assertion(
+    to_int(bool_loop(start_n, start_x)).eq_Int(3),
+    "explicit boolean loop guard keeps the outer branch binder"
+  ),
+  Assertion(
+    to_int(bool_recur(start_n, start_x)).eq_Int(to_int(explicit_bool_recur(start_n, start_x))),
+    "explicit boolean recur guard matches explicit guard evaluation"
+  ),
+  Assertion(
+    to_int(bool_recur(start_n, start_x)).eq_Int(3),
+    "explicit boolean recur guard keeps the outer branch binder"
+  )
+])
+"""),
+      "Foo",
+      5
+    )
+  }
+
   test("array externals evaluate") {
     runBosatsuTest(
       List(

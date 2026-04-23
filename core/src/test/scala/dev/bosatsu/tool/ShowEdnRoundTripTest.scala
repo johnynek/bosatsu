@@ -6,6 +6,7 @@ import dev.bosatsu.{
   Generators,
   ImportMap,
   Json,
+  Lit,
   LocationMap,
   Matchless,
   MatchlessFromTypedExpr,
@@ -25,6 +26,7 @@ import dev.bosatsu.{
   Program,
   RecursionKind,
   Referant,
+  Region,
   TypeName,
   TypedExpr
 }
@@ -85,6 +87,113 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
       case Right(value) => value
       case Left(err)    => fail(err)
     }
+
+  test("typedExpr codec round trips explicit BoolGuard branches") {
+    val intType = Type.IntType
+    val boolType = Type.BoolType
+    val value = Identifier.Name("value")
+    val valueExpr = TypedExpr.Local(value, intType, ())
+    val eqInt = TypedExpr.Global(
+      PackageName.PredefName,
+      Identifier.Name("eq_Int"),
+      Type.Fun(NonEmptyList.of(intType, intType), boolType),
+      ()
+    )
+    val guardExpr = TypedExpr.App(
+      eqInt,
+      NonEmptyList.of(valueExpr, TypedExpr.Literal(Lit.fromInt(1), intType, ())),
+      boolType,
+      ()
+    )
+    val expr = TypedExpr.Match(
+      valueExpr,
+      NonEmptyList.of(
+        TypedExpr.Branch(
+          Pattern.WildCard,
+          Some(guardExpr),
+          TypedExpr.Literal(Lit.fromInt(7), intType, ())
+        )(using Region.empty),
+        TypedExpr.Branch(
+          Pattern.WildCard,
+          None,
+          TypedExpr.Literal(Lit.fromInt(0), intType, ())
+        )(using Region.empty)
+      ),
+      ()
+    )
+
+    val rendered = ShowEdn.typedExprCodec.render(expr, 120)
+    assert(rendered.contains("bool-guard"))
+
+    val parsed = ShowEdn.typedExprCodec.parse(rendered) match {
+      case Right(value) => value
+      case Left(err)    => fail(s"failed to parse typedExpr EDN: $err")
+    }
+
+    assertEquals(parsed, expr)
+  }
+
+  test("typedExpr codec round trips MatchGuard branches") {
+    val intType = Type.IntType
+    val boolType = Type.BoolType
+    val pairPack = PackageName.parts("ShowEdn", "MatchGuard")
+    val pairCtor = Identifier.Constructor("Pair")
+    val pairType =
+      Type.TyConst(Type.Const.Defined(pairPack, TypeName(pairCtor)))
+    val value = Identifier.Name("value")
+    val even = Identifier.Name("even")
+    val valueExpr = TypedExpr.Local(value, pairType, ())
+    val eqInt = TypedExpr.Global(
+      PackageName.PredefName,
+      Identifier.Name("eq_Int"),
+      Type.Fun(NonEmptyList.of(intType, intType), boolType),
+      ()
+    )
+    val innerGuardExpr = TypedExpr.App(
+      eqInt,
+      NonEmptyList.of(
+        TypedExpr.Local(even, intType, ()),
+        TypedExpr.Literal(Lit.fromInt(4), intType, ())
+      ),
+      boolType,
+      ()
+    )
+    val guardPattern =
+      Pattern.PositionalStruct(
+        (pairPack, pairCtor),
+        Pattern.Var(even) :: Pattern.WildCard :: Nil
+      )
+    val expr = TypedExpr.Match(
+      valueExpr,
+      NonEmptyList.of(
+        TypedExpr.Branch.fromGuardNode(
+          Pattern.WildCard,
+          Some(
+            TypedExpr.MatchGuard(valueExpr, guardPattern, Some(innerGuardExpr))(using
+              Region.empty
+            )
+          ),
+          TypedExpr.Local(even, intType, ())
+        )(using Region.empty),
+        TypedExpr.Branch(
+          Pattern.WildCard,
+          None,
+          TypedExpr.Literal(Lit.fromInt(0), intType, ())
+        )(using Region.empty)
+      ),
+      ()
+    )
+
+    val rendered = ShowEdn.typedExprCodec.render(expr, 120)
+    assert(rendered.contains("match-guard"))
+
+    val parsed = ShowEdn.typedExprCodec.parse(rendered) match {
+      case Right(value) => value
+      case Left(err)    => fail(s"failed to parse typedExpr EDN: $err")
+    }
+
+    assertEquals(parsed, expr)
+  }
 
   private def sampleMatchlessShowValue(): Output.ShowValue.Matchless = {
     val source =
@@ -237,12 +346,12 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
             shallowPattern,
             None,
             TypedExpr.Local(Identifier.Name("x"), Type.IntType, ())
-          ),
+          )(using Region.empty),
           TypedExpr.Branch(
             deepPattern,
             None,
             TypedExpr.Local(Identifier.Name("y"), Type.IntType, ())
-          )
+          )(using Region.empty)
         ),
         ()
       )
