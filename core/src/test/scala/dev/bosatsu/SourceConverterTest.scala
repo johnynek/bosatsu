@@ -118,6 +118,46 @@ class SourceConverterTest extends munit.ScalaCheckSuite {
       .getOrElse(fail("expected a `main` binding"))
       ._2
 
+  private def assertBoolGuardLocal(
+      branch: Expr.Branch[Declaration],
+      expected: String
+  ): Unit =
+    branch.guardNode match {
+      case Some(Expr.BoolGuard(expr)) =>
+        assertEquals(localName(expr), expected)
+      case other =>
+        fail(s"expected BoolGuard local $expected, got: $other")
+    }
+
+  private def assertMatchGuardLocal(
+      branch: Expr.Branch[Declaration],
+      expectedArg: String,
+      expectedBound: String,
+      expectCheckExpr: Boolean
+  ): Unit =
+    branch.guardNode match {
+      case Some(
+            guard @ Expr.MatchGuard(
+              arg,
+              pattern,
+              guardOpt,
+              wholeGuardCheckExpr
+            )
+          ) =>
+        assertEquals(localName(arg), expectedArg)
+        assertEquals(
+          pattern.names,
+          Parser.unsafeParse(Identifier.bindableParser, expectedBound) :: Nil
+        )
+        assertEquals(guardOpt, None)
+        assertEquals(wholeGuardCheckExpr.isDefined, expectCheckExpr)
+        assertEquals(localName(branch.expr), expectedBound)
+        assertEquals(branch.isEffectivelyUnguarded, pattern.definitelyTotal)
+        val _ = guard.patternRegion
+      case other =>
+        fail(s"expected MatchGuard local $expectedArg/$expectedBound, got: $other")
+    }
+
   private def genericBinders(
       expr: Expr[Declaration]
   ): List[NonEmptyList[(rankn.Type.Var.Bound, Kind)]] =
@@ -137,9 +177,40 @@ class SourceConverterTest extends munit.ScalaCheckSuite {
         Nil
       case Expr.Match(arg, branches, _) =>
         genericBinders(arg) ::: branches.toList.flatMap { b =>
-          b.guard.fold(Nil: List[NonEmptyList[(rankn.Type.Var.Bound, Kind)]])(
-            genericBinders
-          ) ::: genericBinders(b.expr)
+          b.foldGuardExpr(Nil: List[NonEmptyList[(rankn.Type.Var.Bound, Kind)]]) {
+            (acc, guardExpr) => acc ::: genericBinders(guardExpr)
+          } ::: genericBinders(b.expr)
+        }
+    }
+
+  private def firstMatchGuard(
+      expr: Expr[Declaration]
+  ): Option[Expr.MatchGuard[Declaration]] =
+    expr match {
+      case Expr.Annotation(in, _, _) =>
+        firstMatchGuard(in)
+      case Expr.Local(_, _) | Expr.Global(_, _, _) | Expr.Literal(_, _) =>
+        None
+      case Expr.Generic(_, in) =>
+        firstMatchGuard(in)
+      case Expr.App(fn, args, _) =>
+        firstMatchGuard(fn).orElse(args.toList.collectFirstSome(firstMatchGuard))
+      case Expr.Lambda(_, in, _) =>
+        firstMatchGuard(in)
+      case Expr.Let(_, ex, in, _, _) =>
+        firstMatchGuard(ex).orElse(firstMatchGuard(in))
+      case Expr.Match(arg, branches, _) =>
+        firstMatchGuard(arg).orElse {
+          branches.toList.collectFirstSome { branch =>
+            branch.guardNode.collect { case guard: Expr.MatchGuard[Declaration] =>
+              guard
+            }.orElse(
+              branch.foldGuardExpr(None: Option[Expr.MatchGuard[Declaration]]) {
+                (acc, guardExpr) =>
+                  acc.orElse(firstMatchGuard(guardExpr))
+              }
+            ).orElse(firstMatchGuard(branch.expr))
+          }
         }
     }
 
@@ -401,15 +472,66 @@ else:
 
     assertEquals(branchList(1).pattern, falsePat)
     assertEquals(branchList(1).guard.map(localName), Some("c2"))
+    assertBoolGuardLocal(branchList(1), "c2")
     assertEquals(localName(branchList(1).expr), "t2")
 
     assertEquals(branchList(2).pattern, falsePat)
     assertEquals(branchList(2).guard.map(localName), Some("c3"))
+    assertBoolGuardLocal(branchList(2), "c3")
     assertEquals(localName(branchList(2).expr), "t3")
 
     assertEquals(branchList(3).pattern, falsePat)
     assertEquals(branchList(3).guard, None)
     assertEquals(localName(branchList(3).expr), "e")
+  }
+
+  test("plain boolean match guards lower as BoolGuard while unguarded branches stay empty") {
+    val branchList = mainBranches(
+      """main = match foo:
+        |  case x if cond:
+        |    yes
+        |  case _:
+        |    no
+        |""".stripMargin
+    ).toList
+
+    assertEquals(branchList.length, 2)
+    assertBoolGuardLocal(branchList.head, "cond")
+    assertEquals(branchList.last.guardNode, None)
+  }
+
+  test(
+    "top-level conditional match branch guards lower as MatchGuard and preserve annotations"
+  ) {
+    val branchList = mainBranches(
+      """main = match foo:
+        |  case x if ((x matches (even_x, _)) : Int):
+        |    even_x
+        |  case y if cond:
+        |    y
+        |  case z if z matches matched_z:
+        |    matched_z
+        |  case _:
+        |    miss
+        |""".stripMargin
+    ).toList
+
+    assertEquals(branchList.length, 4)
+    assertMatchGuardLocal(
+      branchList.head,
+      expectedArg = "x",
+      expectedBound = "even_x",
+      expectCheckExpr = true
+    )
+    assertBoolGuardLocal(branchList(1), "cond")
+    assertMatchGuardLocal(
+      branchList(2),
+      expectedArg = "z",
+      expectedBound = "matched_z",
+      expectCheckExpr = false
+    )
+    assert(branchList(2).isEffectivelyUnguarded)
+    assertEquals(branchList.last.guardNode, None)
   }
 
   test("conditional matches in if/elif desugar to nested matches") {
@@ -1433,5 +1555,81 @@ main = foo([1, 2, 3])
     val generics = genericBinders(fooExpr)
     assertEquals(generics.length, 2)
     assertEquals(generics.map(_.map(_._1.name).toList), List(List("a"), List("a")))
+  }
+
+  test(
+    "nested defs quantify free type vars from MatchGuard wrapper annotations"
+  ) {
+    val code = """#
+type AsBool[a] = Bool
+
+def foo(x):
+  def helper(y):
+    match y:
+      case _ if ((y matches matched) : AsBool[a]):
+        0
+      case _:
+        1
+  helper(x)
+
+main = foo(1)
+"""
+
+    val fooExpr = convertProgram(code)
+      .getLet(Identifier.Name("foo"))
+      .getOrElse(fail("expected a `foo` binding"))
+      ._2
+
+    val generics = genericBinders(fooExpr)
+    assertEquals(generics.length, 1)
+    assertEquals(generics.head.map(_._1.name).toList, List("a"))
+    firstMatchGuard(fooExpr) match {
+      case Some(guard) =>
+        assertEquals(guard.wholeGuardCheckExpr.isDefined, true)
+      case None =>
+        fail("expected nested helper to contain a MatchGuard")
+    }
+  }
+
+  test(
+    "nested defs quantify free type vars from MatchGuard guard-pattern annotations"
+  ) {
+    val code = """#
+def foo(x):
+  def helper(y):
+    match y:
+      case _ if y matches (_: a):
+        0
+      case _:
+        1
+  helper(x)
+
+main = foo(1)
+"""
+
+    val fooExpr = convertProgram(code)
+      .getLet(Identifier.Name("foo"))
+      .getOrElse(fail("expected a `foo` binding"))
+      ._2
+
+    val generics = genericBinders(fooExpr)
+    assertEquals(generics.length, 1)
+    assertEquals(generics.head.map(_._1.name).toList, List("a"))
+    firstMatchGuard(fooExpr) match {
+      case Some(
+            Expr.MatchGuard(
+              _,
+              Pattern.Annotation(
+                Pattern.WildCard,
+                rankn.Type.TyVar(a: rankn.Type.Var.Bound)
+              ),
+              None,
+              _
+            )
+          ) =>
+        assertEquals(a.name, "a")
+      case other =>
+        fail(s"expected MatchGuard with annotated wildcard pattern, got: $other")
+    }
   }
 }

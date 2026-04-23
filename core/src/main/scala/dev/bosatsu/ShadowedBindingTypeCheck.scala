@@ -91,6 +91,23 @@ object ShadowedBindingTypeCheck {
     fromPattern.collect { case (b: Bindable, tpe) => (b, tpe) }
   }
 
+  private def patternBoundInfos(
+      pattern: Pattern[(PackageName, Identifier.Constructor), Type],
+      bindRegion: Region,
+      tctx: TypeContext
+  ): List[(Bindable, BoundInfo)] =
+    patternEnv(pattern).toList.sortBy(_._1.sourceCodeRepr).map { case (name, tpe) =>
+      (
+        name,
+        BoundInfo(
+          tpe = tpe,
+          canonicalTpe = tctx.canonicalize(tpe),
+          region = bindRegion,
+          site = BindingSite.PatternBinding
+        )
+      )
+    }
+
   private def checkExpr[A](
       expr: TypedExpr[A],
       env: Env,
@@ -177,30 +194,35 @@ object ShadowedBindingTypeCheck {
         val argCheck = checkExpr(arg, env, tctx, regionOf)
         val branchCheck = branches.traverse_ { branch =>
           val bindRegion = branch.patternRegion
-          val patternBinds =
-            patternEnv(branch.pattern).toList.sortBy(_._1.sourceCodeRepr)
-          val currentBinds = patternBinds.map { case (name, tpe) =>
-            (
-              name,
-              BoundInfo(
-                tpe = tpe,
-                canonicalTpe = tctx.canonicalize(tpe),
-                region = bindRegion,
-                site = BindingSite.PatternBinding
-              )
-            )
-          }
-          val bindCheck = currentBinds.traverse_ { case (name, current) =>
+          val currentBinds = patternBoundInfos(branch.pattern, bindRegion, tctx)
+          val outerBindCheck = currentBinds.traverse_ { case (name, current) =>
             checkBinding(env, name, current)
           }
-          val branchEnv =
+          val outerEnv =
             currentBinds.foldLeft(env) { case (acc, (name, current)) =>
               addBinding(acc, name, current)
             }
-          val guardCheck =
-            branch.guard.traverse_(checkExpr(_, branchEnv, tctx, regionOf))
-          val bodyCheck = checkExpr(branch.expr, branchEnv, tctx, regionOf)
-          bindCheck *> guardCheck *> bodyCheck
+          branch.guardNode match {
+            case Some(TypedExpr.MatchGuard(argExpr, pattern, guardOpt)) =>
+              val guardBinds = patternBoundInfos(pattern, bindRegion, tctx)
+              val guardBindCheck = guardBinds.traverse_ { case (name, current) =>
+                checkBinding(outerEnv, name, current)
+              }
+              val branchEnv =
+                guardBinds.foldLeft(outerEnv) { case (acc, (name, current)) =>
+                  addBinding(acc, name, current)
+                }
+              val argExprCheck = checkExpr(argExpr, outerEnv, tctx, regionOf)
+              val innerGuardCheck =
+                guardOpt.traverse_(checkExpr(_, branchEnv, tctx, regionOf))
+              val bodyCheck = checkExpr(branch.expr, branchEnv, tctx, regionOf)
+              outerBindCheck *> argExprCheck *> guardBindCheck *> innerGuardCheck *> bodyCheck
+            case _ =>
+              val guardCheck =
+                branch.guard.traverse_(checkExpr(_, outerEnv, tctx, regionOf))
+              val bodyCheck = checkExpr(branch.expr, outerEnv, tctx, regionOf)
+              outerBindCheck *> guardCheck *> bodyCheck
+          }
         }
         argCheck *> branchCheck
     }

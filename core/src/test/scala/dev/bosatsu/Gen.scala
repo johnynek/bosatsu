@@ -1662,7 +1662,7 @@ object Generators {
                       recurse
                     )
                     .map { case (pat, guard, expr) =>
-                      TypedExpr.Branch(pat, guard, expr)
+                      TypedExpr.Branch(pat, guard, expr)(using Region.empty)
                     },
                   _
                 )

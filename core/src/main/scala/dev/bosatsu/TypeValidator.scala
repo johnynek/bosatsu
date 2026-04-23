@@ -405,7 +405,7 @@ object TypeValidator {
         case TypedExpr.Match(arg, branches, _) =>
           checkExpr(arg)
           branches.iterator.foreach { branch =>
-            branch.guard.foreach(checkExpr)
+            branch.guardExprIterator.foreach(checkExpr)
             checkExpr(branch.expr)
           }
       }
@@ -1189,43 +1189,103 @@ object TypeValidator {
             )
 
           branchLocals.andThen { localsFromPattern =>
-            val scope = locals ++ localsFromPattern
-            val guardCheck =
-              branch.guard match {
-                case None =>
-                  typeValidationPass
-                case Some(guard) =>
-                  val guardTypeCheck =
-                    if (guard.getType.sameAs(Type.BoolType)) typeValidationPass
-                    else
-                      typeValidationFail(
-                        branchPath / "guard",
-                        s"guard must be Bool, got ${guard.getType.show}"
-                      )
+            val outerScope = locals ++ localsFromPattern
+            val branchCheck = branch.guardNode match {
+              case None =>
+                validateTypeConnections(
+                  branch.expr,
+                  outerScope,
+                  globals,
+                  env,
+                  loopStack,
+                  inScopeKinds,
+                  branchPath / "body"
+                )
+              case Some(TypedExpr.BoolGuard(guard)) =>
+                val guardTypeCheck =
+                  if (guard.getType.sameAs(Type.BoolType)) typeValidationPass
+                  else
+                    typeValidationFail(
+                      branchPath / "guard",
+                      s"guard must be Bool, got ${guard.getType.show}"
+                    )
+                (
+                  guardTypeCheck ::
+                    validateTypeConnections(
+                      guard,
+                      outerScope,
+                      globals,
+                      env,
+                      loopStack,
+                      inScopeKinds,
+                      branchPath / "guard"
+                    ) :: Nil
+                ).sequence_ *> validateTypeConnections(
+                  branch.expr,
+                  outerScope,
+                  globals,
+                  env,
+                  loopStack,
+                  inScopeKinds,
+                  branchPath / "body"
+                )
+              case Some(TypedExpr.MatchGuard(argExpr, pattern, guardOpt)) =>
+                val guardPath = branchPath / "guard"
+                val argExprCheck = validateTypeConnections(
+                  argExpr,
+                  outerScope,
+                  globals,
+                  env,
+                  loopStack,
+                  inScopeKinds,
+                  guardPath / "arg"
+                )
+                patternBindingTypes(
+                  argExpr.getType,
+                  pattern,
+                  env,
+                  inScopeKinds,
+                  guardPath / "pattern"
+                ).andThen { localsFromGuard =>
+                  val innerScope = outerScope ++ localsFromGuard
+                  val innerGuardCheck =
+                    guardOpt.traverse_ { guard =>
+                      val guardTypeCheck =
+                        if (guard.getType.sameAs(Type.BoolType)) typeValidationPass
+                        else
+                          typeValidationFail(
+                            guardPath / "inner_guard",
+                            s"guard must be Bool, got ${guard.getType.show}"
+                          )
+                      (
+                        guardTypeCheck ::
+                          validateTypeConnections(
+                            guard,
+                            innerScope,
+                            globals,
+                            env,
+                            loopStack,
+                            inScopeKinds,
+                            guardPath / "inner_guard"
+                          ) :: Nil
+                      ).sequence_
+                    }
                   (
-                    guardTypeCheck ::
-                      validateTypeConnections(
-                        guard,
-                        scope,
-                        globals,
-                        env,
-                        loopStack,
-                        inScopeKinds,
-                        branchPath / "guard"
-                      ) :: Nil
-                  ).sequence_
-              }
+                    argExprCheck ::
+                      innerGuardCheck :: Nil
+                  ).sequence_ *> validateTypeConnections(
+                    branch.expr,
+                    innerScope,
+                    globals,
+                    env,
+                    loopStack,
+                    inScopeKinds,
+                    branchPath / "body"
+                  )
+                }
+            }
 
-            val branchExprCheck = validateTypeConnections(
-              branch.expr,
-              scope,
-              globals,
-              env,
-              loopStack,
-              inScopeKinds,
-              branchPath / "body"
-            )
-            (branchResultTypeCheck :: guardCheck :: branchExprCheck :: Nil).sequence_
+            (branchResultTypeCheck :: branchCheck :: Nil).sequence_
           }
         }
 

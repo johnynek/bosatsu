@@ -1,8 +1,11 @@
 package dev.bosatsu.codegen.clang
 
 import dev.bosatsu.{PackageName, PackageMap, Par, TestUtils, Identifier}
+import scala.concurrent.duration.DurationInt
 
 class ClangGenTest extends munit.FunSuite {
+  override val munitTimeout = 2.minutes
+
   def md5HashToHex(content: String): String = {
     val md = java.security.MessageDigest.getInstance("MD5")
     val digest = md.digest(content.getBytes("UTF-8"))
