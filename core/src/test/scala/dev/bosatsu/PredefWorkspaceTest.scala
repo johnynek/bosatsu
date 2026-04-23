@@ -1,6 +1,10 @@
 package dev.bosatsu
 
+import scala.concurrent.duration.DurationInt
+
 class PredefWorkspaceTest extends munit.FunSuite with ParTest {
+  override val munitTimeout = 2.minutes
+
   import TestUtils.*
 
   private val loopsPack = Predef.loadFileInCompile("test_workspace/Loops.bosatsu")
