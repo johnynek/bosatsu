@@ -1,6 +1,6 @@
 package dev.bosatsu.rankn
 
-import cats.{StackSafeMonad, Eval}
+import cats.{Defer, StackSafeMonad, Eval}
 // java HashMap performs better than scala in most benchmarks
 import scala.collection.mutable.{LongMap => MutableMap}
 import java.util.concurrent.atomic.AtomicLong
@@ -88,6 +88,12 @@ object RefSpace {
         }
   }
 
+  private case class DeferRef[A](fa: () => RefSpace[A]) extends RefSpace[A] {
+    lazy val constructed: RefSpace[A] = fa()
+    protected def runState(al: AtomicLong, state: State): Eval[A] =
+      Eval.defer(constructed.runState(al, state))
+  }
+
   sealed abstract class State {
     def put(key: Long, value: Any): Unit
     def get(key: Long): Option[Any]
@@ -151,6 +157,9 @@ object RefSpace {
 
   def pure[A](a: A): RefSpace[A] = liftEval(Eval.now(a))
 
+  def defer[A](fa: => RefSpace[A]): RefSpace[A] =
+    DeferRef(() => fa)
+
   def liftEval[A](eval: Eval[A]): RefSpace[A] = Pure(eval)
 
   def newRef[A](initial: A): RefSpace[Ref[A]] =
@@ -172,6 +181,12 @@ object RefSpace {
         fa.map(fn)
       def flatMap[A, B](fa: RefSpace[A])(fn: A => RefSpace[B]): RefSpace[B] =
         fa.flatMap(fn)
+    }
+
+  implicit val deferForRefSpace: Defer[RefSpace] =
+    new Defer[RefSpace] {
+      def defer[A](fa: => RefSpace[A]): RefSpace[A] =
+        RefSpace.defer(fa)
     }
 
   val unit: RefSpace[Unit] = pure(())
