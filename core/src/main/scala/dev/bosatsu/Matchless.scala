@@ -1,6 +1,6 @@
 package dev.bosatsu
 
-import cats.{Monad, Monoid, Order}
+import cats.{Defer, Monad, Monoid, Order}
 import cats.data.{Chain, NonEmptyList, OptionT, WriterT}
 import dev.bosatsu.pattern.StrPart
 import dev.bosatsu.rankn.{DataRepr, Type, RefSpace}
@@ -4362,7 +4362,7 @@ object Matchless {
           None
       }
 
-    private def ifExactStringParts[F[_]: Monad, A](
+    private def ifExactStringParts[F[_]: Monad: Defer, A](
         arg: CheapExpr[A],
         parts: List[ExactStrPart],
         bindTargets: IndexedSeq[LocalAnonMut],
@@ -4372,7 +4372,7 @@ object Matchless {
         onMatch: CheapExpr[A] => F[Expr[A]],
         onMiss: => F[Expr[A]]
     ): F[Expr[A]] =
-      parts match {
+      Defer[F].defer(parts match {
         case Nil =>
           onMatch(arg)
         case StrPart.LitStr(expect) :: tail =>
@@ -4405,7 +4405,7 @@ object Matchless {
             },
             onMiss
           )
-      }
+      })
 
     private def advanceCurrentByOneChar[F[_]: Monad, A](
         current: LocalAnonMut,
@@ -4464,7 +4464,7 @@ object Matchless {
       if (glob.capture) (bindAt(bindTargets, nextBind), value) :: Nil
       else Nil
 
-    private def compilePureStringSearchPlan[F[_]: Monad, A](
+    private def compilePureStringSearchPlan[F[_]: Monad: Defer, A](
         arg: CheapExpr[A],
         plan: StringSearchPlan,
         bindTargets: IndexedSeq[LocalAnonMut],
@@ -4480,7 +4480,7 @@ object Matchless {
         ctx
       )
 
-    private def compileLeadingStringSearchSegmentWithChars[F[_]: Monad, A](
+    private def compileLeadingStringSearchSegmentWithChars[F[_]: Monad: Defer, A](
         arg: CheapExpr[A],
         segment: StringSearchSegment,
         restPlan: StringSearchPlan,
@@ -4558,7 +4558,10 @@ object Matchless {
       }
     }
 
-    private def compileLeadingStringSearchSegmentWithLiteral[F[_]: Monad, A](
+    private def compileLeadingStringSearchSegmentWithLiteral[
+        F[_]: Monad: Defer,
+        A
+    ](
         arg: CheapExpr[A],
         segment: StringSearchSegment,
         restPlan: StringSearchPlan,
@@ -4664,7 +4667,7 @@ object Matchless {
       }
     }
 
-    private def compileLeadingStringSearchSegment[F[_]: Monad, A](
+    private def compileLeadingStringSearchSegment[F[_]: Monad: Defer, A](
         arg: CheapExpr[A],
         segment: StringSearchSegment,
         restPlan: StringSearchPlan,
@@ -4696,7 +4699,10 @@ object Matchless {
           )
       }
 
-    private def compileFinalStringSearchSegmentWithChars[F[_]: Monad, A](
+    private def compileFinalStringSearchSegmentWithChars[
+        F[_]: Monad: Defer,
+        A
+    ](
         arg: CheapExpr[A],
         segment: StringSearchSegment,
         trailingGlob: Option[StrPart.Glob],
@@ -4770,7 +4776,10 @@ object Matchless {
       }
     }
 
-    private def compileFinalStringSearchSegmentWithLiteral[F[_]: Monad, A](
+    private def compileFinalStringSearchSegmentWithLiteral[
+        F[_]: Monad: Defer,
+        A
+    ](
         arg: CheapExpr[A],
         segment: StringSearchSegment,
         trailingGlob: Option[StrPart.Glob],
@@ -4877,7 +4886,7 @@ object Matchless {
       }
     }
 
-    private def compileFinalStringSearchSegment[F[_]: Monad, A](
+    private def compileFinalStringSearchSegment[F[_]: Monad: Defer, A](
         arg: CheapExpr[A],
         segment: StringSearchSegment,
         trailingGlob: Option[StrPart.Glob],
@@ -4909,7 +4918,7 @@ object Matchless {
           )
       }
 
-    private def compileStringSearchPlan[F[_]: Monad, A](
+    private def compileStringSearchPlan[F[_]: Monad: Defer, A](
         arg: CheapExpr[A],
         plan: StringSearchPlan,
         bindTargets: IndexedSeq[LocalAnonMut],
@@ -4917,7 +4926,7 @@ object Matchless {
         onPureMatch: F[BoolExpr[A]],
         ctx: Ctx[F, A]
     ): F[BoolExpr[A]] =
-      plan.segments match {
+      Defer[F].defer(plan.segments match {
         case NonEmptyList(segment, Nil) =>
           compileFinalStringSearchSegment(
             arg,
@@ -4938,9 +4947,9 @@ object Matchless {
             onPureMatch,
             ctx
           )
-      }
+      })
 
-    private def searchStringWithCharRest[F[_]: Monad, A](
+    private def searchStringWithCharRest[F[_]: Monad: Defer, A](
         arg: CheapExpr[A],
         rest: List[StrPart],
         bindTargets: IndexedSeq[LocalAnonMut],
@@ -4993,7 +5002,7 @@ object Matchless {
       }
     }
 
-    private def searchStringWithLiteralRest[F[_]: Monad, A](
+    private def searchStringWithLiteralRest[F[_]: Monad: Defer, A](
         arg: CheapExpr[A],
         expect: String,
         tail2: List[StrPart],
@@ -5106,14 +5115,14 @@ object Matchless {
       }
     }
 
-    private def matchStringParts[F[_]: Monad, A](
+    private def matchStringParts[F[_]: Monad: Defer, A](
         arg: CheapExpr[A],
         parts: List[StrPart],
         bindTargets: IndexedSeq[LocalAnonMut],
         nextBind: Int,
         ctx: Ctx[F, A]
     ): F[BoolExpr[A]] =
-      parts match {
+      Defer[F].defer(parts match {
         case Nil =>
           Monad[F].pure(CompareLit(arg, CompareRel.Eq, emptyStringLit))
         case StrPart.LitStr(expect) :: tail =>
@@ -5179,9 +5188,9 @@ object Matchless {
               )
             // $COVERAGE-ON$
           }
-      }
+      })
 
-    def apply[F[_]: Monad, A](
+    def apply[F[_]: Monad: Defer, A](
         arg: CheapExpr[A],
         parts: List[StrPart],
         bindTargets: IndexedSeq[LocalAnonMut],
@@ -5356,7 +5365,7 @@ object Matchless {
     } yield expr).run.value
 
   // we need a TypeEnv to inline the creation of structs and variants
-  def fromLet[F[_]: Monad, A, B: Order](
+  def fromLet[F[_]: Monad: Defer, A, B: Order](
       from: B,
       name: Bindable,
       rec: RecursionKind,
@@ -5375,7 +5384,7 @@ object Matchless {
     )
 
   // we need a TypeEnv to inline the creation of structs and variants
-  private[bosatsu] def fromLet[F[_]: Monad, A, B: Order](
+  private[bosatsu] def fromLet[F[_]: Monad: Defer, A, B: Order](
       from: B,
       name: Bindable,
       rec: RecursionKind,
@@ -5388,7 +5397,7 @@ object Matchless {
       .map(postLoweringCleanup(_, localPassOptions))
 
   // we need a TypeEnv to inline the creation of structs and variants
-  def fromLetRaw[F[_]: Monad, A, B: Order](
+  def fromLetRaw[F[_]: Monad: Defer, A, B: Order](
       from: B,
       name: Bindable,
       rec: RecursionKind,
@@ -6170,7 +6179,7 @@ object Matchless {
       }
 
     def loop(te: TypedExpr[A], slots: LambdaState): F[Expr[B]] =
-      te match {
+      Defer[F].defer(te match {
         case TypedExpr.Generic(_, expr)              => loop(expr, slots)
         case TypedExpr.Annotation(term, _, _)        => loop(term, slots)
         case TypedExpr.AnnotatedLambda(args, res, _) =>
@@ -6208,7 +6217,10 @@ object Matchless {
                 val compiledStepsF =
                   steps.toList.foldLeftM(List.empty[(Expr[B], Expr[B])]) {
                     case (acc, step) =>
-                      (loop(step.fn, unnameSlots), loop(step.arg, unnameSlots))
+                      (
+                        loop(step.fn, unnameSlots),
+                        loop(step.arg, unnameSlots)
+                      )
                         .mapN { (fn1, arg1) =>
                           (fn1, arg1) :: acc
                         }
@@ -6220,7 +6232,10 @@ object Matchless {
                     }
                 }
               case None =>
-                (loop(fn, unnameSlots), as.traverse(loop(_, unnameSlots)))
+                (
+                  loop(fn, unnameSlots),
+                  as.traverse(loop(_, unnameSlots))
+                )
                   .mapN(applyArgs(_, _))
             }
 
@@ -6235,16 +6250,17 @@ object Matchless {
                     ) =>
                   eqBuiltinDomain(pack, fnName) match {
                     case Some(domain) =>
-                      (loop(left, unnameSlots), loop(right, unnameSlots))
-                        .tupled
-                        .flatMap { case (leftExpr, rightExpr) =>
-                          lowerBooleanCompare(
-                            domain,
-                            leftExpr,
-                            CompareRel.Eq,
-                            rightExpr
-                          )
-                        }
+                      (
+                        loop(left, unnameSlots),
+                        loop(right, unnameSlots)
+                      ).flatMapN { (leftExpr, rightExpr) =>
+                        lowerBooleanCompare(
+                          domain,
+                          leftExpr,
+                          CompareRel.Eq,
+                          rightExpr
+                        )
+                      }
                     case None =>
                       fallbackApp
                   }
@@ -6266,12 +6282,14 @@ object Matchless {
           (
             loop(body1, slots),
             args.traverse { case (_, init) => loop(init, slots) }
-          ).tupled
-            .flatMap { case (bodyExpr, initVals) =>
-              buildLoop(loopName, loopArgs.map(_._1), initVals, bodyExpr)
-            }
+          ).flatMapN { (bodyExpr, initVals) =>
+            buildLoop(loopName, loopArgs.map(_._1), initVals, bodyExpr)
+          }
         case TypedExpr.Let(a, e, in, RecursionKind.Recursive, _) =>
-          (loopLetVal(a, e, RecursionKind.Recursive, slots.unname), loop(in, slots))
+          (
+            loopLetVal(a, e, RecursionKind.Recursive, slots.unname),
+            loop(in, slots)
+          )
             .mapN(Let(a, _, _))
         case let @ TypedExpr.Let(_, _, _, RecursionKind.NonRecursive, _) =>
           val (lets, tail) = TypedExpr.flattenLets(let)
@@ -6279,7 +6297,7 @@ object Matchless {
             loopLetVal(arg, rhs, RecursionKind.NonRecursive, slots.unname)
               .map(v => (arg, v))
           }
-          (bindsF, loop(tail, slots)).tupled.flatMap { case (binds, tailExpr) =>
+          (bindsF, loop(tail, slots)).flatMapN { (binds, tailExpr) =>
             binds.reverse.foldLeftM(tailExpr) { case (acc, (arg, value)) =>
               maybeLowerComparisonObservationLet(Right(arg), value, acc)
                 .getOrElse(Monad[F].pure(Let(arg, value, acc)))
@@ -6307,7 +6325,7 @@ object Matchless {
                     (
                       loop(argExpr, slots.unname),
                       guardOpt.traverse(loop(_, slots.unname))
-                    ).tupled.flatMap { case (argExpr1, guardOpt1) =>
+                    ).flatMapN { (argExpr1, guardOpt1) =>
                       if (pattern.names.isEmpty)
                         bindingFreeMatchGuardExpr(argExpr1, pattern, guardOpt1)
                           .map {
@@ -6330,9 +6348,8 @@ object Matchless {
                   MatchBranch(branch.pattern, guard, te)
               }
             }
-          ).tupled
-            .flatMap { case (a, b) => matchExpr(a, makeAnon, b) }
-      }
+          ).flatMapN { (a, b) => matchExpr(a, makeAnon, b) }
+      })
 
     /*
      * A simple pattern is either:
@@ -6916,7 +6933,7 @@ object Matchless {
         arg: CheapExpr[B],
         plan: ListSearchPlan
     ): F[UnionMatch] =
-      plan.segments match {
+      Defer[F].defer(plan.segments match {
         case NonEmptyList(segment, Nil) =>
           compileLastListSearchSegment(arg, segment, plan.trailingGlob)
         case NonEmptyList(segment, next :: tail) =>
@@ -6926,7 +6943,7 @@ object Matchless {
             ListSearchPlan(NonEmptyList(next, tail), plan.trailingGlob),
             _ => Monad[F].pure(TrueConst)
           )
-      }
+      })
 
     def compileListSearchPlan(
         arg: CheapExpr[B],
@@ -7033,7 +7050,7 @@ object Matchless {
         mustMatch: Boolean,
         rootInlined: Option[InlinedStructRoot],
         candidateGuard: Option[CandidateGuard]
-    ): F[UnionMatch] = {
+    ): F[UnionMatch] = Defer[F].defer {
       def finish(result: F[UnionMatch]): F[UnionMatch] =
         result.flatMap(applyCandidateGuardToUnionMatch(_, candidateGuard))
 
@@ -8068,94 +8085,102 @@ object Matchless {
         pattern: Pattern[(PackageName, Constructor), Type],
         mustMatch: Boolean
     ): OptionT[F, BoolExpr[B]] =
-      if (pattern.names.nonEmpty) OptionT.none
-      else
-        argExpr match {
-          case cheap: CheapExpr[B] =>
-            bindingFreePatternBoolCheap(cheap, pattern, mustMatch)
-          case notCheap =>
-            OptionT.liftF(makeAnon.map(LocalAnon(_))).flatMap { tmp =>
-              bindingFreePatternBoolCheap(tmp, pattern, mustMatch)
-                .map(LetBool(Left(tmp), notCheap, _))
+      OptionT(Defer[F].defer {
+        val result: OptionT[F, BoolExpr[B]] =
+          if (pattern.names.nonEmpty) OptionT.none[F, BoolExpr[B]]
+          else
+            argExpr match {
+              case cheap: CheapExpr[B] =>
+                bindingFreePatternBoolCheap(cheap, pattern, mustMatch)
+              case notCheap =>
+                OptionT.liftF(makeAnon.map(LocalAnon(_))).flatMap { tmp =>
+                  bindingFreePatternBoolCheap(tmp, pattern, mustMatch)
+                    .map(LetBool(Left(tmp), notCheap, _))
+                }
             }
-        }
+        result.value
+      })
 
     def bindingFreePatternBoolCheap(
         arg: CheapExpr[B],
         pattern: Pattern[(PackageName, Constructor), Type],
         mustMatch: Boolean
     ): OptionT[F, BoolExpr[B]] =
-      pattern match {
-        case Pattern.WildCard =>
-          OptionT.some(TrueConst)
-        case Pattern.Literal(lit) =>
-          OptionT.some(
-            if (mustMatch) TrueConst
-            else CompareLit(arg, CompareRel.Eq, lit)
-          )
-        case Pattern.Annotation(p, _) =>
-          bindingFreePatternBoolCheap(arg, p, mustMatch)
-        case lp @ Pattern.ListPat(_) =>
-          Pattern.ListPat.toPositionalStruct(lp, empty, cons) match {
-            case Right(p) =>
-              bindingFreePatternBoolCheap(arg, p, mustMatch)
-            case Left(_)  =>
-              OptionT.none
-          }
-        case Pattern.PositionalStruct((pack, cname), params) =>
-          variantOf(pack, cname) match {
-            case Some(DataRepr.Struct(size)) if params.length == size =>
-              params.toList.zipWithIndex
-                .traverse { case (param, idx) =>
-                  bindingFreePatternBool(
-                    GetStructElement(arg, idx, size),
-                    param,
-                    mustMatch
-                  )
-                }
-                .map(_.foldLeft(TrueConst: BoolExpr[B])(_ && _))
-            case Some(DataRepr.NewType) if params.length == 1 =>
-              params.toList.zipWithIndex
-                .traverse { case (param, idx) =>
-                  bindingFreePatternBool(
-                    GetStructElement(arg, idx, 1),
-                    param,
-                    mustMatch
-                  )
-                }
-                .map(_.foldLeft(TrueConst: BoolExpr[B])(_ && _))
-            case Some(DataRepr.Enum(vidx, size, famArities))
-                if params.length == size =>
-              params.toList.zipWithIndex
-                .traverse { case (param, idx) =>
-                  bindingFreePatternBool(
-                    GetEnumElement(arg, vidx, idx, size),
-                    param,
-                    mustMatch
-                  )
-                }
-                .map(_.foldLeft(
-                  if (mustMatch) TrueConst
-                  else CheckVariant(arg, vidx, size, famArities): BoolExpr[B]
-                )(_ && _))
-            case Some(DataRepr.ZeroNat) if params.isEmpty =>
+      OptionT(Defer[F].defer {
+        val result: OptionT[F, BoolExpr[B]] =
+          pattern match {
+            case Pattern.WildCard =>
+              OptionT.some(TrueConst)
+            case Pattern.Literal(lit) =>
               OptionT.some(
                 if (mustMatch) TrueConst
-                else EqualsNat(arg, DataRepr.ZeroNat)
+                else CompareLit(arg, CompareRel.Eq, lit)
               )
-            case Some(DataRepr.SuccNat) if params.length == 1 =>
-              bindingFreePatternBool(PrevNat(arg), params.head, mustMatch)
-                .map(
-                  (if (mustMatch) TrueConst
-                   else EqualsNat(arg, DataRepr.SuccNat): BoolExpr[B]) && _
-                )
-            case _ =>
+            case Pattern.Annotation(p, _) =>
+              bindingFreePatternBoolCheap(arg, p, mustMatch)
+            case lp @ Pattern.ListPat(_) =>
+              Pattern.ListPat.toPositionalStruct(lp, empty, cons) match {
+                case Right(p) =>
+                  bindingFreePatternBoolCheap(arg, p, mustMatch)
+                case Left(_)  =>
+                  OptionT.none
+              }
+            case Pattern.PositionalStruct((pack, cname), params) =>
+              variantOf(pack, cname) match {
+                case Some(DataRepr.Struct(size)) if params.length == size =>
+                  params.toList.zipWithIndex
+                    .traverse { case (param, idx) =>
+                      bindingFreePatternBool(
+                        GetStructElement(arg, idx, size),
+                        param,
+                        mustMatch
+                      )
+                    }
+                    .map(_.foldLeft(TrueConst: BoolExpr[B])(_ && _))
+                case Some(DataRepr.NewType) if params.length == 1 =>
+                  params.toList.zipWithIndex
+                    .traverse { case (param, idx) =>
+                      bindingFreePatternBool(
+                        GetStructElement(arg, idx, 1),
+                        param,
+                        mustMatch
+                      )
+                    }
+                    .map(_.foldLeft(TrueConst: BoolExpr[B])(_ && _))
+                case Some(DataRepr.Enum(vidx, size, famArities))
+                    if params.length == size =>
+                  params.toList.zipWithIndex
+                    .traverse { case (param, idx) =>
+                      bindingFreePatternBool(
+                        GetEnumElement(arg, vidx, idx, size),
+                        param,
+                        mustMatch
+                      )
+                    }
+                    .map(_.foldLeft(
+                      if (mustMatch) TrueConst
+                      else CheckVariant(arg, vidx, size, famArities): BoolExpr[B]
+                    )(_ && _))
+                case Some(DataRepr.ZeroNat) if params.isEmpty =>
+                  OptionT.some(
+                    if (mustMatch) TrueConst
+                    else EqualsNat(arg, DataRepr.ZeroNat)
+                  )
+                case Some(DataRepr.SuccNat) if params.length == 1 =>
+                  bindingFreePatternBool(PrevNat(arg), params.head, mustMatch)
+                    .map(
+                      (if (mustMatch) TrueConst
+                       else EqualsNat(arg, DataRepr.SuccNat): BoolExpr[B]) && _
+                    )
+                case _ =>
+                  OptionT.none
+              }
+            case Pattern.StrPat(_) | Pattern.Var(_) | Pattern.Named(_, _) |
+                Pattern.Union(_, _) =>
               OptionT.none
           }
-        case Pattern.StrPat(_) | Pattern.Var(_) | Pattern.Named(_, _) |
-            Pattern.Union(_, _) =>
-          OptionT.none
-      }
+        result.value
+      })
 
     def bindingFreeMatchGuardExpr(
         argExpr: Expr[B],
@@ -8268,7 +8293,7 @@ object Matchless {
       def recur(
           arg: CheapExpr[B],
           branches: NonEmptyList[MatchBranch]
-      ): F[Expr[B]] = {
+      ): F[Expr[B]] = Defer[F].defer {
         val head = branches.head
         // Normalize to simplify list/string patterns while preserving
         // ordered semantics for non-orthogonal matches.
@@ -8308,7 +8333,7 @@ object Matchless {
               (List[LocalAnonMut], BoolExpr[B], List[(Bindable, Expr[B])])
             ]
         ): F[Expr[B]] =
-          cbs match {
+          Defer[F].defer(cbs match {
             case NonEmptyList((b0, cond, binds), others) =>
               val thisBranch =
                 lets(retainReferencedBinds(head1.rhs, binds), head1.rhs)
@@ -8336,7 +8361,7 @@ object Matchless {
                 }
 
               resF.map(letMutAll(b0, _))
-          }
+          })
 
         val mustMatchPattern = branches.tail.isEmpty && head1.guard.isEmpty
         guardSetupF.flatMap { case (candidateGuard, appendScopedBinds) =>
@@ -8434,7 +8459,7 @@ object Matchless {
           occsIn: List[CheapExpr[B]],
           mustMatch: Boolean
       ): F[Expr[B]] =
-        materializeOccs(occsIn).flatMap { case (occLets, occsMemoed) =>
+        Defer[F].defer(materializeOccs(occsIn).flatMap { case (occLets, occsMemoed) =>
           val norm = rowsIn.map(normalizeRow(_, occsMemoed, arg, inlinedRoot))
           val expanded = expandRows(norm)
           val (rows, occs) = dropWildColumns(expanded, occsMemoed)
@@ -8629,7 +8654,7 @@ object Matchless {
                     sigs: List[HeadSig],
                     mustMatch: Boolean
                 ): F[Expr[B]] =
-                  sigs match {
+                  Defer[F].defer(sigs match {
                     case Nil =>
                       if (defaultRows.nonEmpty)
                         compileRows(defaultRows, defaultOccs, mustMatch)
@@ -8673,7 +8698,7 @@ object Matchless {
                             }
                           }
                       }
-                  }
+                  })
 
                 def compileLiteralTreeCases(
                     sortedLits: NonEmptyList[Lit],
@@ -8804,7 +8829,7 @@ object Matchless {
             }
 
           compiled.map(letAnons(occLets, _))
-        }
+        })
 
       compileRows(rows0, arg :: Nil, topMustMatch)
     }
@@ -9260,7 +9285,7 @@ object Matchless {
           arg: CheapExpr[B],
           branches: NonEmptyList[MatchBranch],
           rootInlined: Option[InlinedStructRoot]
-      ): F[Expr[B]] = {
+      ): F[Expr[B]] = Defer[F].defer {
         boolSelectorBranches(branches) match {
           case Some((ifTrue, ifFalse)) =>
             guardToBoolExpr(arg).map(If(_, ifTrue, ifFalse))
