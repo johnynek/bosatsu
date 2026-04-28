@@ -70,6 +70,7 @@ Metadata expectations:
 - `static_libs` contains only the installed `<prefix>/lib/libuv.a` path recorded under the final cache directory.
 - `runtime_requirements` for libuv is empty for both `bosatsu_runtime_cppflags` and `generated_c_cppflags`.
 - `system_link_flags` must contain only transitive system flags required to link the static libuv archive on the current target. Parse `<prefix>/lib/pkgconfig/libuv-static.pc` after install and filter out `-L...` plus the self library token (`-l:libuv.a`, `-luv`, or an absolute/path spelling if it appears). Preserve platform flags such as `-pthread`, `-ldl`, `-lrt`, `-lkstat`, `-lsendfile`, `-lsocket`, `-lws2_32`, `-lpsapi`, `-liphlpapi`, `-luserenv`, etc. when libuv reports them.
+- The pkg-config filtering helper must not hardcode bdwgc-specific exclusions such as only `-lgc`. Generalize the parser to accept the dependency's own self-link tokens, or an explicit exclusion set derived from metadata, so future vendored static libraries can reuse the same logic without leaking their self library into `system_link_flags`.
 - `BuildInputs.linkFlags` must continue to emit concrete static archive paths before system flags. Do not replace metadata with pkg-config invocation at generated-program link time.
 
 Any change to libuv recipe arguments, source pin, metadata filtering, or build-key inputs should either bump `recipe_version` or be intentionally proven compatible with existing cache entries.
@@ -85,7 +86,7 @@ The runtime should introduce an internal execution context that owns the event l
 - A completion flag and an error path for runtime faults.
 - Per-effect request records that keep all Bosatsu `BValue` inputs, callbacks, and result/error values reachable by the GC until the libuv completion callback has resumed the Prog.
 
-The execution loop should become resumable. It must be able to step synchronously until it reaches an effect that chooses to suspend, return control to `uv_run`, and then continue from a libuv callback by setting the next Prog argument and re-entering the stepper. Synchronous effects may continue to return their next `Prog` immediately during migration.
+The execution loop should become resumable. It must be able to step synchronously until it reaches an effect that chooses to suspend, return control to `uv_run`, and then continue from a libuv callback by setting the next Prog argument and re-entering the stepper. The owned loop must be driven with `uv_run(loop, UV_RUN_DEFAULT)` so execution continues until there are no active or referenced handles and no pending requests. Synchronous effects may continue to return their next `Prog` immediately during migration.
 
 The key invariant is that `FlatMap` and `Recover` behavior is unchanged by suspension boundaries. A suspended effect resumes as if the old synchronous `Effect(arg, f)` call had returned a `Prog` value at that exact point in the interpreter, including error recovery, skipped flat-maps after raises, and stack-safe left-associated flat-maps.
 
@@ -98,7 +99,7 @@ Required ownership behavior:
 - `bsts_Bosatsu_Prog_run_main` creates/initializes one loop, runs the main Prog to completion, closes all runtime-owned handles, calls `uv_loop_close`, and returns the Bosatsu exit code or `1` for uncaught top-level errors.
 - `bsts_Bosatsu_Prog_run_test` creates/initializes one loop per Prog test invocation and returns `BSTS_Prog_Test_Result` with the same success/error semantics as today.
 - Generated test binaries may run many tests in one process; no test may inherit pending handles, pending callbacks, cached loop data, or close failures from a previous Prog test.
-- If `uv_loop_close` reports `UV_EBUSY`, the runtime must drain/close runtime-owned handles before treating the run as complete. Silent leaks are not acceptable.
+- If `uv_loop_close` reports `UV_EBUSY`, the runtime must drain/close runtime-owned handles before treating the run as complete. Use `uv_walk` to find remaining runtime-owned handles, call `uv_close` where needed, then run the loop again with `UV_RUN_DEFAULT` until close callbacks complete before retrying `uv_loop_close`. Silent leaks are not acceptable.
 - Runtime code may add private C helper functions for loop injection in narrow C tests, but no Bosatsu API, CLI flag, operator knob, package setting, or user-visible runtime option should be added for loop selection.
 
 ## GC And Threading Contract
@@ -113,7 +114,7 @@ Libuv callbacks that run on the loop thread may allocate Bosatsu values normally
 - `uv_after_work_cb`, which runs on the loop thread, converts native results into Bosatsu `BValue`s and resumes the Prog.
 - Any exception to this rule must document the Boehm thread registration mechanism used on every supported target and must have a stress test that allocates and collects while work is in flight.
 
-All request records that hold `BValue`s across suspension must be allocated with GC-managed memory or otherwise registered as GC roots until the after-callback has consumed them. Stack-local `BValue` fields are not safe across `uv_queue_work` boundaries.
+All request records that hold `BValue`s across suspension must remain reachable from a GC-scanned root until the after-callback has consumed them. It is not enough for libuv's malloc-allocated request or handle to store the only pointer in its `data` field because Boehm will not scan libuv-owned memory for Bosatsu pointers. Keep active request records in a GC-scanned runtime-owned collection, explicitly register the memory range with `GC_add_roots`, or use an equivalent root-registration mechanism with a matching removal path. Stack-local `BValue` fields are not safe across `uv_queue_work` boundaries.
 
 ## IO/Core Migration Order
 
