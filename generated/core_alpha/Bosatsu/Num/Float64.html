@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-f7229791*
+0.0.0+1-f77a22f9*
 </div>
 </div>
 <div class="nav-toc">
@@ -44,6 +44,7 @@
   <li><a href="../../../../language_guide.html" class="page">Language Guide</a></li>
   <li><a href="../../../../recursion.html" class="page">Recursion in Bosatsu</a></li>
   <li><a href="../../../../generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
+  <li><a href="../../../../generating_protobuf.html" class="page">Generating Protobuf from Bosatsu Values</a></li>
   <li><a href="../../../../debugging_with_eval.html" class="page">Debugging with <code>eval</code></a></li>
   <li><a href="../../../../debugging_with_show.html" class="page">Inspecting Compiled Output with <code>show</code></a></li>
   <li><a href="../../../../transpile_python.html" class="page">Compiling to Python</a></li>
@@ -79,7 +80,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-f7229791*
+0.0.0+1-f77a22f9*
 </div>
 </div>
 <div class="nav-toc">
@@ -91,6 +92,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
   <li><a href="../../../../language_guide.html" class="page">Language Guide</a></li>
   <li><a href="../../../../recursion.html" class="page">Recursion in Bosatsu</a></li>
   <li><a href="../../../../generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
+  <li><a href="../../../../generating_protobuf.html" class="page">Generating Protobuf from Bosatsu Values</a></li>
   <li><a href="../../../../debugging_with_eval.html" class="page">Debugging with <code>eval</code></a></li>
   <li><a href="../../../../debugging_with_show.html" class="page">Inspecting Compiled Output with <code>show</code></a></li>
   <li><a href="../../../../transpile_python.html" class="page">Compiling to Python</a></li>
@@ -124,7 +126,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <p>source code: - <a href="https://github.com/johnynek/bosatsu/blob/main/test_workspace/Float64.bosatsu"><code>test_workspace/Float64.bosatsu</code></a></p>
 <h2><a href="#index" name="index" class="anchor"><span class="anchor-link"></span></a>Index</h2>
 <ul>
-  <li>Values: <a href="#value-abs"><code>abs</code></a>, <a href="#value-acos"><code>acos</code></a>, <a href="#value-addf"><code>addf</code></a>, <a href="#value-asin"><code>asin</code></a>, <a href="#value-atan"><code>atan</code></a>, <a href="#value-atan2"><code>atan2</code></a>, <a href="#value-ceil"><code>ceil</code></a>, <a href="#value-cmp-float64"><code>cmp_Float64</code></a>, <a href="#value-copy-sign"><code>copy_sign</code></a>, <a href="#value-cos"><code>cos</code></a>, <a href="#value-cosh"><code>cosh</code></a>, <a href="#value-divf"><code>divf</code></a>, <a href="#value-eq-float64"><code>eq_Float64</code></a>, <a href="#value-exp"><code>exp</code></a>, <a href="#value-float64-bits-to-int"><code>float64_bits_to_Int</code></a>, <a href="#value-float64-to-int"><code>float64_to_Int</code></a>, <a href="#value-float64-to-string"><code>float64_to_String</code></a>, <a href="#value-floor"><code>floor</code></a>, <a href="#value-hypot"><code>hypot</code></a>, <a href="#value-inf"><code>inf</code></a>, <a href="#value-int-bits-to-float64"><code>int_bits_to_Float64</code></a>, <a href="#value-int-to-float64"><code>int_to_Float64</code></a>, <a href="#value-is-finite"><code>is_finite</code></a>, <a href="#value-is-infinite"><code>is_infinite</code></a>, <a href="#value-is-nan"><code>is_nan</code></a>, <a href="#value-log"><code>log</code></a>, <a href="#value-log10"><code>log10</code></a>, <a href="#value-mulf"><code>mulf</code></a>, <a href="#value-neg-inf"><code>neg_inf</code></a>, <a href="#value-operator"><code>operator *</code></a>, <a href="#value-operator"><code>operator +</code></a>, <a href="#value-operator"><code>operator -</code></a>, <a href="#value-operator"><code>operator /</code></a>, <a href="#value-pow"><code>pow</code></a>, <a href="#value-sin"><code>sin</code></a>, <a href="#value-sinh"><code>sinh</code></a>, <a href="#value-sqrt"><code>sqrt</code></a>, <a href="#value-string-to-float64"><code>string_to_Float64</code></a>, <a href="#value-subf"><code>subf</code></a>, <a href="#value-tan"><code>tan</code></a>, <a href="#value-tanh"><code>tanh</code></a></li>
+  <li>Values: <a href="#value-abs"><code>abs</code></a>, <a href="#value-acos"><code>acos</code></a>, <a href="#value-addf"><code>addf</code></a>, <a href="#value-asin"><code>asin</code></a>, <a href="#value-atan"><code>atan</code></a>, <a href="#value-atan2"><code>atan2</code></a>, <a href="#value-ceil"><code>ceil</code></a>, <a href="#value-cmp-float64"><code>cmp_Float64</code></a>, <a href="#value-copy-sign"><code>copy_sign</code></a>, <a href="#value-cos"><code>cos</code></a>, <a href="#value-cosh"><code>cosh</code></a>, <a href="#value-divf"><code>divf</code></a>, <a href="#value-eq-float64"><code>eq_Float64</code></a>, <a href="#value-exp"><code>exp</code></a>, <a href="#value-float32-bits-to-float64"><code>float32_bits_to_Float64</code></a>, <a href="#value-float64-bits-to-int"><code>float64_bits_to_Int</code></a>, <a href="#value-float64-to-int"><code>float64_to_Int</code></a>, <a href="#value-float64-to-string"><code>float64_to_String</code></a>, <a href="#value-float64-to-float32-bits"><code>float64_to_float32_bits</code></a>, <a href="#value-floor"><code>floor</code></a>, <a href="#value-hypot"><code>hypot</code></a>, <a href="#value-inf"><code>inf</code></a>, <a href="#value-int-bits-to-float64"><code>int_bits_to_Float64</code></a>, <a href="#value-int-to-float64"><code>int_to_Float64</code></a>, <a href="#value-is-finite"><code>is_finite</code></a>, <a href="#value-is-infinite"><code>is_infinite</code></a>, <a href="#value-is-nan"><code>is_nan</code></a>, <a href="#value-log"><code>log</code></a>, <a href="#value-log10"><code>log10</code></a>, <a href="#value-mulf"><code>mulf</code></a>, <a href="#value-neg-inf"><code>neg_inf</code></a>, <a href="#value-operator"><code>operator *</code></a>, <a href="#value-operator"><code>operator +</code></a>, <a href="#value-operator"><code>operator -</code></a>, <a href="#value-operator"><code>operator /</code></a>, <a href="#value-pow"><code>pow</code></a>, <a href="#value-sin"><code>sin</code></a>, <a href="#value-sinh"><code>sinh</code></a>, <a href="#value-sqrt"><code>sqrt</code></a>, <a href="#value-string-to-float64"><code>string_to_Float64</code></a>, <a href="#value-subf"><code>subf</code></a>, <a href="#value-tan"><code>tan</code></a>, <a href="#value-tanh"><code>tanh</code></a></li>
 </ul>
 <h2><a href="#values" name="values" class="anchor"><span class="anchor-link"></span></a>Values</h2>
 <a id="value-abs"></a>
@@ -197,8 +199,14 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <p>references: <a href="../Predef.html#type-float64"><code>Float64</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def exp(x: Float64) -&gt; Float64
 </code></pre>
+<a id="value-float32-bits-to-float64"></a>
+<h3><a href="#float32-bits-to-float64" name="float32-bits-to-float64" class="anchor"><span class="anchor-link"></span></a><code>float32_bits_to_Float64</code></h3>
+<p>references: <a href="../Predef.html#type-float64"><code>Float64</code></a>, <a href="../Predef.html#type-int"><code>Int</code></a></p>
+<pre class="prettyprint"><code class="language-bosatsu">def float32_bits_to_Float64(x: Int) -&gt; Float64
+</code></pre>
 <a id="value-float64-bits-to-int"></a>
 <h3><a href="#float64-bits-to-int" name="float64-bits-to-int" class="anchor"><span class="anchor-link"></span></a><code>float64_bits_to_Int</code></h3>
+<p>These functions convert between Float64 values and IEEE754 bit patterns in Int. Endianness is handled when bytes are written/read in wire codecs; these are pure bit-pattern conversions and are stable across machine endianness.</p>
 <p>references: <a href="../Predef.html#type-float64"><code>Float64</code></a>, <a href="../Predef.html#type-int"><code>Int</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def float64_bits_to_Int(x: Float64) -&gt; Int
 </code></pre>
@@ -211,6 +219,11 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <h3><a href="#float64-to-string" name="float64-to-string" class="anchor"><span class="anchor-link"></span></a><code>float64_to_String</code></h3>
 <p>references: <a href="../Predef.html#type-float64"><code>Float64</code></a>, <a href="../Predef.html#type-string"><code>String</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def float64_to_String(x: Float64) -&gt; String
+</code></pre>
+<a id="value-float64-to-float32-bits"></a>
+<h3><a href="#float64-to-float32-bits" name="float64-to-float32-bits" class="anchor"><span class="anchor-link"></span></a><code>float64_to_float32_bits</code></h3>
+<p>references: <a href="../Predef.html#type-float64"><code>Float64</code></a>, <a href="../Predef.html#type-int"><code>Int</code></a></p>
+<pre class="prettyprint"><code class="language-bosatsu">def float64_to_float32_bits(x: Float64) -&gt; Int
 </code></pre>
 <a id="value-floor"></a>
 <h3><a href="#floor" name="floor" class="anchor"><span class="anchor-link"></span></a><code>floor</code></h3>
@@ -409,7 +422,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <script type="text/javascript" src="../../../../lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="../../../../lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-f7229791-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-f77a22f9-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>

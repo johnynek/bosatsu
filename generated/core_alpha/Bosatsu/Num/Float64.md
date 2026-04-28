@@ -13,12 +13,14 @@ source code:
 [`atan`](#value-atan), [`atan2`](#value-atan2), [`ceil`](#value-ceil),
 [`cmp_Float64`](#value-cmp-float64), [`copy_sign`](#value-copy-sign), [`cos`](#value-cos),
 [`cosh`](#value-cosh), [`divf`](#value-divf), [`eq_Float64`](#value-eq-float64),
-[`exp`](#value-exp), [`float64_bits_to_Int`](#value-float64-bits-to-int),
-[`float64_to_Int`](#value-float64-to-int), [`float64_to_String`](#value-float64-to-string),
-[`floor`](#value-floor), [`hypot`](#value-hypot), [`inf`](#value-inf),
-[`int_bits_to_Float64`](#value-int-bits-to-float64), [`int_to_Float64`](#value-int-to-float64),
-[`is_finite`](#value-is-finite), [`is_infinite`](#value-is-infinite), [`is_nan`](#value-is-nan),
-[`log`](#value-log), [`log10`](#value-log10), [`mulf`](#value-mulf), [`neg_inf`](#value-neg-inf),
+[`exp`](#value-exp), [`float32_bits_to_Float64`](#value-float32-bits-to-float64),
+[`float64_bits_to_Int`](#value-float64-bits-to-int), [`float64_to_Int`](#value-float64-to-int),
+[`float64_to_String`](#value-float64-to-string),
+[`float64_to_float32_bits`](#value-float64-to-float32-bits), [`floor`](#value-floor),
+[`hypot`](#value-hypot), [`inf`](#value-inf), [`int_bits_to_Float64`](#value-int-bits-to-float64),
+[`int_to_Float64`](#value-int-to-float64), [`is_finite`](#value-is-finite),
+[`is_infinite`](#value-is-infinite), [`is_nan`](#value-is-nan), [`log`](#value-log),
+[`log10`](#value-log10), [`mulf`](#value-mulf), [`neg_inf`](#value-neg-inf),
 [`operator *`](#value-operator), [`operator +`](#value-operator), [`operator -`](#value-operator),
 [`operator /`](#value-operator), [`pow`](#value-pow), [`sin`](#value-sin), [`sinh`](#value-sinh),
 [`sqrt`](#value-sqrt), [`string_to_Float64`](#value-string-to-float64), [`subf`](#value-subf),
@@ -166,9 +168,23 @@ references: [`Float64`](../Predef.html#type-float64)
 def exp(x: Float64) -> Float64
 ```
 
+<a id="value-float32-bits-to-float64"></a>
+
+### `float32_bits_to_Float64`
+
+references: [`Float64`](../Predef.html#type-float64), [`Int`](../Predef.html#type-int)
+
+```bosatsu
+def float32_bits_to_Float64(x: Int) -> Float64
+```
+
 <a id="value-float64-bits-to-int"></a>
 
 ### `float64_bits_to_Int`
+
+These functions convert between Float64 values and IEEE754 bit patterns in Int.
+Endianness is handled when bytes are written/read in wire codecs; these are
+pure bit-pattern conversions and are stable across machine endianness.
 
 references: [`Float64`](../Predef.html#type-float64), [`Int`](../Predef.html#type-int)
 
@@ -194,6 +210,16 @@ references: [`Float64`](../Predef.html#type-float64), [`String`](../Predef.html#
 
 ```bosatsu
 def float64_to_String(x: Float64) -> String
+```
+
+<a id="value-float64-to-float32-bits"></a>
+
+### `float64_to_float32_bits`
+
+references: [`Float64`](../Predef.html#type-float64), [`Int`](../Predef.html#type-int)
+
+```bosatsu
+def float64_to_float32_bits(x: Float64) -> Int
 ```
 
 <a id="value-floor"></a>
