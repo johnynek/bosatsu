@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -eq 2 && "$1" == "127.0.0.1" && "$2" =~ ^[0-9]+$ ]]; then
+  if [[ -n "${PROTOCBRIDGE_NC_LOG:-}" ]]; then
+    printf 'protocbridge nc wrapper invoked: %s %s\n' "$1" "$2" >> "$PROTOCBRIDGE_NC_LOG"
+  fi
+  python3 -c '
+import socket
+import sys
+import os
+import select
+import threading
+
+host = sys.argv[1]
+port = int(sys.argv[2])
+
+with socket.create_connection((host, port)) as sock:
+    def forward_stdin():
+        fd = sys.stdin.fileno()
+        seen_input = False
+        while True:
+            timeout = 5.0 if not seen_input else 0.2
+            readable, _, _ = select.select([fd], [], [], timeout)
+            if not readable:
+                break
+            chunk = os.read(fd, 65536)
+            if not chunk:
+                break
+            seen_input = True
+            sock.sendall(chunk)
+        # protocbridge expects the plugin frontend to see EOF before responding.
+        sock.shutdown(socket.SHUT_WR)
+
+    stdin_thread = threading.Thread(target=forward_stdin, daemon=True)
+    stdin_thread.start()
+
+    while True:
+        chunk = sock.recv(65536)
+        if not chunk:
+            break
+        sys.stdout.buffer.write(chunk)
+        sys.stdout.buffer.flush()
+    stdin_thread.join()
+' "$1" "$2"
+else
+  exec /usr/bin/nc "$@"
+fi

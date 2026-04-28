@@ -34,6 +34,7 @@ class LibConfigJvmTest extends munit.FunSuite {
       "Bosatsu/IO/Core",
       "Bosatsu/IO/Error",
       "Bosatsu/IO/Std",
+      "Bosatsu/Proto/Wire",
       "Bosatsu/Json",
       "Bosatsu/Lazy",
       "Bosatsu/Num/Float64",

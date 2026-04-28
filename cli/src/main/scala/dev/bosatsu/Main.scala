@@ -9,6 +9,7 @@ object Main extends IOApp {
 
   def fromToolExit(ec: tool.ExitCode): ExitCode =
     ExitCode(ec.toInt)
+
   def run(args: List[String]): IO[ExitCode] =
     PathModule.runAndReport(args) match {
       case Right(io)  =>

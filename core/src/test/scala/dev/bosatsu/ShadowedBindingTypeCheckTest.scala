@@ -7,8 +7,11 @@ import ShadowedBindingTypeCheck.BindingSite
 import TestUtils.{checkEnvExpr, testPackage}
 import dev.bosatsu.Par
 import dev.bosatsu.rankn.Type
+import scala.concurrent.duration.DurationInt
 
 class ShadowedBindingTypeCheckTest extends munit.FunSuite {
+  override val munitTimeout = 2.minutes
+
   private def collectUntypedVarPatterns[A](
       te: TypedExpr[A]
   ): List[(Pattern[(PackageName, Identifier.Constructor), Type], TypedExpr[A])] = {

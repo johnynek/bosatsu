@@ -166,7 +166,8 @@ class PathModuleTest extends munit.FunSuite {
         "deps",
         "show",
         "assemble",
-        "extract-iface"
+        "extract-iface",
+        "protoc-plugin"
       )
     )
   }

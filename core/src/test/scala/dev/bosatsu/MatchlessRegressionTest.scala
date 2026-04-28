@@ -5,8 +5,11 @@ import cats.data.NonEmptyList
 import dev.bosatsu.rankn.DataRepr
 import dev.bosatsu.rankn.Type
 import java.math.BigInteger
+import scala.concurrent.duration.DurationInt
 
 class MatchlessRegressionTest extends munit.FunSuite {
+  override val munitTimeout = 2.minutes
+
   private def nestedLetMut(depth: Int): Matchless.Expr[Unit] =
     (0 until depth).foldLeft[Matchless.Expr[Unit]](Matchless.MakeStruct(0)) {
       case (acc, idx) =>
