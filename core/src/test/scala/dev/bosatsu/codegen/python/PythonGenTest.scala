@@ -878,4 +878,49 @@ main = classify_char
     }
   }
 
+  test("float32 conversion externals render in python codegen") {
+    val src =
+      """package Test
+        |
+        |from Bosatsu/Num/Float64 import (
+        |  float32_bits_to_Float64,
+        |  float64_to_float32_bits,
+        |)
+        |
+        |def roundtrip(bits):
+        |  float64_to_float32_bits(float32_bits_to_Float64(bits))
+        |
+        |main = roundtrip
+        |""".stripMargin
+
+    val floatPkg =
+      """package Bosatsu/Num/Float64
+        |
+        |from Bosatsu/Predef import Float64
+        |
+        |export (
+        |  float32_bits_to_Float64,
+        |  float64_to_float32_bits,
+        |)
+        |
+        |external def float32_bits_to_Float64(x: Int) -> Float64
+        |external def float64_to_float32_bits(x: Float64) -> Int
+        |""".stripMargin
+
+    val pm = typeCheckPackages(List(floatPkg, src))
+    Par.withEC {
+      val rendered = PythonGen.renderSource(pm, Map.empty, Map.empty)
+      val doc = rendered(())(PackageName.parts("Test"))._2
+      val code = doc.render(120)
+      def containsFmtCall(kind: String, fmt: String): Boolean =
+        code.contains(s".$kind(u\"$fmt\"") || code.contains(s".$kind(\"$fmt\"")
+
+      assert(code.contains("import struct as"), code)
+      assert(containsFmtCall("pack", ">I"), code)
+      assert(containsFmtCall("pack", ">f"), code)
+      assert(containsFmtCall("unpack", ">I"), code)
+      assert(containsFmtCall("unpack", ">f"), code)
+    }
+  }
+
 }

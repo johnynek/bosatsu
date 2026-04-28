@@ -25,6 +25,7 @@ object ToolCommand {
         ShowCommand.opts(platformIO, commonOpts) ::
         AssembleCommand.opts(platformIO) ::
         ExtractIfaceCommand.opts(platformIO) ::
+        ProtocPluginCommand.opts(platformIO) ::
         Nil
     )
   }

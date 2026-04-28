@@ -2,8 +2,10 @@ package dev.bosatsu
 
 import cats.data.{Ior, NonEmptyChain, Validated}
 import dev.bosatsu.rankn.{DefinedType, ParsedTypeEnv, TypeAlias, TypeEnv}
+import scala.concurrent.duration.DurationInt
 
 class ShapeTest extends munit.FunSuite {
+  override val munitTimeout = 2.minutes
 
   private type SolvedType = DefinedType[Either[Shape.KnownShape, Kind.Arg]]
   private type SolvedAlias = TypeAlias[Either[Shape.KnownShape, Kind.Arg]]

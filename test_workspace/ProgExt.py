@@ -11,7 +11,7 @@ import math
 import os
 import shutil
 import stat as _stat
-import struct
+import struct as _struct
 import subprocess
 import sys
 import tempfile
@@ -974,7 +974,7 @@ def utf8_Char_at(bytes_value, idx):
     else:
         return _none
 
-    return _some(struct.pack(">I", codepoint).decode("utf-32-be"))
+    return _some(_struct.pack(">I", codepoint).decode("utf-32-be"))
 
 # Bosatsu/IO/Core externals
 path_sep = os.sep
@@ -1865,6 +1865,17 @@ def _run_prog_value(arg):
       arg = step_fix(arg[1], arg[2])
     else:
       raise Exception(f"invalid Prog tag: {prog_tag}")
+
+def float32_bits_to_Float64(bits):
+  # Use explicit network byte order so this is independent of host endianness.
+  raw = int(bits) & 0xFFFFFFFF
+  return _struct.unpack(">f", _struct.pack(">I", raw))[0]
+
+
+def float64_to_float32_bits(value):
+  # Return the IEEE754 binary32 bit pattern as an unsigned Int value.
+  packed = _struct.pack(">f", float(value))
+  return _struct.unpack(">I", packed)[0]
 
 # main: List[String] -> Prog[String, Int]
 def run(main):

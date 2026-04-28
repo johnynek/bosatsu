@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory
 import java.nio.file.{Path, Paths}
 import scala.concurrent.duration._
+import scala.jdk.CollectionConverters._
 
 // allow us to unsafeRunSync
 import cats.effect.unsafe.implicits.global
@@ -80,5 +81,59 @@ class GithubWorkflowJsonParityTest extends munit.FunSuite {
         )
       )
     }
+  }
+
+  test("ci workflow uses the current top-level fetch command for protobuf validation") {
+    val out = run(
+      "json",
+      "write",
+      "--name",
+      "core_alpha",
+      "--main",
+      "Bosatsu/Example/Json/Github/Workflows/Ci::workflow"
+    )
+
+    val rendered = out match {
+      case Output.JsonOutput(json, _) =>
+        json.render
+      case other =>
+        fail(s"expected JSON output, got: $other")
+    }
+
+    assert(rendered.contains("./bosatsuj fetch --repo_root . --name core_alpha"))
+    assert(!rendered.contains("./bosatsuj lib fetch --repo_root . --name core_alpha"))
+  }
+
+  test("ci workflow constrains native-image threads in the graal build step") {
+    val out = run(
+      "json",
+      "write",
+      "--name",
+      "core_alpha",
+      "--main",
+      "Bosatsu/Example/Json/Github/Workflows/Ci::workflow"
+    )
+
+    val generatedJsonNode = out match {
+      case Output.JsonOutput(json, _) =>
+        jsonMapper.readTree(json.render)
+      case other =>
+        fail(s"expected JSON output, got: $other")
+    }
+
+    val buildNativeImageStep =
+      generatedJsonNode
+        .path("jobs")
+        .path("buildWithGraal")
+        .path("steps")
+        .elements()
+        .asScala
+        .find(_.path("name").asText() == "build native image")
+        .getOrElse(fail("missing build native image step"))
+
+    assertEquals(
+      buildNativeImageStep.path("env").path("BOSATSU_NATIVE_IMAGE_THREADS").asText(),
+      "2"
+    )
   }
 }
