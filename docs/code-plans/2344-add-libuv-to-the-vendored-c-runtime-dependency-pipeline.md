@@ -8,21 +8,21 @@
 - Flow: `small_job`
 - Issue: `#2344` Add libuv to the vendored C runtime dependency pipeline
 - Source design doc: `docs/design/2342-document-the-libuv-c-runtime-integration-contract.md`
-- Pending steps: `1`
-- Completed steps: `3`
+- Pending steps: `0`
+- Completed steps: `4`
 - Total steps: `4`
 
 ## Summary
 
-Add libuv as a second vendored C runtime dependency, using the merged integration contract's exact version, source archive, hash, source subdirectory, and `libuv-cmake-static` recipe. The current checkpoint includes the manifest pin, focused parsing and ordering coverage, libuv CMake recipe dispatch/argument helpers, static metadata/link-flag handling, and focused cruntime tests. The remaining PR-readiness work is the configured repository gate `scripts/test_basic.sh`.
+Add libuv as a second vendored C runtime dependency, using the merged integration contract's exact version, source archive, hash, source subdirectory, and `libuv-cmake-static` recipe. The branch contains the manifest pin, focused parsing and ordering coverage, libuv CMake recipe dispatch/argument helpers, static metadata/link-flag handling, and focused cruntime tests. The configured repository gate `scripts/test_basic.sh` has now passed after the libuv implementation.
 
 ## Current State
 
-The checkpoint branch now contains the libuv entry in `c_runtime/deps.json` after bdwgc using the official `dist.libuv.org` tarball, version `1.52.1`, the accepted blake3 hash, source subdirectory `libuv-v1.52.1`, and recipe `libuv-cmake-static`, with no dependency edge to bdwgc. `CDepsTest` pins the checked-in manifest values and verifies deterministic ordering for independent bdwgc/libuv entries. `VendoredDeps` also contains libuv recipe dispatch, libuv configure argument helpers, libuv static-library naming, empty libuv runtime requirements, and generalized pkg-config self-library filtering. This round fixed a compile error in `runLibuvRecipe` by importing the local `platformIO.moduleIOMonad` before using `*>`. Focused cruntime tests passed with the protoc override: `sbt -batch "set protoJVM / Compile / sbtprotoc.ProtocPlugin.autoImport.PB.protocExecutable := file(\"$(command -v protoc)\")" "coreJVM/testOnly dev.bosatsu.cruntime.CDepsTest dev.bosatsu.cruntime.VendoredDepsTest -- --log=failure"`.
+The checkpoint branch contains the libuv entry in `c_runtime/deps.json` after bdwgc using the official `dist.libuv.org` tarball, version `1.52.1`, the accepted blake3 hash, source subdirectory `libuv-v1.52.1`, and recipe `libuv-cmake-static`, with no dependency edge to bdwgc. `CDepsTest` pins the checked-in manifest values and verifies deterministic ordering for independent bdwgc/libuv entries. `VendoredDeps` contains libuv recipe dispatch, libuv configure argument helpers, libuv static-library naming, empty libuv runtime requirements, and generalized pkg-config self-library filtering. Focused cruntime tests passed earlier with the protoc override, and this round ran the configured required gate `scripts/test_basic.sh`, which passed with `Passed: Total 2115, Failed 0, Errors 0, Passed 2115, Ignored 2`.
 
 ## Problem
 
-The vendored dependency implementation is now present and focused cruntime coverage passes, but the branch is not yet PR-ready because the configured required gate `scripts/test_basic.sh` has not been run after the current libuv implementation and compile fix. The work remains limited to the vendored dependency pipeline and must not expand into the later libuv event-loop, generated C, or IO/Core runtime migration work described in the reference document.
+The vendored dependency implementation and verification are complete for this small job. The completed work remains limited to the vendored dependency pipeline and does not expand into the later libuv event-loop, generated C, or IO/Core runtime migration work described in the reference document.
 
 ## Steps
 
@@ -101,7 +101,7 @@ Generalize pkg-config parsing/filtering so metadata can collect transitive syste
 
 Completed in the current checkpoint and covered by the focused `VendoredDepsTest` run.
 
-4. [ ] `step-4` Run Required Verification Gate
+4. [x] `step-4` Run Required Verification Gate
 
 Run the configured repository gate `scripts/test_basic.sh` before the branch is considered PR-ready. The required-tests timeout for this repo version is 2400 seconds, so the implementation should avoid adding slow network or native-build work to unit tests; native recipe execution remains covered by argument/metadata parsing tests unless an existing hermetic harness is available. In this environment, focused `sbt` commands should set `protoJVM / Compile / sbtprotoc.ProtocPlugin.autoImport.PB.protocExecutable` to `file("$(command -v protoc)")`, matching `scripts/test_basic.sh`, to avoid protobuf generation hangs seen during earlier rounds.
 
@@ -113,13 +113,13 @@ Run the configured repository gate `scripts/test_basic.sh` before the branch is 
 
 #### Property Tests
 
-- The focused property suites in `core/src/test/scala/dev/bosatsu/cruntime/CDepsTest.scala` and `core/src/test/scala/dev/bosatsu/cruntime/VendoredDepsTest.scala` passed during this round.
+- The focused property suites in `core/src/test/scala/dev/bosatsu/cruntime/CDepsTest.scala` and `core/src/test/scala/dev/bosatsu/cruntime/VendoredDepsTest.scala` passed before this required-gate round.
 
 #### Assertion Tests
 
-- Passed this round: `sbt -batch "set protoJVM / Compile / sbtprotoc.ProtocPlugin.autoImport.PB.protocExecutable := file(\"$(command -v protoc)\")" "coreJVM/testOnly dev.bosatsu.cruntime.CDepsTest dev.bosatsu.cruntime.VendoredDepsTest -- --log=failure"`.
-- Still required before PR submission: run `scripts/test_basic.sh` within the configured 2400 second timeout.
+- Passed earlier: `sbt -batch "set protoJVM / Compile / sbtprotoc.ProtocPlugin.autoImport.PB.protocExecutable := file(\"$(command -v protoc)\")" "coreJVM/testOnly dev.bosatsu.cruntime.CDepsTest dev.bosatsu.cruntime.VendoredDepsTest -- --log=failure"`.
+- Passed this round: `scripts/test_basic.sh` completed successfully with `Passed: Total 2115, Failed 0, Errors 0, Passed 2115, Ignored 2`.
 
 #### Completion Notes
 
-Focused cruntime tests passed after the compile fix. The full configured required-tests script was not run in this selected-step round and remains pending.
+Completed in this selected-step round. The configured required-tests script `scripts/test_basic.sh` passed within the 2400 second timeout.
