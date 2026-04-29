@@ -30,6 +30,27 @@ class VendoredDepsTest extends munit.ScalaCheckSuite {
       options = options
     )
 
+  private def metadata(
+      name: String,
+      staticLibs: List[String],
+      systemLinkFlags: List[String]
+  ): CDeps.Metadata =
+    CDeps.Metadata(
+      schema_version = CDeps.SchemaVersion,
+      name = name,
+      version = "1.0.0",
+      recipe = s"$name-recipe",
+      source_hash = hash.toIdent,
+      build_key = s"$name-build-key",
+      dependencies = None,
+      target = CDeps.Target("linux", "x86_64", "clang", "clang 17"),
+      prefix = s"/deps/$name",
+      include_dirs = s"/deps/$name/include" :: Nil,
+      static_libs = staticLibs,
+      system_link_flags = systemLinkFlags,
+      runtime_requirements = CDeps.RuntimeRequirements(Nil, Nil)
+    )
+
   private def cFlagsArg(args: List[String]): Option[String] =
     args.collectFirst { case arg if arg.startsWith("-DCMAKE_C_FLAGS=") =>
       arg.stripPrefix("-DCMAKE_C_FLAGS=")
@@ -70,6 +91,74 @@ class VendoredDepsTest extends munit.ScalaCheckSuite {
         "-DGC_THREADS" :: Nil,
         "-DGC_THREADS" :: Nil
       )
+    )
+  }
+
+  test("libuv runtime requirements are empty") {
+    assertEquals(
+      VendoredDeps.runtimeRequirementsFor(
+        dependency("libuv", CDeps.LibuvCmakeStatic)
+      ),
+      CDeps.RuntimeRequirements(Nil, Nil)
+    )
+  }
+
+  test("pkg-config parsing filters bdwgc self library and keeps system flags") {
+    val content =
+      """prefix=/tmp/prefix
+        |libdir=${prefix}/lib
+        |includedir=${prefix}/include
+        |Libs: -L${libdir} -lgc
+        |Libs.private: -pthread -ldl
+        |Cflags: -I${includedir}
+        |""".stripMargin
+
+    assertEquals(
+      VendoredDeps.parsePkgConfigSystemFlags(content, "libgc.a"),
+      "-pthread" :: "-ldl" :: Nil
+    )
+  }
+
+  test("pkg-config parsing filters libuv self library spellings") {
+    val content =
+      """prefix=/tmp/prefix
+        |libdir=${prefix}/lib
+        |Libs: -L${libdir} -luv -l:libuv.a ${libdir}/libuv.a
+        |Libs.private: -pthread -ldl -lrt -lsocket
+        |""".stripMargin
+
+    assertEquals(
+      VendoredDeps.parsePkgConfigSystemFlags(content, "libuv.a"),
+      "-pthread" :: "-ldl" :: "-lrt" :: "-lsocket" :: Nil
+    )
+  }
+
+  test("BuildInputs link flags place static archives before system flags") {
+    val bdwgc = dependency("bdwgc", CDeps.BdwgcCmakeStatic)
+    val libuv = dependency("libuv", CDeps.LibuvCmakeStatic)
+    val bdwgcStaticLib = "/cache/bdwgc/prefix/lib/libgc.a"
+    val libuvStaticLib = "/cache/libuv/prefix/lib/libuv.a"
+    val inputs =
+      VendoredDeps.BuildInputs(
+        CDeps.Manifest(1, 1, bdwgc :: libuv :: Nil),
+        VendoredDeps.ResolvedDependency(
+          bdwgc,
+          "bdwgc-key",
+          "/cache/bdwgc",
+          metadata("bdwgc", bdwgcStaticLib :: Nil, "-pthread" :: Nil)
+        ) ::
+          VendoredDeps.ResolvedDependency(
+            libuv,
+            "libuv-key",
+            "/cache/libuv",
+            metadata("libuv", libuvStaticLib :: Nil, "-ldl" :: Nil)
+          ) ::
+          Nil
+      )
+
+    assertEquals(
+      inputs.linkFlags,
+      bdwgcStaticLib :: libuvStaticLib :: "-pthread" :: "-ldl" :: Nil
     )
   }
 
@@ -243,6 +332,20 @@ class VendoredDepsTest extends munit.ScalaCheckSuite {
       "-DMY_FLAG=1"
     )
 
+  private val systemLinkFlagGen =
+    Gen.oneOf(
+      "-pthread",
+      "-ldl",
+      "-lrt",
+      "-lsocket",
+      "-lkstat",
+      "-lsendfile",
+      "-lws2_32",
+      "-lpsapi",
+      "-liphlpapi",
+      "-luserenv"
+    )
+
   property("Darwin bdwgc configure args retain inherited CFLAGS tokens and inject the define once") {
     forAll(Gen.listOf(safeCFlagTokenGen)) { tokens =>
       val inherited =
@@ -283,6 +386,32 @@ class VendoredDepsTest extends munit.ScalaCheckSuite {
       assertEquals(actualTokens, tokens)
       assert(!actualTokens.contains("-DGC_THREADS"))
       assert(!actualTokens.contains(noDescCatchExceptionRaise))
+    }
+  }
+
+  property("pkg-config parsing preserves distinct system flags and filters self libraries") {
+    val flagGen =
+      for {
+        staticLib <- Gen.oneOf("libgc.a", "libuv.a")
+        systemFlags <- Gen.listOf(systemLinkFlagGen)
+        selfFlags = {
+          val stem = staticLib.stripPrefix("lib").stripSuffix(".a")
+          List(s"-l$stem", s"-l:$staticLib", s"/tmp/prefix/lib/$staticLib")
+        }
+      } yield (staticLib, systemFlags, selfFlags)
+
+    forAll(flagGen) { case (staticLib, systemFlags, selfFlags) =>
+      val content =
+        s"""prefix=/tmp/prefix
+           |libdir=$${prefix}/lib
+           |Libs: -L$${libdir} ${selfFlags.mkString(" ")}
+           |Libs.private: ${systemFlags.mkString(" ")}
+           |""".stripMargin
+
+      assertEquals(
+        VendoredDeps.parsePkgConfigSystemFlags(content, staticLib),
+        systemFlags.distinct
+      )
     }
   }
 }

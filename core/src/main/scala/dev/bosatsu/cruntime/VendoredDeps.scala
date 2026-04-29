@@ -30,8 +30,10 @@ object VendoredDeps {
         .distinct
 
     def linkFlags: List[String] =
-      resolved
-        .flatMap(rd => rd.metadata.static_libs ::: rd.metadata.system_link_flags)
+      (
+        resolved.flatMap(_.metadata.static_libs) :::
+          resolved.flatMap(_.metadata.system_link_flags)
+      )
         .distinct
   }
 
@@ -447,7 +449,17 @@ object VendoredDeps {
   )(platformIO: PlatformIO[F, P]): F[List[String]] =
     dependency.recipe match {
       case CDeps.BdwgcCmakeStatic =>
-        bdwgcSystemLinkFlags(installedPrefix)(platformIO)
+        pkgConfigSystemLinkFlags(
+          installedPrefix,
+          "bdw-gc.pc",
+          staticLibFileName(dependency)
+        )(platformIO)
+      case CDeps.LibuvCmakeStatic =>
+        pkgConfigSystemLinkFlags(
+          installedPrefix,
+          "libuv-static.pc",
+          staticLibFileName(dependency)
+        )(platformIO)
       case _ =>
         platformIO.moduleIOMonad.pure(Nil)
     }
@@ -661,24 +673,41 @@ object VendoredDeps {
     checks.sequence.map(_.flatten.forall(identity)).handleError(_ => false)
   }
 
-  private def bdwgcSystemLinkFlags[F[_], P](
-      prefix: P
+  private def pkgConfigSystemLinkFlags[F[_], P](
+      prefix: P,
+      pkgConfigFileName: String,
+      staticLibFileName: String
   )(platformIO: PlatformIO[F, P]): F[List[String]] = {
     import platformIO.moduleIOMonad
 
     val pcPath =
-      platformIO.resolve(prefix, pkgConfigDir ::: "bdw-gc.pc" :: Nil)
+      platformIO.resolve(prefix, pkgConfigDir ::: pkgConfigFileName :: Nil)
 
     platformIO.fsDataType(pcPath).flatMap {
       case Some(PlatformIO.FSDataType.File) =>
-        platformIO.readUtf8(pcPath).map(parsePkgConfigSystemFlags)
+        platformIO
+          .readUtf8(pcPath)
+          .map(parsePkgConfigSystemFlags(_, staticLibFileName))
       case _ =>
         moduleIOMonad.pure(Nil)
     }
   }
 
-  private[cruntime] def parsePkgConfigSystemFlags(content: String): List[String] = {
+  private[cruntime] def parsePkgConfigSystemFlags(
+      content: String,
+      staticLibFileName: String = "libgc.a"
+  ): List[String] = {
     val variablePattern = "\\$\\{([^}]+)\\}".r
+    val libStem =
+      staticLibFileName.stripPrefix("lib").stripSuffix(".a")
+    val selfLinkFlags =
+      Set(s"-l$libStem", s"-l:$staticLibFileName")
+
+    def isSelfLib(flag: String): Boolean =
+      selfLinkFlags(flag) ||
+        flag == staticLibFileName ||
+        flag.endsWith(s"/$staticLibFileName") ||
+        flag.endsWith(s"\\$staticLibFileName")
 
     val (variables, fields) =
       content.linesIterator.foldLeft((Map.empty[String, String], Map.empty[String, String])) {
@@ -726,7 +755,7 @@ object VendoredDeps {
         .filter(_.nonEmpty)
 
     rawFlags
-      .filterNot(flag => flag == "-lgc" || flag.startsWith("-L"))
+      .filterNot(flag => flag.startsWith("-L") || isSelfLib(flag))
       .distinct
   }
 
