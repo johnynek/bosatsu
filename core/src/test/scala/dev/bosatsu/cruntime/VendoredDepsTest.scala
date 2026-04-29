@@ -133,7 +133,7 @@ class VendoredDepsTest extends munit.ScalaCheckSuite {
     )
   }
 
-  test("BuildInputs link flags place static archives before system flags") {
+  test("BuildInputs link flags place dependent archives before dependency archives") {
     val bdwgc = dependency("bdwgc", CDeps.BdwgcCmakeStatic)
     val libuv = dependency("libuv", CDeps.LibuvCmakeStatic)
     val bdwgcStaticLib = "/cache/bdwgc/prefix/lib/libgc.a"
@@ -158,8 +158,42 @@ class VendoredDepsTest extends munit.ScalaCheckSuite {
 
     assertEquals(
       inputs.linkFlags,
-      bdwgcStaticLib :: libuvStaticLib :: "-pthread" :: "-ldl" :: Nil
+      libuvStaticLib :: bdwgcStaticLib :: "-ldl" :: "-pthread" :: Nil
     )
+  }
+
+  property("BuildInputs link flags reverse topological dependency order within each flag class") {
+    val nameGen =
+      Gen
+        .choose(2, 6)
+        .map(count => List.tabulate(count)(idx => s"dep$idx"))
+
+    forAll(nameGen) { names =>
+      val resolved =
+        names.map { name =>
+          VendoredDeps.ResolvedDependency(
+            dependency(name, "custom-recipe"),
+            s"$name-key",
+            s"/cache/$name",
+            metadata(
+              name,
+              s"/cache/$name/prefix/lib/lib$name.a" :: Nil,
+              s"-l${name}sys" :: Nil
+            )
+          )
+        }
+      val inputs =
+        VendoredDeps.BuildInputs(
+          CDeps.Manifest(1, 1, resolved.map(_.dependency)),
+          resolved
+        )
+
+      assertEquals(
+        inputs.linkFlags,
+        names.reverse.map(name => s"/cache/$name/prefix/lib/lib$name.a") :::
+          names.reverse.map(name => s"-l${name}sys")
+      )
+    }
   }
 
   test("bdwgc configure args add the Darwin-only define and keep common switches") {

@@ -31,8 +31,8 @@ object VendoredDeps {
 
     def linkFlags: List[String] =
       (
-        resolved.flatMap(_.metadata.static_libs) :::
-          resolved.flatMap(_.metadata.system_link_flags)
+        resolved.reverse.flatMap(_.metadata.static_libs) :::
+          resolved.reverse.flatMap(_.metadata.system_link_flags)
       )
         .distinct
   }
