@@ -8,8 +8,8 @@
 - Flow: `small_job`
 - Issue: `#2344` Add libuv to the vendored C runtime dependency pipeline
 - Source design doc: `docs/design/2342-document-the-libuv-c-runtime-integration-contract.md`
-- Pending steps: `3`
-- Completed steps: `1`
+- Pending steps: `2`
+- Completed steps: `2`
 - Total steps: `4`
 
 ## Summary
@@ -18,11 +18,11 @@ Add libuv as a second vendored C runtime dependency, using the merged integratio
 
 ## Current State
 
-The current branch now adds libuv to `c_runtime/deps.json` after bdwgc with the accepted `1.52.1` dist.libuv.org tarball URI, blake3 hash, source subdirectory, and `libuv-cmake-static` recipe, with no build dependency on bdwgc. `CDeps.orderedDependencies` now traverses dependency roots and dependency edges by name so independent vendored dependencies have deterministic topological order regardless of manifest input order. Focused `CDepsTest` coverage now pins the checked-in bdwgc/libuv manifest contract and verifies independent bdwgc/libuv ordering stability. `CDeps.scala` still only reserves the libuv recipe name; `VendoredDeps.runRecipe`, metadata/link-flag collection, and pkg-config filtering remain pending and effectively bdwgc-specific.
+The current branch now adds libuv to `c_runtime/deps.json` after bdwgc with the accepted `1.52.1` dist.libuv.org tarball URI, blake3 hash, source subdirectory, and `libuv-cmake-static` recipe, with no build dependency on bdwgc. `CDeps.orderedDependencies` now traverses dependency roots and dependency edges by name so independent vendored dependencies have deterministic topological order regardless of manifest input order. Focused `CDepsTest` coverage now pins the checked-in bdwgc/libuv manifest contract and verifies independent bdwgc/libuv ordering stability. `VendoredDeps.runRecipe` now dispatches `CDeps.LibuvCmakeStatic` to a libuv CMake configure/build/install path, and `VendoredDeps.libuvConfigureArgs` exposes the libuv-specific configure switch contract for hermetic tests. Metadata/link-flag collection and pkg-config filtering remain pending and effectively bdwgc-specific.
 
 ## Problem
 
-Issue #2344 requires libuv to become a real vendored runtime dependency, not only a reserved recipe name. Without the remaining recipe execution and metadata work, the default C runtime dependency pipeline still cannot fetch/build libuv, cannot record `<prefix>/include` and `<prefix>/lib/libuv.a` metadata, and cannot collect libuv's platform-specific static link flags without requiring a host-installed libuv. The current pkg-config filtering helper is still too bdwgc-specific to safely reuse for libuv because it only excludes `-lgc`; it needs a dependency-aware self-library exclusion while preserving reported system flags. This job is limited to dependency vendoring and metadata behavior; it should not start the later libuv event-loop or IO runtime migration work described in the reference document.
+Issue #2344 requires libuv to become a real vendored runtime dependency, not only a reserved recipe name. Recipe execution now exists, but the default C runtime dependency pipeline still cannot fully complete the libuv integration until metadata records `<prefix>/include` and `<prefix>/lib/libuv.a` and collects libuv's platform-specific static link flags without requiring a host-installed libuv. The current pkg-config filtering helper is still too bdwgc-specific to safely reuse for libuv because it only excludes `-lgc`; it needs a dependency-aware self-library exclusion while preserving reported system flags. This job is limited to dependency vendoring and metadata behavior; it should not start the later libuv event-loop or IO runtime migration work described in the reference document.
 
 ## Steps
 
@@ -50,7 +50,7 @@ Update `c_runtime/deps.json` to add the direct `libuv` dependency after `bdwgc` 
 
 Implemented in `c_runtime/deps.json`, `core/src/main/scala/dev/bosatsu/cruntime/CDeps.scala`, and `core/src/test/scala/dev/bosatsu/cruntime/CDepsTest.scala`. Verified `c_runtime/deps.json` is valid JSON with `jq` and `git diff --check` passes. Attempted `sbt -batch "coreJVM/testOnly dev.bosatsu.cruntime.CDepsTest -- --log=failure"`; sbt completed startup and began compiling but produced no further output after an extended wait, so focused test completion is not recorded for this round.
 
-2. [ ] `step-2` Implement Libuv Recipe Execution
+2. [x] `step-2` Implement Libuv Recipe Execution
 
 Extend `VendoredDeps.runRecipe` to dispatch `CDeps.LibuvCmakeStatic` to a new libuv CMake recipe helper. Follow the existing bdwgc two-phase shape: configure with `cmake -S <sourceRoot> -B <buildDir> ...`, then build/install with `cmake --build <buildDir> --target install`. Add a small testable helper for libuv configure arguments rather than burying the recipe switches inside the effectful build method. Pass inherited `CFLAGS` through as `-DCMAKE_C_FLAGS=<value>` when present, but do not add bdwgc's Darwin-only `NO_DESC_CATCH_EXCEPTION_RAISE` flag or any Bosatsu `GC_THREADS` flag to the libuv build.
 
@@ -63,12 +63,16 @@ Extend `VendoredDeps.runRecipe` to dispatch `CDeps.LibuvCmakeStatic` to a new li
 
 #### Property Tests
 
-- Add a property that generated non-empty safe `CFLAGS` token lists are preserved exactly once in the libuv `-DCMAKE_C_FLAGS=` configure argument and no GC-specific tokens are injected.
+- Added property coverage that generated non-empty safe `CFLAGS` token lists are preserved exactly once in the libuv `-DCMAKE_C_FLAGS=` configure argument and no GC-specific tokens are injected.
 
 #### Assertion Tests
 
-- Add case-based tests for libuv debug and release configure arguments, including all required CMake switches.
-- Add a case-based test that no `-DGC_THREADS` or `-DNO_DESC_CATCH_EXCEPTION_RAISE` token appears in libuv configure args unless it was explicitly present in inherited `CFLAGS`.
+- Added case-based tests for libuv debug and release configure arguments, including all required CMake switches.
+- Added a case-based test that no `-DGC_THREADS` or `-DNO_DESC_CATCH_EXCEPTION_RAISE` token appears in libuv configure args unless it was explicitly present in inherited `CFLAGS`.
+
+#### Completion Notes
+
+Implemented in `core/src/main/scala/dev/bosatsu/cruntime/VendoredDeps.scala` and `core/src/test/scala/dev/bosatsu/cruntime/VendoredDepsTest.scala`. `runRecipe` now dispatches `CDeps.LibuvCmakeStatic` to a CMake configure/build/install helper. `libuvConfigureArgs` is testable and preserves only non-empty inherited `CFLAGS` while adding the required static libuv CMake switches. `git diff --check` passed. Attempted `sbt -batch "coreJVM/testOnly dev.bosatsu.cruntime.VendoredDepsTest -- --log=failure"`; sbt loaded the project and began compiling, but produced no further output after an extended wait, matching the earlier step-1 sbt behavior, so focused test completion is not recorded for this round.
 
 3. [ ] `step-3` Generalize Metadata Link Flags
 

@@ -167,6 +167,72 @@ class VendoredDepsTest extends munit.ScalaCheckSuite {
     assertEquals(cFlagsArg(args), Some(s"-O2 $noDescCatchExceptionRaise"))
   }
 
+  test("libuv configure args keep common static CMake switches") {
+    val args =
+      VendoredDeps.libuvConfigureArgs(
+        profile = "release",
+        sourceRoot = "/tmp/src",
+        buildDir = "/tmp/build",
+        prefix = "/tmp/prefix",
+        inheritedCFlags = Some("-O2 -g")
+      )
+
+    assertEquals(
+      args,
+      List(
+        "-S",
+        "/tmp/src",
+        "-B",
+        "/tmp/build",
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DCMAKE_INSTALL_PREFIX=/tmp/prefix",
+        "-DCMAKE_C_FLAGS=-O2 -g",
+        "-DLIBUV_BUILD_SHARED=OFF",
+        "-DBUILD_TESTING=OFF",
+        "-DLIBUV_BUILD_TESTS=OFF",
+        "-DLIBUV_BUILD_BENCH=OFF"
+      )
+    )
+  }
+
+  test("libuv configure args use the expected CMake build type for debug and release") {
+    val debugArgs =
+      VendoredDeps.libuvConfigureArgs(
+        profile = "debug",
+        sourceRoot = "/tmp/src",
+        buildDir = "/tmp/build",
+        prefix = "/tmp/prefix",
+        inheritedCFlags = None
+      )
+    val releaseArgs =
+      VendoredDeps.libuvConfigureArgs(
+        profile = "release",
+        sourceRoot = "/tmp/src",
+        buildDir = "/tmp/build",
+        prefix = "/tmp/prefix",
+        inheritedCFlags = None
+      )
+
+    assert(debugArgs.contains("-DCMAKE_BUILD_TYPE=Debug"))
+    assert(releaseArgs.contains("-DCMAKE_BUILD_TYPE=Release"))
+    assertEquals(cFlagsArg(debugArgs), None)
+    assertEquals(cFlagsArg(releaseArgs), None)
+  }
+
+  test("libuv configure args do not inject GC-specific flags") {
+    val args =
+      VendoredDeps.libuvConfigureArgs(
+        profile = "release",
+        sourceRoot = "/tmp/src",
+        buildDir = "/tmp/build",
+        prefix = "/tmp/prefix",
+        inheritedCFlags = Some("-O2")
+      )
+
+    assert(!args.exists(_.contains("-DGC_THREADS")))
+    assert(!args.exists(_.contains(noDescCatchExceptionRaise)))
+  }
+
   private val safeCFlagTokenGen =
     Gen.oneOf(
       "-O2",
@@ -194,6 +260,29 @@ class VendoredDepsTest extends munit.ScalaCheckSuite {
         cFlagsArg(args).toList.flatMap(_.split("\\s+")).filter(_.nonEmpty)
 
       assertEquals(actualTokens, tokens :+ noDescCatchExceptionRaise)
+    }
+  }
+
+  property("libuv configure args preserve inherited CFLAGS once without GC flags") {
+    forAll(Gen.nonEmptyListOf(safeCFlagTokenGen)) { tokens =>
+      val inherited = tokens.mkString(" ")
+      val args =
+        VendoredDeps.libuvConfigureArgs(
+          profile = "release",
+          sourceRoot = "/tmp/src",
+          buildDir = "/tmp/build",
+          prefix = "/tmp/prefix",
+          inheritedCFlags = Some(inherited)
+        )
+      val cFlagsArgs =
+        args.filter(_.startsWith("-DCMAKE_C_FLAGS="))
+      val actualTokens =
+        cFlagsArgs.flatMap(_.stripPrefix("-DCMAKE_C_FLAGS=").split("\\s+"))
+
+      assertEquals(cFlagsArgs.size, 1)
+      assertEquals(actualTokens, tokens)
+      assert(!actualTokens.contains("-DGC_THREADS"))
+      assert(!actualTokens.contains(noDescCatchExceptionRaise))
     }
   }
 }

@@ -254,11 +254,72 @@ object VendoredDeps {
         runBdwgcRecipe(dependency, sourceRoot, buildDir, prefix, context)(
           platformIO
         )
+      case CDeps.LibuvCmakeStatic =>
+        runLibuvRecipe(sourceRoot, buildDir, prefix, context)(platformIO)
       case other =>
         platformIO.moduleIOMonad.raiseError(
           CliException.Basic(s"unsupported vendored dependency recipe: $other")
         )
     }
+
+  private def runLibuvRecipe[F[_], P](
+      sourceRoot: P,
+      buildDir: P,
+      prefix: P,
+      context: CDeps.BuildContext
+  )(platformIO: PlatformIO[F, P]): F[Unit] = {
+    val configureArgs =
+      libuvConfigureArgs(
+        context.profile,
+        platformIO.pathToString(sourceRoot),
+        platformIO.pathToString(buildDir),
+        platformIO.pathToString(prefix),
+        context.relevant_env.get("CFLAGS")
+      )
+
+    platformIO.system("cmake", configureArgs) *>
+      platformIO.system(
+        "cmake",
+        List(
+          "--build",
+          platformIO.pathToString(buildDir),
+          "--target",
+          "install"
+        )
+      )
+  }
+
+  private[cruntime] def libuvConfigureArgs(
+      profile: String,
+      sourceRoot: String,
+      buildDir: String,
+      prefix: String,
+      inheritedCFlags: Option[String]
+  ): List[String] = {
+    val buildType =
+      if (profile.equalsIgnoreCase("debug")) "Debug" else "Release"
+
+    val maybeCFlags =
+      inheritedCFlags
+        .map(_.trim)
+        .filter(_.nonEmpty)
+        .toList
+        .map(flags => s"-DCMAKE_C_FLAGS=$flags")
+
+    List(
+      "-S",
+      sourceRoot,
+      "-B",
+      buildDir,
+      s"-DCMAKE_BUILD_TYPE=$buildType",
+      s"-DCMAKE_INSTALL_PREFIX=$prefix"
+    ) ::: maybeCFlags ::: List(
+      "-DLIBUV_BUILD_SHARED=OFF",
+      "-DBUILD_TESTING=OFF",
+      "-DLIBUV_BUILD_TESTS=OFF",
+      "-DLIBUV_BUILD_BENCH=OFF"
+    )
+  }
 
   private def runBdwgcRecipe[F[_], P](
       dependency: CDeps.Dependency,
