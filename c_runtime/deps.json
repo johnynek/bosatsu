@@ -14,6 +14,16 @@
       "options": {
         "threadsafe": true
       }
+    },
+    {
+      "name": "libuv",
+      "version": "1.52.1",
+      "uris": [
+        "https://dist.libuv.org/dist/v1.52.1/libuv-v1.52.1.tar.gz"
+      ],
+      "hash": "blake3:433979d1027ec72d546e1e4440e193a9d587f1378a8405299d6f219d23c215b7",
+      "source_subdir": "libuv-v1.52.1",
+      "recipe": "libuv-cmake-static"
     }
   ]
 }

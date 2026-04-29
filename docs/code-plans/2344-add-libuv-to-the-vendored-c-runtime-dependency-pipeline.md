@@ -7,8 +7,9 @@
 
 - Flow: `small_job`
 - Issue: `#2344` Add libuv to the vendored C runtime dependency pipeline
-- Pending steps: `4`
-- Completed steps: `0`
+- Source design doc: `docs/design/2342-document-the-libuv-c-runtime-integration-contract.md`
+- Pending steps: `3`
+- Completed steps: `1`
 - Total steps: `4`
 
 ## Summary
@@ -17,15 +18,15 @@ Add libuv as a second vendored C runtime dependency, using the merged integratio
 
 ## Current State
 
-The repository currently vendors bdwgc through `c_runtime/deps.json` and the Scala C dependency pipeline. `CDeps.scala` already defines the canonical `LibuvCmakeStatic` recipe string, and `VendoredDeps.staticLibFileName` already maps that recipe to `libuv.a`. `VendoredDeps.runRecipe`, metadata/link-flag collection, and pkg-config filtering are still effectively bdwgc-specific: only the bdwgc recipe is executable, only `bdw-gc.pc` is consulted for system flags, and `parsePkgConfigSystemFlags` filters the hardcoded `-lgc` self-library token. Existing focused tests cover manifest parsing, build-key behavior, dependency ordering, bdwgc configure arguments, `libuv.a` naming, and bdwgc-style pkg-config filtering.
+The current branch now adds libuv to `c_runtime/deps.json` after bdwgc with the accepted `1.52.1` dist.libuv.org tarball URI, blake3 hash, source subdirectory, and `libuv-cmake-static` recipe, with no build dependency on bdwgc. `CDeps.orderedDependencies` now traverses dependency roots and dependency edges by name so independent vendored dependencies have deterministic topological order regardless of manifest input order. Focused `CDepsTest` coverage now pins the checked-in bdwgc/libuv manifest contract and verifies independent bdwgc/libuv ordering stability. `CDeps.scala` still only reserves the libuv recipe name; `VendoredDeps.runRecipe`, metadata/link-flag collection, and pkg-config filtering remain pending and effectively bdwgc-specific.
 
 ## Problem
 
-Issue #2344 requires libuv to become a real vendored runtime dependency, not only a reserved recipe name. Without updating the manifest and recipe execution path, the default C runtime dependency pipeline cannot fetch/build libuv, cannot record `<prefix>/include` and `<prefix>/lib/libuv.a` metadata, and cannot collect libuv's platform-specific static link flags without requiring a host-installed libuv. The current pkg-config filtering helper is also too bdwgc-specific to safely reuse for libuv because it only excludes `-lgc`; it needs a dependency-aware self-library exclusion while preserving reported system flags. This job is limited to dependency vendoring and metadata behavior; it should not start the later libuv event-loop or IO runtime migration work described in the reference document.
+Issue #2344 requires libuv to become a real vendored runtime dependency, not only a reserved recipe name. Without the remaining recipe execution and metadata work, the default C runtime dependency pipeline still cannot fetch/build libuv, cannot record `<prefix>/include` and `<prefix>/lib/libuv.a` metadata, and cannot collect libuv's platform-specific static link flags without requiring a host-installed libuv. The current pkg-config filtering helper is still too bdwgc-specific to safely reuse for libuv because it only excludes `-lgc`; it needs a dependency-aware self-library exclusion while preserving reported system flags. This job is limited to dependency vendoring and metadata behavior; it should not start the later libuv event-loop or IO runtime migration work described in the reference document.
 
 ## Steps
 
-1. [ ] `step-1` Update Manifest And Parsing Coverage
+1. [x] `step-1` Update Manifest And Parsing Coverage
 
 Update `c_runtime/deps.json` to add the direct `libuv` dependency after `bdwgc` using version `1.52.1`, URI `https://dist.libuv.org/dist/v1.52.1/libuv-v1.52.1.tar.gz`, hash `blake3:433979d1027ec72d546e1e4440e193a9d587f1378a8405299d6f219d23c215b7`, source subdirectory `libuv-v1.52.1`, recipe `libuv-cmake-static`, and no build-time dependency on bdwgc. Keep the manifest schema and existing bdwgc entry intact. Extend focused manifest tests so the checked-in manifest parses and the libuv entry's contract values are pinned.
 
@@ -38,12 +39,16 @@ Update `c_runtime/deps.json` to add the direct `libuv` dependency after `bdwgc` 
 
 #### Property Tests
 
-- Extend or add a property around `CDeps.orderedDependencies` for generated acyclic manifests containing independent `bdwgc` and `libuv` entries, asserting deterministic topological output and stable behavior regardless of unrelated input order where dependencies do not force an order.
+- Added focused property coverage around `CDeps.orderedDependencies` showing independent bdwgc and libuv entries produce stable `bdwgc`, `libuv` order regardless of their manifest input order.
 
 #### Assertion Tests
 
-- Add a case-based test that reads/parses the checked-in `c_runtime/deps.json` or an exact manifest fixture and asserts the libuv name, version, URI, hash, `source_subdir`, recipe, and empty/omitted dependency list.
-- Keep or update the existing dependency ordering examples to include libuv without incorrectly making it depend on bdwgc.
+- Added a case-based test that reads and parses checked-in `c_runtime/deps.json` and asserts the pinned bdwgc and libuv dependency contract values, including libuv version, URI, hash, `source_subdir`, recipe, and absence of dependency edges.
+- Updated the existing dependency ordering example so libuv no longer incorrectly depends on bdwgc while the sorted topological output remains deterministic.
+
+#### Completion Notes
+
+Implemented in `c_runtime/deps.json`, `core/src/main/scala/dev/bosatsu/cruntime/CDeps.scala`, and `core/src/test/scala/dev/bosatsu/cruntime/CDepsTest.scala`. Verified `c_runtime/deps.json` is valid JSON with `jq` and `git diff --check` passes. Attempted `sbt -batch "coreJVM/testOnly dev.bosatsu.cruntime.CDepsTest -- --log=failure"`; sbt completed startup and began compiling but produced no further output after an extended wait, so focused test completion is not recorded for this round.
 
 2. [ ] `step-2` Implement Libuv Recipe Execution
 

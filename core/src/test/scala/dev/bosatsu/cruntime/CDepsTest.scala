@@ -2,17 +2,28 @@ package dev.bosatsu.cruntime
 
 import dev.bosatsu.{Json, Nullable}
 import dev.bosatsu.hashing.{Algo, HashValue}
+import java.nio.charset.StandardCharsets
+import java.nio.file.Files
+import java.nio.file.Paths
 import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
 import scala.collection.immutable.ListMap
 
 class CDepsTest extends munit.ScalaCheckSuite {
-  private val hash: Algo.WithAlgo[HashValue] =
+  private def parseHash(value: String): Algo.WithAlgo[HashValue] =
     Algo.parseIdent
-      .parseAll(
-        "blake3:0ec0780a271850fa1640a4d97c4dd8185cddcfd1bfb2563dd8501382fb85f6a4"
-      )
+      .parseAll(value)
       .fold(err => fail(err.toString), identity)
+
+  private val hash: Algo.WithAlgo[HashValue] =
+    parseHash(
+      "blake3:0ec0780a271850fa1640a4d97c4dd8185cddcfd1bfb2563dd8501382fb85f6a4"
+    )
+
+  private val libuvHash: Algo.WithAlgo[HashValue] =
+    parseHash(
+      "blake3:433979d1027ec72d546e1e4440e193a9d587f1378a8405299d6f219d23c215b7"
+    )
 
   private val dependency =
     CDeps.Dependency(
@@ -28,6 +39,16 @@ class CDepsTest extends munit.ScalaCheckSuite {
         ("threadsafe" -> Json.JBool(true)) ::
           Nil
       ))
+    )
+
+  private val libuvDependency =
+    CDeps.Dependency(
+      name = "libuv",
+      version = "1.52.1",
+      uris = "https://dist.libuv.org/dist/v1.52.1/libuv-v1.52.1.tar.gz" :: Nil,
+      hash = libuvHash,
+      source_subdir = "libuv-v1.52.1",
+      recipe = CDeps.LibuvCmakeStatic
     )
 
   test("manifest parses vendored dependency entries") {
@@ -56,6 +77,24 @@ class CDepsTest extends munit.ScalaCheckSuite {
     assertEquals(parsed.map(_.schema_version), Right(1))
     assertEquals(parsed.map(_.recipe_version), Right(1))
     assertEquals(parsed.map(_.dependencies), Right(dependency :: Nil))
+  }
+
+  test("checked-in manifest pins bdwgc and libuv source contracts") {
+    val content =
+      Files.readString(Paths.get("c_runtime", "deps.json"), StandardCharsets.UTF_8)
+
+    val parsed = CDeps.parseManifestString(content)
+
+    assertEquals(parsed.map(_.schema_version), Right(1))
+    assertEquals(parsed.map(_.recipe_version), Right(1))
+    assertEquals(
+      parsed.map(_.dependencies),
+      Right(dependency :: libuvDependency :: Nil)
+    )
+    assertEquals(
+      parsed.map(_.dependencies.flatMap(_.dependencies).flatten),
+      Right(Nil)
+    )
   }
 
   test("manifest rejects non-object dependency options") {
@@ -215,8 +254,7 @@ class CDepsTest extends munit.ScalaCheckSuite {
       dependency.copy(
         name = "libuv",
         version = "1.52.1",
-        recipe = CDeps.LibuvCmakeStatic,
-        dependencies = Some("bdwgc" :: Nil)
+        recipe = CDeps.LibuvCmakeStatic
       )
     val manifest = CDeps.Manifest(1, 1, uv :: gc :: atomic :: Nil)
 
@@ -225,6 +263,20 @@ class CDepsTest extends munit.ScalaCheckSuite {
       ordered.map(_.map(_.name)),
       Right("libatomic_ops" :: "bdwgc" :: "libuv" :: Nil)
     )
+  }
+
+  property("orderedDependencies is stable for independent bdwgc and libuv entries") {
+    forAll(Gen.oneOf(true, false)) { reverse =>
+      val deps =
+        if (reverse) libuvDependency :: dependency :: Nil
+        else dependency :: libuvDependency :: Nil
+      val manifest = CDeps.Manifest(1, 1, deps)
+
+      assertEquals(
+        CDeps.orderedDependencies(manifest).map(_.map(_.name)),
+        Right("bdwgc" :: "libuv" :: Nil)
+      )
+    }
   }
 
   test("orderedDependencies rejects missing dependencies and cycles") {

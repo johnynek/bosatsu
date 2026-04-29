@@ -189,8 +189,8 @@ object CDeps {
             val cycle = (dep.name :: active).reverse.mkString(" -> ")
             Left(s"dependency cycle detected: $cycle")
           } else {
-            dep.dependencies.getOrElse(Nil).foldLeft[Either[String, Unit]](Right(())) {
-              case (acc, depName) =>
+            dep.dependencies.getOrElse(Nil).sorted
+              .foldLeft[Either[String, Unit]](Right(())) { case (acc, depName) =>
                 acc.flatMap { _ =>
                   byName.get(depName) match {
                     case Some(next) =>
@@ -207,7 +207,10 @@ object CDeps {
             }
           }
 
-        manifest.dependencies.traverse_(visit(_, Nil)).map(_ => ordered.toList)
+        manifest.dependencies
+          .sortBy(_.name)
+          .traverse_(visit(_, Nil))
+          .map(_ => ordered.toList)
     }
   }
 
