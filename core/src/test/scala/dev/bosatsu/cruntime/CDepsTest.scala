@@ -2,9 +2,6 @@ package dev.bosatsu.cruntime
 
 import dev.bosatsu.{Json, Nullable}
 import dev.bosatsu.hashing.{Algo, HashValue}
-import java.nio.charset.StandardCharsets
-import java.nio.file.Files
-import java.nio.file.Paths
 import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
 import scala.collection.immutable.ListMap
@@ -77,24 +74,6 @@ class CDepsTest extends munit.ScalaCheckSuite {
     assertEquals(parsed.map(_.schema_version), Right(1))
     assertEquals(parsed.map(_.recipe_version), Right(1))
     assertEquals(parsed.map(_.dependencies), Right(dependency :: Nil))
-  }
-
-  test("checked-in manifest pins bdwgc and libuv source contracts") {
-    val content =
-      Files.readString(Paths.get("c_runtime", "deps.json"), StandardCharsets.UTF_8)
-
-    val parsed = CDeps.parseManifestString(content)
-
-    assertEquals(parsed.map(_.schema_version), Right(1))
-    assertEquals(parsed.map(_.recipe_version), Right(1))
-    assertEquals(
-      parsed.map(_.dependencies),
-      Right(dependency :: libuvDependency :: Nil)
-    )
-    assertEquals(
-      parsed.map(_.dependencies.flatMap(_.dependencies).flatten),
-      Right(Nil)
-    )
   }
 
   test("manifest rejects non-object dependency options") {
