@@ -16,7 +16,7 @@ object Dependencies {
   lazy val jawnParser = Def.setting("org.typelevel" %%% "jawn-parser" % "1.6.0")
   lazy val jawnAst = Def.setting("org.typelevel" %%% "jawn-ast" % "1.6.0")
   lazy val jacksonYaml = Def.setting(
-    "com.fasterxml.jackson.dataformat" % "jackson-dataformat-yaml" % "2.21.2"
+    "com.fasterxml.jackson.dataformat" % "jackson-dataformat-yaml" % "2.21.3"
   )
   lazy val jython = Def.setting("org.python" % "jython-standalone" % "2.7.4")
   lazy val http4sCore = Def.setting("org.http4s" %%% "http4s-core" % "0.23.34")
@@ -27,7 +27,7 @@ object Dependencies {
     Def.setting("org.scalameta" %%% "munit-scalacheck" % "1.3.0")
   lazy val paiges = Def.setting("org.typelevel" %%% "paiges-core" % "0.4.4")
   lazy val protobufJava =
-    Def.setting("com.google.protobuf" % "protobuf-java" % "3.25.8")
+    Def.setting("com.google.protobuf" % "protobuf-java" % "3.25.9")
   lazy val protobufJavaUtil =
     Def.setting("com.google.protobuf" % "protobuf-java-util" % "3.25.8")
   lazy val scalaCheck =
