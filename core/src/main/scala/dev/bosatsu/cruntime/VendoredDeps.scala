@@ -270,6 +270,8 @@ object VendoredDeps {
       prefix: P,
       context: CDeps.BuildContext
   )(platformIO: PlatformIO[F, P]): F[Unit] = {
+    import platformIO.moduleIOMonad
+
     val configureArgs =
       libuvConfigureArgs(
         context.profile,
