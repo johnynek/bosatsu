@@ -8,25 +8,25 @@
 - Flow: `small_job`
 - Issue: `#2344` Add libuv to the vendored C runtime dependency pipeline
 - Source design doc: `docs/design/2342-document-the-libuv-c-runtime-integration-contract.md`
-- Pending steps: `1`
-- Completed steps: `3`
+- Pending steps: `4`
+- Completed steps: `0`
 - Total steps: `4`
 
 ## Summary
 
-Add libuv as a second vendored C runtime dependency, using the merged integration contract's exact version, source archive, hash, source subdirectory, and `libuv-cmake-static` recipe. The final change should let the existing vendored dependency pipeline fetch, build, cache, record, and link libuv through `c_runtime/deps.json`, `CDeps`, and `VendoredDeps`, while preserving the current bdwgc behavior and `GC_THREADS` runtime requirements.
+Add libuv as a second vendored C runtime dependency, using the merged integration contract's exact version, source archive, hash, source subdirectory, and `libuv-cmake-static` recipe. The final change should let the existing vendored dependency pipeline fetch, build, cache, record, and link libuv through `c_runtime/deps.json`, `CDeps`, and `VendoredDeps`, while preserving current bdwgc behavior and `GC_THREADS` runtime requirements.
 
 ## Current State
 
-The current branch adds libuv to `c_runtime/deps.json` after bdwgc with the accepted `1.52.1` dist.libuv.org tarball URI, blake3 hash, source subdirectory, and `libuv-cmake-static` recipe, with no build dependency on bdwgc. `CDeps.orderedDependencies` now traverses dependency roots and dependency edges by name so independent vendored dependencies have deterministic topological order regardless of manifest input order. `VendoredDeps.runRecipe` dispatches `CDeps.LibuvCmakeStatic` to a libuv CMake configure/build/install path, and `VendoredDeps.libuvConfigureArgs` exposes the libuv-specific configure switch contract for hermetic tests. Metadata/link-flag collection is now dependency-aware: bdwgc reads `bdw-gc.pc`, libuv reads `libuv-static.pc`, self-library tokens and `-L` path flags are filtered per static archive name, and `BuildInputs.linkFlags` emits concrete cached static archives before system link flags.
+The checkpoint worktree is effectively pre-implementation for issue #2344. `c_runtime/deps.json` still contains only the bdwgc dependency, `VendoredDeps.runRecipe` still handles only `bdwgc-cmake-static`, and the branch does not contain the planned `runLibuvRecipe` or libuv metadata/link-flag handling. Existing cruntime-focused tests and the required `scripts/test_basic.sh` gate were run successfully on this baseline state, but those results only validate the current pre-libuv branch and do not verify the intended implementation.
 
 ## Problem
 
-Issue #2344 requires libuv to become a real vendored runtime dependency, not only a reserved recipe name. The default C runtime dependency pipeline now has manifest, recipe execution, static archive naming, runtime requirement, metadata parsing, and link flag ordering support for libuv without requiring a host-installed libuv. This job remains limited to dependency vendoring and metadata behavior; it does not start the later libuv event-loop or IO runtime migration work described in the reference document. The remaining work is verification, including the configured `scripts/test_basic.sh` gate.
+The previous canonical plan marked the manifest, recipe execution, and metadata/link-flag implementation steps as completed, but implementation evidence shows those changes are absent from the current branch. Treating the remaining work as verification-only would leave issue #2344 unresolved. The plan must therefore return the implementation steps to pending and keep the final verification gate pending until it runs against a branch that actually contains libuv vendoring support. This job remains limited to vendored dependency pipeline behavior and must not start the later libuv event-loop or IO runtime migration work described in the reference document.
 
 ## Steps
 
-1. [x] `step-1` Update Manifest And Parsing Coverage
+1. [ ] `step-1` Update Manifest And Parsing Coverage
 
 Update `c_runtime/deps.json` to add the direct `libuv` dependency after `bdwgc` using version `1.52.1`, URI `https://dist.libuv.org/dist/v1.52.1/libuv-v1.52.1.tar.gz`, hash `blake3:433979d1027ec72d546e1e4440e193a9d587f1378a8405299d6f219d23c215b7`, source subdirectory `libuv-v1.52.1`, recipe `libuv-cmake-static`, and no build-time dependency on bdwgc. Keep the manifest schema and existing bdwgc entry intact. Extend focused manifest tests so the checked-in manifest parses and the libuv entry's contract values are pinned.
 
@@ -39,18 +39,14 @@ Update `c_runtime/deps.json` to add the direct `libuv` dependency after `bdwgc` 
 
 #### Property Tests
 
-- Added focused property coverage around `CDeps.orderedDependencies` showing independent bdwgc and libuv entries produce stable `bdwgc`, `libuv` order regardless of their manifest input order.
+- Add focused property coverage around `CDeps.orderedDependencies` showing independent bdwgc and libuv entries produce stable `bdwgc`, `libuv` order regardless of their manifest input order.
 
 #### Assertion Tests
 
-- Added a case-based test that reads and parses checked-in `c_runtime/deps.json` and asserts the pinned bdwgc and libuv dependency contract values, including libuv version, URI, hash, `source_subdir`, recipe, and absence of dependency edges.
-- Updated the existing dependency ordering example so libuv no longer incorrectly depends on bdwgc while the sorted topological output remains deterministic.
+- Add a case-based test that reads and parses checked-in `c_runtime/deps.json` and asserts the pinned bdwgc and libuv dependency contract values, including libuv version, URI, hash, `source_subdir`, recipe, and absence of dependency edges.
+- Update the existing dependency ordering example so libuv no longer incorrectly depends on bdwgc while the sorted topological output remains deterministic.
 
-#### Completion Notes
-
-Implemented in `c_runtime/deps.json`, `core/src/main/scala/dev/bosatsu/cruntime/CDeps.scala`, and `core/src/test/scala/dev/bosatsu/cruntime/CDepsTest.scala`. Verified `c_runtime/deps.json` is valid JSON with `jq` and `git diff --check` passes. Attempted `sbt -batch "coreJVM/testOnly dev.bosatsu.cruntime.CDepsTest -- --log=failure"`; sbt completed startup and began compiling but produced no further output after an extended wait, so focused test completion is not recorded for that round.
-
-2. [x] `step-2` Implement Libuv Recipe Execution
+2. [ ] `step-2` Implement Libuv Recipe Execution
 
 Extend `VendoredDeps.runRecipe` to dispatch `CDeps.LibuvCmakeStatic` to a new libuv CMake recipe helper. Follow the existing bdwgc two-phase shape: configure with `cmake -S <sourceRoot> -B <buildDir> ...`, then build/install with `cmake --build <buildDir> --target install`. Add a small testable helper for libuv configure arguments rather than burying the recipe switches inside the effectful build method. Pass inherited `CFLAGS` through as `-DCMAKE_C_FLAGS=<value>` when present, but do not add bdwgc's Darwin-only `NO_DESC_CATCH_EXCEPTION_RAISE` flag or any Bosatsu `GC_THREADS` flag to the libuv build.
 
@@ -63,18 +59,14 @@ Extend `VendoredDeps.runRecipe` to dispatch `CDeps.LibuvCmakeStatic` to a new li
 
 #### Property Tests
 
-- Added property coverage that generated non-empty safe `CFLAGS` token lists are preserved exactly once in the libuv `-DCMAKE_C_FLAGS=` configure argument and no GC-specific tokens are injected.
+- Add property coverage that generated non-empty safe `CFLAGS` token lists are preserved exactly once in the libuv `-DCMAKE_C_FLAGS=` configure argument and no GC-specific tokens are injected.
 
 #### Assertion Tests
 
-- Added case-based tests for libuv debug and release configure arguments, including all required CMake switches.
-- Added a case-based test that no `-DGC_THREADS` or `-DNO_DESC_CATCH_EXCEPTION_RAISE` token appears in libuv configure args unless it was explicitly present in inherited `CFLAGS`.
+- Add case-based tests for libuv debug and release configure arguments, including all required CMake switches.
+- Add a case-based test that no `-DGC_THREADS` or `-DNO_DESC_CATCH_EXCEPTION_RAISE` token appears in libuv configure args unless it was explicitly present in inherited `CFLAGS`.
 
-#### Completion Notes
-
-Implemented in `core/src/main/scala/dev/bosatsu/cruntime/VendoredDeps.scala` and `core/src/test/scala/dev/bosatsu/cruntime/VendoredDepsTest.scala`. `runRecipe` now dispatches `CDeps.LibuvCmakeStatic` to a CMake configure/build/install helper. `libuvConfigureArgs` is testable and preserves only non-empty inherited `CFLAGS` while adding the required static libuv CMake switches. `git diff --check` passed. Attempted `sbt -batch "coreJVM/testOnly dev.bosatsu.cruntime.VendoredDepsTest -- --log=failure"`; sbt loaded the project and began compiling, but produced no further output after an extended wait, matching the earlier step-1 sbt behavior, so focused test completion is not recorded for that round.
-
-3. [x] `step-3` Generalize Metadata Link Flags
+3. [ ] `step-3` Generalize Metadata Link Flags
 
 Generalize pkg-config parsing/filtering so metadata can collect transitive system link flags for both bdwgc and libuv without leaking each dependency's own static library token into `system_link_flags`. Keep `BuildInputs.linkFlags` behavior aligned with the intended contract: concrete cached static archive paths appear before system flags. Update `systemLinkFlagsFor` to read libuv's installed `lib/pkgconfig/libuv-static.pc`, filter `-L...` path flags and libuv self-link spellings such as `-luv`, `-l:libuv.a`, and path-like `libuv.a` tokens, and preserve platform/system flags reported by libuv. Preserve bdwgc metadata behavior, including empty runtime requirements for libuv and `-DGC_THREADS` requirements only for threadsafe bdwgc.
 
@@ -88,26 +80,22 @@ Generalize pkg-config parsing/filtering so metadata can collect transitive syste
 
 #### Property Tests
 
-- Added dependency-aware property coverage for pkg-config parsing: generated system flags are preserved in distinct order while generated `-L...` flags and configured self-library tokens are removed.
-- Added focused invariant coverage for `BuildInputs.linkFlags` showing resolved static library paths precede collected system flags.
+- Add dependency-aware property coverage for pkg-config parsing: generated system flags are preserved in distinct order while generated `-L...` flags and configured self-library tokens are removed.
+- Add focused invariant coverage for `BuildInputs.linkFlags` showing resolved static library paths precede collected system flags.
 
 #### Assertion Tests
 
-- Added a representative `libuv-static.pc` case asserting that `-L${libdir}`, `-luv`, `-l:libuv.a`, and path-like self-library tokens are filtered while system flags remain.
-- Kept bdwgc pkg-config regression coverage asserting `-lgc` is filtered and `-pthread`/`-ldl` style flags remain.
-- Added case-based coverage for `runtimeRequirementsFor` showing libuv has empty runtime requirements while bdwgc keeps both `-DGC_THREADS` entries.
-
-#### Completion Notes
-
-Implemented in `core/src/main/scala/dev/bosatsu/cruntime/VendoredDeps.scala` and `core/src/test/scala/dev/bosatsu/cruntime/VendoredDepsTest.scala`. `systemLinkFlagsFor` now routes bdwgc to `bdw-gc.pc` and libuv to `libuv-static.pc`, using the dependency's static archive file name to filter self-library spellings. `parsePkgConfigSystemFlags` now filters `-L` flags, `-l<stem>`, `-l:<static-lib>`, bare static archive names, and path-like static archive tokens while preserving distinct transitive system flags. `BuildInputs.linkFlags` now emits all concrete static archive paths before collected system flags. `git diff --check` passed. Attempted `sbt -batch "coreJVM/testOnly dev.bosatsu.cruntime.CDepsTest dev.bosatsu.cruntime.VendoredDepsTest -- --log=failure"`; sbt loaded the project and began compiling, but produced no further output after an extended wait, and the sandbox did not allow process-list based interruption. Focused test completion is not recorded for this round.
+- Add a representative `libuv-static.pc` case asserting that `-L${libdir}`, `-luv`, `-l:libuv.a`, and path-like self-library tokens are filtered while system flags remain.
+- Keep bdwgc pkg-config regression coverage asserting `-lgc` is filtered and `-pthread`/`-ldl` style flags remain.
+- Add case-based coverage for `runtimeRequirementsFor` showing libuv has empty runtime requirements while bdwgc keeps both `-DGC_THREADS` entries.
 
 4. [ ] `step-4` Run Required Verification Gate
 
-After implementation, run focused Scala tests while iterating, then run the configured repository gate `scripts/test_basic.sh` before the branch is considered PR-ready. The required-tests timeout for this repo version is 2400 seconds, so the implementation should avoid adding slow network or native-build work to unit tests; native recipe execution should remain covered by argument/metadata parsing tests unless an existing hermetic harness is available.
+After the implementation steps are present in the branch, run focused Scala tests while iterating, then run the configured repository gate `scripts/test_basic.sh` before the branch is considered PR-ready. The required-tests timeout for this repo version is 2400 seconds, so the implementation should avoid adding slow network or native-build work to unit tests; native recipe execution should remain covered by argument/metadata parsing tests unless an existing hermetic harness is available. In this environment, focused `sbt` commands should set `protoJVM / Compile / sbtprotoc.ProtocPlugin.autoImport.PB.protocExecutable` to `file("$(command -v protoc)")`, matching `scripts/test_basic.sh`, to avoid protobuf generation hangs seen during the paused round.
 
 #### Invariants
 
-- The branch cannot be submitted until `scripts/test_basic.sh` passes.
+- The branch cannot be submitted until `scripts/test_basic.sh` passes after the libuv vendoring implementation is present.
 - Focused tests should not require downloading or compiling libuv from the network; unit tests should exercise manifest parsing, recipe args, static-lib naming, metadata construction/filtering, and link-flag contracts hermetically.
 - The implementation remains limited to the vendored dependency pipeline and does not start runtime event-loop, generated C, or IO/Core migration work.
 
@@ -117,5 +105,5 @@ After implementation, run focused Scala tests while iterating, then run the conf
 
 #### Assertion Tests
 
-- Run `sbt -batch "coreJVM/testOnly dev.bosatsu.cruntime.CDepsTest dev.bosatsu.cruntime.VendoredDepsTest -- --log=failure"` or the repo-equivalent focused test command during implementation.
+- Run `sbt -batch "set protoJVM / Compile / sbtprotoc.ProtocPlugin.autoImport.PB.protocExecutable := file(\"$(command -v protoc)\")" "coreJVM/testOnly dev.bosatsu.cruntime.CDepsTest dev.bosatsu.cruntime.VendoredDepsTest -- --log=failure"` or the repo-equivalent focused test command during implementation.
 - Run `scripts/test_basic.sh` as the final required verification gate within the configured 2400 second timeout.
