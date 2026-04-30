@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdatomic.h>
 #include <stdlib.h>
+#include <uv.h>
 
 /*
 # Prog is an ADT with the following values:
@@ -208,7 +209,54 @@ static BSTS_Prog_Test_Result bsts_prog_result(_Bool is_error, BValue value)
   return result;
 }
 
-static BSTS_Prog_Test_Result bsts_Bosatsu_Prog_run(BValue prog)
+typedef struct {
+  uv_loop_t loop;
+  uv_idle_t start_handle;
+  BValue arg;
+  BValue stack;
+  BSTS_Prog_Test_Result result;
+  _Bool completed;
+  int runtime_status;
+} BSTS_Prog_Runtime;
+
+static void bsts_prog_close_handle(uv_handle_t *handle, void *arg)
+{
+  (void)arg;
+  if (!uv_is_closing(handle))
+  {
+    uv_close(handle, NULL);
+  }
+}
+
+static void bsts_prog_close_loop(BSTS_Prog_Runtime *runtime)
+{
+  int close_result = uv_loop_close(&runtime->loop);
+  while (close_result == UV_EBUSY)
+  {
+    uv_walk(&runtime->loop, bsts_prog_close_handle, NULL);
+    int run_result = uv_run(&runtime->loop, UV_RUN_DEFAULT);
+    if (run_result != 0)
+    {
+      fprintf(stderr, "bosatsu Prog execution fault: uv_run during loop close returned %d\n", run_result);
+      break;
+    }
+    close_result = uv_loop_close(&runtime->loop);
+  }
+
+  if (close_result != 0)
+  {
+    fprintf(stderr, "bosatsu Prog execution fault: uv_loop_close failed: %s\n", uv_strerror(close_result));
+    abort();
+  }
+}
+
+static void bsts_prog_runtime_complete(BSTS_Prog_Runtime *runtime, _Bool is_error, BValue value)
+{
+  runtime->result = bsts_prog_result(is_error, value);
+  runtime->completed = 1;
+}
+
+static void bsts_prog_runtime_step(BSTS_Prog_Runtime *runtime)
 {
   /*
   # the stack ADT:
@@ -216,36 +264,36 @@ static BSTS_Prog_Test_Result bsts_Bosatsu_Prog_run(BValue prog)
   def fmstep(fn, stack): return (1, fn, stack)
   def recstep(fn, stack): return (2, fn, stack)
   */
-  BValue stack = alloc_enum0(0);
-  BValue arg = prog;
-  while (1)
+  while (!runtime->completed)
   {
-    switch (get_variant(arg))
+    switch (get_variant(runtime->arg))
     {
     case 0:
     {
       // pure
-      BValue item = get_enum_index(arg, 0);
+      BValue item = get_enum_index(runtime->arg, 0);
       _Bool search_stack = 1;
       while (search_stack)
       {
-        switch (get_variant(stack))
+        switch (get_variant(runtime->stack))
         {
         case 0:
           // done, return the successful value.
-          return bsts_prog_result(0, item);
+          bsts_prog_runtime_complete(runtime, 0, item);
+          search_stack = 0;
+          break;
         case 1:
         {
           // fmstep
-          BValue fn = get_enum_index(stack, 0);
-          stack = get_enum_index(stack, 1);
-          arg = call_fn1(fn, item);
+          BValue fn = get_enum_index(runtime->stack, 0);
+          runtime->stack = get_enum_index(runtime->stack, 1);
+          runtime->arg = call_fn1(fn, item);
           search_stack = 0;
           break;
         }
         case 2:
           // recstep, but this isn't an error
-          stack = get_enum_index(stack, 1);
+          runtime->stack = get_enum_index(runtime->stack, 1);
           break;
         }
       }
@@ -254,25 +302,27 @@ static BSTS_Prog_Test_Result bsts_Bosatsu_Prog_run(BValue prog)
     case 1:
     {
       // raise
-      BValue error = get_enum_index(arg, 0);
+      BValue error = get_enum_index(runtime->arg, 0);
       _Bool search_stack = 1;
       while (search_stack)
       {
-        switch (get_variant(stack))
+        switch (get_variant(runtime->stack))
         {
         case 0:
           // done, this is an uncaught top-level error.
-          return bsts_prog_result(1, error);
+          bsts_prog_runtime_complete(runtime, 1, error);
+          search_stack = 0;
+          break;
         case 1:
           // fmstep, but we have an error
-          stack = get_enum_index(stack, 1);
+          runtime->stack = get_enum_index(runtime->stack, 1);
           break;
         case 2:
         {
           // recstep which will handle this error
-          BValue fn = get_enum_index(stack, 0);
-          stack = get_enum_index(stack, 1);
-          arg = call_fn1(fn, error);
+          BValue fn = get_enum_index(runtime->stack, 0);
+          runtime->stack = get_enum_index(runtime->stack, 1);
+          runtime->arg = call_fn1(fn, error);
           search_stack = 0;
           break;
         }
@@ -283,37 +333,94 @@ static BSTS_Prog_Test_Result bsts_Bosatsu_Prog_run(BValue prog)
     case 2:
     {
       // flat_map
-      BValue flatmap_fn = get_enum_index(arg, 1);
-      arg = get_enum_index(arg, 0);
-      stack = alloc_enum2(1, flatmap_fn, stack);
+      BValue flatmap_fn = get_enum_index(runtime->arg, 1);
+      runtime->arg = get_enum_index(runtime->arg, 0);
+      runtime->stack = alloc_enum2(1, flatmap_fn, runtime->stack);
       break;
     }
     case 3:
     {
       // push recover onto stack
-      BValue recover_fn = get_enum_index(arg, 1);
-      arg = get_enum_index(arg, 0);
-      stack = alloc_enum2(2, recover_fn, stack);
+      BValue recover_fn = get_enum_index(runtime->arg, 1);
+      runtime->arg = get_enum_index(runtime->arg, 0);
+      runtime->stack = alloc_enum2(2, recover_fn, runtime->stack);
       break;
     }
     case 4:
       // apply_fix
-      arg = bsts_prog_step_fix(get_enum_index(arg, 0), get_enum_index(arg, 1));
+      runtime->arg = bsts_prog_step_fix(
+          get_enum_index(runtime->arg, 0),
+          get_enum_index(runtime->arg, 1));
       break;
     case 5:
     {
       // Effect(arg: BValue, f: BValue => BValue) => (5, arg, f)
-      BValue earg = get_enum_index(arg, 0);
-      BValue efn = get_enum_index(arg, 1);
-      arg = call_fn1(efn, earg);
+      BValue earg = get_enum_index(runtime->arg, 0);
+      BValue efn = get_enum_index(runtime->arg, 1);
+      runtime->arg = call_fn1(efn, earg);
       break;
     }
     default:
-      fprintf(stderr, "bosatsu Prog execution fault: invalid Prog tag: %u\n", get_variant(arg));
-      return bsts_prog_result(1, arg);
+      fprintf(stderr, "bosatsu Prog execution fault: invalid Prog tag: %u\n", get_variant(runtime->arg));
+      bsts_prog_runtime_complete(runtime, 1, runtime->arg);
+      break;
     }
   }
-  return bsts_prog_result(1, arg);
+}
+
+static void bsts_prog_start_close_cb(uv_handle_t *handle)
+{
+  (void)handle;
+}
+
+static void bsts_prog_start_cb(uv_idle_t *handle)
+{
+  BSTS_Prog_Runtime *runtime = (BSTS_Prog_Runtime *)handle->data;
+  uv_idle_stop(handle);
+  bsts_prog_runtime_step(runtime);
+  uv_close((uv_handle_t *)handle, bsts_prog_start_close_cb);
+}
+
+static BSTS_Prog_Test_Result bsts_Bosatsu_Prog_run(BValue prog)
+{
+  BSTS_Prog_Runtime runtime = {
+    .arg = prog,
+    .stack = alloc_enum0(0),
+    .result = bsts_prog_result(1, prog),
+    .completed = 0,
+    .runtime_status = 0,
+  };
+
+  int init_result = uv_loop_init(&runtime.loop);
+  if (init_result != 0)
+  {
+    fprintf(stderr, "bosatsu Prog execution fault: uv_loop_init failed: %s\n", uv_strerror(init_result));
+    return bsts_prog_result(1, prog);
+  }
+
+  runtime.runtime_status = uv_idle_init(&runtime.loop, &runtime.start_handle);
+  if (runtime.runtime_status == 0)
+  {
+    runtime.start_handle.data = &runtime;
+    runtime.runtime_status = uv_idle_start(&runtime.start_handle, bsts_prog_start_cb);
+  }
+
+  if (runtime.runtime_status == 0)
+  {
+    runtime.runtime_status = uv_run(&runtime.loop, UV_RUN_DEFAULT);
+  }
+  else
+  {
+    fprintf(stderr, "bosatsu Prog execution fault: failed to start libuv runner: %s\n", uv_strerror(runtime.runtime_status));
+  }
+
+  bsts_prog_close_loop(&runtime);
+
+  if (runtime.runtime_status != 0)
+  {
+    return bsts_prog_result(1, prog);
+  }
+  return runtime.result;
 }
 
 int bsts_Bosatsu_Prog_run_main(BValue main_fn, int argc, char **argv)

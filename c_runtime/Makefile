@@ -25,10 +25,14 @@ endif
 ifeq ($(VENDORED_DEPS),1)
 GC_CFLAGS :=
 GC_LIBS :=
+LIBUV_CFLAGS :=
+LIBUV_LIBS :=
 else
 # Prefer pkg-config for portability.
 GC_CFLAGS := $(shell $(PKG_CONFIG) --cflags bdw-gc 2>/dev/null)
 GC_LIBS := $(shell $(PKG_CONFIG) --libs bdw-gc 2>/dev/null)
+LIBUV_CFLAGS := $(shell $(PKG_CONFIG) --cflags libuv 2>/dev/null)
+LIBUV_LIBS := $(shell $(PKG_CONFIG) --libs libuv 2>/dev/null)
 
 # Fallbacks for environments without pkg-config metadata.
 ifeq ($(strip $(GC_CFLAGS)$(GC_LIBS)),)
@@ -49,10 +53,30 @@ else ifeq ($(OS),Linux)
 GC_LIBS += -lgc
 endif
 endif
+
+# Fallbacks for environments without pkg-config metadata.
+ifeq ($(strip $(LIBUV_CFLAGS)$(LIBUV_LIBS)),)
+ifeq ($(OS),Darwin)
+ifneq ($(wildcard /opt/homebrew/opt/libuv/include/uv.h),)
+LIBUV_CFLAGS += -I/opt/homebrew/opt/libuv/include
+LIBUV_LIBS += -L/opt/homebrew/opt/libuv/lib -luv
+else ifneq ($(wildcard /usr/local/opt/libuv/include/uv.h),)
+LIBUV_CFLAGS += -I/usr/local/opt/libuv/include
+LIBUV_LIBS += -L/usr/local/opt/libuv/lib -luv
+else ifneq ($(wildcard /opt/local/include/uv.h),)
+LIBUV_CFLAGS += -I/opt/local/include
+LIBUV_LIBS += -L/opt/local/lib -luv
+else
+LIBUV_LIBS += -luv
+endif
+else ifeq ($(OS),Linux)
+LIBUV_LIBS += -luv
+endif
+endif
 endif
 
-ALL_CPPFLAGS := $(CPPFLAGS) $(RUNTIME_DEBUG_CPPFLAGS) $(GC_CFLAGS)
-ALL_LIBS := $(GC_LIBS) $(LIBS) -lm
+ALL_CPPFLAGS := $(CPPFLAGS) $(RUNTIME_DEBUG_CPPFLAGS) $(GC_CFLAGS) $(LIBUV_CFLAGS)
+ALL_LIBS := $(GC_LIBS) $(LIBUV_LIBS) $(LIBS) -lm
 
 all: bosatsu_runtime.o test_out bosatsu_ext_Bosatsu_l_Predef.o bosatsu_ext_Bosatsu_l_Prog.o bosatsu_ext_Bosatsu_l_IO_l_Core.o bosatsu_ext_Bosatsu_l_IO_l_Bytes.o bosatsu_ext_Bosatsu_l_Collection_l_Array.o bosatsu_ext_Bosatsu_l_Num_l_Float64.o bosatsu_ext_Bosatsu_l_Num_l_Int64.o bosatsu_ext_Bosatsu_l_Lazy.o bosatsu_ext_Bosatsu_l_Eval.o
 
