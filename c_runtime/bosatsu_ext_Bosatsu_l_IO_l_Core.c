@@ -1,6 +1,7 @@
 #include "bosatsu_ext_Bosatsu_l_IO_l_Core.h"
 #include "bosatsu_ext_Bosatsu_l_IO_l_Bytes.h"
 #include "bosatsu_ext_Bosatsu_l_Prog.h"
+#include "bosatsu_ext_Bosatsu_l_Prog_internal.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -67,6 +68,15 @@ typedef struct
   int close_on_close;
   int closed;
 } BSTS_Core_Handle;
+
+typedef struct
+{
+  uv_timer_t timer;
+  BSTS_Prog_Suspended *suspended;
+  uint64_t timeout_millis;
+  BValue error;
+  _Bool is_error;
+} BSTS_Core_Sleep_Request;
 
 static BValue bsts_ioerror_context(const char *context)
 {
@@ -2114,6 +2124,67 @@ static BValue bsts_core_now_mono_effect(BValue unit)
   return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_integer_from_uint64(uv_hrtime()));
 }
 
+static uint64_t bsts_sleep_timeout_millis(uint64_t nanos)
+{
+  uint64_t millis = nanos / 1000000ULL;
+  if ((nanos % 1000000ULL) != 0ULL)
+  {
+    millis += 1ULL;
+  }
+  return millis;
+}
+
+static void bsts_core_sleep_close_cb(uv_handle_t *handle)
+{
+  BSTS_Core_Sleep_Request *request = (BSTS_Core_Sleep_Request *)handle->data;
+  if (request->is_error)
+  {
+    bsts_Bosatsu_Prog_suspended_error(request->suspended, request->error);
+  }
+  else
+  {
+    bsts_Bosatsu_Prog_suspended_success(request->suspended, bsts_unit_value());
+  }
+}
+
+static void bsts_core_sleep_timer_cb(uv_timer_t *timer)
+{
+  uv_timer_stop(timer);
+  uv_close((uv_handle_t *)timer, bsts_core_sleep_close_cb);
+}
+
+static int bsts_core_sleep_start(BSTS_Prog_Suspended *suspended)
+{
+  BSTS_Core_Sleep_Request *request =
+      BSTS_PTR(BSTS_Core_Sleep_Request, bsts_Bosatsu_Prog_suspended_request(suspended));
+  request->suspended = suspended;
+
+  int timer_result = uv_timer_init(
+      bsts_Bosatsu_Prog_suspended_loop(suspended),
+      &request->timer);
+  if (timer_result != 0)
+  {
+    bsts_Bosatsu_Prog_suspended_error(
+        suspended,
+        bsts_ioerror_from_uv(timer_result, "starting sleep timer"));
+    return 0;
+  }
+
+  request->timer.data = request;
+  timer_result = uv_timer_start(
+      &request->timer,
+      bsts_core_sleep_timer_cb,
+      request->timeout_millis,
+      0);
+  if (timer_result != 0)
+  {
+    request->is_error = 1;
+    request->error = bsts_ioerror_from_uv(timer_result, "starting sleep timer");
+    uv_close((uv_handle_t *)&request->timer, bsts_core_sleep_close_cb);
+  }
+  return 0;
+}
+
 static BValue bsts_core_sleep_effect(BValue duration)
 {
   // Struct-1 values are represented as identity in C codegen.
@@ -2125,26 +2196,22 @@ static BValue bsts_core_sleep_effect(BValue duration)
         bsts_ioerror_invalid_argument("sleep duration must be >= 0"));
   }
 
-  uint64_t nanos = bsts_integer_to_low_uint64(nanos_value);
-  struct timespec ts;
-  ts.tv_sec = (time_t)(nanos / 1000000000ULL);
-  ts.tv_nsec = (long)(nanos % 1000000000ULL);
-
-  errno = 0;
-  if (nanosleep(&ts, NULL) != 0)
+  BSTS_Core_Sleep_Request *request =
+      (BSTS_Core_Sleep_Request *)GC_malloc(sizeof(BSTS_Core_Sleep_Request));
+  if (request == NULL)
   {
-#ifdef EINTR
-    if (errno == EINTR)
-    {
-      return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
-          bsts_ioerror_known(BSTS_IOERR_Interrupted, "sleep interrupted"));
-    }
-#endif
-    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
-        bsts_ioerror_from_errno_default(errno, "sleep"));
+    perror("GC_malloc failure in bsts_core_sleep_effect");
+    abort();
   }
 
-  return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_unit_value());
+  request->suspended = NULL;
+  request->timeout_millis =
+      bsts_sleep_timeout_millis(bsts_integer_to_low_uint64(nanos_value));
+  request->error = bsts_unit_value();
+  request->is_error = 0;
+  return bsts_Bosatsu_Prog_suspend(
+      BSTS_VALUE_FROM_PTR(request),
+      bsts_core_sleep_start);
 }
 
 BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_path__sep()

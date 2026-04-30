@@ -8,21 +8,21 @@
 - Flow: `small_job`
 - Issue: `#2353` Migrate time, sleep, and environment C IO effects onto libuv runtime plumbing
 - Source design doc: `docs/design/2342-document-the-libuv-c-runtime-integration-contract.md`
-- Pending steps: `2`
-- Completed steps: `2`
+- Pending steps: `0`
+- Completed steps: `4`
 - Total steps: `4`
 
 ## Summary
 
-Move the C backend implementations of Bosatsu `IO/Core` time, sleep, and environment effects onto the libuv-backed Prog runtime where applicable, while preserving existing Bosatsu-level return shapes and error behavior. `now_wall`, `now_mono`, and `get_env` have already been migrated and tested; the remaining planned work is to migrate `sleep` onto libuv timer-based suspension, add focused continuation sequencing coverage, and rerun the required C backend and repository gates.
+Move the C backend implementations of Bosatsu `IO/Core` time, sleep, and environment effects onto the libuv-backed Prog runtime where applicable, while preserving existing Bosatsu-level return shapes and error behavior. `now_wall`, `now_mono`, and `get_env` were already migrated and tested; this round migrates `sleep` onto libuv timer-based suspension, adds focused continuation sequencing coverage, and reruns the focused C runtime and required repository gates.
 
 ## Current State
 
-The `main` branch already has the libuv-owned C Prog runtime loop from issue #2349 and the private suspend/resume infrastructure for C Prog effects from issue #2351. The reference contract in `docs/design/2342-document-the-libuv-c-runtime-integration-contract.md` defines the intended runtime ownership and callback model. In this branch, `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c` moved `now_wall` to `uv_gettimeofday`, `now_mono` to `uv_hrtime`, and `get_env` to `uv_os_getenv`, preserving the generated external symbols, Bosatsu result shapes, and existing IOError-style error mapping. The C runtime harness now links `IO/Core` and `IO/Bytes` so it can exercise those externals through `bsts_Bosatsu_Prog_run_test`. The paused implementation turn did not inspect the repository, edit files, or run tests, so no part of `step-3` was completed. `sleep` still uses the existing synchronous `nanosleep` implementation and remains the next runtime migration target.
+The `main` branch already has the libuv-owned C Prog runtime loop from issue #2349 and the private suspend/resume infrastructure for C Prog effects from issue #2351. The reference contract in `docs/design/2342-document-the-libuv-c-runtime-integration-contract.md` defines the intended runtime ownership and callback model. In this branch, `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c` now uses libuv-compatible implementations for `now_wall`, `now_mono`, `get_env`, and `sleep`: wall time uses `uv_gettimeofday`, monotonic time uses `uv_hrtime`, environment lookup uses `uv_os_getenv`, and sleep suspends the current Prog continuation with a runtime-owned `uv_timer_t` on `bsts_Bosatsu_Prog_suspended_loop`. The C runtime harness links `IO/Core` and `IO/Bytes` and exercises these externals through `bsts_Bosatsu_Prog_run_test`, including zero-duration sleep, positive sleep, and repeated sleep continuation sequencing.
 
 ## Problem
 
-The remaining runtime-bypassing implementation under `IO/Core` is `sleep`: it still blocks with process-level sleep instead of suspending the current Prog continuation and resuming from the owned `uv_loop_t`. Without that migration, part of the C backend remains outside the new libuv execution contract and normal Bosatsu IO programs still do not prove delayed continuation sequencing through the async suspend/resume machinery. The completed time and environment migration reduces the outstanding surface to the sleep timer lifecycle and final verification after that change.
+Before this work, `IO/Core.sleep` still blocked with process-level `nanosleep`, bypassing the libuv-owned runtime loop and failing to prove that ordinary Bosatsu IO programs resume delayed continuations through the async suspend/resume machinery. That gap is now addressed for the low-risk non-file `IO/Core` effects covered by this issue. Broader file, directory, process, network, and unsupported IO migrations remain intentionally out of scope for this small job.
 
 ## Steps
 
@@ -74,9 +74,9 @@ Update the C `IO/Core` implementations for `now_wall`, `now_mono`, and `get_env`
 
 Updated `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c` to include libuv, convert `now_wall` from `clock_gettime(CLOCK_REALTIME)` to `uv_gettimeofday`, convert `now_mono` from `clock_gettime(CLOCK_MONOTONIC)` to `uv_hrtime`, and convert `get_env` from `getenv` to `uv_os_getenv`. Added `bsts_ioerror_from_uv` so libuv failures flow into the existing IOError variants or `Other` without a public representation change. `get_env` now treats `UV_ENOENT` as `None`, preserves empty string values as `Some("")`, copies returned bytes into Bosatsu-owned strings, and retries with a heap buffer when `UV_ENOBUFS` reports that the stack buffer is too small. Updated `c_runtime/Makefile` so `test_exe` links `IO/Core` and `IO/Bytes`, then added C harness tests in `c_runtime/test.c` for wall-clock success, monotonic non-regression within one Prog, present environment values, empty environment values, long environment values, and absent variables. Verified with `make -C c_runtime test_out` and `scripts/test_basic.sh`; the required gate passed with 2116 passed, 0 failed, 0 errors, and 2 ignored in the final phase.
 
-3. [ ] `step-3` Implement Libuv-Backed Sleep Suspension
+3. [x] `step-3` Implement Libuv-Backed Sleep Suspension
 
-Replace the blocking `sleep` implementation with a libuv timer request that suspends the active Prog continuation, starts a `uv_timer_t` on the owned runtime loop, and resumes the continuation from the timer callback. The next worker should first re-read `coding_style.md`, this canonical plan, the libuv integration contract, and the existing suspend/resume helpers, then implement the change in `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c` without introducing another loop owner. The timer request should be GC-reachable through the existing suspended request root, store the timer handle and duration-derived timeout, set `timer.data` to the suspended continuation or request state needed to recover it, stop and close the timer before or during completion, and resume with unit on success or the existing `IOError` path on deterministic setup failure. The `IO/Core` runtime file will need the private Prog suspend header and libuv header.
+Replace the blocking `sleep` implementation with a libuv timer request that suspends the active Prog continuation, starts a `uv_timer_t` on the owned runtime loop, and resumes the continuation from the timer callback. The timer request should be GC-reachable through the existing suspended request root, store the timer handle and duration-derived timeout, set `timer.data` to the suspended continuation or request state needed to recover it, stop and close the timer before or during completion, and resume with unit on success or the existing `IOError` path on deterministic setup failure. The `IO/Core` runtime file uses the private Prog suspend header and libuv header without introducing another loop owner.
 
 #### Invariants
 
@@ -90,16 +90,20 @@ Replace the blocking `sleep` implementation with a libuv timer request that susp
 
 #### Property Tests
 
-- Add a sequencing-style invariant test that `sleep(d).flat_map(_ => next)` always observes the post-sleep continuation exactly once for representative durations including zero and a small positive delay.
-- If the C harness supports repeated runs, check that several consecutive short sleeps in one process all complete and do not leave pending runtime state.
+- Added a sequencing-style invariant in the C harness that `sleep(d).flat_map(_ => next)` observes the post-sleep continuation exactly once for zero and a small positive delay.
+- Added repeated short sleep coverage in one process to check that consecutive timer-backed sleeps complete in order and do not leave pending runtime state.
 
 #### Assertion Tests
 
-- Add a regression in `test_workspace/Bosatsu/IO/Core.bosatsu`, generated C backend tests, or `c_runtime/test.c` that a delayed `sleep` resumes and then runs subsequent `flat_map` work.
-- Add a narrow test that a zero-duration sleep still returns success and continues the program.
-- Add a C runtime-level failure or lifecycle assertion only if it can be tested deterministically without non-portable timer races.
+- Added C harness coverage that a zero-duration `IO/Core.sleep` resumes and runs a subsequent `flat_map` continuation.
+- Added C harness coverage that a positive-duration `IO/Core.sleep` resumes and runs a subsequent `flat_map` continuation.
+- Added C harness coverage that three consecutive short sleeps in one Prog run resume in program order and invoke each continuation exactly once.
 
-4. [ ] `step-4` Verify C Backend Coverage And Required Gate
+#### Completion Notes
+
+Updated `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c` to include `bosatsu_ext_Bosatsu_l_Prog_internal.h` and replace the old `nanosleep` path with a `BSTS_Core_Sleep_Request` backed by `uv_timer_t`. `sleep` now validates negative durations synchronously as before, converts non-negative nanoseconds to a rounded-up millisecond timeout for libuv, suspends with `bsts_Bosatsu_Prog_suspend`, starts the timer on `bsts_Bosatsu_Prog_suspended_loop(suspended)`, closes the timer before completing, and resumes from the close callback with unit on success or an existing `IOError` mapping on deterministic setup failure. The request remains rooted through the suspended request until completion. Updated `c_runtime/test.c` with zero-duration, positive-duration, and repeated-sleep flat_map continuation regressions; each asserts the continuation result and exact continuation count.
+
+4. [x] `step-4` Verify C Backend Coverage And Required Gate
 
 After the sleep migration lands, rerun the focused C runtime or generated C backend tests that cover the changed externals, then rerun the repository-required gate `scripts/test_basic.sh` with the configured 2400 second timeout before the branch is considered PR-ready. Use any failures to tighten the implementation or tests within the same scoped IO/Core surface rather than broadening into unrelated runtime work.
 
@@ -115,6 +119,9 @@ After the sleep migration lands, rerun the focused C runtime or generated C back
 
 #### Assertion Tests
 
-- Run `make -C c_runtime test_out` after implementing the sleep timer migration and record the result in completion notes.
-- Run `scripts/test_basic.sh` after all planned IO/Core runtime changes are complete and record the result in completion notes.
-- Run any narrower C runtime test target used during development before the full gate, if available in the repo.
+- Ran `make -C c_runtime test_out` after implementing the sleep timer migration.
+- Ran `scripts/test_basic.sh` after all planned IO/Core runtime changes were complete.
+
+#### Completion Notes
+
+Verified the sleep timer migration with `make -C c_runtime test_out`, which rebuilt the changed C runtime objects and passed the C harness. Then ran the configured required gate `scripts/test_basic.sh`; it passed with 2116 passed, 0 failed, 0 errors, and 2 ignored in the final phase.

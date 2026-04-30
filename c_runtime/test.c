@@ -475,6 +475,63 @@ static BValue io_core_get_env_absent_test_fn(BValue arg) {
       bsts_string_from_utf8_bytes_static(33, "BOSATSU_C_RUNTIME_TEST_ENV_ABSENT"));
 }
 
+static int io_core_sleep_continuations = 0;
+
+static BValue io_core_sleep_zero_after_fn(BValue arg) {
+  (void)arg;
+  io_core_sleep_continuations += 1;
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_integer_from_int(17));
+}
+
+static BValue io_core_sleep_zero_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_sleep(bsts_integer_from_int(0)),
+      alloc_boxed_pure_fn1(io_core_sleep_zero_after_fn));
+}
+
+static BValue io_core_sleep_positive_after_fn(BValue arg) {
+  (void)arg;
+  io_core_sleep_continuations += 1;
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_integer_from_int(23));
+}
+
+static BValue io_core_sleep_positive_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_sleep(bsts_integer_from_int(2000000)),
+      alloc_boxed_pure_fn1(io_core_sleep_positive_after_fn));
+}
+
+static BValue io_core_sleep_repeat_third_fn(BValue arg) {
+  (void)arg;
+  io_core_sleep_continuations += 1;
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_integer_from_int(31));
+}
+
+static BValue io_core_sleep_repeat_second_fn(BValue arg) {
+  (void)arg;
+  io_core_sleep_continuations += 1;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_sleep(bsts_integer_from_int(0)),
+      alloc_boxed_pure_fn1(io_core_sleep_repeat_third_fn));
+}
+
+static BValue io_core_sleep_repeat_first_fn(BValue arg) {
+  (void)arg;
+  io_core_sleep_continuations += 1;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_sleep(bsts_integer_from_int(1000000)),
+      alloc_boxed_pure_fn1(io_core_sleep_repeat_second_fn));
+}
+
+static BValue io_core_sleep_repeat_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_sleep(bsts_integer_from_int(0)),
+      alloc_boxed_pure_fn1(io_core_sleep_repeat_first_fn));
+}
+
 #if !defined(_WIN32)
 typedef void (*VoidFn)(void);
 
@@ -1846,6 +1903,33 @@ void test_io_core_libuv_effects() {
   (void)uv_os_unsetenv("BOSATSU_C_RUNTIME_TEST_ENV");
   (void)uv_os_unsetenv("BOSATSU_C_RUNTIME_TEST_ENV_EMPTY");
   (void)uv_os_unsetenv("BOSATSU_C_RUNTIME_TEST_ENV_LONG");
+
+  int sleep_calls_before_zero = io_core_sleep_continuations;
+  assert_prog_success_int(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_sleep_zero_test_fn)),
+      "17",
+      "IO/Core zero sleep should resume and run flat_map continuation");
+  assert(
+      io_core_sleep_continuations == sleep_calls_before_zero + 1,
+      "IO/Core zero sleep should run the post-sleep continuation exactly once");
+
+  int sleep_calls_before_positive = io_core_sleep_continuations;
+  assert_prog_success_int(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_sleep_positive_test_fn)),
+      "23",
+      "IO/Core positive sleep should resume and run flat_map continuation");
+  assert(
+      io_core_sleep_continuations == sleep_calls_before_positive + 1,
+      "IO/Core positive sleep should run the post-sleep continuation exactly once");
+
+  int sleep_calls_before_repeat = io_core_sleep_continuations;
+  assert_prog_success_int(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_sleep_repeat_test_fn)),
+      "31",
+      "IO/Core repeated sleeps should all resume in program order");
+  assert(
+      io_core_sleep_continuations == sleep_calls_before_repeat + 3,
+      "IO/Core repeated sleeps should run each continuation exactly once");
 }
 
 void test_prog_runner_loop() {
