@@ -234,7 +234,12 @@ static void bsts_prog_close_loop(BSTS_Prog_Runtime *runtime)
   while (close_result == UV_EBUSY)
   {
     uv_walk(&runtime->loop, bsts_prog_close_handle, NULL);
-    uv_run(&runtime->loop, UV_RUN_DEFAULT);
+    int run_result = uv_run(&runtime->loop, UV_RUN_DEFAULT);
+    if (run_result != 0)
+    {
+      fprintf(stderr, "bosatsu Prog execution fault: uv_run during loop close returned %d\n", run_result);
+      break;
+    }
     close_result = uv_loop_close(&runtime->loop);
   }
 
