@@ -18,7 +18,7 @@ Add basic libuv support to the C backend without introducing new Bosatsu surface
 ## Metadata
 
 - Roadmap issue: `#2340`
-- Graph version: `1`
+- Graph version: `2`
 - Node count: `8`
 
 ## Dependency Overview
@@ -30,7 +30,7 @@ Add basic libuv support to the C backend without introducing new Bosatsu surface
 5. `io_phase1` (`small_job`): `async_resume` (`implemented`), `design` (`planned`), `loop_core` (`implemented`)
 6. `io_files` (`small_job`): `async_resume` (`implemented`), `design` (`planned`), `io_phase1` (`implemented`)
 7. `process_stdio` (`small_job`): `async_resume` (`implemented`), `design` (`planned`), `io_files` (`implemented`)
-8. `validation` (`small_job`): `async_resume` (`implemented`), `design` (`planned`), `io_files` (`implemented`), `io_phase1` (`implemented`), `loop_core` (`implemented`), `process_stdio` (`implemented`)
+8. `validation_with_vendored` (`small_job`): `async_resume` (`implemented`), `design` (`planned`), `io_files` (`implemented`), `io_phase1` (`implemented`), `loop_core` (`implemented`), `process_stdio` (`implemented`), `vendored_libuv` (`implemented`)
 
 ## Nodes
 
@@ -144,15 +144,15 @@ Add C backend tests for spawning a simple command, waiting for its exit code, pi
 
 Completion outcome: C backend process execution is no longer the known unsupported gap in IO/Core and is integrated with the libuv loop and handle model.
 
-### `validation`
+### `validation_with_vendored`
 
 - Kind: `small_job`
 - Title: Harden C backend libuv coverage and CI validation
-- Depends on: `async_resume` (`implemented`), `design` (`planned`), `io_files` (`implemented`), `io_phase1` (`implemented`), `loop_core` (`implemented`), `process_stdio` (`implemented`)
+- Depends on: `async_resume` (`implemented`), `design` (`planned`), `io_files` (`implemented`), `io_phase1` (`implemented`), `loop_core` (`implemented`), `process_stdio` (`implemented`), `vendored_libuv` (`implemented`)
 
 #### Body
 
-Use the merged reference document from `design` and the implemented runtime, IO, and process work from `loop_core`, `async_resume`, `io_phase1`, `io_files`, and `process_stdio` as direct inputs. The worker may rely on the full libuv-backed C runtime behavior being present on the branch.
+Use the merged reference document from `design`, the implemented vendored libuv dependency pipeline from `vendored_libuv`, and the implemented runtime, IO, and process work from `loop_core`, `async_resume`, `io_phase1`, `io_files`, and `process_stdio` as direct inputs. The worker may rely on the full libuv-backed C runtime behavior being present on the branch and on the vendored libuv install/link metadata being present in the C runtime dependency pipeline.
 
 Tighten validation for the completed libuv integration. Update `scripts/test_c_sanitizers.sh`, `scripts/test_c_valgrind.sh`, `scripts/c_runtime_ci_env.py`, or adjacent tests only as needed to ensure vendored libuv link flags, `GC_THREADS`, and generated C binaries are exercised. Add regression coverage for Main and Test compatibility, async continuation after IO completion, recovered async errors, file IO, process wait, and GC/thread safety assumptions that can be tested locally.
 

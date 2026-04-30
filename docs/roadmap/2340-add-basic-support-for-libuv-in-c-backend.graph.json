@@ -104,7 +104,7 @@
       "title": "Implement libuv-backed process spawn and wait for C IO/Core"
     },
     {
-      "body_markdown": "Use the merged reference document from `design` and the implemented runtime, IO, and process work from `loop_core`, `async_resume`, `io_phase1`, `io_files`, and `process_stdio` as direct inputs. The worker may rely on the full libuv-backed C runtime behavior being present on the branch.\n\nTighten validation for the completed libuv integration. Update `scripts/test_c_sanitizers.sh`, `scripts/test_c_valgrind.sh`, `scripts/c_runtime_ci_env.py`, or adjacent tests only as needed to ensure vendored libuv link flags, `GC_THREADS`, and generated C binaries are exercised. Add regression coverage for Main and Test compatibility, async continuation after IO completion, recovered async errors, file IO, process wait, and GC/thread safety assumptions that can be tested locally.\n\nRun and document the practical verification set: relevant Scala unit tests for `dev.bosatsu.cruntime` and `dev.bosatsu.codegen.clang`, `scripts/test_c_sanitizers.sh`, and `scripts/test_c_valgrind.sh` when valgrind is installed. If valgrind is unavailable in the worker environment, leave the script updated and report that limitation in the PR.\n\nCompletion outcome: the roadmap closes with high-confidence tests and scripts covering libuv vendoring, runtime loop execution, async resume behavior, IO compatibility, and GC/libuv safety.",
+      "body_markdown": "Use the merged reference document from `design`, the implemented vendored libuv dependency pipeline from `vendored_libuv`, and the implemented runtime, IO, and process work from `loop_core`, `async_resume`, `io_phase1`, `io_files`, and `process_stdio` as direct inputs. The worker may rely on the full libuv-backed C runtime behavior being present on the branch and on the vendored libuv install/link metadata being present in the C runtime dependency pipeline.\n\nTighten validation for the completed libuv integration. Update `scripts/test_c_sanitizers.sh`, `scripts/test_c_valgrind.sh`, `scripts/c_runtime_ci_env.py`, or adjacent tests only as needed to ensure vendored libuv link flags, `GC_THREADS`, and generated C binaries are exercised. Add regression coverage for Main and Test compatibility, async continuation after IO completion, recovered async errors, file IO, process wait, and GC/thread safety assumptions that can be tested locally.\n\nRun and document the practical verification set: relevant Scala unit tests for `dev.bosatsu.cruntime` and `dev.bosatsu.codegen.clang`, `scripts/test_c_sanitizers.sh`, and `scripts/test_c_valgrind.sh` when valgrind is installed. If valgrind is unavailable in the worker environment, leave the script updated and report that limitation in the PR.\n\nCompletion outcome: the roadmap closes with high-confidence tests and scripts covering libuv vendoring, runtime loop execution, async resume behavior, IO compatibility, and GC/libuv safety.",
       "depends_on": [
         {
           "node_id": "async_resume",
@@ -129,10 +129,14 @@
         {
           "node_id": "process_stdio",
           "requires": "implemented"
+        },
+        {
+          "node_id": "vendored_libuv",
+          "requires": "implemented"
         }
       ],
       "kind": "small_job",
-      "node_id": "validation",
+      "node_id": "validation_with_vendored",
       "title": "Harden C backend libuv coverage and CI validation"
     },
     {
@@ -158,5 +162,5 @@
     "summary_markdown": "Add basic libuv support to the C backend without introducing new Bosatsu surface area. The completed roadmap should leave the C runtime building libuv as a vendored dependency alongside threadsafe bdwgc, running `Bosatsu/Prog::Main` and `ProgTest` values through a `uv_loop_t`, and preserving existing Main/Test behavior while moving current C IO externals onto libuv-backed runtime primitives where practical."
   },
   "roadmap_issue_number": 2340,
-  "version": 1
+  "version": 2
 }
