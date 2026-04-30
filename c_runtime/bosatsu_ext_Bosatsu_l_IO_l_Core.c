@@ -2051,7 +2051,7 @@ static BValue bsts_core_get_env_effect(BValue name_value)
 
   if (getenv_result == UV_ENOBUFS)
   {
-    size_t heap_capacity = size + 1U;
+    size_t heap_capacity = size;
     char *heap_value = (char *)malloc(heap_capacity);
     if (!heap_value)
     {
