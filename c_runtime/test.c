@@ -5,6 +5,7 @@
 #include "bosatsu_ext_Bosatsu_l_Predef.h"
 #include "bosatsu_ext_Bosatsu_l_Num_l_Float64.h"
 #include "bosatsu_ext_Bosatsu_l_Num_l_Int64.h"
+#include "bosatsu_ext_Bosatsu_l_IO_l_Core.h"
 #include "bosatsu_ext_Bosatsu_l_Prog.h"
 #include "bosatsu_ext_Bosatsu_l_Prog_internal.h"
 #include <stdlib.h>
@@ -421,6 +422,57 @@ static BValue prog_runner_recover_after_pure_test_fn(BValue arg) {
   return ___bsts_g_Bosatsu_l_Prog_l_recover(
       ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_integer_from_int(13)),
       recover);
+}
+
+static BValue io_core_now_wall_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_IO_l_Core_l_now__wall();
+}
+
+static BValue io_core_now_mono_second_fn(BValue *slots, BValue second) {
+  BValue first = slots[0];
+  assert(
+      bsts_integer_cmp(second, first) >= 0,
+      "IO/Core now_mono should not move backward within a Prog");
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(second);
+}
+
+static BValue io_core_now_mono_first_fn(BValue first) {
+  BValue slots[1] = { first };
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_now__mono(),
+      alloc_closure1(1, slots, io_core_now_mono_second_fn));
+}
+
+static BValue io_core_now_mono_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_now__mono(),
+      alloc_boxed_pure_fn1(io_core_now_mono_first_fn));
+}
+
+static BValue io_core_get_env_present_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_IO_l_Core_l_get__env(
+      bsts_string_from_utf8_bytes_static(26, "BOSATSU_C_RUNTIME_TEST_ENV"));
+}
+
+static BValue io_core_get_env_empty_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_IO_l_Core_l_get__env(
+      bsts_string_from_utf8_bytes_static(32, "BOSATSU_C_RUNTIME_TEST_ENV_EMPTY"));
+}
+
+static BValue io_core_get_env_long_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_IO_l_Core_l_get__env(
+      bsts_string_from_utf8_bytes_static(31, "BOSATSU_C_RUNTIME_TEST_ENV_LONG"));
+}
+
+static BValue io_core_get_env_absent_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_IO_l_Core_l_get__env(
+      bsts_string_from_utf8_bytes_static(33, "BOSATSU_C_RUNTIME_TEST_ENV_ABSENT"));
 }
 
 #if !defined(_WIN32)
@@ -1707,6 +1759,95 @@ static void assert_prog_error_variant(BSTS_Prog_Test_Result result, unsigned cha
   }
 }
 
+static BValue assert_prog_success(BSTS_Prog_Test_Result result, const char* message) {
+  if (result.is_error) {
+    printf("%s\nexpected successful Prog result\n", message);
+    exit(1);
+  }
+  return result.value;
+}
+
+static void assert_prog_success_option_string(BSTS_Prog_Test_Result result, const char* expected, const char* message) {
+  BValue opt = assert_prog_success(result, message);
+  if (get_variant(opt) != 1) {
+    printf("%s\nexpected: Some(%s)\n", message, expected);
+    exit(1);
+  }
+  assert_string_equals(get_enum_index(opt, 0), expected, message);
+}
+
+static void assert_prog_success_option_none(BSTS_Prog_Test_Result result, const char* message) {
+  BValue opt = assert_prog_success(result, message);
+  if (get_variant(opt) != 0) {
+    printf("%s\nexpected: None\n", message);
+    exit(1);
+  }
+}
+
+static void assert_uv_ok(int result, const char* message) {
+  if (result != 0) {
+    printf("%s: %s\n", message, uv_strerror(result));
+    exit(1);
+  }
+}
+
+void test_io_core_libuv_effects() {
+  BValue wall_test = alloc_boxed_pure_fn1(io_core_now_wall_test_fn);
+  BValue wall = assert_prog_success(
+      bsts_Bosatsu_Prog_run_test(wall_test),
+      "IO/Core now_wall runs through C Prog runner");
+  assert(
+      bsts_integer_cmp(wall, bsts_integer_from_int(0)) > 0,
+      "IO/Core now_wall should return positive epoch nanoseconds");
+
+  BValue mono_test = alloc_boxed_pure_fn1(io_core_now_mono_test_fn);
+  BValue mono = assert_prog_success(
+      bsts_Bosatsu_Prog_run_test(mono_test),
+      "IO/Core now_mono runs through C Prog runner");
+  assert(
+      bsts_integer_cmp(mono, bsts_integer_from_int(0)) >= 0,
+      "IO/Core now_mono should return non-negative nanoseconds");
+
+  assert_uv_ok(
+      uv_os_setenv("BOSATSU_C_RUNTIME_TEST_ENV", "bosatsu-libuv-env"),
+      "uv_os_setenv present env failed");
+  assert_prog_success_option_string(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_get_env_present_test_fn)),
+      "bosatsu-libuv-env",
+      "IO/Core get_env should read a present environment value");
+
+  assert_uv_ok(
+      uv_os_setenv("BOSATSU_C_RUNTIME_TEST_ENV_EMPTY", ""),
+      "uv_os_setenv empty env failed");
+  assert_prog_success_option_string(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_get_env_empty_test_fn)),
+      "",
+      "IO/Core get_env should preserve present empty environment values");
+
+  char long_env_value[301];
+  for (size_t idx = 0; idx < sizeof(long_env_value) - 1U; idx++) {
+    long_env_value[idx] = (char)('a' + (idx % 26U));
+  }
+  long_env_value[sizeof(long_env_value) - 1U] = '\0';
+
+  assert_uv_ok(
+      uv_os_setenv("BOSATSU_C_RUNTIME_TEST_ENV_LONG", long_env_value),
+      "uv_os_setenv long env failed");
+  assert_prog_success_option_string(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_get_env_long_test_fn)),
+      long_env_value,
+      "IO/Core get_env should read environment values that do not fit the stack buffer");
+
+  (void)uv_os_unsetenv("BOSATSU_C_RUNTIME_TEST_ENV_ABSENT");
+  assert_prog_success_option_none(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_get_env_absent_test_fn)),
+      "IO/Core get_env should return None for an absent environment value");
+
+  (void)uv_os_unsetenv("BOSATSU_C_RUNTIME_TEST_ENV");
+  (void)uv_os_unsetenv("BOSATSU_C_RUNTIME_TEST_ENV_EMPTY");
+  (void)uv_os_unsetenv("BOSATSU_C_RUNTIME_TEST_ENV_LONG");
+}
+
 void test_prog_runner_loop() {
   BValue pure_test = alloc_boxed_pure_fn1(prog_runner_pure_test_fn);
   assert_prog_success_int(
@@ -1828,6 +1969,7 @@ int main(int argc, char** argv) {
   test_array_int64();
   test_prog_assoc();
   test_prog_runner_loop();
+  test_io_core_libuv_effects();
   printf("success\n");
   return 0;
 }

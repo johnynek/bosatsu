@@ -15,6 +15,7 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
+#include <uv.h>
 
 #if defined(__APPLE__) || defined(__linux__)
 int mkstemps(char *template, int suffixlen);
@@ -203,6 +204,15 @@ static BValue bsts_ioerror_from_errno_default(int err, const char *context)
 #endif
   }
   return bsts_ioerror_from_errno(err, context);
+}
+
+static BValue bsts_ioerror_from_uv(int err, const char *context)
+{
+  if (err < 0)
+  {
+    return bsts_ioerror_from_errno(-err, context);
+  }
+  return bsts_ioerror_from_errno_default(err, context);
 }
 
 static inline BValue bsts_ioerror_invalid_argument(const char *context)
@@ -2020,15 +2030,49 @@ static BValue bsts_core_get_env_effect(BValue name_value)
         bsts_ioerror_from_errno_default(errno, "reading environment"));
   }
 
-  const char *value = getenv(name);
-  free(name);
-
-  if (!value)
+  char stack_value[256];
+  size_t size = sizeof(stack_value);
+  int getenv_result = uv_os_getenv(name, stack_value, &size);
+  if (getenv_result == UV_ENOENT)
   {
+    free(name);
     return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_option_none());
   }
 
-  BValue v = bsts_string_from_utf8_bytes_static_null_term(value);
+  if (getenv_result == UV_ENOBUFS)
+  {
+    size_t heap_capacity = size + 1U;
+    char *heap_value = (char *)malloc(heap_capacity);
+    if (!heap_value)
+    {
+      free(name);
+      return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+          bsts_ioerror_from_errno_default(errno, "reading environment"));
+    }
+
+    size = heap_capacity;
+    getenv_result = uv_os_getenv(name, heap_value, &size);
+    free(name);
+    if (getenv_result != 0)
+    {
+      free(heap_value);
+      return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+          bsts_ioerror_from_uv(getenv_result, "reading environment"));
+    }
+
+    BValue v = bsts_string_from_utf8_bytes_copy(strlen(heap_value), heap_value);
+    free(heap_value);
+    return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_option_some(v));
+  }
+
+  free(name);
+  if (getenv_result != 0)
+  {
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+        bsts_ioerror_from_uv(getenv_result, "reading environment"));
+  }
+
+  BValue v = bsts_string_from_utf8_bytes_copy(strlen(stack_value), stack_value);
   return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_option_some(v));
 }
 
@@ -2049,16 +2093,17 @@ static BValue bsts_core_wait_effect(BValue process)
 static BValue bsts_core_now_wall_effect(BValue unit)
 {
   (void)unit;
-  struct timespec ts;
-  if (clock_gettime(CLOCK_REALTIME, &ts) != 0)
+  uv_timeval64_t tv;
+  int time_result = uv_gettimeofday(&tv);
+  if (time_result != 0)
   {
     return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
-        bsts_ioerror_from_errno_default(errno, "reading wall clock"));
+        bsts_ioerror_from_uv(time_result, "reading wall clock"));
   }
 
-  BValue sec_i = bsts_integer_from_int64((int64_t)ts.tv_sec);
+  BValue sec_i = bsts_integer_from_int64((int64_t)tv.tv_sec);
   BValue billion = bsts_integer_from_int(1000000000);
-  BValue nsec_i = bsts_integer_from_int((int32_t)ts.tv_nsec);
+  BValue nsec_i = bsts_integer_from_int64((int64_t)tv.tv_usec * 1000);
   BValue nanos = bsts_integer_add(bsts_integer_times(sec_i, billion), nsec_i);
   return ___bsts_g_Bosatsu_l_Prog_l_pure(nanos);
 }
@@ -2066,18 +2111,7 @@ static BValue bsts_core_now_wall_effect(BValue unit)
 static BValue bsts_core_now_mono_effect(BValue unit)
 {
   (void)unit;
-  struct timespec ts;
-  if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0)
-  {
-    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
-        bsts_ioerror_from_errno_default(errno, "reading monotonic clock"));
-  }
-
-  BValue sec_i = bsts_integer_from_int64((int64_t)ts.tv_sec);
-  BValue billion = bsts_integer_from_int(1000000000);
-  BValue nsec_i = bsts_integer_from_int((int32_t)ts.tv_nsec);
-  BValue nanos = bsts_integer_add(bsts_integer_times(sec_i, billion), nsec_i);
-  return ___bsts_g_Bosatsu_l_Prog_l_pure(nanos);
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_integer_from_uint64(uv_hrtime()));
 }
 
 static BValue bsts_core_sleep_effect(BValue duration)
