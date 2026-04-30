@@ -256,6 +256,18 @@ static BValue prog_runner_async_double_complete_effect_fn(BValue arg) {
   return prog_runner_suspend_request(bsts_integer_from_int(1), 0, 1);
 }
 
+static int prog_runner_async_start_fail(BSTS_Prog_Suspended *suspended) {
+  (void)suspended;
+  return UV_EINVAL;
+}
+
+static BValue prog_runner_async_start_fail_effect_fn(BValue arg) {
+  (void)arg;
+  return bsts_Bosatsu_Prog_suspend(
+      bsts_unit_value(),
+      prog_runner_async_start_fail);
+}
+
 static int prog_runner_async_never_complete_start(BSTS_Prog_Suspended *suspended) {
   (void)suspended;
   return 0;
@@ -351,6 +363,14 @@ static BValue prog_runner_async_double_complete_test_fn(BValue arg) {
       5,
       bsts_unit_value(),
       alloc_boxed_pure_fn1(prog_runner_async_double_complete_effect_fn));
+}
+
+static BValue prog_runner_async_start_fail_test_fn(BValue arg) {
+  (void)arg;
+  return alloc_enum2(
+      5,
+      bsts_unit_value(),
+      alloc_boxed_pure_fn1(prog_runner_async_start_fail_effect_fn));
 }
 
 static BValue prog_runner_async_never_complete_test_fn(BValue arg) {
@@ -1676,6 +1696,17 @@ static void assert_prog_error_string(BSTS_Prog_Test_Result result, const char* e
   assert_string_equals(result.value, expected, message);
 }
 
+static void assert_prog_error_variant(BSTS_Prog_Test_Result result, unsigned char expected, const char* message) {
+  if (!result.is_error) {
+    printf("%s\nexpected Prog error result\n", message);
+    exit(1);
+  }
+  if (get_variant(result.value) != expected) {
+    printf("%s\nexpected Prog error variant: %u\ngot: %u\n", message, expected, get_variant(result.value));
+    exit(1);
+  }
+}
+
 void test_prog_runner_loop() {
   BValue pure_test = alloc_boxed_pure_fn1(prog_runner_pure_test_fn);
   assert_prog_success_int(
@@ -1757,6 +1788,12 @@ void test_prog_runner_loop() {
   assert(
       prog_runner_async_effect_calls == calls_before_async_repeat + 1,
       "Repeated suspended Prog test should not reuse pending state");
+
+  BValue async_start_fail = alloc_boxed_pure_fn1(prog_runner_async_start_fail_test_fn);
+  assert_prog_error_variant(
+      bsts_Bosatsu_Prog_run_test(async_start_fail),
+      5,
+      "Suspended Effect start failure reports the original Prog, not the private Suspend tag");
 
 #if !defined(_WIN32)
   assert_child_aborts(

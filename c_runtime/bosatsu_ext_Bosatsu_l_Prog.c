@@ -267,6 +267,7 @@ static BSTS_Prog_Test_Result bsts_prog_result(_Bool is_error, BValue value)
 struct BSTS_Prog_Runtime {
   uv_loop_t loop;
   uv_idle_t start_handle;
+  BValue root_prog;
   BValue arg;
   BValue stack;
   BSTS_Prog_Test_Result result;
@@ -341,9 +342,13 @@ static void bsts_prog_pending_remove(BSTS_Prog_Runtime *runtime, BSTS_Prog_Suspe
   {
     suspended->prev->next = suspended->next;
   }
-  else
+  else if (runtime->pending_head == suspended)
   {
     runtime->pending_head = suspended->next;
+  }
+  else
+  {
+    return;
   }
 
   if (suspended->next != NULL)
@@ -458,7 +463,7 @@ static void bsts_prog_runtime_suspend(BSTS_Prog_Runtime *runtime, BValue effect_
   {
     bsts_prog_pending_remove(runtime, suspended);
     suspended->state = BSTS_PROG_SUSPEND_CONSUMED;
-    bsts_prog_runtime_complete(runtime, 1, request);
+    bsts_prog_runtime_complete(runtime, 1, runtime->root_prog);
     runtime->runtime_status = start_result;
     return;
   }
@@ -606,6 +611,7 @@ static void bsts_prog_start_cb(uv_idle_t *handle)
 static BSTS_Prog_Test_Result bsts_Bosatsu_Prog_run(BValue prog)
 {
   BSTS_Prog_Runtime runtime = {
+    .root_prog = prog,
     .arg = prog,
     .stack = alloc_enum0(0),
     .result = bsts_prog_result(1, prog),
