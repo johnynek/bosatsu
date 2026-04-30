@@ -8,17 +8,17 @@
 - Flow: `small_job`
 - Issue: `#2351` Add suspend-and-resume support for libuv-backed Prog effects
 - Source design doc: `docs/design/2342-document-the-libuv-c-runtime-integration-contract.md`
-- Pending steps: `1`
-- Completed steps: `3`
+- Pending steps: `0`
+- Completed steps: `4`
 - Total steps: `4`
 
 ## Summary
 
-Implement a tightly scoped internal suspend/resume mechanism for the libuv-backed C `Prog` runtime. The current branch now has private suspended runtime state, a runtime-owned GC-scanned pending list, an internal callback-facing suspend API, and focused C harness coverage proving synchronous effects still work while synthetic libuv-backed effects resume through success, error/recover, and `flat_map` continuation paths. Remaining work is final verification with the configured required gate, without changing public Bosatsu language, library, CLI, generated runner signatures, or IO/Core behavior.
+Implement a tightly scoped internal suspend/resume mechanism for the libuv-backed C `Prog` runtime. The current branch has private suspended runtime state, a runtime-owned GC-scanned pending list, an internal callback-facing suspend API, focused C harness coverage for synchronous compatibility and synthetic libuv-backed resume paths, and completed verification with the configured required gate. No public Bosatsu language, library, CLI, generated runner signatures, or IO/Core behavior were changed in this slice.
 
 ## Current State
 
-The repository has vendored libuv support and a C `Prog` runner skeleton that owns and drains a default-independent `uv_loop_t` in `bsts_Bosatsu_Prog_run_main` and `bsts_Bosatsu_Prog_run_test`. `c_runtime/bosatsu_ext_Bosatsu_l_Prog.c` has explicit private runtime states for running, suspended, resumed-success, resumed-error, and finished. A GC-allocated `BSTS_Prog_Suspended` record captures the owning runtime, effect argument, continuation/recovery stack, private request payload, completion result, error flag, and exactly-once state. Active suspended records are linked from `BSTS_Prog_Runtime.pending_head`, keeping their `BValue` fields reachable while libuv owns native handle state. `Effect(arg, f)` still calls `f(arg)` synchronously for ordinary effects, but recognizes private tag-6 suspend values built by `bsts_Bosatsu_Prog_suspend`. That private helper now carries an opaque request plus a start callback; libuv callbacks resume through `bsts_Bosatsu_Prog_suspended_success` or `bsts_Bosatsu_Prog_suspended_error`, and can recover the owner loop and request payload through internal accessors. The deterministic C harness timer-backed async effect now stores its timer in its own request payload instead of in the generic suspended record. The direct C harness in `c_runtime/test.c` covers synchronous Effect success, synchronous Effect raise/recover, suspended success through a captured `flat_map`, suspended error through recover, owner-loop callback access, repeated suspended invocations, and abort-on-second-completion behavior. Focused verification `make -C c_runtime PROFILE=debug test_out` and `git diff --check` passed in this round. The configured required merge gate remains `scripts/test_basic.sh` with a 2400 second timeout and has not been run in this round.
+The repository has vendored libuv support and a C `Prog` runner skeleton that owns and drains a default-independent `uv_loop_t` in `bsts_Bosatsu_Prog_run_main` and `bsts_Bosatsu_Prog_run_test`. `c_runtime/bosatsu_ext_Bosatsu_l_Prog.c` has explicit private runtime states for running, suspended, resumed-success, resumed-error, and finished. A GC-allocated `BSTS_Prog_Suspended` record captures the owning runtime, effect argument, continuation/recovery stack, private request payload, completion result, error flag, and exactly-once state. Active suspended records are linked from `BSTS_Prog_Runtime.pending_head`, keeping their `BValue` fields reachable while libuv owns native handle state. `Effect(arg, f)` still calls `f(arg)` synchronously for ordinary effects, but recognizes private tag-6 suspend values built by `bsts_Bosatsu_Prog_suspend`. That private helper carries an opaque request plus a start callback; libuv callbacks resume through `bsts_Bosatsu_Prog_suspended_success` or `bsts_Bosatsu_Prog_suspended_error`, and can recover the owner loop and request payload through internal accessors. The deterministic C harness timer-backed async effect stores its timer in its own request payload instead of in the generic suspended record. The direct C harness in `c_runtime/test.c` covers synchronous Effect success, synchronous Effect raise/recover, suspended success through a captured `flat_map`, suspended error through recover, owner-loop callback access, repeated suspended invocations, and abort-on-second-completion behavior. Final verification in this round passed: `make -B -C c_runtime PROFILE=debug test_out`, `scripts/test_basic.sh`, and `git diff --check`. The required gate reported 74 tests passed in the first sbt invocation and 2116 passed / 2 ignored in the second sbt invocation.
 
 ## Problem
 
@@ -105,7 +105,7 @@ Refine the private suspend/resume path into the reusable completion surface need
 
 Added `c_runtime/bosatsu_ext_Bosatsu_l_Prog_internal.h` with the private callback-facing surface: opaque `BSTS_Prog_Suspended`, `bsts_Bosatsu_Prog_suspend`, owner-loop/request accessors, and success/error completion helpers. The generic suspended record no longer embeds a test timer; it stores the GC-rooted request payload and invokes the request start callback after linking the suspended continuation into the runtime pending list. The timer-backed C test effect now allocates its own request record with the timer handle and result/error payload, starts that request on the suspended owner loop, and resumes through the reusable success/error helpers. Added an abort-on-double-completion assertion in the C harness to lock down exactly-once completion behavior.
 
-4. [ ] `step-4` Verify Coverage and Required Gate
+4. [x] `step-4` Verify Coverage and Required Gate
 
 Run focused C runtime tests while iterating, then run the configured required gate `scripts/test_basic.sh` within the 2400 second repo timeout before the branch is considered shippable. Review the final diff for scope: the change should be private runtime machinery plus targeted tests, with no opportunistic IO/Core migrations or unrelated cleanup.
 
@@ -121,5 +121,11 @@ Run focused C runtime tests while iterating, then run the configured required ga
 
 #### Assertion Tests
 
-- Record the exact focused test commands used during development and the final `scripts/test_basic.sh` result in the PR summary or completion notes.
-- If a platform-specific libuv behavior prevents deterministic async tests, replace the flaky case with a deterministic `uv_async_t`, `uv_timer_t`, or `uv_work_t` test hook and document the choice in code comments only where it clarifies ownership.
+- Ran the focused C runtime harness with `make -B -C c_runtime PROFILE=debug test_out`; it rebuilt the debug C runtime and passed.
+- Ran the configured required gate `scripts/test_basic.sh`; it passed within the 2400 second timeout, reporting 74 tests passed in the first sbt invocation and 2116 passed / 2 ignored in the second sbt invocation.
+- Ran `git diff --check`; it passed.
+- Reviewed the final diff/scope and found this round only updates the canonical code plan JSON; the implementation scope remains private C Prog runtime machinery plus targeted C harness tests, with no IO/Core migration or unrelated cleanup.
+
+#### Completion Notes
+
+Final verification completed. `make -B -C c_runtime PROFILE=debug test_out` rebuilt and ran the focused direct C runtime harness successfully. The configured required merge gate `scripts/test_basic.sh` passed within the 2400 second timeout: the first sbt test invocation reported 74 passed, and the second reported 2116 passed with 2 ignored. `git diff --check` also passed. The final scope review found no opportunistic IO/Core migrations or public API changes; this round only records verification in the canonical code plan JSON.
