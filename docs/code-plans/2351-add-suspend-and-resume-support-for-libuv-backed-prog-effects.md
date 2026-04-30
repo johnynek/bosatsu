@@ -7,25 +7,26 @@
 
 - Flow: `small_job`
 - Issue: `#2351` Add suspend-and-resume support for libuv-backed Prog effects
-- Pending steps: `4`
-- Completed steps: `0`
+- Source design doc: `docs/design/2342-document-the-libuv-c-runtime-integration-contract.md`
+- Pending steps: `3`
+- Completed steps: `1`
 - Total steps: `4`
 
 ## Summary
 
-Draft a tightly scoped implementation plan for adding an internal suspend/resume mechanism to the libuv-backed C `Prog` runtime. The final change should let selected private/test effects pause interpretation with their continuation stack, keep all GC-managed state reachable while a libuv request is outstanding, and resume through the existing owned `uv_loop_t` on completion without changing public Bosatsu language or IO/Core behavior.
+Implement a tightly scoped internal suspend/resume mechanism for the libuv-backed C `Prog` runtime. The final change should let selected private/test effects pause interpretation with their continuation stack, keep all GC-managed state reachable while a libuv request or handle is outstanding, and resume through the existing owned `uv_loop_t` on completion without changing public Bosatsu language, library, CLI, generated runner signatures, or IO/Core behavior.
 
 ## Current State
 
-The repository already has vendored libuv support and a C `Prog` runner skeleton that owns and drains a `uv_loop_t` in `bsts_Bosatsu_Prog_run_main` and `bsts_Bosatsu_Prog_run_test`. That skeleton preserves existing synchronous behavior for `Pure`, `Raise`, `FlatMap`, `Recover`, `ApplyFix`, and current `Effect` execution. The reference design document describes the intended libuv runtime integration contract, including runner-owned loop lifecycle and GC considerations. Coding guidelines and the required merge gate are `coding_style.md` and `scripts/test_basic.sh` with a 2400 second timeout.
+The repository already has vendored libuv support and a C `Prog` runner skeleton that owns and drains a default-independent `uv_loop_t` in `bsts_Bosatsu_Prog_run_main` and `bsts_Bosatsu_Prog_run_test`. The current private runtime state in `c_runtime/bosatsu_ext_Bosatsu_l_Prog.c` is `BSTS_Prog_Runtime`: it is stack-allocated per run, embeds `uv_loop_t loop` and `uv_idle_t start_handle`, carries the current `arg`, continuation `stack`, final `BSTS_Prog_Test_Result`, `completed`, and `runtime_status`, and starts interpretation from a one-shot idle callback. `bsts_prog_runtime_step` preserves synchronous behavior for `Pure`, `Raise`, `FlatMap`, `Recover`, `ApplyFix`, and `Effect`; current `Effect(arg, f)` handling still calls `call_fn1(f, arg)` immediately and stores the returned `Prog` in `runtime->arg`. Loop shutdown already uses `uv_loop_close`, `uv_walk`, handle closure, and `uv_run(UV_RUN_DEFAULT)` to drain busy handles. The existing direct C harness in `c_runtime/test.c` has focused Prog runner coverage for pure, raise, flat_map, recover, main exit code, and repeated test invocation through `make -C c_runtime PROFILE=debug test_out`, which passed during this inspection round. Coding guidelines and the required merge gate are `coding_style.md` and `scripts/test_basic.sh` with a 2400 second timeout.
 
 ## Problem
 
-The current loop-backed runner still treats effects as synchronously complete. There is no internal representation for a suspended interpreter frame, no ownership contract for moving the current continuation stack into a libuv callback, and no tests proving that async completion can re-enter the interpreter through success, failure/recovery, and `flat_map` continuation paths. Without this mechanism, later libuv-backed IO migrations would either block the runner or add one-off callback plumbing that risks losing continuations, error handlers, or GC reachability.
+The current loop-backed runner still treats effects as synchronously complete. There is no internal representation for a suspended interpreter frame, no ownership contract for moving the current continuation stack into a libuv callback, no GC-scanned root collection for request records that hold `BValue`s while libuv owns native request memory, and no tests proving that async completion can re-enter the interpreter through success, failure/recovery, and `flat_map` continuation paths. Without this mechanism, later libuv-backed IO migrations would either block the runner or add one-off callback plumbing that risks losing continuations, error handlers, or GC reachability.
 
 ## Steps
 
-1. [ ] `step-1` Inspect Runtime Contract and Existing Loop State
+1. [x] `step-1` Inspect Runtime Contract and Existing Loop State
 
 Read `coding_style.md`, `docs/design/2342-document-the-libuv-c-runtime-integration-contract.md`, the current `c_runtime/bosatsu_ext_Bosatsu_l_Prog.c`, `c_runtime/test.c`, and the prior loop-core plan/tests. Confirm the exact private runtime state shape, effect dispatch path, loop-drain behavior, and C test harness conventions before implementation. Keep the implementation surface private to the C runtime unless an existing generated test hook is the smallest reviewable way to exercise the mechanism.
 
@@ -41,12 +42,16 @@ Read `coding_style.md`, `docs/design/2342-document-the-libuv-c-runtime-integrati
 
 #### Assertion Tests
 
-- Add or update focused tests only after inspection identifies the smallest existing harness surface; no behavior change should be made in this step.
-- Run any narrow existing C runtime test target that already covers loop-backed `Prog` behavior if available, then keep `scripts/test_basic.sh` as the final required gate.
+- Reviewed `coding_style.md`, `docs/design/2342-document-the-libuv-c-runtime-integration-contract.md`, `c_runtime/bosatsu_ext_Bosatsu_l_Prog.c`, `c_runtime/test.c`, and the prior loop-core plan.
+- Ran the focused existing C runtime baseline with `make -C c_runtime PROFILE=debug test_out`; it passed.
+
+#### Completion Notes
+
+Inspection found a private, stack-allocated `BSTS_Prog_Runtime` with embedded loop/start idle handle and a synchronous `bsts_prog_runtime_step` interpreter. The smallest implementation surface is `c_runtime/bosatsu_ext_Bosatsu_l_Prog.c` plus focused direct C tests in `c_runtime/test.c`. The next step should not add public Bosatsu APIs or generated runner signatures. It should add private runtime suspension state, a GC-scanned pending request/root list, and a deterministic test-only async effect hook implemented inside the C runtime/test harness.
 
 2. [ ] `step-2` Introduce Suspended Prog Runtime State
 
-Add a private suspended-continuation representation to the C `Prog` runtime. The representation should capture the current interpreter continuation/error stack, pending effect result slot or state, owning runtime/loop pointer, and an explicit completion state that can be set by a libuv callback. Refactor the interpreter loop just enough to support three effect outcomes: synchronous value, synchronous raise, and suspended pending work. Ensure suspended state and any effect arguments/callback payloads are allocated or rooted so bdwgc with `GC_THREADS` can see all live Bosatsu values until completion.
+Extend the private `BSTS_Prog_Runtime` state and stepper to support explicit running, suspended/pending, resumed-success, resumed-error, and finished states. Add a private suspended-continuation/request representation that captures the current `arg`, continuation/error stack, owning runtime/loop pointer, completion result, and exactly-one-resume status. Because libuv-owned request/handle memory is not a reliable Boehm root for `BValue` fields, add a runtime-owned GC-scanned pending list or equivalent root-registration mechanism that keeps suspended continuation state, effect arguments, callback payloads, and result/error values reachable until completion is consumed. Refactor `Effect` dispatch just enough to support synchronous value, synchronous raise, and suspended pending outcomes while preserving the existing synchronous `call_fn1` path.
 
 #### Invariants
 
@@ -54,6 +59,7 @@ Add a private suspended-continuation representation to the C `Prog` runtime. The
 - All Bosatsu values reachable from the suspended continuation stack, effect arguments, callback payload, success result, and error result remain reachable for the full async lifetime.
 - Synchronous effects continue through the same continuation and recovery machinery as before; the new representation does not force all effects through libuv.
 - Interpreter state transitions are explicit: running, suspended/pending, resumed with value, resumed with error, and finished.
+- The existing public runner signatures and generated C contracts remain unchanged.
 
 #### Property Tests
 
@@ -61,12 +67,13 @@ Add a private suspended-continuation representation to the C `Prog` runtime. The
 
 #### Assertion Tests
 
-- Add C-level assertions or unit cases proving a synthetic suspend request leaves the interpreter pending until the libuv callback fires.
+- Add C-level assertions proving a synthetic suspend request leaves the interpreter pending until a libuv callback marks it complete.
 - Add regression assertions that existing synchronous `Effect` programs still return their success values and still route raised errors through `recover`.
+- Extend the existing repeated-run C test coverage to prove pending/root state from one runner invocation is not reused by the next invocation.
 
 3. [ ] `step-3` Resume Interpreter from Libuv Completion
 
-Wire the runner loop so a libuv completion callback can mark suspended runtime state complete and schedule/resume interpretation on the owning loop. The runner should continue driving the owned loop until no active async work or interpreter work remains, then close handles as the loop-core skeleton already expects. Keep callback entrypoints small: they should translate libuv completion into a success or error value, publish it to the suspended state, and let the interpreter resume through the normal continuation/recovery path.
+Wire the runner loop so a libuv completion callback can publish a success or error into suspended runtime state and resume interpretation on the owning loop. Prefer a deterministic test-only private effect based on a libuv handle/request shape such as `uv_timer_t`, `uv_async_t`, or `uv_work_t` after-callback; callbacks should be small and should only translate completion into a `Prog` value or error and re-enter the existing stepper. The runner should continue driving the owned loop with `uv_run(UV_RUN_DEFAULT)` until no active async work or interpreter work remains, then close handles as the loop-core skeleton already expects.
 
 #### Invariants
 
