@@ -307,6 +307,17 @@ static void bsts_prog_close_loop(BSTS_Prog_Runtime *runtime)
   }
 }
 
+static void bsts_prog_runtime_check_finished(BSTS_Prog_Runtime *runtime)
+{
+  if (runtime->state != BSTS_PROG_RUNTIME_FINISHED ||
+      runtime->pending_head != NULL ||
+      runtime->resumed != NULL)
+  {
+    fprintf(stderr, "bosatsu Prog execution fault: suspended effect did not complete before runner returned\n");
+    abort();
+  }
+}
+
 static void bsts_prog_runtime_complete(BSTS_Prog_Runtime *runtime, _Bool is_error, BValue value)
 {
   runtime->result = bsts_prog_result(is_error, value);
@@ -625,6 +636,11 @@ static BSTS_Prog_Test_Result bsts_Bosatsu_Prog_run(BValue prog)
   else
   {
     fprintf(stderr, "bosatsu Prog execution fault: failed to start libuv runner: %s\n", uv_strerror(runtime.runtime_status));
+  }
+
+  if (runtime.runtime_status == 0)
+  {
+    bsts_prog_runtime_check_finished(&runtime);
   }
 
   bsts_prog_close_loop(&runtime);

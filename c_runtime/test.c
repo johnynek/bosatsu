@@ -256,6 +256,65 @@ static BValue prog_runner_async_double_complete_effect_fn(BValue arg) {
   return prog_runner_suspend_request(bsts_integer_from_int(1), 0, 1);
 }
 
+static int prog_runner_async_never_complete_start(BSTS_Prog_Suspended *suspended) {
+  (void)suspended;
+  return 0;
+}
+
+static BValue prog_runner_async_never_complete_effect_fn(BValue arg) {
+  (void)arg;
+  return bsts_Bosatsu_Prog_suspend(
+      bsts_unit_value(),
+      prog_runner_async_never_complete_start);
+}
+
+static void prog_runner_async_unref_timer_cb(uv_timer_t *timer) {
+  (void)timer;
+  printf("unreferenced unfinished Prog timer unexpectedly fired\n");
+  abort();
+}
+
+static int prog_runner_async_unref_start(BSTS_Prog_Suspended *suspended) {
+  ProgRunnerAsyncRequest *request =
+      BSTS_PTR(ProgRunnerAsyncRequest, bsts_Bosatsu_Prog_suspended_request(suspended));
+  int timer_result = uv_timer_init(
+      bsts_Bosatsu_Prog_suspended_loop(suspended),
+      &request->timer);
+  if (timer_result != 0) {
+    return timer_result;
+  }
+
+  request->timer.data = suspended;
+  timer_result = uv_timer_start(
+      &request->timer,
+      prog_runner_async_unref_timer_cb,
+      60000,
+      0);
+  if (timer_result != 0) {
+    return timer_result;
+  }
+
+  uv_unref((uv_handle_t *)&request->timer);
+  return 0;
+}
+
+static BValue prog_runner_async_unref_effect_fn(BValue arg) {
+  (void)arg;
+  ProgRunnerAsyncRequest *request =
+      (ProgRunnerAsyncRequest *)GC_malloc(sizeof(ProgRunnerAsyncRequest));
+  if (request == NULL) {
+    perror("GC_malloc failure in prog_runner_async_unref_effect_fn");
+    exit(1);
+  }
+
+  request->result = bsts_unit_value();
+  request->is_error = 0;
+  request->double_complete = 0;
+  return bsts_Bosatsu_Prog_suspend(
+      BSTS_VALUE_FROM_PTR(request),
+      prog_runner_async_unref_start);
+}
+
 static BValue prog_runner_async_after_success_fn(BValue arg) {
   assert(
       prog_runner_async_effect_calls > 0,
@@ -292,6 +351,22 @@ static BValue prog_runner_async_double_complete_test_fn(BValue arg) {
       5,
       bsts_unit_value(),
       alloc_boxed_pure_fn1(prog_runner_async_double_complete_effect_fn));
+}
+
+static BValue prog_runner_async_never_complete_test_fn(BValue arg) {
+  (void)arg;
+  return alloc_enum2(
+      5,
+      bsts_unit_value(),
+      alloc_boxed_pure_fn1(prog_runner_async_never_complete_effect_fn));
+}
+
+static BValue prog_runner_async_unref_test_fn(BValue arg) {
+  (void)arg;
+  return alloc_enum2(
+      5,
+      bsts_unit_value(),
+      alloc_boxed_pure_fn1(prog_runner_async_unref_effect_fn));
 }
 
 static BValue prog_runner_flatmap_after_pure_test_fn(BValue arg) {
@@ -380,6 +455,16 @@ static void call_alloc_closure_zero() {
 static void call_prog_async_double_complete() {
   BValue double_complete = alloc_boxed_pure_fn1(prog_runner_async_double_complete_test_fn);
   (void)bsts_Bosatsu_Prog_run_test(double_complete);
+}
+
+static void call_prog_async_never_complete() {
+  BValue never_complete = alloc_boxed_pure_fn1(prog_runner_async_never_complete_test_fn);
+  (void)bsts_Bosatsu_Prog_run_test(never_complete);
+}
+
+static void call_prog_async_unref() {
+  BValue unref = alloc_boxed_pure_fn1(prog_runner_async_unref_test_fn);
+  (void)bsts_Bosatsu_Prog_run_test(unref);
 }
 #endif
 
@@ -1677,6 +1762,12 @@ void test_prog_runner_loop() {
   assert_child_aborts(
       call_prog_async_double_complete,
       "Suspended Prog completion helper should reject a second completion");
+  assert_child_aborts(
+      call_prog_async_never_complete,
+      "Prog runner should reject a suspended effect that never completes");
+  assert_child_aborts(
+      call_prog_async_unref,
+      "Prog runner should reject unreferenced unfinished suspended work");
 #endif
 
   BValue main_success = alloc_boxed_pure_fn1(prog_runner_main_success_fn);
