@@ -1,4 +1,5 @@
 #include "bosatsu_ext_Bosatsu_l_Prog.h"
+#include "bosatsu_ext_Bosatsu_l_Prog_internal.h"
 
 #include <gc.h>
 #include <stdio.h>
@@ -14,11 +15,50 @@
 # Recover(p, f) => (3, p, f)
 # ApplyFix(a, f) => (4, a, f)
 # Effect(arg: BValue, f: BValue => BValue) => (5, arg, f)
+#
+# The C runtime also reserves a private effect-result tag:
+# Suspend(suspend_request, request) => (6, suspend_request, request)
+# where suspend_request holds a private C callback that publishes
+# exactly one completion for request. Generated Bosatsu code should not
+# construct this tag directly.
 */
 
 typedef struct {
   _Atomic BValue value;
 } BSTS_Prog_Var;
+
+typedef enum {
+  BSTS_PROG_RUNTIME_RUNNING,
+  BSTS_PROG_RUNTIME_SUSPENDED,
+  BSTS_PROG_RUNTIME_RESUMED_SUCCESS,
+  BSTS_PROG_RUNTIME_RESUMED_ERROR,
+  BSTS_PROG_RUNTIME_FINISHED
+} BSTS_Prog_Runtime_State;
+
+typedef enum {
+  BSTS_PROG_SUSPEND_PENDING,
+  BSTS_PROG_SUSPEND_RESUMED,
+  BSTS_PROG_SUSPEND_CONSUMED
+} BSTS_Prog_Suspend_State;
+
+typedef struct BSTS_Prog_Runtime BSTS_Prog_Runtime;
+
+struct BSTS_Prog_Suspended {
+  BSTS_Prog_Runtime *runtime;
+  struct BSTS_Prog_Suspended *next;
+  struct BSTS_Prog_Suspended *prev;
+  BValue effect_arg;
+  BValue stack;
+  BValue request;
+  BValue result;
+  _Bool is_error;
+  BSTS_Prog_Suspend_State state;
+};
+
+typedef struct {
+  BValue request;
+  BSTS_Prog_Suspend_Start start;
+} BSTS_Prog_Suspend_Request;
 
 BValue ___bsts_g_Bosatsu_l_Prog_l_pure(BValue a)
 {
@@ -75,6 +115,21 @@ static BValue bsts_prog_effect1(BValue a, BValue (*fn)(BValue))
 static BValue bsts_prog_effect2(BValue a, BValue b, BValue (*fn)(BValue))
 {
   return alloc_enum2(5, alloc_struct2(a, b), alloc_boxed_pure_fn1(fn));
+}
+
+BValue bsts_Bosatsu_Prog_suspend(BValue request, BSTS_Prog_Suspend_Start start)
+{
+  BSTS_Prog_Suspend_Request *suspend_request =
+      (BSTS_Prog_Suspend_Request *)GC_malloc(sizeof(BSTS_Prog_Suspend_Request));
+  if (suspend_request == NULL)
+  {
+    perror("GC_malloc failure in bsts_Bosatsu_Prog_suspend");
+    abort();
+  }
+
+  suspend_request->request = request;
+  suspend_request->start = start;
+  return alloc_enum2(6, BSTS_VALUE_FROM_PTR(suspend_request), request);
 }
 
 static BSTS_Prog_Var *bsts_prog_unbox_var(BValue var_value)
@@ -209,15 +264,18 @@ static BSTS_Prog_Test_Result bsts_prog_result(_Bool is_error, BValue value)
   return result;
 }
 
-typedef struct {
+struct BSTS_Prog_Runtime {
   uv_loop_t loop;
   uv_idle_t start_handle;
+  BValue root_prog;
   BValue arg;
   BValue stack;
   BSTS_Prog_Test_Result result;
-  _Bool completed;
+  BSTS_Prog_Suspended *pending_head;
+  BSTS_Prog_Suspended *resumed;
+  BSTS_Prog_Runtime_State state;
   int runtime_status;
-} BSTS_Prog_Runtime;
+};
 
 static void bsts_prog_close_handle(uv_handle_t *handle, void *arg)
 {
@@ -250,10 +308,165 @@ static void bsts_prog_close_loop(BSTS_Prog_Runtime *runtime)
   }
 }
 
+static void bsts_prog_runtime_check_finished(BSTS_Prog_Runtime *runtime)
+{
+  if (runtime->state != BSTS_PROG_RUNTIME_FINISHED ||
+      runtime->pending_head != NULL ||
+      runtime->resumed != NULL)
+  {
+    fprintf(stderr, "bosatsu Prog execution fault: suspended effect did not complete before runner returned\n");
+    abort();
+  }
+}
+
 static void bsts_prog_runtime_complete(BSTS_Prog_Runtime *runtime, _Bool is_error, BValue value)
 {
   runtime->result = bsts_prog_result(is_error, value);
-  runtime->completed = 1;
+  runtime->state = BSTS_PROG_RUNTIME_FINISHED;
+}
+
+static void bsts_prog_pending_insert(BSTS_Prog_Runtime *runtime, BSTS_Prog_Suspended *suspended)
+{
+  suspended->prev = NULL;
+  suspended->next = runtime->pending_head;
+  if (runtime->pending_head != NULL)
+  {
+    runtime->pending_head->prev = suspended;
+  }
+  runtime->pending_head = suspended;
+}
+
+static void bsts_prog_pending_remove(BSTS_Prog_Runtime *runtime, BSTS_Prog_Suspended *suspended)
+{
+  if (suspended->prev != NULL)
+  {
+    suspended->prev->next = suspended->next;
+  }
+  else if (runtime->pending_head == suspended)
+  {
+    runtime->pending_head = suspended->next;
+  }
+  else
+  {
+    return;
+  }
+
+  if (suspended->next != NULL)
+  {
+    suspended->next->prev = suspended->prev;
+  }
+
+  suspended->prev = NULL;
+  suspended->next = NULL;
+}
+
+static void bsts_prog_runtime_step(BSTS_Prog_Runtime *runtime);
+
+BValue bsts_Bosatsu_Prog_suspended_request(BSTS_Prog_Suspended *suspended)
+{
+  return suspended->request;
+}
+
+uv_loop_t *bsts_Bosatsu_Prog_suspended_loop(BSTS_Prog_Suspended *suspended)
+{
+  return &suspended->runtime->loop;
+}
+
+static void bsts_prog_suspended_complete(BSTS_Prog_Suspended *suspended, _Bool is_error, BValue value)
+{
+  BSTS_Prog_Runtime *runtime = suspended->runtime;
+
+  if (suspended->state != BSTS_PROG_SUSPEND_PENDING)
+  {
+    fprintf(stderr, "bosatsu Prog execution fault: suspended effect resumed more than once\n");
+    abort();
+  }
+  if (runtime->state != BSTS_PROG_RUNTIME_SUSPENDED)
+  {
+    fprintf(stderr, "bosatsu Prog execution fault: suspended effect resumed while runtime was not suspended\n");
+    abort();
+  }
+
+  suspended->state = BSTS_PROG_SUSPEND_RESUMED;
+  suspended->result = value;
+  suspended->is_error = is_error;
+  runtime->resumed = suspended;
+  runtime->state = is_error ? BSTS_PROG_RUNTIME_RESUMED_ERROR : BSTS_PROG_RUNTIME_RESUMED_SUCCESS;
+  bsts_prog_runtime_step(runtime);
+}
+
+void bsts_Bosatsu_Prog_suspended_success(BSTS_Prog_Suspended *suspended, BValue value)
+{
+  bsts_prog_suspended_complete(suspended, 0, value);
+}
+
+void bsts_Bosatsu_Prog_suspended_error(BSTS_Prog_Suspended *suspended, BValue error)
+{
+  bsts_prog_suspended_complete(suspended, 1, error);
+}
+
+static void bsts_prog_runtime_consume_resume(BSTS_Prog_Runtime *runtime)
+{
+  BSTS_Prog_Suspended *suspended = runtime->resumed;
+  if (suspended == NULL || suspended->state != BSTS_PROG_SUSPEND_RESUMED)
+  {
+    fprintf(stderr, "bosatsu Prog execution fault: missing suspended effect completion\n");
+    abort();
+  }
+
+  if (runtime->state == BSTS_PROG_RUNTIME_RESUMED_SUCCESS)
+  {
+    runtime->arg = ___bsts_g_Bosatsu_l_Prog_l_pure(suspended->result);
+  }
+  else if (runtime->state == BSTS_PROG_RUNTIME_RESUMED_ERROR)
+  {
+    runtime->arg = ___bsts_g_Bosatsu_l_Prog_l_raise__error(suspended->result);
+  }
+  else
+  {
+    fprintf(stderr, "bosatsu Prog execution fault: invalid resume state\n");
+    abort();
+  }
+
+  runtime->stack = suspended->stack;
+  runtime->resumed = NULL;
+  suspended->state = BSTS_PROG_SUSPEND_CONSUMED;
+  bsts_prog_pending_remove(runtime, suspended);
+  runtime->state = BSTS_PROG_RUNTIME_RUNNING;
+}
+
+static void bsts_prog_runtime_suspend(BSTS_Prog_Runtime *runtime, BValue effect_arg, BValue request)
+{
+  BSTS_Prog_Suspend_Request *suspend_request =
+      BSTS_PTR(BSTS_Prog_Suspend_Request, get_enum_index(request, 0));
+  BSTS_Prog_Suspended *suspended = (BSTS_Prog_Suspended *)GC_malloc(sizeof(BSTS_Prog_Suspended));
+  if (suspended == NULL)
+  {
+    perror("GC_malloc failure in bsts_prog_runtime_suspend");
+    abort();
+  }
+
+  suspended->runtime = runtime;
+  suspended->next = NULL;
+  suspended->prev = NULL;
+  suspended->effect_arg = effect_arg;
+  suspended->stack = runtime->stack;
+  suspended->request = suspend_request->request;
+  suspended->result = bsts_unit_value();
+  suspended->is_error = 0;
+  suspended->state = BSTS_PROG_SUSPEND_PENDING;
+  bsts_prog_pending_insert(runtime, suspended);
+  runtime->state = BSTS_PROG_RUNTIME_SUSPENDED;
+
+  int start_result = suspend_request->start(suspended);
+  if (start_result != 0)
+  {
+    bsts_prog_pending_remove(runtime, suspended);
+    suspended->state = BSTS_PROG_SUSPEND_CONSUMED;
+    bsts_prog_runtime_complete(runtime, 1, runtime->root_prog);
+    runtime->runtime_status = start_result;
+    return;
+  }
 }
 
 static void bsts_prog_runtime_step(BSTS_Prog_Runtime *runtime)
@@ -264,7 +477,13 @@ static void bsts_prog_runtime_step(BSTS_Prog_Runtime *runtime)
   def fmstep(fn, stack): return (1, fn, stack)
   def recstep(fn, stack): return (2, fn, stack)
   */
-  while (!runtime->completed)
+  if (runtime->state == BSTS_PROG_RUNTIME_RESUMED_SUCCESS ||
+      runtime->state == BSTS_PROG_RUNTIME_RESUMED_ERROR)
+  {
+    bsts_prog_runtime_consume_resume(runtime);
+  }
+
+  while (runtime->state == BSTS_PROG_RUNTIME_RUNNING)
   {
     switch (get_variant(runtime->arg))
     {
@@ -357,7 +576,15 @@ static void bsts_prog_runtime_step(BSTS_Prog_Runtime *runtime)
       // Effect(arg: BValue, f: BValue => BValue) => (5, arg, f)
       BValue earg = get_enum_index(runtime->arg, 0);
       BValue efn = get_enum_index(runtime->arg, 1);
-      runtime->arg = call_fn1(efn, earg);
+      BValue effect_result = call_fn1(efn, earg);
+      if (get_variant(effect_result) == 6)
+      {
+        bsts_prog_runtime_suspend(runtime, earg, effect_result);
+      }
+      else
+      {
+        runtime->arg = effect_result;
+      }
       break;
     }
     default:
@@ -384,10 +611,13 @@ static void bsts_prog_start_cb(uv_idle_t *handle)
 static BSTS_Prog_Test_Result bsts_Bosatsu_Prog_run(BValue prog)
 {
   BSTS_Prog_Runtime runtime = {
+    .root_prog = prog,
     .arg = prog,
     .stack = alloc_enum0(0),
     .result = bsts_prog_result(1, prog),
-    .completed = 0,
+    .pending_head = NULL,
+    .resumed = NULL,
+    .state = BSTS_PROG_RUNTIME_RUNNING,
     .runtime_status = 0,
   };
 
@@ -412,6 +642,11 @@ static BSTS_Prog_Test_Result bsts_Bosatsu_Prog_run(BValue prog)
   else
   {
     fprintf(stderr, "bosatsu Prog execution fault: failed to start libuv runner: %s\n", uv_strerror(runtime.runtime_status));
+  }
+
+  if (runtime.runtime_status == 0)
+  {
+    bsts_prog_runtime_check_finished(&runtime);
   }
 
   bsts_prog_close_loop(&runtime);
