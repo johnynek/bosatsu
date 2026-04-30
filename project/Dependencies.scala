@@ -29,7 +29,7 @@ object Dependencies {
   lazy val protobufJava =
     Def.setting("com.google.protobuf" % "protobuf-java" % "3.25.9")
   lazy val protobufJavaUtil =
-    Def.setting("com.google.protobuf" % "protobuf-java-util" % "3.25.8")
+    Def.setting("com.google.protobuf" % "protobuf-java-util" % "3.25.9")
   lazy val scalaCheck =
     Def.setting("org.scalacheck" %%% "scalacheck" % "1.19.0")
   lazy val scalawasiz3 = Def.setting("dev.bosatsu" %%% "scalawasiz3" % "0.0.13")
