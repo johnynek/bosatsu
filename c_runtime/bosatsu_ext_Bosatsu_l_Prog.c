@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdatomic.h>
 #include <stdlib.h>
+#include <uv.h>
 
 /*
 # Prog is an ADT with the following values:

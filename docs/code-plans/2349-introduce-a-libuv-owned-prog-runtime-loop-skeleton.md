@@ -7,8 +7,9 @@
 
 - Flow: `small_job`
 - Issue: `#2349` Introduce a libuv-owned Prog runtime loop skeleton
-- Pending steps: `3`
-- Completed steps: `0`
+- Source design doc: `docs/design/2342-document-the-libuv-c-runtime-integration-contract.md`
+- Pending steps: `2`
+- Completed steps: `1`
 - Total steps: `3`
 
 ## Summary
@@ -17,7 +18,7 @@ Introduce a private libuv-owned execution skeleton for the C `Prog` runtime. The
 
 ## Current State
 
-The repository already has the direct inputs for this slice: the libuv integration contract in `docs/design/2342-document-the-libuv-c-runtime-integration-contract.md` and implemented vendored libuv dependency support. The current C `Prog` runtime in `c_runtime/bosatsu_ext_Bosatsu_l_Prog.c` is still a synchronous while-loop interpreter. `Effect(arg, f)` calls `f(arg)` immediately, and the private runner returns `BSTS_Prog_Test_Result` directly. `bsts_Bosatsu_Prog_run_main` builds the argv list and maps uncaught top-level errors to exit code `1`; `bsts_Bosatsu_Prog_run_test` builds an empty argument list and returns the private runner result. Generated C in `ClangGen.scala` already calls `GC_init()`, `init_statics()`, `atexit(free_statics)`, and then the existing runner function supplied by the codegen path. The non-vendored `c_runtime/Makefile` currently discovers Boehm GC flags but does not yet discover libuv flags for direct runtime builds.
+The repository has the direct inputs for this slice: the libuv integration contract in `docs/design/2342-document-the-libuv-c-runtime-integration-contract.md` and implemented vendored libuv dependency support. The C `Prog` runtime in `c_runtime/bosatsu_ext_Bosatsu_l_Prog.c` is still a synchronous while-loop interpreter, but it now includes the libuv header so the file is on the intended runtime build surface. `Effect(arg, f)` still calls `f(arg)` immediately, and the private runner still returns `BSTS_Prog_Test_Result` directly. `bsts_Bosatsu_Prog_run_main` and `bsts_Bosatsu_Prog_run_test` retain their public signatures. Generated C in `ClangGen.scala` still calls `GC_init()`, `init_statics()`, `atexit(free_statics)`, and then the existing runner function supplied by the codegen path. The non-vendored `c_runtime/Makefile` now discovers libuv compile/link flags with `pkg-config` and existing-style Darwin/Linux fallbacks, while preserving Boehm GC and `-lm` behavior.
 
 ## Problem
 
@@ -25,9 +26,9 @@ The runtime cannot safely migrate IO effects to libuv until the `Prog` interpret
 
 ## Steps
 
-1. [ ] `step-1-link-libuv-runtime-surface` Wire libuv Into The C Runtime Build Surface
+1. [x] `step-1-link-libuv-runtime-surface` Wire libuv Into The C Runtime Build Surface
 
-Update the C runtime build surfaces needed by `bosatsu_ext_Bosatsu_l_Prog.c` to include and link libuv. This should use the vendored dependency metadata path already implemented for generated C/backend builds, and add the smallest necessary non-vendored `c_runtime/Makefile` support for local direct builds by discovering libuv compile/link flags with `pkg-config` plus conservative platform fallbacks only if existing Makefile patterns justify them. Keep `bsts_Bosatsu_Prog_run_main` and `bsts_Bosatsu_Prog_run_test` signatures unchanged, and avoid changing generated C entry point shape except for tests that lock in the unchanged surface.
+Updated the C runtime build surfaces needed by `bosatsu_ext_Bosatsu_l_Prog.c` to include and link libuv. The non-vendored `c_runtime/Makefile` now discovers libuv compile/link flags through `pkg-config`, with conservative Darwin Homebrew/MacPorts and Linux `-luv` fallbacks matching the existing Boehm GC fallback style. `bosatsu_ext_Bosatsu_l_Prog.c` includes `<uv.h>`, which makes the dependency visible at compile time without changing runtime behavior yet. Generated C entry point shape and public runner signatures remain unchanged; tests now assert that generated Prog test runners keep GC/static initialization before delegating through `bsts_test_run_prog`.
 
 #### Invariants
 
@@ -38,13 +39,17 @@ Update the C runtime build surfaces needed by `bosatsu_ext_Bosatsu_l_Prog.c` to 
 
 #### Property Tests
 
-- Where generated C tests already use randomized/package-shaped coverage, add or extend a property-style check that rendering main/test entry points for generated packages still delegates through the configured runner identifier without introducing a new public call convention.
+- The existing vendored dependency property coverage from issue #2344 continues to cover deterministic static archive/system flag ordering for generated-program link flags; this round did not add a new property because the selected slice only exposed libuv to the direct Makefile and unchanged generated entry point surface.
 
 #### Assertion Tests
 
-- Add focused Scala assertions in the clang/codegen test area that generated main and test runners still contain the same initialization order and call the existing runner identifiers.
-- Add or update C runtime build/test coverage so the direct runtime test binary links successfully with libuv in the non-vendored path when system libuv is available.
-- Run the configured required gate `scripts/test_basic.sh` before the PR is considered submittable.
+- Extended `ClangGenLibraryDepsTest` so generated Prog test runners assert `GC_init()`, `init_statics()`, and `atexit(free_statics)` appear before the `bsts_test_run_prog` delegation.
+- Ran `make -C c_runtime PROFILE=debug test_out`; it compiled `bosatsu_ext_Bosatsu_l_Prog.c` with the libuv include path and linked the direct runtime test binary with libuv, Boehm GC, and `-lm`.
+- Started `sbt "coreJVM/testOnly dev.bosatsu.codegen.clang.ClangGenLibraryDepsTest"`, but the worker tool session did not return a result after an extended wait, so this focused Scala test is not counted as passed in this round.
+
+#### Completion Notes
+
+Changed `c_runtime/Makefile`, `c_runtime/bosatsu_ext_Bosatsu_l_Prog.c`, and `core/src/test/scala/dev/bosatsu/codegen/clang/ClangGenLibraryDepsTest.scala`. The direct C runtime debug test target passed with libuv on the non-vendored path. The full required gate `scripts/test_basic.sh` was not run in this round and remains a final PR gate.
 
 2. [ ] `step-2-introduce-owned-loop-runtime-state` Refactor Prog Execution Around Owned Loop State
 
