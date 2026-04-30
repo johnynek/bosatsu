@@ -106,6 +106,72 @@ static BValue prog_assoc_raise_fn(BValue arg) {
   return ___bsts_g_Bosatsu_l_Prog_l_raise__error(arg);
 }
 
+static BValue prog_runner_pure_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_integer_from_int(7));
+}
+
+static BValue prog_runner_raise_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+      bsts_string_from_utf8_bytes_static(4, "boom"));
+}
+
+static BValue prog_runner_main_success_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_integer_from_int(3));
+}
+
+static BValue prog_runner_fm_success_fn(BValue arg) {
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(
+      bsts_integer_add(arg, bsts_integer_from_int(1)));
+}
+
+static BValue prog_runner_unreachable_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+      bsts_string_from_utf8_bytes_static(11, "unreachable"));
+}
+
+static BValue prog_runner_recover_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_integer_from_int(11));
+}
+
+static BValue prog_runner_flatmap_after_pure_test_fn(BValue arg) {
+  (void)arg;
+  BValue step = alloc_boxed_pure_fn1(prog_runner_fm_success_fn);
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_integer_from_int(4)),
+      step);
+}
+
+static BValue prog_runner_flatmap_after_raise_test_fn(BValue arg) {
+  (void)arg;
+  BValue step = alloc_boxed_pure_fn1(prog_runner_unreachable_fn);
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+          bsts_string_from_utf8_bytes_static(5, "error")),
+      step);
+}
+
+static BValue prog_runner_recover_after_raise_test_fn(BValue arg) {
+  (void)arg;
+  BValue recover = alloc_boxed_pure_fn1(prog_runner_recover_fn);
+  return ___bsts_g_Bosatsu_l_Prog_l_recover(
+      ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+          bsts_string_from_utf8_bytes_static(5, "error")),
+      recover);
+}
+
+static BValue prog_runner_recover_after_pure_test_fn(BValue arg) {
+  (void)arg;
+  BValue recover = alloc_boxed_pure_fn1(prog_runner_unreachable_fn);
+  return ___bsts_g_Bosatsu_l_Prog_l_recover(
+      ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_integer_from_int(13)),
+      recover);
+}
+
 #if !defined(_WIN32)
 typedef void (*VoidFn)(void);
 
@@ -1348,6 +1414,73 @@ void test_prog_assoc() {
   assert(get_enum_index(recover_left, 0) == recover_arg, "recover composed raise keeps error");
 }
 
+static void assert_prog_success_int(BSTS_Prog_Test_Result result, const char* expected, const char* message) {
+  if (result.is_error) {
+    printf("%s\nexpected successful Prog result\n", message);
+    exit(1);
+  }
+  assert_int_string(result.value, expected, message);
+}
+
+static void assert_prog_error_string(BSTS_Prog_Test_Result result, const char* expected, const char* message) {
+  if (!result.is_error) {
+    printf("%s\nexpected Prog error result\n", message);
+    exit(1);
+  }
+  assert_string_equals(result.value, expected, message);
+}
+
+void test_prog_runner_loop() {
+  BValue pure_test = alloc_boxed_pure_fn1(prog_runner_pure_test_fn);
+  assert_prog_success_int(
+      bsts_Bosatsu_Prog_run_test(pure_test),
+      "7",
+      "Prog test pure result runs through libuv loop");
+  assert_prog_success_int(
+      bsts_Bosatsu_Prog_run_test(pure_test),
+      "7",
+      "Repeated Prog test runs use independent libuv loops");
+
+  BValue raise_test = alloc_boxed_pure_fn1(prog_runner_raise_test_fn);
+  assert_prog_error_string(
+      bsts_Bosatsu_Prog_run_test(raise_test),
+      "boom",
+      "Prog test uncaught raise runs through libuv loop");
+
+  BValue flatmap_pure = alloc_boxed_pure_fn1(prog_runner_flatmap_after_pure_test_fn);
+  assert_prog_success_int(
+      bsts_Bosatsu_Prog_run_test(flatmap_pure),
+      "5",
+      "FlatMap after Pure preserves synchronous behavior through libuv loop");
+
+  BValue flatmap_raise = alloc_boxed_pure_fn1(prog_runner_flatmap_after_raise_test_fn);
+  assert_prog_error_string(
+      bsts_Bosatsu_Prog_run_test(flatmap_raise),
+      "error",
+      "FlatMap after Raise skips continuations through libuv loop");
+
+  BValue recover_raise = alloc_boxed_pure_fn1(prog_runner_recover_after_raise_test_fn);
+  assert_prog_success_int(
+      bsts_Bosatsu_Prog_run_test(recover_raise),
+      "11",
+      "Recover after Raise handles errors through libuv loop");
+
+  BValue recover_pure = alloc_boxed_pure_fn1(prog_runner_recover_after_pure_test_fn);
+  assert_prog_success_int(
+      bsts_Bosatsu_Prog_run_test(recover_pure),
+      "13",
+      "Recover after Pure skips handlers through libuv loop");
+
+  BValue main_success = alloc_boxed_pure_fn1(prog_runner_main_success_fn);
+  assert(
+      bsts_Bosatsu_Prog_run_main(main_success, 0, NULL) == 3,
+      "Prog main success returns integer exit code through libuv loop");
+
+  assert(
+      bsts_Bosatsu_Prog_run_main(raise_test, 0, NULL) == 1,
+      "Prog main uncaught raise returns exit code 1 through libuv loop");
+}
+
 int main(int argc, char** argv) {
 
   GC_init();
@@ -1358,6 +1491,7 @@ int main(int argc, char** argv) {
   test_int64();
   test_array_int64();
   test_prog_assoc();
+  test_prog_runner_loop();
   printf("success\n");
   return 0;
 }
