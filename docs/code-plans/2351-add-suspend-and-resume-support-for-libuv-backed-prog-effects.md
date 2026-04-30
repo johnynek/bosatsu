@@ -8,21 +8,21 @@
 - Flow: `small_job`
 - Issue: `#2351` Add suspend-and-resume support for libuv-backed Prog effects
 - Source design doc: `docs/design/2342-document-the-libuv-c-runtime-integration-contract.md`
-- Pending steps: `3`
-- Completed steps: `1`
+- Pending steps: `2`
+- Completed steps: `2`
 - Total steps: `4`
 
 ## Summary
 
-Implement a tightly scoped internal suspend/resume mechanism for the libuv-backed C `Prog` runtime. The final change should let selected private/test effects pause interpretation with their continuation stack, keep all GC-managed state reachable while a libuv request or handle is outstanding, and resume through the existing owned `uv_loop_t` on completion without changing public Bosatsu language, library, CLI, generated runner signatures, or IO/Core behavior.
+Implement a tightly scoped internal suspend/resume mechanism for the libuv-backed C `Prog` runtime. The current branch now has private suspended runtime state, a runtime-owned GC-scanned pending list, and focused C harness coverage proving synchronous effects still work and a private synthetic suspended effect resumes through success, error/recover, and `flat_map` continuation paths. Remaining work should refine this private mechanism into the reusable completion surface needed by later libuv IO migrations without changing public Bosatsu language, library, CLI, generated runner signatures, or IO/Core behavior.
 
 ## Current State
 
-The repository already has vendored libuv support and a C `Prog` runner skeleton that owns and drains a default-independent `uv_loop_t` in `bsts_Bosatsu_Prog_run_main` and `bsts_Bosatsu_Prog_run_test`. The current private runtime state in `c_runtime/bosatsu_ext_Bosatsu_l_Prog.c` is `BSTS_Prog_Runtime`: it is stack-allocated per run, embeds `uv_loop_t loop` and `uv_idle_t start_handle`, carries the current `arg`, continuation `stack`, final `BSTS_Prog_Test_Result`, `completed`, and `runtime_status`, and starts interpretation from a one-shot idle callback. `bsts_prog_runtime_step` preserves synchronous behavior for `Pure`, `Raise`, `FlatMap`, `Recover`, `ApplyFix`, and `Effect`; current `Effect(arg, f)` handling still calls `call_fn1(f, arg)` immediately and stores the returned `Prog` in `runtime->arg`. Loop shutdown already uses `uv_loop_close`, `uv_walk`, handle closure, and `uv_run(UV_RUN_DEFAULT)` to drain busy handles. The existing direct C harness in `c_runtime/test.c` has focused Prog runner coverage for pure, raise, flat_map, recover, main exit code, and repeated test invocation through `make -C c_runtime PROFILE=debug test_out`, which passed during this inspection round. Coding guidelines and the required merge gate are `coding_style.md` and `scripts/test_basic.sh` with a 2400 second timeout.
+The repository has vendored libuv support and a C `Prog` runner skeleton that owns and drains a default-independent `uv_loop_t` in `bsts_Bosatsu_Prog_run_main` and `bsts_Bosatsu_Prog_run_test`. `c_runtime/bosatsu_ext_Bosatsu_l_Prog.c` now has explicit private runtime states for running, suspended, resumed-success, resumed-error, and finished. A GC-allocated `BSTS_Prog_Suspended` record captures the owning runtime, effect argument, continuation/recovery stack, private suspend request, completion result, error flag, timer handle, and exactly-once state. Active suspended records are linked from `BSTS_Prog_Runtime.pending_head`, keeping their `BValue` fields reachable while libuv owns native handle state. `Effect(arg, f)` still calls `f(arg)` synchronously for ordinary effects, but recognizes the private tag-6 suspend result used by C runtime tests and parks interpretation until a deterministic zero-delay libuv timer callback publishes the completion and re-enters the stepper. The direct C harness in `c_runtime/test.c` now covers synchronous Effect success, synchronous Effect raise/recover, suspended success through a captured `flat_map`, suspended error through recover, and repeated suspended invocations. Focused verification `make -C c_runtime PROFILE=debug test_out` and `git diff --check` passed in this round. The configured required merge gate remains `scripts/test_basic.sh` with a 2400 second timeout and has not been run in this round.
 
 ## Problem
 
-The current loop-backed runner still treats effects as synchronously complete. There is no internal representation for a suspended interpreter frame, no ownership contract for moving the current continuation stack into a libuv callback, no GC-scanned root collection for request records that hold `BValue`s while libuv owns native request memory, and no tests proving that async completion can re-enter the interpreter through success, failure/recovery, and `flat_map` continuation paths. Without this mechanism, later libuv-backed IO migrations would either block the runner or add one-off callback plumbing that risks losing continuations, error handlers, or GC reachability.
+The previous loop-backed runner still treated effects as synchronously complete. There was no internal representation for a suspended interpreter frame, no ownership contract for moving the current continuation stack into a libuv callback, no GC-scanned root collection for request records that hold `BValue`s while libuv owns native request memory, and no tests proving that async completion can re-enter the interpreter through success, failure/recovery, and `flat_map` continuation paths. Without this mechanism, later libuv-backed IO migrations would either block the runner or add one-off callback plumbing that risks losing continuations, error handlers, or GC reachability.
 
 ## Steps
 
@@ -49,7 +49,7 @@ Read `coding_style.md`, `docs/design/2342-document-the-libuv-c-runtime-integrati
 
 Inspection found a private, stack-allocated `BSTS_Prog_Runtime` with embedded loop/start idle handle and a synchronous `bsts_prog_runtime_step` interpreter. The smallest implementation surface is `c_runtime/bosatsu_ext_Bosatsu_l_Prog.c` plus focused direct C tests in `c_runtime/test.c`. The next step should not add public Bosatsu APIs or generated runner signatures. It should add private runtime suspension state, a GC-scanned pending request/root list, and a deterministic test-only async effect hook implemented inside the C runtime/test harness.
 
-2. [ ] `step-2` Introduce Suspended Prog Runtime State
+2. [x] `step-2` Introduce Suspended Prog Runtime State
 
 Extend the private `BSTS_Prog_Runtime` state and stepper to support explicit running, suspended/pending, resumed-success, resumed-error, and finished states. Add a private suspended-continuation/request representation that captures the current `arg`, continuation/error stack, owning runtime/loop pointer, completion result, and exactly-one-resume status. Because libuv-owned request/handle memory is not a reliable Boehm root for `BValue` fields, add a runtime-owned GC-scanned pending list or equivalent root-registration mechanism that keeps suspended continuation state, effect arguments, callback payloads, and result/error values reachable until completion is consumed. Refactor `Effect` dispatch just enough to support synchronous value, synchronous raise, and suspended pending outcomes while preserving the existing synchronous `call_fn1` path.
 
@@ -63,17 +63,23 @@ Extend the private `BSTS_Prog_Runtime` state and stepper to support explicit run
 
 #### Property Tests
 
-- If the C harness has reusable generated/property-style support, add a small generated `Prog` sequencing property over pure/synchronous effects around the refactor: inserting the suspend-capable runtime path must not change the result of equivalent pure `flat_map`/`recover` programs that never suspend.
+- No property-style test was added in this slice; the direct C harness does not currently have reusable generated/property support for private runtime state.
 
 #### Assertion Tests
 
-- Add C-level assertions proving a synthetic suspend request leaves the interpreter pending until a libuv callback marks it complete.
-- Add regression assertions that existing synchronous `Effect` programs still return their success values and still route raised errors through `recover`.
-- Extend the existing repeated-run C test coverage to prove pending/root state from one runner invocation is not reused by the next invocation.
+- Added C harness assertions for a private synthetic suspended Effect that parks the interpreter until a zero-delay libuv timer callback publishes a success completion.
+- Added C harness assertions that existing synchronous Effect programs still return success values and still route raised errors through `recover`.
+- Added repeated-run suspended Effect assertions proving each runner invocation creates and consumes its own pending state.
+- Ran `make -C c_runtime PROFILE=debug test_out`; it passed.
+- Ran `git diff --check`; it passed.
 
-3. [ ] `step-3` Resume Interpreter from Libuv Completion
+#### Completion Notes
 
-Wire the runner loop so a libuv completion callback can publish a success or error into suspended runtime state and resume interpretation on the owning loop. Prefer a deterministic test-only private effect based on a libuv handle/request shape such as `uv_timer_t`, `uv_async_t`, or `uv_work_t` after-callback; callbacks should be small and should only translate completion into a `Prog` value or error and re-enter the existing stepper. The runner should continue driving the owned loop with `uv_run(UV_RUN_DEFAULT)` until no active async work or interpreter work remains, then close handles as the loop-core skeleton already expects.
+Implemented private `BSTS_Prog_Runtime_State` and `BSTS_Prog_Suspend_State` enums, a GC-allocated `BSTS_Prog_Suspended` record, and a runtime-owned pending list rooted from `BSTS_Prog_Runtime`. `Effect` dispatch now preserves the existing synchronous `call_fn1` path and recognizes a private tag-6 suspend result used by the direct C harness. Suspended records capture the effect argument, continuation/recovery stack, request payload, result/error value, owning runtime, and libuv timer handle; completion is consumed exactly once and removes the record from the pending list before interpretation resumes. Focused tests cover synchronous Effect compatibility, suspended success through `flat_map`, suspended error through `recover`, and repeated suspended-run isolation.
+
+3. [ ] `step-3` Generalize Resume Interpreter from Libuv Completion
+
+Refine the private suspend/resume path into the reusable completion surface needed by later libuv-backed IO effects. The current slice proves the core state machine with a deterministic private timer-backed suspend tag; the next slice should make the callback-facing helper shape explicit enough for real runtime effects to allocate request records, publish success or error from a libuv completion callback, and resume on the owning loop without relying on test-only construction details. Keep callbacks small: they should translate completion into a `Prog` value or error and re-enter the existing stepper through the private runtime helper. Do not migrate IO/Core functions in this step unless a tiny private hook is necessary to prove the helper contract.
 
 #### Invariants
 
@@ -89,9 +95,9 @@ Wire the runner loop so a libuv completion callback can publish a success or err
 
 #### Assertion Tests
 
-- Add a synthetic libuv-backed async success effect in `c_runtime/test.c` that completes after the initial interpreter pass and then runs at least one captured `flat_map` continuation.
-- Add a synthetic async error effect that resumes through an existing `recover` handler and verifies the recovered value.
-- Add a repeated-run test to ensure suspended state from one runner invocation is not reused by the next invocation.
+- Add or keep a synthetic libuv-backed async success effect that completes after the initial interpreter pass and then runs at least one captured `flat_map` continuation.
+- Add or keep a synthetic async error effect that resumes through an existing `recover` handler and verifies the recovered value.
+- Add focused assertions for any new reusable callback helper, especially owner-loop checks and exactly-once completion behavior.
 
 4. [ ] `step-4` Verify Coverage and Required Gate
 

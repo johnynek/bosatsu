@@ -138,6 +138,85 @@ static BValue prog_runner_recover_fn(BValue arg) {
   return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_integer_from_int(11));
 }
 
+static BValue prog_runner_sync_effect_success_fn(BValue arg) {
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(
+      bsts_integer_add(arg, bsts_integer_from_int(2)));
+}
+
+static BValue prog_runner_sync_effect_raise_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+      bsts_string_from_utf8_bytes_static(9, "sync fail"));
+}
+
+static BValue prog_runner_sync_effect_success_test_fn(BValue arg) {
+  (void)arg;
+  return alloc_enum2(
+      5,
+      bsts_integer_from_int(40),
+      alloc_boxed_pure_fn1(prog_runner_sync_effect_success_fn));
+}
+
+static BValue prog_runner_sync_effect_recover_test_fn(BValue arg) {
+  (void)arg;
+  BValue effect = alloc_enum2(
+      5,
+      bsts_unit_value(),
+      alloc_boxed_pure_fn1(prog_runner_sync_effect_raise_fn));
+  return ___bsts_g_Bosatsu_l_Prog_l_recover(
+      effect,
+      alloc_boxed_pure_fn1(prog_runner_recover_fn));
+}
+
+static int prog_runner_async_effect_calls = 0;
+
+static BValue prog_runner_async_success_effect_fn(BValue arg) {
+  prog_runner_async_effect_calls += 1;
+  return alloc_enum2(
+      6,
+      alloc_enum0(0),
+      bsts_integer_add(arg, bsts_integer_from_int(30)));
+}
+
+static BValue prog_runner_async_error_effect_fn(BValue arg) {
+  (void)arg;
+  prog_runner_async_effect_calls += 1;
+  return alloc_enum2(
+      6,
+      alloc_enum0(1),
+      bsts_string_from_utf8_bytes_static(10, "async fail"));
+}
+
+static BValue prog_runner_async_after_success_fn(BValue arg) {
+  assert(
+      prog_runner_async_effect_calls > 0,
+      "async continuation should run only after effect callback has been scheduled");
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(
+      bsts_integer_add(arg, bsts_integer_from_int(1)));
+}
+
+static BValue prog_runner_async_success_test_fn(BValue arg) {
+  (void)arg;
+  BValue effect = alloc_enum2(
+      5,
+      bsts_integer_from_int(10),
+      alloc_boxed_pure_fn1(prog_runner_async_success_effect_fn));
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      effect,
+      alloc_boxed_pure_fn1(prog_runner_async_after_success_fn));
+}
+
+static BValue prog_runner_async_error_recover_test_fn(BValue arg) {
+  (void)arg;
+  BValue effect = alloc_enum2(
+      5,
+      bsts_unit_value(),
+      alloc_boxed_pure_fn1(prog_runner_async_error_effect_fn));
+  return ___bsts_g_Bosatsu_l_Prog_l_recover(
+      effect,
+      alloc_boxed_pure_fn1(prog_runner_recover_fn));
+}
+
 static BValue prog_runner_flatmap_after_pure_test_fn(BValue arg) {
   (void)arg;
   BValue step = alloc_boxed_pure_fn1(prog_runner_fm_success_fn);
@@ -1470,6 +1549,47 @@ void test_prog_runner_loop() {
       bsts_Bosatsu_Prog_run_test(recover_pure),
       "13",
       "Recover after Pure skips handlers through libuv loop");
+
+  BValue sync_effect_success = alloc_boxed_pure_fn1(prog_runner_sync_effect_success_test_fn);
+  assert_prog_success_int(
+      bsts_Bosatsu_Prog_run_test(sync_effect_success),
+      "42",
+      "Synchronous Effect success still returns through the stepper");
+
+  BValue sync_effect_recover = alloc_boxed_pure_fn1(prog_runner_sync_effect_recover_test_fn);
+  assert_prog_success_int(
+      bsts_Bosatsu_Prog_run_test(sync_effect_recover),
+      "11",
+      "Synchronous Effect raise still routes through recover");
+
+  BValue async_success = alloc_boxed_pure_fn1(prog_runner_async_success_test_fn);
+  int calls_before_async_success = prog_runner_async_effect_calls;
+  assert_prog_success_int(
+      bsts_Bosatsu_Prog_run_test(async_success),
+      "41",
+      "Suspended Effect success resumes captured flat_map continuation");
+  assert(
+      prog_runner_async_effect_calls == calls_before_async_success + 1,
+      "Suspended Effect success should run one request per Prog invocation");
+
+  BValue async_error_recover = alloc_boxed_pure_fn1(prog_runner_async_error_recover_test_fn);
+  int calls_before_async_error = prog_runner_async_effect_calls;
+  assert_prog_success_int(
+      bsts_Bosatsu_Prog_run_test(async_error_recover),
+      "11",
+      "Suspended Effect error resumes through captured recover handler");
+  assert(
+      prog_runner_async_effect_calls == calls_before_async_error + 1,
+      "Suspended Effect error should run one request per Prog invocation");
+
+  int calls_before_async_repeat = prog_runner_async_effect_calls;
+  assert_prog_success_int(
+      bsts_Bosatsu_Prog_run_test(async_success),
+      "41",
+      "Repeated suspended Prog tests use independent pending state");
+  assert(
+      prog_runner_async_effect_calls == calls_before_async_repeat + 1,
+      "Repeated suspended Prog test should not reuse pending state");
 
   BValue main_success = alloc_boxed_pure_fn1(prog_runner_main_success_fn);
   assert(
