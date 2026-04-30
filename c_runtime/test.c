@@ -6,10 +6,12 @@
 #include "bosatsu_ext_Bosatsu_l_Num_l_Float64.h"
 #include "bosatsu_ext_Bosatsu_l_Num_l_Int64.h"
 #include "bosatsu_ext_Bosatsu_l_Prog.h"
+#include "bosatsu_ext_Bosatsu_l_Prog_internal.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+#include <uv.h>
 #if !defined(_WIN32)
 #include <signal.h>
 #include <sys/types.h>
@@ -170,21 +172,88 @@ static BValue prog_runner_sync_effect_recover_test_fn(BValue arg) {
 
 static int prog_runner_async_effect_calls = 0;
 
+typedef struct {
+  uv_timer_t timer;
+  BValue result;
+  _Bool is_error;
+  _Bool double_complete;
+} ProgRunnerAsyncRequest;
+
+static void prog_runner_async_close_cb(uv_handle_t *handle) {
+  (void)handle;
+}
+
+static void prog_runner_async_timer_cb(uv_timer_t *timer) {
+  BSTS_Prog_Suspended *suspended = (BSTS_Prog_Suspended *)timer->data;
+  ProgRunnerAsyncRequest *request =
+      BSTS_PTR(ProgRunnerAsyncRequest, bsts_Bosatsu_Prog_suspended_request(suspended));
+  assert(
+      bsts_Bosatsu_Prog_suspended_loop(suspended) == uv_handle_get_loop((uv_handle_t *)timer),
+      "async completion should run on the suspended Prog owner loop");
+  uv_timer_stop(timer);
+  uv_close((uv_handle_t *)timer, prog_runner_async_close_cb);
+
+  if (request->is_error) {
+    bsts_Bosatsu_Prog_suspended_error(suspended, request->result);
+  } else {
+    bsts_Bosatsu_Prog_suspended_success(suspended, request->result);
+  }
+
+  if (request->double_complete) {
+    bsts_Bosatsu_Prog_suspended_success(suspended, request->result);
+  }
+}
+
+static int prog_runner_async_start(BSTS_Prog_Suspended *suspended) {
+  ProgRunnerAsyncRequest *request =
+      BSTS_PTR(ProgRunnerAsyncRequest, bsts_Bosatsu_Prog_suspended_request(suspended));
+  int timer_result = uv_timer_init(
+      bsts_Bosatsu_Prog_suspended_loop(suspended),
+      &request->timer);
+  if (timer_result != 0) {
+    return timer_result;
+  }
+
+  request->timer.data = suspended;
+  return uv_timer_start(&request->timer, prog_runner_async_timer_cb, 0, 0);
+}
+
+static BValue prog_runner_suspend_request(BValue result, _Bool is_error, _Bool double_complete) {
+  ProgRunnerAsyncRequest *request =
+      (ProgRunnerAsyncRequest *)GC_malloc(sizeof(ProgRunnerAsyncRequest));
+  if (request == NULL) {
+    perror("GC_malloc failure in prog_runner_suspend_request");
+    exit(1);
+  }
+
+  request->result = result;
+  request->is_error = is_error;
+  request->double_complete = double_complete;
+  return bsts_Bosatsu_Prog_suspend(
+      BSTS_VALUE_FROM_PTR(request),
+      prog_runner_async_start);
+}
+
 static BValue prog_runner_async_success_effect_fn(BValue arg) {
   prog_runner_async_effect_calls += 1;
-  return alloc_enum2(
-      6,
-      alloc_enum0(0),
-      bsts_integer_add(arg, bsts_integer_from_int(30)));
+  return prog_runner_suspend_request(
+      bsts_integer_add(arg, bsts_integer_from_int(30)),
+      0,
+      0);
 }
 
 static BValue prog_runner_async_error_effect_fn(BValue arg) {
   (void)arg;
   prog_runner_async_effect_calls += 1;
-  return alloc_enum2(
-      6,
-      alloc_enum0(1),
-      bsts_string_from_utf8_bytes_static(10, "async fail"));
+  return prog_runner_suspend_request(
+      bsts_string_from_utf8_bytes_static(10, "async fail"),
+      1,
+      0);
+}
+
+static BValue prog_runner_async_double_complete_effect_fn(BValue arg) {
+  (void)arg;
+  return prog_runner_suspend_request(bsts_integer_from_int(1), 0, 1);
 }
 
 static BValue prog_runner_async_after_success_fn(BValue arg) {
@@ -215,6 +284,14 @@ static BValue prog_runner_async_error_recover_test_fn(BValue arg) {
   return ___bsts_g_Bosatsu_l_Prog_l_recover(
       effect,
       alloc_boxed_pure_fn1(prog_runner_recover_fn));
+}
+
+static BValue prog_runner_async_double_complete_test_fn(BValue arg) {
+  (void)arg;
+  return alloc_enum2(
+      5,
+      bsts_unit_value(),
+      alloc_boxed_pure_fn1(prog_runner_async_double_complete_effect_fn));
 }
 
 static BValue prog_runner_flatmap_after_pure_test_fn(BValue arg) {
@@ -299,6 +376,11 @@ static void call_alloc_closure_zero() {
   (void)alloc_closure1(0, NULL, closure_zero_abort_fn);
 }
 #endif
+
+static void call_prog_async_double_complete() {
+  BValue double_complete = alloc_boxed_pure_fn1(prog_runner_async_double_complete_test_fn);
+  (void)bsts_Bosatsu_Prog_run_test(double_complete);
+}
 #endif
 
 void assert_option_float_bits(BValue opt, uint64_t expected, const char* message) {
@@ -1590,6 +1672,12 @@ void test_prog_runner_loop() {
   assert(
       prog_runner_async_effect_calls == calls_before_async_repeat + 1,
       "Repeated suspended Prog test should not reuse pending state");
+
+#if !defined(_WIN32)
+  assert_child_aborts(
+      call_prog_async_double_complete,
+      "Suspended Prog completion helper should reject a second completion");
+#endif
 
   BValue main_success = alloc_boxed_pure_fn1(prog_runner_main_success_fn);
   assert(

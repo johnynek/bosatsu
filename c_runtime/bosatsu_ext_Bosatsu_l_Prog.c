@@ -1,4 +1,5 @@
 #include "bosatsu_ext_Bosatsu_l_Prog.h"
+#include "bosatsu_ext_Bosatsu_l_Prog_internal.h"
 
 #include <gc.h>
 #include <stdio.h>
@@ -16,9 +17,10 @@
 # Effect(arg: BValue, f: BValue => BValue) => (5, arg, f)
 #
 # The C runtime also reserves a private effect-result tag:
-# Suspend(result_kind, result) => (6, result_kind, result)
-# where result_kind is (0,) for success and (1,) for error. Generated
-# Bosatsu code should not construct this tag directly.
+# Suspend(suspend_request, request) => (6, suspend_request, request)
+# where suspend_request holds a private C callback that publishes
+# exactly one completion for request. Generated Bosatsu code should not
+# construct this tag directly.
 */
 
 typedef struct {
@@ -41,18 +43,22 @@ typedef enum {
 
 typedef struct BSTS_Prog_Runtime BSTS_Prog_Runtime;
 
-typedef struct BSTS_Prog_Suspended {
+struct BSTS_Prog_Suspended {
   BSTS_Prog_Runtime *runtime;
   struct BSTS_Prog_Suspended *next;
   struct BSTS_Prog_Suspended *prev;
-  uv_timer_t timer_handle;
   BValue effect_arg;
   BValue stack;
   BValue request;
   BValue result;
   _Bool is_error;
   BSTS_Prog_Suspend_State state;
-} BSTS_Prog_Suspended;
+};
+
+typedef struct {
+  BValue request;
+  BSTS_Prog_Suspend_Start start;
+} BSTS_Prog_Suspend_Request;
 
 BValue ___bsts_g_Bosatsu_l_Prog_l_pure(BValue a)
 {
@@ -109,6 +115,21 @@ static BValue bsts_prog_effect1(BValue a, BValue (*fn)(BValue))
 static BValue bsts_prog_effect2(BValue a, BValue b, BValue (*fn)(BValue))
 {
   return alloc_enum2(5, alloc_struct2(a, b), alloc_boxed_pure_fn1(fn));
+}
+
+BValue bsts_Bosatsu_Prog_suspend(BValue request, BSTS_Prog_Suspend_Start start)
+{
+  BSTS_Prog_Suspend_Request *suspend_request =
+      (BSTS_Prog_Suspend_Request *)GC_malloc(sizeof(BSTS_Prog_Suspend_Request));
+  if (suspend_request == NULL)
+  {
+    perror("GC_malloc failure in bsts_Bosatsu_Prog_suspend");
+    abort();
+  }
+
+  suspend_request->request = request;
+  suspend_request->start = start;
+  return alloc_enum2(6, BSTS_VALUE_FROM_PTR(suspend_request), request);
 }
 
 static BSTS_Prog_Var *bsts_prog_unbox_var(BValue var_value)
@@ -323,16 +344,20 @@ static void bsts_prog_pending_remove(BSTS_Prog_Runtime *runtime, BSTS_Prog_Suspe
   suspended->next = NULL;
 }
 
-static void bsts_prog_suspended_close_cb(uv_handle_t *handle)
-{
-  (void)handle;
-}
-
 static void bsts_prog_runtime_step(BSTS_Prog_Runtime *runtime);
 
-static void bsts_prog_suspended_timer_cb(uv_timer_t *handle)
+BValue bsts_Bosatsu_Prog_suspended_request(BSTS_Prog_Suspended *suspended)
 {
-  BSTS_Prog_Suspended *suspended = (BSTS_Prog_Suspended *)handle->data;
+  return suspended->request;
+}
+
+uv_loop_t *bsts_Bosatsu_Prog_suspended_loop(BSTS_Prog_Suspended *suspended)
+{
+  return &suspended->runtime->loop;
+}
+
+static void bsts_prog_suspended_complete(BSTS_Prog_Suspended *suspended, _Bool is_error, BValue value)
+{
   BSTS_Prog_Runtime *runtime = suspended->runtime;
 
   if (suspended->state != BSTS_PROG_SUSPEND_PENDING)
@@ -347,11 +372,21 @@ static void bsts_prog_suspended_timer_cb(uv_timer_t *handle)
   }
 
   suspended->state = BSTS_PROG_SUSPEND_RESUMED;
+  suspended->result = value;
+  suspended->is_error = is_error;
   runtime->resumed = suspended;
-  runtime->state = suspended->is_error ? BSTS_PROG_RUNTIME_RESUMED_ERROR : BSTS_PROG_RUNTIME_RESUMED_SUCCESS;
-  uv_timer_stop(handle);
-  uv_close((uv_handle_t *)handle, bsts_prog_suspended_close_cb);
+  runtime->state = is_error ? BSTS_PROG_RUNTIME_RESUMED_ERROR : BSTS_PROG_RUNTIME_RESUMED_SUCCESS;
   bsts_prog_runtime_step(runtime);
+}
+
+void bsts_Bosatsu_Prog_suspended_success(BSTS_Prog_Suspended *suspended, BValue value)
+{
+  bsts_prog_suspended_complete(suspended, 0, value);
+}
+
+void bsts_Bosatsu_Prog_suspended_error(BSTS_Prog_Suspended *suspended, BValue error)
+{
+  bsts_prog_suspended_complete(suspended, 1, error);
 }
 
 static void bsts_prog_runtime_consume_resume(BSTS_Prog_Runtime *runtime)
@@ -386,6 +421,8 @@ static void bsts_prog_runtime_consume_resume(BSTS_Prog_Runtime *runtime)
 
 static void bsts_prog_runtime_suspend(BSTS_Prog_Runtime *runtime, BValue effect_arg, BValue request)
 {
+  BSTS_Prog_Suspend_Request *suspend_request =
+      BSTS_PTR(BSTS_Prog_Suspend_Request, get_enum_index(request, 0));
   BSTS_Prog_Suspended *suspended = (BSTS_Prog_Suspended *)GC_malloc(sizeof(BSTS_Prog_Suspended));
   if (suspended == NULL)
   {
@@ -393,38 +430,27 @@ static void bsts_prog_runtime_suspend(BSTS_Prog_Runtime *runtime, BValue effect_
     abort();
   }
 
-  BValue result_kind = get_enum_index(request, 0);
   suspended->runtime = runtime;
   suspended->next = NULL;
   suspended->prev = NULL;
   suspended->effect_arg = effect_arg;
   suspended->stack = runtime->stack;
-  suspended->request = request;
-  suspended->result = get_enum_index(request, 1);
-  suspended->is_error = get_variant(result_kind) != 0;
+  suspended->request = suspend_request->request;
+  suspended->result = bsts_unit_value();
+  suspended->is_error = 0;
   suspended->state = BSTS_PROG_SUSPEND_PENDING;
-
-  int timer_result = uv_timer_init(&runtime->loop, &suspended->timer_handle);
-  if (timer_result != 0)
-  {
-    bsts_prog_runtime_complete(runtime, 1, request);
-    runtime->runtime_status = timer_result;
-    return;
-  }
-
-  suspended->timer_handle.data = suspended;
   bsts_prog_pending_insert(runtime, suspended);
-  timer_result = uv_timer_start(&suspended->timer_handle, bsts_prog_suspended_timer_cb, 0, 0);
-  if (timer_result != 0)
+  runtime->state = BSTS_PROG_RUNTIME_SUSPENDED;
+
+  int start_result = suspend_request->start(suspended);
+  if (start_result != 0)
   {
     bsts_prog_pending_remove(runtime, suspended);
+    suspended->state = BSTS_PROG_SUSPEND_CONSUMED;
     bsts_prog_runtime_complete(runtime, 1, request);
-    runtime->runtime_status = timer_result;
-    uv_close((uv_handle_t *)&suspended->timer_handle, bsts_prog_suspended_close_cb);
+    runtime->runtime_status = start_result;
     return;
   }
-
-  runtime->state = BSTS_PROG_RUNTIME_SUSPENDED;
 }
 
 static void bsts_prog_runtime_step(BSTS_Prog_Runtime *runtime)
