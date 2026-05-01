@@ -24,11 +24,12 @@ CFLAGS="$SANITIZER_CFLAGS" \
 LDFLAGS="$SANITIZER_LDFLAGS" \
 CPPFLAGS='-DBSTS_CI=1' \
 ./bosatsuj c-runtime install --repo_root . --archive "$RUNTIME_ARCHIVE" --git_sha "$SHA" --profile release
-eval "$(python3 scripts/c_runtime_ci_env.py --sha "$SHA")"
+ci_env_exports="$(python3 scripts/c_runtime_ci_env.py --sha "$SHA" --validate-vendored-libuv --require-cflag=-fsanitize=address,undefined --require-cflag=-DBSTS_CI=1)"
+eval "$ci_env_exports"
 
 cd c_runtime
 rm -f test_exe
-CC="$C_RUNTIME_CC" make PROFILE=debug VENDORED_DEPS=1 CPPFLAGS="$C_RUNTIME_CPPFLAGS" LIBS="$C_RUNTIME_LIBS" CFLAGS="$SANITIZER_CFLAGS" LDFLAGS="$SANITIZER_LDFLAGS" && git diff --quiet || { git diff; false; }
+CC="$C_RUNTIME_CC" make PROFILE=debug VENDORED_DEPS=1 CPPFLAGS="$C_RUNTIME_CPPFLAGS" LIBS="$C_RUNTIME_LIBS" CFLAGS="$SANITIZER_CFLAGS" LDFLAGS="$SANITIZER_LDFLAGS" && git diff --quiet -- . || { git diff -- .; false; }
 CC="$C_RUNTIME_CC" make boehm_example PROFILE=release VENDORED_DEPS=1 CPPFLAGS="$C_RUNTIME_CPPFLAGS" LIBS="$C_RUNTIME_LIBS" CFLAGS="$SANITIZER_CFLAGS" LDFLAGS="$SANITIZER_LDFLAGS"
 ./test_exe
 ./boehm_example
@@ -40,12 +41,17 @@ python3 - <<'PY'
 import json
 import os
 import pathlib
+import shlex
 
 sha = os.environ["SHA"]
 conf_path = pathlib.Path(".bosatsuc") / sha / "cc_conf.json"
 conf = json.loads(conf_path.read_text())
 assert "-fsanitize=address,undefined" in conf["flags"], conf
 assert "-DBSTS_CI=1" in conf["flags"] or "-DBSTS_CI=1" in conf["iflags"], conf
+assert "-DGC_THREADS" in conf["flags"] or "-DGC_THREADS" in conf["iflags"], conf
+libs = shlex.split(os.environ["C_RUNTIME_LIBS"])
+assert any(pathlib.PurePath(flag).name == "libuv.a" for flag in libs), libs
+assert any(pathlib.PurePath(flag).name == "libgc.a" for flag in libs), libs
 print(f"validated {conf_path}")
 PY
 

@@ -133,7 +133,7 @@ class VendoredDepsTest extends munit.ScalaCheckSuite {
     )
   }
 
-  test("BuildInputs link flags place dependent archives before dependency archives") {
+  test("BuildInputs link flags place vendored archives before system flags") {
     val bdwgc = dependency("bdwgc", CDeps.BdwgcCmakeStatic)
     val libuv = dependency("libuv", CDeps.LibuvCmakeStatic)
     val bdwgcStaticLib = "/cache/bdwgc/prefix/lib/libgc.a"
@@ -151,14 +151,19 @@ class VendoredDepsTest extends munit.ScalaCheckSuite {
             libuv,
             "libuv-key",
             "/cache/libuv",
-            metadata("libuv", libuvStaticLib :: Nil, "-ldl" :: Nil)
+            metadata(
+              "libuv",
+              libuvStaticLib :: Nil,
+              "-pthread" :: "-ldl" :: "-lrt" :: "-lsocket" :: Nil
+            )
           ) ::
           Nil
       )
 
     assertEquals(
       inputs.linkFlags,
-      libuvStaticLib :: bdwgcStaticLib :: "-ldl" :: "-pthread" :: Nil
+      libuvStaticLib :: bdwgcStaticLib ::
+        "-pthread" :: "-ldl" :: "-lrt" :: "-lsocket" :: Nil
     )
   }
 

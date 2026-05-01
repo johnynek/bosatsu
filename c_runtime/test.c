@@ -148,6 +148,37 @@ static BValue prog_runner_main_success_fn(BValue arg) {
   return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_integer_from_int(3));
 }
 
+static BValue prog_runner_main_args_fn(BValue arg) {
+  if (get_variant(arg) != 1) {
+    printf("Prog main should receive argv as a non-empty list\n");
+    exit(1);
+  }
+  assert_string_equals(
+      get_enum_index(arg, 0),
+      "bosatsu",
+      "Prog main should preserve argv[0]");
+  BValue second = get_enum_index(arg, 1);
+  if (get_variant(second) != 1) {
+    printf("Prog main should receive argv[1]\n");
+    exit(1);
+  }
+  assert_string_equals(
+      get_enum_index(second, 0),
+      "uv",
+      "Prog main should preserve argv[1]");
+  assert(
+      get_variant(get_enum_index(second, 1)) == 0,
+      "Prog main should terminate argv list after argc entries");
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_integer_from_int(9));
+}
+
+static BValue prog_runner_test_args_empty_fn(BValue arg) {
+  assert(
+      get_variant(arg) == 0,
+      "Prog test runner should invoke tests with an empty argv list");
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_integer_from_int(8));
+}
+
 static BValue prog_runner_fm_success_fn(BValue arg) {
   return ___bsts_g_Bosatsu_l_Prog_l_pure(
       bsts_integer_add(arg, bsts_integer_from_int(1)));
@@ -195,6 +226,7 @@ static BValue prog_runner_sync_effect_recover_test_fn(BValue arg) {
 }
 
 static int prog_runner_async_effect_calls = 0;
+static volatile BValue prog_runner_async_gc_sink = (BValue)0;
 
 typedef struct {
   uv_timer_t timer;
@@ -202,6 +234,19 @@ typedef struct {
   _Bool is_error;
   _Bool double_complete;
 } ProgRunnerAsyncRequest;
+
+static void prog_runner_stress_gc_while_suspended(ProgRunnerAsyncRequest *request) {
+  BValue acc = alloc_enum0(0);
+  for (int i = 0; i < 2048; i++) {
+    acc = alloc_enum2(1, bsts_integer_from_int(i), acc);
+    if ((i % 128) == 0) {
+      GC_gcollect();
+    }
+  }
+  prog_runner_async_gc_sink = acc;
+  GC_gcollect();
+  GC_reachable_here(request->result);
+}
 
 static void prog_runner_async_close_cb(uv_handle_t *handle) {
   (void)handle;
@@ -216,6 +261,8 @@ static void prog_runner_async_timer_cb(uv_timer_t *timer) {
       "async completion should run on the suspended Prog owner loop");
   uv_timer_stop(timer);
   uv_close((uv_handle_t *)timer, prog_runner_async_close_cb);
+
+  prog_runner_stress_gc_while_suspended(request);
 
   if (request->is_error) {
     bsts_Bosatsu_Prog_suspended_error(suspended, request->result);
@@ -3494,6 +3541,12 @@ void test_prog_runner_loop() {
       "boom",
       "Prog test uncaught raise runs through libuv loop");
 
+  BValue test_args_empty = alloc_boxed_pure_fn1(prog_runner_test_args_empty_fn);
+  assert_prog_success_int(
+      bsts_Bosatsu_Prog_run_test(test_args_empty),
+      "8",
+      "Prog test runner passes an empty argv list through the libuv loop");
+
   BValue flatmap_pure = alloc_boxed_pure_fn1(prog_runner_flatmap_after_pure_test_fn);
   assert_prog_success_int(
       bsts_Bosatsu_Prog_run_test(flatmap_pure),
@@ -3581,6 +3634,12 @@ void test_prog_runner_loop() {
   assert(
       bsts_Bosatsu_Prog_run_main(main_success, 0, NULL) == 3,
       "Prog main success returns integer exit code through libuv loop");
+
+  BValue main_args = alloc_boxed_pure_fn1(prog_runner_main_args_fn);
+  char *argv[] = { "bosatsu", "uv" };
+  assert(
+      bsts_Bosatsu_Prog_run_main(main_args, 2, argv) == 9,
+      "Prog main passes argc/argv through the libuv loop");
 
   assert(
       bsts_Bosatsu_Prog_run_main(raise_test, 0, NULL) == 1,

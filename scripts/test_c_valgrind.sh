@@ -33,11 +33,12 @@ tar -czf "$RUNTIME_ARCHIVE" c_runtime
 CFLAGS="$CFLAGS_VAL" \
 CPPFLAGS='-DBSTS_CI=1' \
 ./bosatsuj c-runtime install --repo_root . --archive "$RUNTIME_ARCHIVE" --git_sha "$SHA" --profile release
-eval "$(python3 scripts/c_runtime_ci_env.py --sha "$SHA")"
+ci_env_exports="$(python3 scripts/c_runtime_ci_env.py --sha "$SHA" --validate-vendored-libuv --require-cflag=-O1 --require-cflag=-DBSTS_CI=1)"
+eval "$ci_env_exports"
 
 cd c_runtime
 rm -f test_exe
-CC="$C_RUNTIME_CC" make PROFILE=debug VENDORED_DEPS=1 CPPFLAGS="$C_RUNTIME_CPPFLAGS" LIBS="$C_RUNTIME_LIBS" CFLAGS="$CFLAGS_VAL" && git diff --quiet || { git diff; false; }
+CC="$C_RUNTIME_CC" make PROFILE=debug VENDORED_DEPS=1 CPPFLAGS="$C_RUNTIME_CPPFLAGS" LIBS="$C_RUNTIME_LIBS" CFLAGS="$CFLAGS_VAL" && git diff --quiet -- . || { git diff -- .; false; }
 CC="$C_RUNTIME_CC" make boehm_example PROFILE=release VENDORED_DEPS=1 CPPFLAGS="$C_RUNTIME_CPPFLAGS" LIBS="$C_RUNTIME_LIBS" CFLAGS="$CFLAGS_VAL"
 CC="$C_RUNTIME_CC" make bench_exe PROFILE=release VENDORED_DEPS=1 CPPFLAGS="$C_RUNTIME_CPPFLAGS" LIBS="$C_RUNTIME_LIBS" CFLAGS="$CFLAGS_VAL"
 run_memcheck 'c_runtime test_exe' ./test_exe
@@ -49,12 +50,17 @@ python3 - <<'PY'
 import json
 import os
 import pathlib
+import shlex
 
 sha = os.environ["SHA"]
 conf_path = pathlib.Path(".bosatsuc") / sha / "cc_conf.json"
 conf = json.loads(conf_path.read_text())
 assert "-O1" in conf["flags"], conf
 assert "-DBSTS_CI=1" in conf["flags"] or "-DBSTS_CI=1" in conf["iflags"], conf
+assert "-DGC_THREADS" in conf["flags"] or "-DGC_THREADS" in conf["iflags"], conf
+libs = shlex.split(os.environ["C_RUNTIME_LIBS"])
+assert any(pathlib.PurePath(flag).name == "libuv.a" for flag in libs), libs
+assert any(pathlib.PurePath(flag).name == "libgc.a" for flag in libs), libs
 print(f"validated {conf_path}")
 PY
 
