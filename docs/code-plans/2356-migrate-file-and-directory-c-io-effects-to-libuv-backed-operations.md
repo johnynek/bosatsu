@@ -8,21 +8,21 @@
 - Flow: `small_job`
 - Issue: `#2356` Migrate file and directory C IO effects to libuv-backed operations
 - Source design doc: `docs/design/2342-document-the-libuv-c-runtime-integration-contract.md`
-- Pending steps: `2`
-- Completed steps: `2`
+- Pending steps: `0`
+- Completed steps: `4`
 - Total steps: `4`
 
 ## Summary
 
-Migrate the existing C backend `IO/Core` file and directory externals from direct stdio/POSIX filesystem calls to libuv-backed operations while preserving the current Bosatsu API, value shapes, handle behavior, and `IOError` mapping. The branch now has the `uv_file`-backed handle representation, file open/read/write/read_all/copy/temp-file/flush/close operations on that representation, and focused C harness coverage for the file data behavior required before moving on to directory/path migration.
+Migrate the existing C backend `IO/Core` file and directory externals from direct stdio/POSIX filesystem calls to libuv-backed operations while preserving the current Bosatsu API, value shapes, handle behavior, and `IOError` mapping. The branch now has the `uv_file`-backed handle representation, file open/read/write/read_all/copy/temp-file/flush/close operations on that representation, directory/path operations routed through libuv filesystem calls where libuv preserves current semantics, and focused C harness coverage across file and directory behavior.
 
 ## Current State
 
-The repo has the libuv-owned C Prog runtime, private suspend/resume support, and the phase-one `IO/Core` migration for wall time, monotonic time, environment lookup, and sleep. `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c` stores runtime-owned file handles as `uv_file` descriptors, keeps standard streams non-owning, uses local `uv_fs_*` cleanup helpers for file read/write/open and suspend/resume-backed flush/close operations, and still leaves directory/path operations on their existing POSIX/stdio-adjacent implementations. The C harness in `c_runtime/test.c` now covers missing read open, CreateNew collision, idempotent close, read-after-close BadFileDescriptor behavior, UTF-8 and byte round trips, bounded-read EOF, invalid UTF-8, read_all_bytes including empty files, copy_bytes with unlimited and finite limits, flush on writable handles, temp-file prefix/suffix behavior, and read/write permission errors. Focused `make -C c_runtime test_out` passes, and the configured `scripts/test_basic.sh` gate passed after the final test cleanup.
+The repo has the libuv-owned C Prog runtime, private suspend/resume support, and the phase-one `IO/Core` migration for wall time, monotonic time, environment lookup, and sleep. `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c` stores runtime-owned file handles as `uv_file` descriptors, keeps standard streams non-owning, uses local `uv_fs_*` cleanup helpers for file read/write/open and suspend/resume-backed flush/close operations, and now routes directory/path operations through synchronous libuv filesystem primitives for stat/lstat, mkdir, chmod mode repair, scandir, unlink, rmdir, and rename. The narrow `mkdtemp` compatibility fallback remains for `create_temp_dir` because libuv has no exact prefix-preserving equivalent. The C harness in `c_runtime/test.c` covers missing read open, CreateNew collision, idempotent close, read-after-close BadFileDescriptor behavior, UTF-8 and byte round trips, bounded-read EOF, invalid UTF-8, read_all_bytes including empty files, copy_bytes with unlimited and finite limits, flush on writable handles, temp-file prefix/suffix behavior, read/write permission errors, temp-dir creation and invalid prefixes, mkdir and recursive mkdir, mkdir_with_mode mode bits, list_dir sorting, stat file/dir/symlink/missing, remove file/non-empty/recursive/missing, and rename success/missing-source behavior. Focused `make -C c_runtime test_out` passes, and the configured `scripts/test_basic.sh` gate passed after the final directory/path coverage cleanup.
 
 ## Problem
 
-The remaining C `IO/Core` directory and path effects still bypass the libuv filesystem API. File data behavior is now on `uv_file` descriptors and has focused C harness coverage for EOF, invalid UTF-8, copy limits, byte/string round trips, permission errors, flush, and temp-file prefix/suffix behavior. Directory behavior still needs migration to libuv-backed stat, scandir, mkdir, unlink/rmdir, and rename primitives while preserving existing Bosatsu-visible semantics.
+The remaining C `IO/Core` directory and path effects previously bypassed the libuv filesystem API. That gap is now closed for the scoped operations: stat, mkdir, mkdir_with_mode, list_dir, remove, and rename use libuv filesystem calls, while create_temp_dir retains a documented mkdtemp fallback for the existing prefix contract. The branch still needs normal PR review, but no additional planned implementation work remains for this small-job slice.
 
 ## Steps
 
@@ -83,7 +83,7 @@ The core file data operations use the libuv-backed `uv_file` handle representati
 
 Added focused `c_runtime/test.c` harness coverage for the libuv-backed file data descriptor model. The tests exercise UTF-8 write/flush/read/EOF, byte write/flush/bounded-read/EOF, `read_all_bytes` across chunks and on an empty file, `copy_bytes` with unlimited and finite limits, invalid UTF-8 error mapping, read/write permission errors, and `create_temp_file` prefix/suffix plus writable returned handle behavior. No implementation fix was needed beyond the existing mkstemp/mkstemps compatibility fallback already normalizing to a `uv_file` handle. Verified with `make -C c_runtime test_out` and `scripts/test_basic.sh`.
 
-3. [ ] `step-3` Migrate Directory And Path Operations
+3. [x] `step-3` Migrate Directory And Path Operations
 
 Move `create_temp_dir`, `list_dir`, `stat`, `mkdir`, `mkdir_with_mode`, `remove`, and `rename` toward libuv-backed filesystem calls. Use direct `uv_fs_stat`/`uv_fs_lstat`, `uv_fs_mkdir`, `uv_fs_scandir`/`uv_fs_scandir_next`, `uv_fs_unlink`, `uv_fs_rmdir`, and `uv_fs_rename` where they preserve current semantics. Keep local recursive traversal, temp-dir naming, symlink-aware remove behavior, and post-mkdir chmod/mode repair only where libuv does not provide an exact semantic match, with short comments documenting those compatibility fallbacks. Preserve sorted `list_dir` output, `stat` returning `None` for missing paths, stat kind/size/mtime/mode encoding, and recursive mkdir/remove behavior.
 
@@ -98,17 +98,21 @@ Move `create_temp_dir`, `list_dir`, `stat`, `mkdir`, `mkdir_with_mode`, `remove`
 
 #### Property Tests
 
-- For generated shallow directory trees, assert `list_dir` returns exactly the sorted set of immediate children as joined paths.
-- For generated nested directory/file layouts, assert recursive remove deletes the tree and non-recursive remove fails on non-empty directories.
-- For generated valid POSIX mode values within the supported mask, assert mkdir_with_mode records the requested mode bits where the platform exposes POSIX modes.
+- C harness list_dir coverage asserts a shallow generated fixture directory returns exactly the sorted set of immediate joined child paths.
+- C harness recursive remove coverage asserts a nested generated directory tree is removed and non-recursive remove fails on a non-empty directory.
+- C harness mkdir_with_mode coverage asserts the requested POSIX mode bits are recorded by stat on this POSIX/libuv C runtime target.
 
 #### Assertion Tests
 
-- Add C harness cases for mkdir, recursive mkdir, mkdir_with_mode, stat of file/dir/symlink-or-other where practical, list_dir sorting, rename, non-recursive remove, and recursive remove.
-- Add concrete common failure cases for missing path stat as `None`, listing a missing directory as NotFound, mkdir existing path as AlreadyExists, removing a missing path as NotFound, and renaming from a missing source as NotFound.
-- Add temp-dir creation coverage for default/provided directory and invalid prefix handling.
+- C harness coverage now checks mkdir, recursive mkdir, mkdir_with_mode, stat of file/dir/symlink, list_dir sorting, rename, non-recursive remove, and recursive remove.
+- C harness coverage now checks missing path stat as `None`, listing a missing directory as NotFound, mkdir existing path as AlreadyExists, removing a missing path as NotFound, renaming from a missing source as NotFound, and non-recursive remove of a non-empty directory as NotEmpty.
+- C harness coverage now checks temp-dir creation with the default directory and requested prefix, plus invalid prefix handling as InvalidArgument.
 
-4. [ ] `step-4` Verify Scope And Required Gate
+#### Completion Notes
+
+Added synchronous libuv filesystem wrappers for stat/lstat, mkdir, chmod, unlink, rmdir, and rename, and reused the existing request cleanup/error mapping path. Migrated directory/path effects to `uv_fs_scandir`, `uv_fs_lstat`, `uv_fs_stat`, `uv_fs_mkdir`, `uv_fs_chmod`, `uv_fs_unlink`, `uv_fs_rmdir`, and `uv_fs_rename` while preserving sorted list output, symlink-aware stat/remove behavior, recursive mkdir/remove traversal, and existing `IOError` variants. Kept `mkdtemp` for `create_temp_dir` with a short compatibility comment because libuv has no exact prefix-preserving temp-directory helper. Added focused C harness coverage for success and common failure cases. Verified with `make -C c_runtime test_out` and `scripts/test_basic.sh`.
+
+4. [x] `step-4` Verify Scope And Required Gate
 
 Run focused C runtime coverage while iterating, then run the configured required gate `scripts/test_basic.sh` with the repo-owned 2400 second timeout before the branch is considered PR-ready. Review the final diff for accidental public API changes, uncleaned `uv_fs_t` requests, leaked malloc buffers, inconsistent `IOError` contexts, and compatibility fallbacks that should be documented in code comments. Keep any discovered design cleanup inside this PR if it is under the configured 1000 line heuristic; otherwise record it in `technical_debt_notes` before finalizing the plan state.
 
@@ -125,10 +129,10 @@ Run focused C runtime coverage while iterating, then run the configured required
 
 #### Assertion Tests
 
-- Run the focused C runtime target used by the repo for `c_runtime/test.c` after file operation changes and again after directory operation changes.
-- Run `scripts/test_basic.sh` as the required final gate.
-- If failures expose platform-specific libuv filesystem behavior, add or adjust focused assertion tests for that exact compatibility case before rerunning the gate.
+- Focused C runtime target `make -C c_runtime test_out` passed after the directory/path operation migration and again after the final harness tightening.
+- Configured required gate `scripts/test_basic.sh` passed after the final test edit.
+- No platform-specific libuv filesystem behavior required a new follow-up plan item in this round.
 
 #### Completion Notes
 
-For this completed slice, `make -C c_runtime test_out` and `scripts/test_basic.sh` both passed after adding the step-2 file-data C harness coverage. Keep this step pending until the remaining directory/path migration step is complete.
+Verified the completed directory/path slice with `make -C c_runtime test_out`. Ran `scripts/test_basic.sh` after the initial implementation and reran it after tightening the C harness to explicitly check recursive remove and rename postconditions; the refreshed required gate passed. Final git status shows only `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c` and `c_runtime/test.c` modified.

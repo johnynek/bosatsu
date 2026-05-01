@@ -394,6 +394,99 @@ static int bsts_core_uv_write_all(uv_file file, const void *data, size_t len, co
   return 0;
 }
 
+static int bsts_core_uv_fs_simple(uv_fs_t *req, const char *context)
+{
+  int result = bsts_core_uv_fs_cleanup_result(req, context);
+  if (result < 0)
+  {
+    return -1;
+  }
+  return 0;
+}
+
+static int bsts_core_uv_stat_path(const char *path, uv_stat_t *out, int follow)
+{
+  uv_fs_t req;
+  int start = follow
+      ? uv_fs_stat(NULL, &req, path, NULL)
+      : uv_fs_lstat(NULL, &req, path, NULL);
+  if (start < 0)
+  {
+    errno = -start;
+    return -1;
+  }
+
+  const uv_stat_t *statbuf = uv_fs_get_statbuf(&req);
+  if (req.result < 0 || statbuf == NULL)
+  {
+    return bsts_core_uv_fs_cleanup_result(&req, "stating path");
+  }
+
+  *out = *statbuf;
+  uv_fs_req_cleanup(&req);
+  return 0;
+}
+
+static int bsts_core_uv_mkdir_path(const char *path, int mode_bits)
+{
+  uv_fs_t req;
+  int start = uv_fs_mkdir(NULL, &req, path, mode_bits, NULL);
+  if (start < 0)
+  {
+    errno = -start;
+    return -1;
+  }
+  return bsts_core_uv_fs_simple(&req, "creating directory");
+}
+
+static int bsts_core_uv_chmod_path(const char *path, int mode_bits)
+{
+  uv_fs_t req;
+  int start = uv_fs_chmod(NULL, &req, path, mode_bits, NULL);
+  if (start < 0)
+  {
+    errno = -start;
+    return -1;
+  }
+  return bsts_core_uv_fs_simple(&req, "setting path mode");
+}
+
+static int bsts_core_uv_unlink_path(const char *path)
+{
+  uv_fs_t req;
+  int start = uv_fs_unlink(NULL, &req, path, NULL);
+  if (start < 0)
+  {
+    errno = -start;
+    return -1;
+  }
+  return bsts_core_uv_fs_simple(&req, "removing file path");
+}
+
+static int bsts_core_uv_rmdir_path(const char *path)
+{
+  uv_fs_t req;
+  int start = uv_fs_rmdir(NULL, &req, path, NULL);
+  if (start < 0)
+  {
+    errno = -start;
+    return -1;
+  }
+  return bsts_core_uv_fs_simple(&req, "removing directory path");
+}
+
+static int bsts_core_uv_rename_path(const char *from, const char *to)
+{
+  uv_fs_t req;
+  int start = uv_fs_rename(NULL, &req, from, to, NULL);
+  if (start < 0)
+  {
+    errno = -start;
+    return -1;
+  }
+  return bsts_core_uv_fs_simple(&req, "renaming path");
+}
+
 static int bsts_core_flush_start(BSTS_Prog_Suspended *suspended)
 {
   BSTS_Core_Fs_Request *request =
@@ -754,9 +847,9 @@ static int bsts_posix_mode_arg(BValue value, int *out)
 
 static int bsts_existing_directory(const char *path, int leaf)
 {
-  struct stat st;
+  uv_stat_t st;
   /* mkdir -p should accept symlinked directory components while walking. */
-  if (stat(path, &st) != 0)
+  if (bsts_core_uv_stat_path(path, &st, 1) != 0)
   {
     return -1;
   }
@@ -772,13 +865,13 @@ static int bsts_existing_directory(const char *path, int leaf)
 
 static int bsts_set_mode_bits(const char *path, int mode_bits)
 {
-  return chmod(path, (mode_t)(mode_bits & BSTS_POSIX_MODE_MASK));
+  return bsts_core_uv_chmod_path(path, mode_bits & BSTS_POSIX_MODE_MASK);
 }
 
 static int bsts_repair_parent_mode(const char *path)
 {
-  struct stat st;
-  if (lstat(path, &st) != 0)
+  uv_stat_t st;
+  if (bsts_core_uv_stat_path(path, &st, 0) != 0)
   {
     return -1;
   }
@@ -821,7 +914,7 @@ static int bsts_mkdirs_with_mode(const char *path, int leaf_mode_bits, int apply
       *p = '\0';
       if (strlen(copy) > 0)
       {
-        if (mkdir(copy, 0777) != 0)
+        if (bsts_core_uv_mkdir_path(copy, 0777) != 0)
         {
           if (errno != EEXIST || bsts_existing_directory(copy, 0) != 0)
           {
@@ -840,7 +933,7 @@ static int bsts_mkdirs_with_mode(const char *path, int leaf_mode_bits, int apply
     }
   }
 
-  if (mkdir(copy, apply_mode ? leaf_mode_bits : 0777) != 0)
+  if (bsts_core_uv_mkdir_path(copy, apply_mode ? leaf_mode_bits : 0777) != 0)
   {
     if (errno != EEXIST || bsts_existing_directory(copy, 1) != 0)
     {
@@ -860,24 +953,40 @@ static int bsts_mkdirs_with_mode(const char *path, int leaf_mode_bits, int apply
 
 static int bsts_remove_recursive_impl(const char *path)
 {
-  struct stat st;
-  if (lstat(path, &st) != 0)
+  uv_stat_t st;
+  if (bsts_core_uv_stat_path(path, &st, 0) != 0)
   {
     return -1;
   }
 
   if (S_ISDIR(st.st_mode) && !S_ISLNK(st.st_mode))
   {
-    DIR *dir = opendir(path);
-    if (!dir)
+    uv_fs_t req;
+    int scan_start = uv_fs_scandir(NULL, &req, path, 0, NULL);
+    if (scan_start < 0)
     {
+      errno = -scan_start;
+      return -1;
+    }
+    if (req.result < 0)
+    {
+      int status = bsts_core_uv_fs_cleanup_result(&req, "scanning directory");
+      (void)status;
       return -1;
     }
 
-    struct dirent *entry;
-    while ((entry = readdir(dir)) != NULL)
+    uv_dirent_t entry;
+    int next_status = 0;
+    while ((next_status = uv_fs_scandir_next(&req, &entry)) != UV_EOF)
     {
-      const char *name = entry->d_name;
+      if (next_status < 0)
+      {
+        errno = -next_status;
+        uv_fs_req_cleanup(&req);
+        return -1;
+      }
+
+      const char *name = entry.name;
       if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0)
       {
         continue;
@@ -886,28 +995,25 @@ static int bsts_remove_recursive_impl(const char *path)
       char *child = NULL;
       if (!bsts_join_path(&child, path, name))
       {
-        closedir(dir);
+        uv_fs_req_cleanup(&req);
         return -1;
       }
 
       if (bsts_remove_recursive_impl(child) != 0)
       {
         free(child);
-        closedir(dir);
+        uv_fs_req_cleanup(&req);
         return -1;
       }
       free(child);
     }
 
-    if (closedir(dir) != 0)
-    {
-      return -1;
-    }
+    uv_fs_req_cleanup(&req);
 
-    return rmdir(path);
+    return bsts_core_uv_rmdir_path(path);
   }
 
-  return unlink(path);
+  return bsts_core_uv_unlink_path(path);
 }
 
 static BValue bsts_core_read_utf8_effect(BValue pair)
@@ -1763,6 +1869,7 @@ static BValue bsts_core_create_temp_dir_effect(BValue pair)
   }
 
   errno = 0;
+  /* libuv has no mkdtemp equivalent that preserves the prefix contract. */
   char *created = mkdtemp(template_path);
   if (!created)
   {
@@ -1805,9 +1912,19 @@ static BValue bsts_core_list_dir_effect(BValue path_value)
         bsts_ioerror_from_errno_default(errno, "listing directory"));
   }
 
-  DIR *dir = opendir(path);
-  if (!dir)
+  uv_fs_t req;
+  int scan_start = uv_fs_scandir(NULL, &req, path, 0, NULL);
+  if (scan_start < 0)
   {
+    errno = -scan_start;
+    BValue err = bsts_ioerror_from_errno_default(errno, "listing directory");
+    free(path);
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(err);
+  }
+  if (req.result < 0)
+  {
+    int result = bsts_core_uv_fs_cleanup_result(&req, "listing directory");
+    (void)result;
     BValue err = bsts_ioerror_from_errno_default(errno, "listing directory");
     free(path);
     return ___bsts_g_Bosatsu_l_Prog_l_raise__error(err);
@@ -1818,16 +1935,32 @@ static BValue bsts_core_list_dir_effect(BValue path_value)
   char **items = (char **)malloc(sizeof(char *) * cap);
   if (!items)
   {
-    closedir(dir);
+    uv_fs_req_cleanup(&req);
     free(path);
     return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
         bsts_ioerror_from_errno_default(errno, "allocating directory list"));
   }
 
-  struct dirent *entry;
-  while ((entry = readdir(dir)) != NULL)
+  uv_dirent_t entry;
+  int next_status = 0;
+  while ((next_status = uv_fs_scandir_next(&req, &entry)) != UV_EOF)
   {
-    const char *name = entry->d_name;
+    if (next_status < 0)
+    {
+      int saved_errno = -next_status;
+      for (size_t i = 0; i < count; i++)
+      {
+        free(items[i]);
+      }
+      free(items);
+      uv_fs_req_cleanup(&req);
+      free(path);
+      errno = saved_errno;
+      return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+          bsts_ioerror_from_errno_default(errno, "reading directory entry"));
+    }
+
+    const char *name = entry.name;
     if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0)
     {
       continue;
@@ -1844,7 +1977,7 @@ static BValue bsts_core_list_dir_effect(BValue path_value)
           free(items[i]);
         }
         free(items);
-        closedir(dir);
+        uv_fs_req_cleanup(&req);
         free(path);
         return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
             bsts_ioerror_from_errno_default(errno, "growing directory list"));
@@ -1861,7 +1994,7 @@ static BValue bsts_core_list_dir_effect(BValue path_value)
         free(items[i]);
       }
       free(items);
-      closedir(dir);
+      uv_fs_req_cleanup(&req);
       free(path);
       return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
           bsts_ioerror_from_errno_default(errno, "joining child path"));
@@ -1870,17 +2003,7 @@ static BValue bsts_core_list_dir_effect(BValue path_value)
     items[count++] = joined;
   }
 
-  if (closedir(dir) != 0)
-  {
-    for (size_t i = 0; i < count; i++)
-    {
-      free(items[i]);
-    }
-    free(items);
-    free(path);
-    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
-        bsts_ioerror_from_errno_default(errno, "closing directory"));
-  }
+  uv_fs_req_cleanup(&req);
 
   free(path);
   qsort(items, count, sizeof(char *), bsts_cmp_cstr);
@@ -1910,9 +2033,9 @@ static BValue bsts_core_stat_effect(BValue path_value)
         bsts_ioerror_from_errno_default(errno, "stating path"));
   }
 
-  struct stat st;
+  uv_stat_t st;
   errno = 0;
-  if (lstat(path, &st) != 0)
+  if (bsts_core_uv_stat_path(path, &st, 0) != 0)
   {
     int err = errno;
     free(path);
@@ -1948,13 +2071,8 @@ static BValue bsts_core_stat_effect(BValue path_value)
   BValue kind = alloc_enum0((ENUM_TAG)kind_tag);
   BValue size_bytes = bsts_integer_from_int64((int64_t)st.st_size);
 
-#if defined(__APPLE__)
-  int64_t sec = (int64_t)st.st_mtimespec.tv_sec;
-  long nsec = st.st_mtimespec.tv_nsec;
-#else
   int64_t sec = (int64_t)st.st_mtim.tv_sec;
   long nsec = st.st_mtim.tv_nsec;
-#endif
 
   BValue sec_i = bsts_integer_from_int64(sec);
   BValue billion = bsts_integer_from_int(1000000000);
@@ -1981,7 +2099,9 @@ static BValue bsts_core_mkdir_effect(BValue pair)
 
   int recursive = (get_variant(recursive_value) == 1);
   errno = 0;
-  int status = recursive ? bsts_mkdirs_with_mode(path, 0, 0) : mkdir(path, 0777);
+  int status = recursive
+      ? bsts_mkdirs_with_mode(path, 0, 0)
+      : bsts_core_uv_mkdir_path(path, 0777);
   if (status != 0)
   {
     BValue err = bsts_ioerror_from_errno_default(errno, "creating directory");
@@ -2023,9 +2143,10 @@ static BValue bsts_core_mkdir_with_mode_effect(BValue args)
   }
   else
   {
-    status = mkdir(path, (mode_t)mode_bits);
+    status = bsts_core_uv_mkdir_path(path, mode_bits);
     if (status == 0)
     {
+      /* chmod repairs umask-masked mode bits to match the existing contract. */
       status = bsts_set_mode_bits(path, mode_bits);
     }
   }
@@ -2060,18 +2181,18 @@ static BValue bsts_core_remove_effect(BValue pair)
 
   if (!recursive)
   {
-    struct stat st;
-    if (lstat(path, &st) != 0)
+    uv_stat_t st;
+    if (bsts_core_uv_stat_path(path, &st, 0) != 0)
     {
       status = -1;
     }
     else if (S_ISDIR(st.st_mode) && !S_ISLNK(st.st_mode))
     {
-      status = rmdir(path);
+      status = bsts_core_uv_rmdir_path(path);
     }
     else
     {
-      status = unlink(path);
+      status = bsts_core_uv_unlink_path(path);
     }
   }
 
@@ -2107,7 +2228,7 @@ static BValue bsts_core_rename_effect(BValue pair)
   }
 
   errno = 0;
-  if (rename(from, to) != 0)
+  if (bsts_core_uv_rename_path(from, to) != 0)
   {
     BValue err = bsts_ioerror_from_errno_default(errno, "renaming path");
     free(from);

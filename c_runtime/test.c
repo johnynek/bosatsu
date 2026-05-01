@@ -16,6 +16,7 @@
 #include <uv.h>
 #if !defined(_WIN32)
 #include <signal.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -547,6 +548,25 @@ static char io_core_file_invalid_utf8_path[PATH_MAX];
 static char io_core_file_write_only_path[PATH_MAX];
 static char io_core_file_read_only_path[PATH_MAX];
 static char io_core_file_temp_created_path[PATH_MAX];
+static char io_core_dir_root_path[PATH_MAX];
+static char io_core_dir_missing_path[PATH_MAX];
+static char io_core_dir_mkdir_path[PATH_MAX];
+static char io_core_dir_mkdir_nested_path[PATH_MAX];
+static char io_core_dir_mode_path[PATH_MAX];
+static char io_core_dir_list_path[PATH_MAX];
+static char io_core_dir_list_a_path[PATH_MAX];
+static char io_core_dir_list_b_path[PATH_MAX];
+static char io_core_dir_stat_file_path[PATH_MAX];
+static char io_core_dir_stat_symlink_path[PATH_MAX];
+static char io_core_dir_remove_file_path[PATH_MAX];
+static char io_core_dir_remove_nonempty_path[PATH_MAX];
+static char io_core_dir_remove_nonempty_child_path[PATH_MAX];
+static char io_core_dir_remove_tree_path[PATH_MAX];
+static char io_core_dir_remove_tree_child_path[PATH_MAX];
+static char io_core_dir_remove_tree_file_path[PATH_MAX];
+static char io_core_dir_rename_from_path[PATH_MAX];
+static char io_core_dir_rename_to_path[PATH_MAX];
+static char io_core_dir_temp_created_path[PATH_MAX];
 
 static BValue io_core_path_value(const char* path) {
   return bsts_string_from_utf8_bytes_copy(strlen(path), path);
@@ -569,6 +589,26 @@ static void io_core_test_unlink(const char* path) {
   uv_fs_t req;
   (void)uv_fs_unlink(NULL, &req, path, NULL);
   uv_fs_req_cleanup(&req);
+}
+
+static void io_core_test_rmdir(const char* path) {
+  uv_fs_t req;
+  (void)uv_fs_rmdir(NULL, &req, path, NULL);
+  uv_fs_req_cleanup(&req);
+}
+
+static void io_core_test_mkdir(const char* path) {
+  uv_fs_t req;
+  int result = uv_fs_mkdir(NULL, &req, path, 0777, NULL);
+  uv_fs_req_cleanup(&req);
+  assert(result == 0, "creating IO/Core directory fixture should succeed");
+}
+
+static _Bool io_core_test_path_exists(const char* path) {
+  uv_fs_t req;
+  int result = uv_fs_lstat(NULL, &req, path, NULL);
+  uv_fs_req_cleanup(&req);
+  return result == 0;
 }
 
 static void io_core_write_fixture(const char* path, const uint8_t* data, size_t len) {
@@ -610,6 +650,49 @@ static void assert_option_bytes_equal(BValue opt, const uint8_t* expected, int e
     exit(1);
   }
   assert_bytes_equal(get_enum_index(opt, 0), expected, expected_len, message);
+}
+
+static void assert_path_list_equals(BValue list, const char** expected, size_t expected_len, const char* message) {
+  BValue cursor = list;
+  for (size_t idx = 0; idx < expected_len; idx++) {
+    if (get_variant(cursor) != 1) {
+      printf("%s\nexpected path list item at index: %zu\n", message, idx);
+      exit(1);
+    }
+    assert_string_equals(get_enum_index(cursor, 0), expected[idx], message);
+    cursor = get_enum_index(cursor, 1);
+  }
+  if (get_variant(cursor) != 0) {
+    printf("%s\nexpected end of path list\n", message);
+    exit(1);
+  }
+}
+
+static void assert_stat_kind(BValue stat_opt, unsigned char expected_kind, const char* message) {
+  if (get_variant(stat_opt) != 1) {
+    printf("%s\nexpected Some(FileStat)\n", message);
+    exit(1);
+  }
+  BValue stat_value = get_enum_index(stat_opt, 0);
+  BValue kind = get_struct_index(stat_value, 0);
+  if (get_variant(kind) != expected_kind) {
+    printf("%s\nexpected kind: %u\ngot: %u\n", message, expected_kind, get_variant(kind));
+    exit(1);
+  }
+}
+
+static int stat_mode_bits_from_option(BValue stat_opt) {
+  if (get_variant(stat_opt) != 1) {
+    printf("expected Some(FileStat) while reading mode bits\n");
+    exit(1);
+  }
+  BValue stat_value = get_enum_index(stat_opt, 0);
+  BValue mode_opt = get_struct_index(stat_value, 3);
+  if (get_variant(mode_opt) != 1) {
+    printf("expected stat posix_mode on this C runtime target\n");
+    exit(1);
+  }
+  return bsts_integer_to_int32(get_enum_index(mode_opt, 0));
 }
 
 static BValue io_core_open_missing_read_test_fn(BValue arg) {
@@ -1034,6 +1117,205 @@ static BValue io_core_create_temp_file_test_fn(BValue arg) {
           bsts_string_from_utf8_bytes_static(13, "bosatsu_test_"),
           bsts_string_from_utf8_bytes_static(4, ".tmp")),
       alloc_boxed_pure_fn1(io_core_temp_file_assert_fn));
+}
+
+static BValue io_core_create_temp_dir_assert_fn(BValue path) {
+  BSTS_String_View view = bsts_string_view_ref(&path);
+  size_t name_start = 0;
+  for (size_t idx = 0; idx < view.len; idx++) {
+    if (view.bytes[idx] == '/') {
+      name_start = idx + 1;
+    }
+  }
+  static const char prefix[] = "bosatsu_test_dir_";
+  assert(
+      view.len >= name_start + (sizeof(prefix) - 1) &&
+          memcmp(view.bytes + name_start, prefix, sizeof(prefix) - 1) == 0,
+      "IO/Core create_temp_dir should preserve requested prefix");
+  char* path_copy = (char*)malloc(view.len + 1);
+  assert(path_copy != NULL, "allocating temp dir path copy should succeed");
+  memcpy(path_copy, view.bytes, view.len);
+  path_copy[view.len] = '\0';
+  strncpy(io_core_dir_temp_created_path, path_copy, sizeof(io_core_dir_temp_created_path) - 1);
+  io_core_dir_temp_created_path[sizeof(io_core_dir_temp_created_path) - 1] = '\0';
+  free(path_copy);
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_unit_value());
+}
+
+static BValue io_core_create_temp_dir_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_create__temp__dir(
+          alloc_enum0(0),
+          bsts_string_from_utf8_bytes_static(17, "bosatsu_test_dir_")),
+      alloc_boxed_pure_fn1(io_core_create_temp_dir_assert_fn));
+}
+
+static BValue io_core_create_temp_dir_invalid_prefix_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_IO_l_Core_l_create__temp__dir(
+      alloc_enum0(0),
+      bsts_string_from_utf8_bytes_static(4, "bad/"));
+}
+
+static BValue io_core_list_missing_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_IO_l_Core_l_list__dir(
+      io_core_path_value(io_core_dir_missing_path));
+}
+
+static BValue io_core_mkdir_existing_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_IO_l_Core_l_mkdir(
+      io_core_path_value(io_core_dir_mkdir_path),
+      alloc_enum0(0));
+}
+
+static BValue io_core_remove_missing_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_IO_l_Core_l_remove(
+      io_core_path_value(io_core_dir_missing_path),
+      alloc_enum0(0));
+}
+
+static BValue io_core_rename_missing_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_IO_l_Core_l_rename(
+      io_core_path_value(io_core_dir_missing_path),
+      io_core_path_value(io_core_dir_rename_to_path));
+}
+
+static BValue io_core_stat_missing_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_IO_l_Core_l_stat(
+      io_core_path_value(io_core_dir_missing_path));
+}
+
+static BValue io_core_mkdir_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_IO_l_Core_l_mkdir(
+      io_core_path_value(io_core_dir_mkdir_path),
+      alloc_enum0(0));
+}
+
+static BValue io_core_mkdir_recursive_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_IO_l_Core_l_mkdir(
+      io_core_path_value(io_core_dir_mkdir_nested_path),
+      alloc_enum0(1));
+}
+
+static BValue io_core_mkdir_with_mode_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_IO_l_Core_l_mkdir__with__mode(
+      io_core_path_value(io_core_dir_mode_path),
+      alloc_enum0(0),
+      bsts_integer_from_int(0700));
+}
+
+static BValue io_core_list_dir_assert_fn(BValue list) {
+  const char* expected[] = {
+      io_core_dir_list_a_path,
+      io_core_dir_list_b_path
+  };
+  assert_path_list_equals(
+      list,
+      expected,
+      2,
+      "IO/Core list_dir should return sorted joined child paths");
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_unit_value());
+}
+
+static BValue io_core_list_dir_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_list__dir(
+          io_core_path_value(io_core_dir_list_path)),
+      alloc_boxed_pure_fn1(io_core_list_dir_assert_fn));
+}
+
+static BValue io_core_stat_file_assert_fn(BValue stat_opt) {
+  assert_stat_kind(stat_opt, 0, "IO/Core stat should classify regular files");
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_unit_value());
+}
+
+static BValue io_core_stat_file_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_stat(
+          io_core_path_value(io_core_dir_stat_file_path)),
+      alloc_boxed_pure_fn1(io_core_stat_file_assert_fn));
+}
+
+static BValue io_core_stat_dir_assert_fn(BValue stat_opt) {
+  assert_stat_kind(stat_opt, 1, "IO/Core stat should classify directories");
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_unit_value());
+}
+
+static BValue io_core_stat_dir_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_stat(
+          io_core_path_value(io_core_dir_list_path)),
+      alloc_boxed_pure_fn1(io_core_stat_dir_assert_fn));
+}
+
+static BValue io_core_stat_symlink_assert_fn(BValue stat_opt) {
+  assert_stat_kind(stat_opt, 2, "IO/Core stat should classify symlinks without following them");
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_unit_value());
+}
+
+static BValue io_core_stat_symlink_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_stat(
+          io_core_path_value(io_core_dir_stat_symlink_path)),
+      alloc_boxed_pure_fn1(io_core_stat_symlink_assert_fn));
+}
+
+static BValue io_core_stat_mode_assert_fn(BValue stat_opt) {
+  int mode_bits = stat_mode_bits_from_option(stat_opt) & 0777;
+  if (mode_bits != 0700) {
+    printf("IO/Core mkdir_with_mode should set requested mode bits\nexpected: 0700\ngot: 0%o\n", mode_bits);
+    exit(1);
+  }
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_unit_value());
+}
+
+static BValue io_core_stat_mode_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_stat(
+          io_core_path_value(io_core_dir_mode_path)),
+      alloc_boxed_pure_fn1(io_core_stat_mode_assert_fn));
+}
+
+static BValue io_core_remove_file_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_IO_l_Core_l_remove(
+      io_core_path_value(io_core_dir_remove_file_path),
+      alloc_enum0(0));
+}
+
+static BValue io_core_remove_nonempty_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_IO_l_Core_l_remove(
+      io_core_path_value(io_core_dir_remove_nonempty_path),
+      alloc_enum0(0));
+}
+
+static BValue io_core_remove_recursive_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_IO_l_Core_l_remove(
+      io_core_path_value(io_core_dir_remove_tree_path),
+      alloc_enum0(1));
+}
+
+static BValue io_core_rename_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_IO_l_Core_l_rename(
+      io_core_path_value(io_core_dir_rename_from_path),
+      io_core_path_value(io_core_dir_rename_to_path));
 }
 
 #if !defined(_WIN32)
@@ -2501,7 +2783,98 @@ void test_io_core_libuv_effects() {
       sizeof(io_core_file_read_only_path),
       "/tmp/bosatsu-c-runtime-read-only-%ld.bin",
       pid);
+  snprintf(
+      io_core_dir_root_path,
+      sizeof(io_core_dir_root_path),
+      "/tmp/bosatsu-c-runtime-dir-root-%ld",
+      pid);
+  snprintf(
+      io_core_dir_missing_path,
+      sizeof(io_core_dir_missing_path),
+      "%s/missing",
+      io_core_dir_root_path);
+  snprintf(
+      io_core_dir_mkdir_path,
+      sizeof(io_core_dir_mkdir_path),
+      "%s/mkdir-leaf",
+      io_core_dir_root_path);
+  snprintf(
+      io_core_dir_mkdir_nested_path,
+      sizeof(io_core_dir_mkdir_nested_path),
+      "%s/mkdir-parent/mkdir-child",
+      io_core_dir_root_path);
+  snprintf(
+      io_core_dir_mode_path,
+      sizeof(io_core_dir_mode_path),
+      "%s/mode-leaf",
+      io_core_dir_root_path);
+  snprintf(
+      io_core_dir_list_path,
+      sizeof(io_core_dir_list_path),
+      "%s/list-dir",
+      io_core_dir_root_path);
+  snprintf(
+      io_core_dir_list_a_path,
+      sizeof(io_core_dir_list_a_path),
+      "%s/a.txt",
+      io_core_dir_list_path);
+  snprintf(
+      io_core_dir_list_b_path,
+      sizeof(io_core_dir_list_b_path),
+      "%s/b.txt",
+      io_core_dir_list_path);
+  snprintf(
+      io_core_dir_stat_file_path,
+      sizeof(io_core_dir_stat_file_path),
+      "%s/stat-file.txt",
+      io_core_dir_root_path);
+  snprintf(
+      io_core_dir_stat_symlink_path,
+      sizeof(io_core_dir_stat_symlink_path),
+      "%s/stat-link",
+      io_core_dir_root_path);
+  snprintf(
+      io_core_dir_remove_file_path,
+      sizeof(io_core_dir_remove_file_path),
+      "%s/remove-file.txt",
+      io_core_dir_root_path);
+  snprintf(
+      io_core_dir_remove_nonempty_path,
+      sizeof(io_core_dir_remove_nonempty_path),
+      "%s/remove-nonempty",
+      io_core_dir_root_path);
+  snprintf(
+      io_core_dir_remove_nonempty_child_path,
+      sizeof(io_core_dir_remove_nonempty_child_path),
+      "%s/child.txt",
+      io_core_dir_remove_nonempty_path);
+  snprintf(
+      io_core_dir_remove_tree_path,
+      sizeof(io_core_dir_remove_tree_path),
+      "%s/remove-tree",
+      io_core_dir_root_path);
+  snprintf(
+      io_core_dir_remove_tree_child_path,
+      sizeof(io_core_dir_remove_tree_child_path),
+      "%s/child",
+      io_core_dir_remove_tree_path);
+  snprintf(
+      io_core_dir_remove_tree_file_path,
+      sizeof(io_core_dir_remove_tree_file_path),
+      "%s/payload.txt",
+      io_core_dir_remove_tree_child_path);
+  snprintf(
+      io_core_dir_rename_from_path,
+      sizeof(io_core_dir_rename_from_path),
+      "%s/rename-from.txt",
+      io_core_dir_root_path);
+  snprintf(
+      io_core_dir_rename_to_path,
+      sizeof(io_core_dir_rename_to_path),
+      "%s/rename-to.txt",
+      io_core_dir_root_path);
   io_core_file_temp_created_path[0] = '\0';
+  io_core_dir_temp_created_path[0] = '\0';
 
   io_core_test_unlink(io_core_file_missing_path);
   io_core_test_unlink(io_core_file_existing_path);
@@ -2516,6 +2889,30 @@ void test_io_core_libuv_effects() {
   io_core_test_unlink(io_core_file_invalid_utf8_path);
   io_core_test_unlink(io_core_file_write_only_path);
   io_core_test_unlink(io_core_file_read_only_path);
+  io_core_test_unlink(io_core_dir_stat_symlink_path);
+  io_core_test_unlink(io_core_dir_rename_to_path);
+  io_core_test_unlink(io_core_dir_rename_from_path);
+  io_core_test_unlink(io_core_dir_remove_tree_file_path);
+  io_core_test_rmdir(io_core_dir_remove_tree_child_path);
+  io_core_test_rmdir(io_core_dir_remove_tree_path);
+  io_core_test_unlink(io_core_dir_remove_nonempty_child_path);
+  io_core_test_rmdir(io_core_dir_remove_nonempty_path);
+  io_core_test_unlink(io_core_dir_remove_file_path);
+  io_core_test_unlink(io_core_dir_stat_file_path);
+  io_core_test_unlink(io_core_dir_list_a_path);
+  io_core_test_unlink(io_core_dir_list_b_path);
+  io_core_test_rmdir(io_core_dir_list_path);
+  io_core_test_rmdir(io_core_dir_mode_path);
+  io_core_test_rmdir(io_core_dir_mkdir_nested_path);
+  char io_core_dir_mkdir_parent_path[PATH_MAX];
+  snprintf(
+      io_core_dir_mkdir_parent_path,
+      sizeof(io_core_dir_mkdir_parent_path),
+      "%s/mkdir-parent",
+      io_core_dir_root_path);
+  io_core_test_rmdir(io_core_dir_mkdir_parent_path);
+  io_core_test_rmdir(io_core_dir_mkdir_path);
+  io_core_test_rmdir(io_core_dir_root_path);
 
   FILE* existing = fopen(io_core_file_existing_path, "wb");
   assert(existing != NULL, "creating existing file fixture should succeed");
@@ -2527,6 +2924,19 @@ void test_io_core_libuv_effects() {
   io_core_write_fixture(io_core_file_copy_src_path, copy_payload, sizeof(copy_payload));
   io_core_write_fixture(io_core_file_invalid_utf8_path, invalid_utf8_payload, sizeof(invalid_utf8_payload));
   io_core_write_fixture(io_core_file_read_only_path, bytes_payload, sizeof(bytes_payload));
+  io_core_test_mkdir(io_core_dir_root_path);
+  io_core_test_mkdir(io_core_dir_list_path);
+  io_core_write_fixture(io_core_dir_list_b_path, bytes_payload, sizeof(bytes_payload));
+  io_core_write_fixture(io_core_dir_list_a_path, bytes_payload, sizeof(bytes_payload));
+  io_core_write_fixture(io_core_dir_stat_file_path, bytes_payload, sizeof(bytes_payload));
+  io_core_write_fixture(io_core_dir_remove_file_path, bytes_payload, sizeof(bytes_payload));
+  io_core_test_mkdir(io_core_dir_remove_nonempty_path);
+  io_core_write_fixture(io_core_dir_remove_nonempty_child_path, bytes_payload, sizeof(bytes_payload));
+  io_core_test_mkdir(io_core_dir_remove_tree_path);
+  io_core_test_mkdir(io_core_dir_remove_tree_child_path);
+  io_core_write_fixture(io_core_dir_remove_tree_file_path, bytes_payload, sizeof(bytes_payload));
+  io_core_write_fixture(io_core_dir_rename_from_path, bytes_payload, sizeof(bytes_payload));
+  assert(symlink(io_core_dir_stat_file_path, io_core_dir_stat_symlink_path) == 0, "creating IO/Core symlink fixture should succeed");
 
   assert_prog_error_variant(
       bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_open_missing_read_test_fn)),
@@ -2619,6 +3029,76 @@ void test_io_core_libuv_effects() {
         "IO/Core temp file handle should write through to the created file");
     assert(memcmp(temp_readback, "temp", sizeof(temp_readback)) == 0, "IO/Core temp file contents should match written data");
   }
+  assert_prog_success_option_none(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_stat_missing_test_fn)),
+      "IO/Core stat should return None for a missing path");
+  assert_prog_error_variant(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_list_missing_test_fn)),
+      0,
+      "IO/Core list_dir should map a missing path to NotFound");
+  (void)assert_prog_success(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_create_temp_dir_test_fn)),
+      "IO/Core create_temp_dir should return a created directory path");
+  assert_prog_error_variant(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_create_temp_dir_invalid_prefix_test_fn)),
+      12,
+      "IO/Core create_temp_dir should reject invalid prefixes");
+  (void)assert_prog_success(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_mkdir_test_fn)),
+      "IO/Core mkdir should create a leaf directory");
+  assert_prog_error_variant(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_mkdir_existing_test_fn)),
+      2,
+      "IO/Core mkdir should map an existing path to AlreadyExists");
+  (void)assert_prog_success(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_mkdir_recursive_test_fn)),
+      "IO/Core recursive mkdir should create parent directories");
+  (void)assert_prog_success(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_mkdir_with_mode_test_fn)),
+      "IO/Core mkdir_with_mode should create a directory with requested mode bits");
+  (void)assert_prog_success(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_stat_mode_test_fn)),
+      "IO/Core stat should expose mkdir_with_mode mode bits");
+  (void)assert_prog_success(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_list_dir_test_fn)),
+      "IO/Core list_dir should return sorted joined child paths");
+  (void)assert_prog_success(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_stat_file_test_fn)),
+      "IO/Core stat should classify files");
+  (void)assert_prog_success(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_stat_dir_test_fn)),
+      "IO/Core stat should classify directories");
+  (void)assert_prog_success(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_stat_symlink_test_fn)),
+      "IO/Core stat should classify symlinks");
+  (void)assert_prog_success(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_remove_file_test_fn)),
+      "IO/Core remove should unlink files");
+  assert_prog_error_variant(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_remove_nonempty_test_fn)),
+      5,
+      "IO/Core non-recursive remove should reject non-empty directories");
+  (void)assert_prog_success(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_remove_recursive_test_fn)),
+      "IO/Core recursive remove should delete nested trees");
+  assert(
+      !io_core_test_path_exists(io_core_dir_remove_tree_path),
+      "IO/Core recursive remove should remove the tree root");
+  (void)assert_prog_success(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_rename_test_fn)),
+      "IO/Core rename should move a path");
+  assert(
+      !io_core_test_path_exists(io_core_dir_rename_from_path) &&
+          io_core_test_path_exists(io_core_dir_rename_to_path),
+      "IO/Core rename should move the source to the destination");
+  assert_prog_error_variant(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_rename_missing_test_fn)),
+      0,
+      "IO/Core rename should map a missing source to NotFound");
+  assert_prog_error_variant(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_remove_missing_test_fn)),
+      0,
+      "IO/Core remove should map a missing path to NotFound");
 
   io_core_test_unlink(io_core_file_existing_path);
   io_core_test_unlink(io_core_file_close_path);
@@ -2635,6 +3115,22 @@ void test_io_core_libuv_effects() {
   if (io_core_file_temp_created_path[0] != '\0') {
     io_core_test_unlink(io_core_file_temp_created_path);
   }
+  if (io_core_dir_temp_created_path[0] != '\0') {
+    io_core_test_rmdir(io_core_dir_temp_created_path);
+  }
+  io_core_test_unlink(io_core_dir_stat_symlink_path);
+  io_core_test_unlink(io_core_dir_rename_to_path);
+  io_core_test_unlink(io_core_dir_remove_nonempty_child_path);
+  io_core_test_rmdir(io_core_dir_remove_nonempty_path);
+  io_core_test_unlink(io_core_dir_stat_file_path);
+  io_core_test_unlink(io_core_dir_list_a_path);
+  io_core_test_unlink(io_core_dir_list_b_path);
+  io_core_test_rmdir(io_core_dir_list_path);
+  io_core_test_rmdir(io_core_dir_mode_path);
+  io_core_test_rmdir(io_core_dir_mkdir_nested_path);
+  io_core_test_rmdir(io_core_dir_mkdir_parent_path);
+  io_core_test_rmdir(io_core_dir_mkdir_path);
+  io_core_test_rmdir(io_core_dir_root_path);
 }
 
 void test_prog_runner_loop() {
