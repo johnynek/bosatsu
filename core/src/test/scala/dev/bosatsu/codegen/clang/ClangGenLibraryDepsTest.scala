@@ -321,6 +321,59 @@ class ClangGenLibraryDepsTest extends munit.FunSuite {
     }
   }
 
+  test("clang gen emits Main initialization before Prog runner") {
+    val predefIface = Package.interfaceOf(PackageMap.predefCompiled)
+    val rootPackName = PackageName.parts("Root", "Main")
+    val mainName = Identifier.Name("main")
+
+    val rootSrc =
+      """package Root/Main
+        |
+        |main = 0
+        |""".stripMargin
+
+    val rootPm = typeCheck(rootSrc, predefIface :: Nil)
+    val rootVersion = Version(1, 0, 0)
+    val rootLib = DecodedLibrary[Algo.Blake3](
+      name = Name("root"),
+      version = rootVersion,
+      hashValue = HashValue[Algo.Blake3]("00"),
+      protoLib = proto.Library(
+        name = "root",
+        descriptor = Some(
+          proto.LibDescriptor(version = Some(rootVersion.toProto))
+        )
+      ),
+      interfaces = Nil,
+      implementations = rootPm
+    )
+    val rootDl =
+      DecodedLibraryWithDeps(rootLib, SortedMap.empty)
+
+    Par.withEC {
+      ClangGen(rootDl).renderMain(
+        rootPackName,
+        mainName,
+        Code.Ident("bsts_Bosatsu_Prog_run_main")
+      ) match {
+        case Right(doc) =>
+          val rendered = doc.render(120)
+          val gcInit = rendered.indexOf("GC_init();")
+          val initStatics = rendered.indexOf("init_statics();")
+          val freeStatics = rendered.indexOf("atexit(free_statics);")
+          val mainValue = rendered.indexOf("BValue main_value =")
+          val runMain = rendered.indexOf("bsts_Bosatsu_Prog_run_main")
+          assert(gcInit >= 0, rendered)
+          assert(initStatics > gcInit, rendered)
+          assert(freeStatics > initStatics, rendered)
+          assert(mainValue > freeStatics, rendered)
+          assert(runMain > mainValue, rendered)
+        case Left(err) =>
+          fail(err.display.render(80))
+      }
+    }
+  }
+
   test("clang gen includes Bosatsu/Prog observe external when referenced") {
     val predefIface = Package.interfaceOf(PackageMap.predefCompiled)
 

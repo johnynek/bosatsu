@@ -8,8 +8,8 @@
 - Flow: `small_job`
 - Issue: `#2362` Harden C backend libuv coverage and CI validation
 - Source design doc: `docs/design/2342-document-the-libuv-c-runtime-integration-contract.md`
-- Pending steps: `3`
-- Completed steps: `1`
+- Pending steps: `2`
+- Completed steps: `2`
 - Total steps: `4`
 
 ## Summary
@@ -18,7 +18,7 @@ Harden validation for the completed libuv-backed C runtime by making the sanitiz
 
 ## Current State
 
-The repository already contains the direct dependency work for this roadmap node: `c_runtime/deps.json` pins vendored libuv, `VendoredDeps` and `CDeps` have libuv recipe/link metadata tests, the C runtime `Makefile` supports libuv for vendored and non-vendored builds, and `c_runtime/test.c` already exercises the libuv Prog loop, async suspend/resume helpers, IO/Core libuv effects, and process-related paths. This round tightened `scripts/c_runtime_ci_env.py` with opt-in vendored libuv validation, updated the sanitizer and valgrind scripts to require vendored libuv/bdwgc archives, `GC_THREADS`, script-specific compile flags, and preserved transitive system link flags, and scoped their generated-runtime cleanliness check to `c_runtime` so intentional PR script edits do not make the check fail. `scripts/test_basic.sh` passed, and `scripts/test_c_sanitizers.sh` passed after building the CLI assembly. Valgrind is not installed in this worker environment.
+The repository already contains the direct dependency work for this roadmap node: `c_runtime/deps.json` pins vendored libuv, `VendoredDeps` and `CDeps` have libuv recipe/link metadata tests, the C runtime `Makefile` supports libuv for vendored and non-vendored builds, and `c_runtime/test.c` already exercises the libuv Prog loop, async suspend/resume helpers, IO/Core libuv effects, and process-related paths. Step 1 tightened `scripts/c_runtime_ci_env.py` with opt-in vendored libuv validation, updated the sanitizer and valgrind scripts to require vendored libuv/bdwgc archives, `GC_THREADS`, script-specific compile flags, and preserved transitive system link flags, and scoped their generated-runtime cleanliness check to `c_runtime` so intentional PR script edits do not make the check fail. Step 2 extended focused Scala coverage: `VendoredDepsTest` now asserts vendored archives precede representative libuv system flags, and `ClangGenLibraryDepsTest` now asserts generated Main initialization happens before the Prog main runner. Focused Scala suites passed, and `scripts/test_basic.sh` passed after the step-2 edits. Valgrind is not installed in this worker environment.
 
 ## Problem
 
@@ -52,7 +52,7 @@ Audit `scripts/test_c_sanitizers.sh`, `scripts/test_c_valgrind.sh`, and `scripts
 
 Implemented opt-in `--validate-vendored-libuv` and repeatable `--require-cflag` checks in `scripts/c_runtime_ci_env.py`. Both C validation scripts now invoke the helper with validation enabled and retain local Python assertions over `cc_conf.json` and `C_RUNTIME_LIBS`. The helper continues to export the filtered compile/link environment, strips `bosatsu_platform.a` and `-lm`, and validates that libuv/bdwgc archives plus at least one transitive system link flag remain. Also scoped the scripts' generated-runtime `git diff` checks to `c_runtime` so validation can run on a dirty PR containing script edits. Verified with `python3 -m py_compile scripts/c_runtime_ci_env.py`, `bash -n scripts/test_c_sanitizers.sh`, `bash -n scripts/test_c_valgrind.sh`, synthetic helper success/failure checks, `sbt -batch cli/assembly`, `scripts/test_c_sanitizers.sh`, and `scripts/test_basic.sh`. `command -v valgrind` failed, so valgrind execution remains pending for an environment with valgrind installed.
 
-2. [ ] `step-2` Extend Scala Metadata And Codegen Coverage
+2. [x] `step-2` Extend Scala Metadata And Codegen Coverage
 
 Add focused Scala tests only where current coverage is missing for this validation job. Prefer extending `VendoredDepsTest`, `CDepsTest`, `CDepsJvmTest`, or `ClangGenLibraryDepsTest` rather than creating new suites. Cover the dependency/link contract and generated Main/Test initialization contract without refactoring the dependency pipeline.
 
@@ -65,15 +65,19 @@ Add focused Scala tests only where current coverage is missing for this validati
 
 #### Property Tests
 
-- Maintain or extend property coverage showing vendored link flags are stable for generated dependency orders and place archives before system flags.
-- Maintain or extend property coverage showing pkg-config parsing preserves arbitrary system flags while filtering libuv/bdwgc self-library spellings.
-- Use property-style tests for build-key or ordering behavior only if a newly discovered gap can be expressed as a deterministic invariant.
+- Maintained existing property coverage showing vendored link flags are stable for generated dependency orders and place archives before system flags.
+- Maintained existing property coverage showing pkg-config parsing preserves arbitrary system flags while filtering libuv/bdwgc self-library spellings.
+- No new property-style test was needed; the missing gaps were concrete contract assertions.
 
 #### Assertion Tests
 
-- Assert the checked-in manifest pins libuv 1.52.1 with the expected URI, hash, source subdir, and `libuv-cmake-static` recipe.
-- Assert `BuildInputs.linkFlags` contains the libuv archive and required representative system flags in the expected relative order.
-- Assert generated ProgTest and Main code still emits `GC_init()`, `init_statics()`, `atexit(free_statics)`, and the relevant Prog runner calls in order.
+- The existing `CDepsJvmTest` checked-in manifest assertion covers libuv 1.52.1 with the expected URI, hash, source subdir, and `libuv-cmake-static` recipe.
+- Strengthened `VendoredDepsTest` so `BuildInputs.linkFlags` contains the libuv archive and representative libuv system flags after vendored archives in the expected relative order.
+- Added a generated Main assertion in `ClangGenLibraryDepsTest` proving `GC_init()`, `init_statics()`, `atexit(free_statics)`, materialization of `main_value`, and the Prog main runner call appear in order; the existing ProgTest assertion continues to cover `bsts_test_run_prog` order.
+
+#### Completion Notes
+
+Extended existing Scala suites only. `VendoredDepsTest` now checks a libuv metadata example with `-pthread`, `-ldl`, `-lrt`, and `-lsocket`, asserting both vendored archive order and representative system flag preservation. `ClangGenLibraryDepsTest` now renders a generated Main entry point with `bsts_Bosatsu_Prog_run_main` and asserts GC/static initialization and cleanup registration happen before constructing `main_value` and invoking the Prog runner. Verified with `sbt -batch "coreJVM/testOnly dev.bosatsu.cruntime.CDepsTest dev.bosatsu.cruntime.VendoredDepsTest dev.bosatsu.cruntime.CDepsJvmTest dev.bosatsu.codegen.clang.ClangGenLibraryDepsTest -- --log=failure"` and `scripts/test_basic.sh`.
 
 3. [ ] `step-3` Fill C Runtime Regression Gaps
 
