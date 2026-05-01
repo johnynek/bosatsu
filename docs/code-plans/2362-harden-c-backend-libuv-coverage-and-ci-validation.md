@@ -7,8 +7,9 @@
 
 - Flow: `small_job`
 - Issue: `#2362` Harden C backend libuv coverage and CI validation
-- Pending steps: `4`
-- Completed steps: `0`
+- Source design doc: `docs/design/2342-document-the-libuv-c-runtime-integration-contract.md`
+- Pending steps: `3`
+- Completed steps: `1`
 - Total steps: `4`
 
 ## Summary
@@ -17,7 +18,7 @@ Harden validation for the completed libuv-backed C runtime by making the sanitiz
 
 ## Current State
 
-The repository already contains the direct dependency work for this roadmap node: `c_runtime/deps.json` pins vendored libuv, `VendoredDeps` and `CDeps` have libuv recipe/link metadata tests, the C runtime `Makefile` supports libuv for vendored and non-vendored builds, and `c_runtime/test.c` already exercises the libuv Prog loop, async suspend/resume helpers, IO/Core libuv effects, and process-related paths. The current sanitizer and valgrind scripts install a vendored C runtime archive, derive compile/link flags through `scripts/c_runtime_ci_env.py`, compile `c_runtime` with `VENDORED_DEPS=1`, and run generated C test/build flows. `scripts/test_basic.sh` remains the required merge gate and runs the core/CLI JVM test suites.
+The repository already contains the direct dependency work for this roadmap node: `c_runtime/deps.json` pins vendored libuv, `VendoredDeps` and `CDeps` have libuv recipe/link metadata tests, the C runtime `Makefile` supports libuv for vendored and non-vendored builds, and `c_runtime/test.c` already exercises the libuv Prog loop, async suspend/resume helpers, IO/Core libuv effects, and process-related paths. This round tightened `scripts/c_runtime_ci_env.py` with opt-in vendored libuv validation, updated the sanitizer and valgrind scripts to require vendored libuv/bdwgc archives, `GC_THREADS`, script-specific compile flags, and preserved transitive system link flags, and scoped their generated-runtime cleanliness check to `c_runtime` so intentional PR script edits do not make the check fail. `scripts/test_basic.sh` passed, and `scripts/test_c_sanitizers.sh` passed after building the CLI assembly. Valgrind is not installed in this worker environment.
 
 ## Problem
 
@@ -25,7 +26,7 @@ The libuv integration spans several risk families that are easy to regress indep
 
 ## Steps
 
-1. [ ] `step-1` Tighten C CI Flag Validation
+1. [x] `step-1` Tighten C CI Flag Validation
 
 Audit `scripts/test_c_sanitizers.sh`, `scripts/test_c_valgrind.sh`, and `scripts/c_runtime_ci_env.py` so the scripts prove they are compiling and linking against the installed vendored runtime metadata, not accidentally relying on host defaults. Keep changes limited to shell/Python validation and adjacent assertions needed to expose libuv archive flags, transitive system link flags, sanitizer/valgrind compile flags, and `GC_THREADS` requirements for generated C and runtime C.
 
@@ -43,9 +44,13 @@ Audit `scripts/test_c_sanitizers.sh`, `scripts/test_c_valgrind.sh`, and `scripts
 
 #### Assertion Tests
 
-- Add script-level assertions that `cc_conf.json` or exported helper variables contain libuv static archive/link flags and `-DGC_THREADS` where expected.
-- Add script-level assertions that sanitizer flags and `-DBSTS_CI=1` are present in the installed generated C configuration.
-- Ensure the scripts fail with a clear message when required vendored libuv/GC flags are absent.
+- Added script-level assertions that installed `cc_conf.json` and exported helper variables contain vendored libuv and bdwgc static archives, preserved transitive system link flags, and `-DGC_THREADS`.
+- Added script-level assertions that sanitizer flags, valgrind compile flags, and `-DBSTS_CI=1` are present in the installed generated C configuration.
+- The helper now fails with clear `c_runtime_ci_env.py:` messages when required vendored libuv/GC flags are absent.
+
+#### Completion Notes
+
+Implemented opt-in `--validate-vendored-libuv` and repeatable `--require-cflag` checks in `scripts/c_runtime_ci_env.py`. Both C validation scripts now invoke the helper with validation enabled and retain local Python assertions over `cc_conf.json` and `C_RUNTIME_LIBS`. The helper continues to export the filtered compile/link environment, strips `bosatsu_platform.a` and `-lm`, and validates that libuv/bdwgc archives plus at least one transitive system link flag remain. Also scoped the scripts' generated-runtime `git diff` checks to `c_runtime` so validation can run on a dirty PR containing script edits. Verified with `python3 -m py_compile scripts/c_runtime_ci_env.py`, `bash -n scripts/test_c_sanitizers.sh`, `bash -n scripts/test_c_valgrind.sh`, synthetic helper success/failure checks, `sbt -batch cli/assembly`, `scripts/test_c_sanitizers.sh`, and `scripts/test_basic.sh`. `command -v valgrind` failed, so valgrind execution remains pending for an environment with valgrind installed.
 
 2. [ ] `step-2` Extend Scala Metadata And Codegen Coverage
 
