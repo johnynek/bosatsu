@@ -2739,6 +2739,8 @@ static int bsts_core_spawn_start(BSTS_Prog_Suspended *suspended)
   if (spawn_result != 0)
   {
     bsts_core_spawn_close_parent_pipe_ends(request);
+    bsts_core_process_root_active(request->process);
+    bsts_core_process_maybe_close(request->process);
     bsts_Bosatsu_Prog_suspended_error(
         suspended,
         bsts_ioerror_from_uv(spawn_result, "spawning process"));

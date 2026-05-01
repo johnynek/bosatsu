@@ -639,6 +639,33 @@ static BValue io_core_spawn_missing_test_fn(BValue arg) {
       io_core_null_stdio_config());
 }
 
+static volatile BValue io_core_spawn_recover_alloc_sink = (BValue)0;
+
+static BValue io_core_spawn_missing_recover_after_gc_fn(BValue error) {
+  assert(
+      get_variant(error) == 0,
+      "IO/Core spawn missing-command recovery should receive NotFound");
+  GC_gcollect();
+
+  BValue acc = alloc_enum0(0);
+  for (int i = 0; i < 4096; i++) {
+    acc = io_core_list_cons(bsts_integer_from_int(i), acc);
+    if ((i % 128) == 0) {
+      GC_gcollect();
+    }
+  }
+  io_core_spawn_recover_alloc_sink = acc;
+  GC_gcollect();
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_integer_from_int(0));
+}
+
+static BValue io_core_spawn_missing_recover_after_gc_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_recover(
+      io_core_spawn_missing_test_fn(arg),
+      alloc_boxed_pure_fn1(io_core_spawn_missing_recover_after_gc_fn));
+}
+
 static BValue io_core_wait_invalid_process_test_fn(BValue arg) {
   (void)arg;
   return ___bsts_g_Bosatsu_l_IO_l_Core_l_wait(bsts_integer_from_int(42));
@@ -3008,6 +3035,10 @@ void test_io_core_libuv_effects() {
       bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_spawn_missing_test_fn)),
       0,
       "IO/Core spawn should map a missing command to NotFound");
+  assert_prog_success_int(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_spawn_missing_recover_after_gc_test_fn)),
+      "0",
+      "IO/Core recovered spawn failures should keep initialized libuv process state alive through close");
   assert_prog_success_int(
       bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_spawn_pipe_stdout_test_fn)),
       "0",
