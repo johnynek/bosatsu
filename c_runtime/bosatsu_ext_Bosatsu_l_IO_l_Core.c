@@ -92,10 +92,12 @@ typedef struct
 
 #define BSTS_CORE_PROCESS_MAGIC 0x42505350u
 
-typedef struct
+typedef struct BSTS_Core_Process
 {
   uint32_t magic;
   uv_process_t process;
+  struct BSTS_Core_Process *active_prev;
+  struct BSTS_Core_Process *active_next;
   int exited;
   int exit_code;
   int term_signal;
@@ -103,6 +105,8 @@ typedef struct
   int close_started;
   BSTS_Prog_Suspended *wait_suspended;
 } BSTS_Core_Process;
+
+static BSTS_Core_Process *bsts_core_active_processes = NULL;
 
 typedef struct
 {
@@ -2592,9 +2596,47 @@ static BValue bsts_core_process_exit_value(BSTS_Core_Process *process)
   return bsts_integer_from_int(code);
 }
 
+static void bsts_core_process_root_active(BSTS_Core_Process *process)
+{
+  process->active_prev = NULL;
+  process->active_next = bsts_core_active_processes;
+  if (bsts_core_active_processes != NULL)
+  {
+    bsts_core_active_processes->active_prev = process;
+  }
+  bsts_core_active_processes = process;
+}
+
+static void bsts_core_process_unroot_active(BSTS_Core_Process *process)
+{
+  if (process->active_prev != NULL)
+  {
+    process->active_prev->active_next = process->active_next;
+  }
+  else if (bsts_core_active_processes == process)
+  {
+    bsts_core_active_processes = process->active_next;
+  }
+  else
+  {
+    return;
+  }
+
+  if (process->active_next != NULL)
+  {
+    process->active_next->active_prev = process->active_prev;
+  }
+  process->active_prev = NULL;
+  process->active_next = NULL;
+}
+
 static void bsts_core_process_close_cb(uv_handle_t *handle)
 {
-  (void)handle;
+  BSTS_Core_Process *process = (BSTS_Core_Process *)handle->data;
+  if (process != NULL)
+  {
+    bsts_core_process_unroot_active(process);
+  }
 }
 
 static void bsts_core_process_maybe_close(BSTS_Core_Process *process)
@@ -2679,6 +2721,7 @@ static int bsts_core_spawn_start(BSTS_Prog_Suspended *suspended)
     return 0;
   }
 
+  bsts_core_process_root_active(request->process);
   bsts_Bosatsu_Prog_suspended_success(
       suspended,
       bsts_core_process_spawn_result(request));

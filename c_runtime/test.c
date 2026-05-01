@@ -596,6 +596,40 @@ static BValue io_core_spawn_wait_nonzero_test_fn(BValue arg) {
   return io_core_spawn_wait_shell_exit(7);
 }
 
+static BValue io_core_spawn_drop_process_after_fn(BValue spawn_result) {
+  (void)spawn_result;
+  GC_gcollect();
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_integer_from_int(0));
+}
+
+static BValue io_core_spawn_drop_process_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_spawn(
+          bsts_string_from_utf8_bytes_static(7, "/bin/sh"),
+          io_core_string_list2("-c", "sleep 1; exit 0"),
+          io_core_null_stdio_config()),
+      alloc_boxed_pure_fn1(io_core_spawn_drop_process_after_fn));
+}
+
+static BValue io_core_wait_after_gc_fn(BValue spawn_result) {
+  BValue process = get_struct_index(spawn_result, 0);
+  GC_gcollect();
+  BValue wait = ___bsts_g_Bosatsu_l_IO_l_Core_l_wait(process);
+  GC_reachable_here(spawn_result);
+  return wait;
+}
+
+static BValue io_core_spawn_wait_after_gc_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_spawn(
+          bsts_string_from_utf8_bytes_static(7, "/bin/sh"),
+          io_core_string_list2("-c", "sleep 1; exit 5"),
+          io_core_null_stdio_config()),
+      alloc_boxed_pure_fn1(io_core_wait_after_gc_fn));
+}
+
 static BValue io_core_spawn_missing_test_fn(BValue arg) {
   (void)arg;
   const char *missing = "/tmp/bosatsu-missing-command-2358";
@@ -2962,6 +2996,14 @@ void test_io_core_libuv_effects() {
       bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_spawn_wait_nonzero_test_fn)),
       "7",
       "IO/Core spawn/wait should preserve a non-zero child exit code");
+  assert_prog_success_int(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_spawn_drop_process_test_fn)),
+      "0",
+      "IO/Core spawn should keep active process state rooted when the Process value is dropped");
+  assert_prog_success_int(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_spawn_wait_after_gc_test_fn)),
+      "5",
+      "IO/Core wait should keep process state reachable after a forced collection");
   assert_prog_error_variant(
       bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_spawn_missing_test_fn)),
       0,
