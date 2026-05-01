@@ -220,7 +220,8 @@ Narrow case-based tests remain the right fit for backend mappings and platform-s
 - C/libuv handle-based termination through `uv_process_t` and exit callback status recording.
 - POSIX signal normalization to `128 + signal_number` where the platform exposes signal termination.
 - Invalid process values map to the existing bad-file-descriptor or invalid-argument style used by that backend.
-- `wait_timeout` with zero or very small duration returns `None` for a child that is known to remain alive.
+- `wait_timeout` with zero, negative, or very small positive durations returns `None` for a child that is known to remain alive.
+- Positive sub-unit timeout conversion is rounded up rather than collapsed to a zero-duration poll on JVM, Python, and C/libuv backends.
 - `poll` returns `None` before exit and `Some(code)` after exit.
 
 Use bounded children and avoid shell-specific behavior when possible. Where shell commands are necessary in existing C tests, keep them local to test helpers and guarded for platform support.
@@ -252,7 +253,7 @@ The reference contract is satisfied when downstream implementation can demonstra
 - Python maps normal and forceful stop to `Popen.terminate()` and `Popen.kill()`.
 - C/libuv stop operations use the live `uv_process_t` handle and keep it valid until libuv observes process exit.
 - No raw public signal API, process id API, or process-tree/process-group semantics are introduced.
-- Focused backend tests and the repository basic test gate cover stable wait, timeout non-consumption, stop idempotence, direct-child behavior, and stdio ownership.
+- Focused backend tests and the repository basic test gate cover stable wait, timeout non-consumption, non-positive and rounded-up timeout handling, stop idempotence, direct-child behavior, and stdio ownership.
 
 ## Risks And Rollout Notes
 
