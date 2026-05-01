@@ -63,7 +63,13 @@ The existing `wait(p: Process) -> Prog[IOError, Int]` becomes part of the same s
 
 `poll` is a non-blocking status query. It returns `Some(code)` only after the runtime has recorded the final normalized exit code. It returns `None` while the direct child is still running or while the runtime has not yet observed exit.
 
-`wait_timeout` waits up to the supplied `Duration`. It returns `Some(code)` if the runtime records exit before the timeout elapses and `None` if the timeout expires first. A timeout is not a process result and must not consume or invalidate the later final status.
+`wait_timeout` has these required semantics:
+
+- It waits up to the supplied `Duration` and returns `Some(code)` if the runtime records exit before the timeout elapses.
+- It returns `None` if the timeout expires first. A timeout is not a process result and must not consume or invalidate the later final status.
+- A zero or negative `Duration` is valid and behaves as a non-blocking status check: return `Some(code)` if final status is already recorded, otherwise return `None`.
+- `Duration.to_nanos` is interpreted as nanoseconds. Backends that require a coarser timeout unit must round positive durations up to the next representable unit so a positive timeout is not accidentally converted to an immediate poll.
+- Timeout measurement must use a monotonic clock or the backend's monotonic wait primitive, not wall-clock time.
 
 `wait` waits until the final normalized exit code is recorded and returns that code.
 
@@ -106,7 +112,7 @@ Normalization rules:
 - POSIX-style signal termination returns `128 + signal_number`.
 - Python negative `Popen.returncode` values are normalized to `128 + abs(returncode)`.
 - libuv `(exit_status, term_signal)` results are normalized as `exit_status` when `term_signal == 0`, otherwise `128 + term_signal`.
-- JVM `Process.waitFor()` returns the backend's integer exit code directly.
+- JVM `Process.exitValue()` and `Process.waitFor()` return the backend's integer exit code directly; on Unix-like JVMs this already includes POSIX signal normalization such as `128 + signal_number`.
 
 The implementation should store the normalized Bosatsu integer in the shared process state, not repeatedly re-normalize from mutable backend state. If Bosatsu later needs to distinguish normal exit from signal termination, that should be a new structured `ExitStatus` API rather than a silent behavior change to `wait`.
 
@@ -156,6 +162,7 @@ Required mapping:
 
 - `terminate` sends the backend's normal stop request through the `uv_process_t` handle. On Unix-like libuv targets this may be implemented with `uv_process_kill(&process->process, SIGTERM)` behind the semantic API. On Windows, use libuv's portable process-kill behavior as the available normal stop mapping, while documenting that graceful console-control semantics are not promised.
 - `kill` sends the strongest portable forceful stop request available through the `uv_process_t` handle. On Unix-like libuv targets this may be `uv_process_kill(&process->process, SIGKILL)` behind the semantic API. On Windows, use libuv's portable process-kill behavior.
+- On Windows, libuv maps non-zero `uv_process_kill` signals to `TerminateProcess`, so the C/libuv `terminate` and `kill` operations are expected to behave identically there even though they remain distinct portable Bosatsu operations.
 - `poll` returns the cached normalized code if the libuv exit callback has run, otherwise `None`.
 - `wait_timeout` combines the process exit callback with a `uv_timer_t` deadline. If the timer wins, return `None` and leave the process waiter/status state live for later observation.
 - `wait` waits for the libuv exit callback, records the normalized status once, and returns that same status for all later calls.
