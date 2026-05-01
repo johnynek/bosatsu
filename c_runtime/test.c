@@ -728,6 +728,166 @@ static void assert_option_bytes_equal(BValue opt, const uint8_t* expected, int e
   assert_bytes_equal(get_enum_index(opt, 0), expected, expected_len, message);
 }
 
+static BValue io_core_stdio_pipe(void) {
+  return alloc_enum0(1);
+}
+
+static BValue io_core_stdio_use_handle(BValue handle) {
+  return alloc_enum1(3, handle);
+}
+
+static void io_core_assert_some_handle(BValue opt, const char* message) {
+  if (get_variant(opt) != 1) {
+    printf("%s\nexpected: Some(Handle)\n", message);
+    exit(1);
+  }
+}
+
+static BValue io_core_spawn_pipe_stdout_wait_fn(BValue* slots, BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_IO_l_Core_l_wait(slots[0]);
+}
+
+static BValue io_core_spawn_pipe_stdout_close_fn(BValue* slots, BValue arg) {
+  static const uint8_t expected[] = {'o', 'u', 't', '\n'};
+  assert_bytes_equal(
+      arg,
+      expected,
+      (int)sizeof(expected),
+      "IO/Core spawn should expose piped stdout bytes through a returned handle");
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_close(slots[1]),
+      alloc_closure1(2, slots, io_core_spawn_pipe_stdout_wait_fn));
+}
+
+static BValue io_core_spawn_pipe_stdout_read_fn(BValue spawn_result) {
+  BValue stdout_opt = get_struct_index(spawn_result, 2);
+  io_core_assert_some_handle(stdout_opt, "IO/Core spawn stdout pipe should return a handle");
+  BValue slots[2] = {
+      get_struct_index(spawn_result, 0),
+      get_enum_index(stdout_opt, 0)};
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_read__all__bytes(slots[1], bsts_integer_from_int(16)),
+      alloc_closure1(2, slots, io_core_spawn_pipe_stdout_close_fn));
+}
+
+static BValue io_core_spawn_pipe_stdout_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_spawn(
+          bsts_string_from_utf8_bytes_static(7, "/bin/sh"),
+          io_core_string_list2("-c", "printf 'out\\n'"),
+          alloc_struct3(alloc_enum0(2), io_core_stdio_pipe(), alloc_enum0(2))),
+      alloc_boxed_pure_fn1(io_core_spawn_pipe_stdout_read_fn));
+}
+
+static BValue io_core_spawn_pipe_stderr_wait_fn(BValue* slots, BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_IO_l_Core_l_wait(slots[0]);
+}
+
+static BValue io_core_spawn_pipe_stderr_close_fn(BValue* slots, BValue arg) {
+  static const uint8_t expected[] = {'e', 'r', 'r', '\n'};
+  assert_bytes_equal(
+      arg,
+      expected,
+      (int)sizeof(expected),
+      "IO/Core spawn should expose piped stderr bytes through a returned handle");
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_close(slots[1]),
+      alloc_closure1(2, slots, io_core_spawn_pipe_stderr_wait_fn));
+}
+
+static BValue io_core_spawn_pipe_stderr_read_fn(BValue spawn_result) {
+  BValue stderr_opt = get_struct_index(spawn_result, 3);
+  io_core_assert_some_handle(stderr_opt, "IO/Core spawn stderr pipe should return a handle");
+  BValue slots[2] = {
+      get_struct_index(spawn_result, 0),
+      get_enum_index(stderr_opt, 0)};
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_read__all__bytes(slots[1], bsts_integer_from_int(16)),
+      alloc_closure1(2, slots, io_core_spawn_pipe_stderr_close_fn));
+}
+
+static BValue io_core_spawn_pipe_stderr_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_spawn(
+          bsts_string_from_utf8_bytes_static(7, "/bin/sh"),
+          io_core_string_list2("-c", "printf 'err\\n' >&2"),
+          alloc_struct3(alloc_enum0(2), alloc_enum0(2), io_core_stdio_pipe())),
+      alloc_boxed_pure_fn1(io_core_spawn_pipe_stderr_read_fn));
+}
+
+static BValue io_core_spawn_pipe_stdin_wait_fn(BValue* slots, BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_IO_l_Core_l_wait(slots[0]);
+}
+
+static BValue io_core_spawn_pipe_stdin_close_stdout_fn(BValue* slots, BValue arg) {
+  static const uint8_t expected[] = {'r', 'o', 'u', 'n', 'd', '\n'};
+  assert_bytes_equal(
+      arg,
+      expected,
+      (int)sizeof(expected),
+      "IO/Core spawn should allow writing child stdin and reading child stdout");
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_close(slots[2]),
+      alloc_closure1(3, slots, io_core_spawn_pipe_stdin_wait_fn));
+}
+
+static BValue io_core_spawn_pipe_stdin_read_stdout_fn(BValue* slots, BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_read__all__bytes(slots[2], bsts_integer_from_int(16)),
+      alloc_closure1(3, slots, io_core_spawn_pipe_stdin_close_stdout_fn));
+}
+
+static BValue io_core_spawn_pipe_stdin_close_stdin_fn(BValue* slots, BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_close(slots[1]),
+      alloc_closure1(3, slots, io_core_spawn_pipe_stdin_read_stdout_fn));
+}
+
+static BValue io_core_spawn_pipe_stdin_write_fn(BValue spawn_result) {
+  BValue stdin_opt = get_struct_index(spawn_result, 1);
+  BValue stdout_opt = get_struct_index(spawn_result, 2);
+  io_core_assert_some_handle(stdin_opt, "IO/Core spawn stdin pipe should return a handle");
+  io_core_assert_some_handle(stdout_opt, "IO/Core spawn stdout pipe should return a handle");
+  BValue slots[3] = {
+      get_struct_index(spawn_result, 0),
+      get_enum_index(stdin_opt, 0),
+      get_enum_index(stdout_opt, 0)};
+  static const uint8_t payload[] = {'r', 'o', 'u', 'n', 'd', '\n'};
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_write__bytes(
+          slots[1],
+          io_core_bytes_value(payload, (int)sizeof(payload))),
+      alloc_closure1(3, slots, io_core_spawn_pipe_stdin_close_stdin_fn));
+}
+
+static BValue io_core_spawn_pipe_stdin_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_spawn(
+          bsts_string_from_utf8_bytes_static(7, "/bin/sh"),
+          io_core_string_list2("-c", "cat"),
+          alloc_struct3(io_core_stdio_pipe(), io_core_stdio_pipe(), alloc_enum0(2))),
+      alloc_boxed_pure_fn1(io_core_spawn_pipe_stdin_write_fn));
+}
+
+static BValue io_core_spawn_existing_handle_invalid_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_IO_l_Core_l_spawn(
+      bsts_string_from_utf8_bytes_static(7, "/bin/sh"),
+      io_core_string_list2("-c", "exit 0"),
+      alloc_struct3(
+          io_core_stdio_use_handle(___bsts_g_Bosatsu_l_IO_l_Core_l_stdout()),
+          alloc_enum0(2),
+          alloc_enum0(2)));
+}
+
 static void assert_path_list_equals(BValue list, const char** expected, size_t expected_len, const char* message) {
   BValue cursor = list;
   for (size_t idx = 0; idx < expected_len; idx++) {
@@ -2806,6 +2966,22 @@ void test_io_core_libuv_effects() {
       bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_spawn_missing_test_fn)),
       0,
       "IO/Core spawn should map a missing command to NotFound");
+  assert_prog_success_int(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_spawn_pipe_stdout_test_fn)),
+      "0",
+      "IO/Core spawn should support piped stdout");
+  assert_prog_success_int(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_spawn_pipe_stderr_test_fn)),
+      "0",
+      "IO/Core spawn should support piped stderr");
+  assert_prog_success_int(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_spawn_pipe_stdin_test_fn)),
+      "0",
+      "IO/Core spawn should support piped stdin");
+  assert_prog_error_variant(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_spawn_existing_handle_invalid_test_fn)),
+      14,
+      "IO/Core spawn should reject incompatible existing stdio handles");
 #endif
   assert_prog_error_variant(
       bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_wait_invalid_process_test_fn)),

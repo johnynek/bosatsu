@@ -113,6 +113,11 @@ typedef struct
   char **argv;
   int argc;
   unsigned int stdio_flags[3];
+  uv_file stdio_fds[3];
+  uv_file pipe_parent_fds[3];
+  uv_file pipe_child_fds[3];
+  BSTS_Core_Handle *pipe_parent_handles[3];
+  BValue stdio_results[3];
 } BSTS_Core_Spawn_Request;
 
 typedef struct
@@ -283,10 +288,12 @@ static inline BValue bsts_ioerror_bad_fd(const char *context)
   return bsts_ioerror_known(BSTS_IOERR_BadFileDescriptor, context);
 }
 
+#if !defined(__APPLE__) && !defined(__linux__)
 static inline BValue bsts_ioerror_unsupported(const char *context)
 {
   return bsts_ioerror_known(BSTS_IOERR_Unsupported, context);
 }
+#endif
 
 static BValue bsts_prog_effect1(BValue a, BValue (*fn)(BValue))
 {
@@ -640,6 +647,117 @@ static int bsts_core_process_args_to_argv(
   return 1;
 }
 
+static void bsts_core_close_fd_if_open(uv_file *fd)
+{
+  if (*fd >= 0)
+  {
+    uv_fs_t req;
+    int start = uv_fs_close(NULL, &req, *fd, NULL);
+    (void)bsts_core_uv_fs_cleanup_start_result(start, &req, "closing process stdio");
+    *fd = -1;
+  }
+}
+
+static void bsts_core_spawn_close_child_pipe_ends(BSTS_Core_Spawn_Request *request)
+{
+  for (int i = 0; i < 3; i++)
+  {
+    bsts_core_close_fd_if_open(&request->pipe_child_fds[i]);
+  }
+}
+
+static void bsts_core_spawn_close_parent_pipe_ends(BSTS_Core_Spawn_Request *request)
+{
+  for (int i = 0; i < 3; i++)
+  {
+    bsts_core_close_fd_if_open(&request->pipe_parent_fds[i]);
+    if (request->pipe_parent_handles[i] != NULL)
+    {
+      request->pipe_parent_handles[i]->closed = 1;
+      request->pipe_parent_handles[i]->file = -1;
+    }
+  }
+}
+
+static int bsts_core_set_close_on_exec(uv_file fd)
+{
+  int flags = fcntl((int)fd, F_GETFD);
+  if (flags < 0)
+  {
+    return -1;
+  }
+  return fcntl((int)fd, F_SETFD, flags | FD_CLOEXEC);
+}
+
+static int bsts_core_spawn_pipe_for_stdio(BSTS_Core_Spawn_Request *request, int index)
+{
+  int fds[2] = {-1, -1};
+  if (pipe(fds) != 0)
+  {
+    return 0;
+  }
+
+  int parent_index = (index == 0) ? 1 : 0;
+  int child_index = (index == 0) ? 0 : 1;
+  uv_file parent_fd = (uv_file)fds[parent_index];
+  uv_file child_fd = (uv_file)fds[child_index];
+  if (bsts_core_set_close_on_exec(parent_fd) != 0)
+  {
+    int saved_errno = errno;
+    (void)close(fds[0]);
+    (void)close(fds[1]);
+    errno = saved_errno;
+    return 0;
+  }
+
+  int parent_readable = (index != 0);
+  int parent_writable = (index == 0);
+  BValue handle_value = bsts_core_make_handle(
+      BSTS_HANDLE_FILE,
+      parent_fd,
+      NULL,
+      parent_readable,
+      parent_writable,
+      1);
+  request->pipe_parent_fds[index] = parent_fd;
+  request->pipe_child_fds[index] = child_fd;
+  request->pipe_parent_handles[index] = bsts_core_unbox_handle(handle_value);
+  request->stdio_results[index] = bsts_option_some(handle_value);
+  request->stdio_flags[index] = UV_INHERIT_FD;
+  request->stdio_fds[index] = child_fd;
+  return 1;
+}
+
+static int bsts_core_spawn_use_handle_for_stdio(
+    BSTS_Core_Spawn_Request *request,
+    int index,
+    BValue stdio_value,
+    BValue *error)
+{
+  BValue handle_value = get_enum_index(stdio_value, 0);
+  BSTS_Core_Handle *handle = bsts_core_unbox_handle(handle_value);
+  if (handle->closed)
+  {
+    *error = bsts_ioerror_bad_fd("spawn stdio handle is closed");
+    return 0;
+  }
+  if (index == 0 && !handle->readable)
+  {
+    *error = bsts_ioerror_bad_fd("spawn stdin handle must be readable");
+    return 0;
+  }
+  if (index != 0 && !handle->writable)
+  {
+    *error = bsts_ioerror_bad_fd("spawn output handle must be writable");
+    return 0;
+  }
+
+  request->stdio_flags[index] = UV_INHERIT_FD;
+  request->stdio_fds[index] = handle->file;
+  request->stdio_results[index] = bsts_option_none();
+  return 1;
+}
+
 static int bsts_core_decode_stdio_config(
     BValue stdio_config,
     BSTS_Core_Spawn_Request *request,
@@ -648,20 +766,29 @@ static int bsts_core_decode_stdio_config(
   for (int i = 0; i < 3; i++)
   {
     BValue stdio_value = get_struct_index(stdio_config, i);
+    request->stdio_results[i] = bsts_option_none();
     switch (get_variant(stdio_value))
     {
     case 0: // Inherit
       request->stdio_flags[i] = UV_INHERIT_FD;
+      request->stdio_fds[i] = (uv_file)i;
+      break;
+    case 1: // Pipe
+      if (!bsts_core_spawn_pipe_for_stdio(request, i))
+      {
+        *error = bsts_ioerror_from_errno_default(errno, "creating process stdio pipe");
+        return 0;
+      }
       break;
     case 2: // Null
       request->stdio_flags[i] = UV_IGNORE;
       break;
-    case 1: // Pipe
-      *error = bsts_ioerror_unsupported("spawn piped stdio is not implemented yet");
-      return 0;
     case 3: // UseHandle
-      *error = bsts_ioerror_unsupported("spawn existing-handle stdio is not implemented yet");
-      return 0;
+      if (!bsts_core_spawn_use_handle_for_stdio(request, i, stdio_value, error))
+      {
+        return 0;
+      }
+      break;
     default:
       *error = bsts_ioerror_invalid_argument("spawn stdio config has invalid Stdio tag");
       return 0;
@@ -2501,13 +2628,13 @@ static void bsts_core_process_exit_cb(
   bsts_core_process_maybe_close(process);
 }
 
-static BValue bsts_core_process_spawn_result(BSTS_Core_Process *process)
+static BValue bsts_core_process_spawn_result(BSTS_Core_Spawn_Request *request)
 {
   return alloc_struct4(
-      BSTS_VALUE_FROM_PTR(process),
-      bsts_option_none(),
-      bsts_option_none(),
-      bsts_option_none());
+      BSTS_VALUE_FROM_PTR(request->process),
+      request->stdio_results[0],
+      request->stdio_results[1],
+      request->stdio_results[2]);
 }
 
 static int bsts_core_spawn_start(BSTS_Prog_Suspended *suspended)
@@ -2525,7 +2652,7 @@ static int bsts_core_spawn_start(BSTS_Prog_Suspended *suspended)
     stdio[i].flags = request->stdio_flags[i];
     if (request->stdio_flags[i] == UV_INHERIT_FD)
     {
-      stdio[i].data.fd = i;
+      stdio[i].data.fd = request->stdio_fds[i];
     }
   }
 
@@ -2540,10 +2667,12 @@ static int bsts_core_spawn_start(BSTS_Prog_Suspended *suspended)
       bsts_Bosatsu_Prog_suspended_loop(suspended),
       &request->process->process,
       &options);
+  bsts_core_spawn_close_child_pipe_ends(request);
   bsts_core_free_spawn_request_strings(request);
 
   if (spawn_result != 0)
   {
+    bsts_core_spawn_close_parent_pipe_ends(request);
     bsts_Bosatsu_Prog_suspended_error(
         suspended,
         bsts_ioerror_from_uv(spawn_result, "spawning process"));
@@ -2552,7 +2681,7 @@ static int bsts_core_spawn_start(BSTS_Prog_Suspended *suspended)
 
   bsts_Bosatsu_Prog_suspended_success(
       suspended,
-      bsts_core_process_spawn_result(request->process));
+      bsts_core_process_spawn_result(request));
   return 0;
 }
 
@@ -2571,6 +2700,13 @@ static BValue bsts_core_spawn_effect(BValue args3)
   }
   memset(request, 0, sizeof(*request));
   request->args3 = args3;
+  for (int i = 0; i < 3; i++)
+  {
+    request->stdio_fds[i] = -1;
+    request->pipe_parent_fds[i] = -1;
+    request->pipe_child_fds[i] = -1;
+    request->stdio_results[i] = bsts_option_none();
+  }
 
   BSTS_Core_Process *process =
       (BSTS_Core_Process *)GC_malloc(sizeof(BSTS_Core_Process));
@@ -2594,6 +2730,8 @@ static BValue bsts_core_spawn_effect(BValue args3)
   BValue stdio_error = bsts_unit_value();
   if (!bsts_core_decode_stdio_config(stdio_value, request, &stdio_error))
   {
+    bsts_core_spawn_close_child_pipe_ends(request);
+    bsts_core_spawn_close_parent_pipe_ends(request);
     bsts_core_free_spawn_request_strings(request);
     return ___bsts_g_Bosatsu_l_Prog_l_raise__error(stdio_error);
   }

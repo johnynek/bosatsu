@@ -8,21 +8,21 @@
 - Flow: `small_job`
 - Issue: `#2358` Implement libuv-backed process spawn and wait for C IO/Core
 - Source design doc: `docs/design/2342-document-the-libuv-c-runtime-integration-contract.md`
-- Pending steps: `2`
-- Completed steps: `2`
+- Pending steps: `0`
+- Completed steps: `4`
 - Total steps: `4`
 
 ## Summary
 
-Implement the existing Bosatsu `IO/Core.spawn` and `IO/Core.wait` externals in the C runtime using libuv process APIs, preserving the current Bosatsu API shapes for `SpawnResult`, `Stdio`, and `StdioConfig`. The branch now has the core process lifecycle in place for null and inherited stdio: `spawn` creates a libuv process on the Prog-owned loop, returns the existing `SpawnResult` struct shape, and `wait` resumes exactly once with the child exit code. Piped stdio and existing-handle stdio remain the next planned slice. The branch remains shippable only when `scripts/test_basic.sh` passes within the configured 2400 second required-tests timeout.
+Implement the existing Bosatsu `IO/Core.spawn` and `IO/Core.wait` externals in the C runtime using libuv process APIs, preserving the current Bosatsu API shapes for `SpawnResult`, `Stdio`, and `StdioConfig`. The branch now has process lifecycle and stdio wiring in place: `spawn` creates a libuv process on the Prog-owned loop, supports inherited, null, piped, and existing-handle stdio configurations, returns pipe handles in the existing `SpawnResult` fields, and `wait` resumes exactly once with the child exit code. The focused C runtime target and the configured required gate pass for this branch state.
 
 ## Current State
 
-The repository already has the libuv integration contract in `docs/design/2342-document-the-libuv-c-runtime-integration-contract.md`, suspend/resume support for C Prog effects in `c_runtime/bosatsu_ext_Bosatsu_l_Prog.c` and `c_runtime/bosatsu_ext_Bosatsu_l_Prog_internal.h`, and libuv-backed file and directory IO/Core operations in `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c`. `test_workspace/Bosatsu/IO/Core.bosatsu` defines the public Bosatsu-side `SpawnResult`, `Stdio`, and `StdioConfig` values that the C externals must continue to return and consume. The process audit found that `Stdio` enum tags are `0 = Inherit`, `1 = Pipe`, `2 = Null`, and `3 = UseHandle(handle)`; `StdioConfig` is a struct3 ordered as stdin, stdout, stderr; `SpawnResult` is a struct4 ordered as proc, stdin, stdout, stderr with stdio handles wrapped in `Option`; and `Process` is an external struct. This round replaced the unsupported `spawn` and `wait` C externals with a private boxed process state backed by `uv_process_t`. Spawn currently supports inherited and null stdio, returns `None` for all pipe result fields, and explicitly reports `Unsupported` for piped and existing-handle stdio until the stdio wiring step lands. Focused C runtime coverage and the required `scripts/test_basic.sh` gate pass for the current lifecycle slice.
+The repository already has the libuv integration contract in `docs/design/2342-document-the-libuv-c-runtime-integration-contract.md`, suspend/resume support for C Prog effects in `c_runtime/bosatsu_ext_Bosatsu_l_Prog.c` and `c_runtime/bosatsu_ext_Bosatsu_l_Prog_internal.h`, and libuv-backed file and directory IO/Core operations in `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c`. `test_workspace/Bosatsu/IO/Core.bosatsu` defines the public Bosatsu-side `SpawnResult`, `Stdio`, and `StdioConfig` values that the C externals must continue to return and consume. The process audit found that `Stdio` enum tags are `0 = Inherit`, `1 = Pipe`, `2 = Null`, and `3 = UseHandle(handle)`; `StdioConfig` is a struct3 ordered as stdin, stdout, stderr; `SpawnResult` is a struct4 ordered as proc, stdin, stdout, stderr with stdio handles wrapped in `Option`; and `Process` is an external struct. The branch now replaces the unsupported `spawn` and `wait` C externals with a private boxed process state backed by `uv_process_t`, supports inherited and null stdio, creates fd-backed pipe handles for piped stdin/stdout/stderr, validates existing-handle stdio directions before passing descriptors to libuv, and closes created pipe descriptors on failure paths. Focused C runtime coverage and the required `scripts/test_basic.sh` gate pass after the stdio wiring slice.
 
 ## Problem
 
-The C backend previously could not execute external processes through the existing IO/Core API, so any Bosatsu program using process spawning or waiting failed through unsupported runtime behavior despite adjacent file, directory, and Prog async infrastructure being present. The lifecycle gap is now closed for non-piped process execution, but the final issue outcome still needs stdio pipe and existing-handle translation so Bosatsu callers can use the full `StdioConfig` surface without hitting the explicit temporary `Unsupported` paths.
+The C backend previously could not execute external processes through the existing IO/Core API, so any Bosatsu program using process spawning or waiting failed through unsupported runtime behavior despite adjacent file, directory, and Prog async infrastructure being present. The lifecycle gap and the stdio configuration gap are now closed for the existing `StdioConfig` surface: inherited, null, piped, and existing-handle cases no longer hit the temporary Unsupported paths, and invalid existing handles map through the established BadFileDescriptor IOError path.
 
 ## Steps
 
@@ -74,9 +74,9 @@ Replace the unsupported C `spawn` and `wait` externals with a libuv-backed lifec
 
 #### Completion Notes
 
-Implemented the lifecycle in `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c` using a private `BSTS_Core_Process` box with a magic value, embedded `uv_process_t`, exit status/signal fields, single wait continuation, wait-consumed state, and process-handle close tracking. `spawn` now suspends briefly to access the Prog-owned libuv loop, builds `argv` from the Bosatsu command and argument list, decodes `StdioConfig` enough to support `Inherit` and `Null`, invokes `uv_spawn`, and resumes with `SpawnResult(process, None, None, None)` on success or a mapped IOError on failure. `wait` returns immediately for already-exited unconsumed processes, otherwise suspends and is resumed exactly once by the libuv exit callback. Piped and existing-handle stdio are intentionally left to the next planned step and currently return `Unsupported` instead of silently ignoring caller intent. Added C harness tests in `c_runtime/test.c` for zero exit, non-zero exit, missing command error mapping, and invalid wait input. Verification run this round: `make -C c_runtime test_out PROFILE=debug` passed; `scripts/test_basic.sh` passed with 2116 tests passed and 2 ignored.
+Implemented the lifecycle in `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c` using a private `BSTS_Core_Process` box with a magic value, embedded `uv_process_t`, exit status/signal fields, single wait continuation, wait-consumed state, and process-handle close tracking. `spawn` now suspends briefly to access the Prog-owned libuv loop, builds `argv` from the Bosatsu command and argument list, decodes `StdioConfig` enough to support `Inherit` and `Null`, invokes `uv_spawn`, and resumes with `SpawnResult(process, None, None, None)` on success or a mapped IOError on failure. `wait` returns immediately for already-exited unconsumed processes, otherwise suspends and is resumed exactly once by the libuv exit callback. Piped and existing-handle stdio were intentionally left to the next planned step in that round and were completed by `step-3-wire-stdio-configurations`. Added C harness tests in `c_runtime/test.c` for zero exit, non-zero exit, missing command error mapping, and invalid wait input. Verification run for that lifecycle round: `make -C c_runtime test_out PROFILE=debug` passed; `scripts/test_basic.sh` passed with 2116 tests passed and 2 ignored.
 
-3. [ ] `step-3-wire-stdio-configurations` Wire stdio configurations
+3. [x] `step-3-wire-stdio-configurations` Wire stdio configurations
 
 Implement the remaining translation from Bosatsu `StdioConfig` values into `uv_stdio_container_t` entries for stdin, stdout, and stderr. The lifecycle slice already decodes `StdioConfig` and supports `0 = Inherit` via `UV_INHERIT_FD` and `2 = Null` via `UV_IGNORE`; this step should replace the temporary `Unsupported` paths for `1 = Pipe` and `3 = UseHandle(handle)`. For piped stdio, create libuv pipe handles with correct direction, return `Some(handle)` in the matching `SpawnResult` field, and make those handles compose with the existing IO/Core read/write/close operations. For existing-handle stdio, validate handle kind/direction before passing it to libuv. Keep platform-specific command and descriptor assumptions guarded so tests remain portable across the repo's sanitizer and valgrind targets.
 
@@ -90,8 +90,8 @@ Implement the remaining translation from Bosatsu `StdioConfig` values into `uv_s
 
 #### Property Tests
 
-- For generated byte payloads within a small bounded size, piping data through a child command that echoes stdin to stdout returns exactly the same bytes, when a portable echo-through command is available on the test platform.
-- For repeated stdout/stderr pipe spawns of bounded output size, collected output is isolated per process and no output from one process appears in another process's handles.
+- The bounded stdin-to-stdout pipe round-trip invariant is covered by a deterministic C harness case using `/bin/sh -c cat`: bytes written to the returned stdin handle are read back exactly from the returned stdout handle after closing stdin.
+- The repeated pipe isolation property remains better suited for a broader follow-up if the C harness grows generated process fixtures; this small-job slice added deterministic stdout, stderr, and stdin pipe cases instead.
 
 #### Assertion Tests
 
@@ -102,7 +102,11 @@ Implement the remaining translation from Bosatsu `StdioConfig` values into `uv_s
 - Pass an incompatible existing handle as stdio and assert the mapped invalid-handle IOError path.
 - Assert the temporary `Unsupported` results for `Pipe` and `UseHandle` are removed once this step is complete.
 
-4. [ ] `step-4-verify-required-gate-and-memory-safety` Verify required gate
+#### Completion Notes
+
+Completed stdio configuration wiring in `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c`. `Stdio.Pipe` now creates an OS pipe descriptor pair with the parent end wrapped in the existing fd-backed `BSTS_Core_Handle` representation and returned as `Some(handle)` in the matching `SpawnResult` field. Child ends are passed to `uv_spawn` with `UV_INHERIT_FD`, then closed in the parent after spawn; parent pipe ends are closed and their handle state is marked closed if spawn fails after pipe creation. Pipe directions are stdin parent-writable/child-readable and stdout/stderr parent-readable/child-writable, so the returned handles compose with existing `read_all_bytes`, `write_bytes`, and `close`. `Stdio.UseHandle(handle)` now validates closed state and direction before passing the existing descriptor to libuv, returning `BadFileDescriptor` for incompatible handles. Added C harness coverage for piped stdout, piped stderr, stdin-to-stdout round trip, and invalid existing-handle stdio. Verification run this round: `make -C c_runtime test_out PROFILE=debug` passed; `scripts/test_basic.sh` passed with 2116 tests passed and 2 ignored.
+
+4. [x] `step-4-verify-required-gate-and-memory-safety` Verify required gate
 
 Run the repository-required gate `scripts/test_basic.sh` with the configured 2400 second timeout after the remaining stdio implementation lands. This lifecycle round already ran the gate successfully, but final verification should be repeated after pipe and existing-handle stdio are implemented. Also run the most focused C runtime test target directly during development when available so process failures are faster to diagnose. Review sanitizer/valgrind-sensitive paths for libuv request cleanup, process and pipe close callbacks, GC reachability of retained `BValue`s, and raw `GC_malloc`/`GC_malloc_atomic` uses as called out in the dependency handoff review notes.
 
@@ -121,3 +125,7 @@ Run the repository-required gate `scripts/test_basic.sh` with the configured 240
 
 - Record that `scripts/test_basic.sh` was run successfully in completion notes for the implementation PR.
 - If focused sanitizer or valgrind scripts are available and practical within the repo conventions, run the relevant one and record results; otherwise explicitly note the required gate coverage and any residual manual-review risk.
+
+#### Completion Notes
+
+Verification completed after stdio wiring landed. `make -C c_runtime test_out PROFILE=debug` passed, covering the focused C runtime harness and new process stdio cases. `scripts/test_basic.sh` passed with 2116 tests passed and 2 ignored in 87 seconds on the final branch state. `git diff --check` passed. This round did not run separate sanitizer or valgrind scripts; the required gate and focused C runtime target were used for this small-job checkpoint.
