@@ -60,7 +60,14 @@ Direct inputs: receive the merged reference document from `contract` as a `plann
 
 Update existing process runtime state so the current `wait(p)` behavior is idempotent and status-cache-ready before new public stop/status functions are added. Keep the public Bosatsu API unchanged in this slice. Scope the implementation to the existing process wrappers in `core/src/main/scala/dev/bosatsu/Predef.scala`, `test_workspace/ProgExt.py`, and `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c`/`.h`.
 
-For JVM and Python, ensure the `Process` runtime object records one final exit code and repeated `wait` calls return that same value. For C/libuv, ensure the process object records exit status once, supports repeated waits after exit, does not close or invalidate the `uv_process_t` before libuv observes process exit, and does not rely on a cached pid for future control operations. Preserve existing spawn, stdio, and wait public behavior.
+For JVM and Python, ensure the `Process` runtime object records one final exit code and repeated `wait` calls return that same value. For C/libuv, ensure the process object:
+
+- Records the exit status once.
+- Supports repeated waits after exit.
+- Does not close or invalidate the `uv_process_t` before libuv observes process exit.
+- Does not rely on a cached pid for future control operations.
+
+Preserve existing spawn, stdio, and wait public behavior.
 
 Add focused regression tests in the existing test locations, including `c_runtime/test.c` and the relevant Scala/Python evaluation tests, for repeated wait after zero and nonzero exits. Avoid introducing `terminate`, `kill`, `poll`, or `wait_timeout` in this slice.
 
@@ -80,7 +87,15 @@ Add the low-level public API to `test_workspace/Bosatsu/IO/Core.bosatsu`: `StopR
 
 Implement the corresponding runtime externals for JVM in `core/src/main/scala/dev/bosatsu/Predef.scala`, Python in `test_workspace/ProgExt.py` and `test_workspace/Prog.bosatsu_externals`, and C/libuv in `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c` and `.h`. JVM should map to `Process.destroy()` and `destroyForcibly()`. Python should map to `Popen.terminate()` and `Popen.kill()`. C/libuv should operate on the `uv_process_t` handle and use the strongest reviewed portable mapping from the reference document; do not expose raw signal names or pid-based public behavior.
 
-`terminate` and `kill` must return `AlreadyExited` for an already-recorded exit and `StopSent` when a stop request is sent. `poll` must return `Some(exit_code)` only after recorded exit and `None` while still running. `wait_timeout` must return `None` on timeout without consuming the final result, and subsequent `wait` must still return the stable exit code. Preserve explicit stdio handle ownership: stop operations must not close returned stdin/stdout/stderr handles automatically.
+Low-level behavior must satisfy these contracts:
+
+- `terminate` and `kill` return `AlreadyExited` for an already-recorded exit.
+- `terminate` and `kill` return `StopSent` when a stop request is sent.
+- `poll` returns `Some(exit_code)` only after a recorded exit.
+- `poll` returns `None` while the process is still running.
+- `wait_timeout` returns `None` on timeout without consuming the final result.
+- Subsequent `wait` calls still return the stable exit code after `wait_timeout` times out.
+- Stop operations do not automatically close returned stdin/stdout/stderr handles.
 
 Add focused tests for each backend where the repository already exercises process externals. Include idempotent stop on an already-exited child, stop followed by wait, kill escalation for a long-running child, poll before/after exit, and wait_timeout timeout followed by successful wait. Keep platform-sensitive commands guarded or factored through existing test helpers.
 
@@ -96,7 +111,12 @@ Completion outcome: the portable low-level stop/status API is publicly available
 
 Direct inputs: receive the merged reference document from `contract` as a `planned` dependency artifact, and receive the implemented low-level process stop/status API from `low_level_api` as a satisfied `implemented` dependency state.
 
-Create a reviewed durable reference document for the Bosatsu-level managed process helper. The artifact should choose the exact public helper shape that fits existing Bosatsu error-polymorphism and library style, including the module where it should live, the argument order around `spawn`, `StdioConfig`, grace `Duration`, and `use: SpawnResult -> Prog[IOError, a]`, and how errors from `use`, stdio close, terminate, kill, and final wait should compose.
+Create a reviewed durable reference document for the Bosatsu-level managed process helper. The artifact should choose the exact public helper shape that fits existing Bosatsu error-polymorphism and library style. This includes:
+
+- The module where the helper should live.
+- The argument order around `spawn`, `StdioConfig`, and grace `Duration`.
+- The signature of the `use` block: `SpawnResult -> Prog[IOError, a]`.
+- How errors from `use`, stdio close, `terminate`, `kill`, and final `wait` should compose.
 
 The contract must require that returned stdio pipe handles are closed during cleanup, that a still-running direct child is terminated and then force-killed after the grace duration, that cleanup always waits/reaps the child before returning, and that low-level APIs remain available for callers needing custom drain or close order. It must explicitly keep process-tree termination and implicit closure from low-level `terminate`/`kill` out of scope.
 
@@ -145,7 +165,14 @@ Completion outcome: the process stop/status and cleanup behavior has durable cro
 
 Direct inputs: receive the merged process stop/status contract from `contract` as a `planned` dependency artifact, the implemented low-level API from `low_level_api` as a satisfied `implemented` dependency state, the implemented managed cleanup helper from `helper_impl` as a satisfied `implemented` dependency state, and the completed regression coverage from `coverage` as a satisfied `implemented` dependency state.
 
-Update the repository's user/developer documentation to describe the new portable direct-child process APIs and the managed cleanup helper. At minimum, update `docs/src/main/paradox/design-docs/minimal_prog_io_tools_design.md` so the documented IO/Core process surface matches the shipped API, including `StopResult`, `terminate`, `kill`, `poll`, `wait_timeout`, stable `wait`, direct-child-only scope, no raw signal API, no process-tree guarantee, and explicit low-level stdio ownership. Add a concise helper example using `with_process` and a grace `Duration` if the final helper contract exposes that shape.
+Update the repository's user/developer documentation to describe the new portable direct-child process APIs and the managed cleanup helper. At minimum, update `docs/src/main/paradox/design-docs/minimal_prog_io_tools_design.md` so the documented `IO/Core` process surface matches the shipped API. This includes documenting:
+
+- `StopResult`, `terminate`, `kill`, `poll`, `wait_timeout`, and stable `wait`.
+- The direct-child-only scope.
+- The absence of a raw signal API or process-tree guarantee.
+- Explicit low-level stdio ownership.
+
+Add a concise helper example using `with_process` and a grace `Duration` if the final helper contract exposes that shape.
 
 Do not introduce operator-facing knobs, platform-specific public branches, or process-tree semantics in the docs. The documentation should be consistent with the implemented signatures and tests, not merely the initial issue proposal.
 
