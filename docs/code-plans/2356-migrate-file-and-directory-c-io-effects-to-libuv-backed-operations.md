@@ -8,21 +8,21 @@
 - Flow: `small_job`
 - Issue: `#2356` Migrate file and directory C IO effects to libuv-backed operations
 - Source design doc: `docs/design/2342-document-the-libuv-c-runtime-integration-contract.md`
-- Pending steps: `3`
-- Completed steps: `1`
+- Pending steps: `2`
+- Completed steps: `2`
 - Total steps: `4`
 
 ## Summary
 
-Migrate the existing C backend `IO/Core` file and directory externals from direct stdio/POSIX filesystem calls to libuv-backed operations while preserving the current Bosatsu API, value shapes, handle behavior, and `IOError` mapping. This round established the `uv_file`-backed handle representation and pulled the directly coupled file open/read/write/flush/close paths onto `uv_fs_*` requests so the handle model does not remain split.
+Migrate the existing C backend `IO/Core` file and directory externals from direct stdio/POSIX filesystem calls to libuv-backed operations while preserving the current Bosatsu API, value shapes, handle behavior, and `IOError` mapping. The branch now has the `uv_file`-backed handle representation, file open/read/write/read_all/copy/temp-file/flush/close operations on that representation, and focused C harness coverage for the file data behavior required before moving on to directory/path migration.
 
 ## Current State
 
-The repo has the libuv-owned C Prog runtime, private suspend/resume support, and the phase-one `IO/Core` migration for wall time, monotonic time, environment lookup, and sleep. `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c` now stores runtime-owned file handles as `uv_file` descriptors, keeps standard streams non-owning, uses local `uv_fs_*` cleanup helpers for file read/write/open and suspend/resume-backed flush/close operations, and still leaves directory/path operations on their existing POSIX/stdio-adjacent implementations. The C harness in `c_runtime/test.c` now covers missing read open, CreateNew collision, idempotent close, and read-after-close BadFileDescriptor behavior. Focused `make -C c_runtime test_out` passes, and the configured `scripts/test_basic.sh` gate passed after the final test cleanup.
+The repo has the libuv-owned C Prog runtime, private suspend/resume support, and the phase-one `IO/Core` migration for wall time, monotonic time, environment lookup, and sleep. `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c` stores runtime-owned file handles as `uv_file` descriptors, keeps standard streams non-owning, uses local `uv_fs_*` cleanup helpers for file read/write/open and suspend/resume-backed flush/close operations, and still leaves directory/path operations on their existing POSIX/stdio-adjacent implementations. The C harness in `c_runtime/test.c` now covers missing read open, CreateNew collision, idempotent close, read-after-close BadFileDescriptor behavior, UTF-8 and byte round trips, bounded-read EOF, invalid UTF-8, read_all_bytes including empty files, copy_bytes with unlimited and finite limits, flush on writable handles, temp-file prefix/suffix behavior, and read/write permission errors. Focused `make -C c_runtime test_out` passes, and the configured `scripts/test_basic.sh` gate passed after the final test cleanup.
 
 ## Problem
 
-The remaining C `IO/Core` directory and path effects still bypass the libuv filesystem API. File data behavior has been moved to `uv_file` descriptors, but additional file-data coverage is still needed for EOF, invalid UTF-8, copy limits, byte/string round trips, and temp-file prefix/suffix behavior before this issue should be considered complete. Directory behavior still needs migration to libuv-backed stat, scandir, mkdir, unlink/rmdir, and rename primitives while preserving existing Bosatsu-visible semantics.
+The remaining C `IO/Core` directory and path effects still bypass the libuv filesystem API. File data behavior is now on `uv_file` descriptors and has focused C harness coverage for EOF, invalid UTF-8, copy limits, byte/string round trips, permission errors, flush, and temp-file prefix/suffix behavior. Directory behavior still needs migration to libuv-backed stat, scandir, mkdir, unlink/rmdir, and rename primitives while preserving existing Bosatsu-visible semantics.
 
 ## Steps
 
@@ -53,9 +53,9 @@ Replace the stdio-centered private file handle implementation in `c_runtime/bosa
 
 Implemented `BSTS_Core_Handle` around `uv_file`, with `FILE *` retained only for non-owning standard-stream flush compatibility. Added local `uv_fs_*` helpers that clean requests and used suspend/resume-backed requests for runtime-owned `flush` and `close`. To avoid an unsafe intermediate state where `open_file` produced descriptors but data operations expected `FILE *`, this round also moved file open/read/write/read_all/copy/temp-file handles onto the new descriptor representation. Verified with `make -C c_runtime test_out` and `scripts/test_basic.sh`.
 
-2. [ ] `step-2` Expand File Data Operation Coverage
+2. [x] `step-2` Expand File Data Operation Coverage
 
-The core file data operations now use the libuv-backed `uv_file` handle representation, but this step still needs the remaining focused C harness coverage and any small compatibility fixes that coverage exposes. Cover `read_utf8`, `write_utf8`, `read_bytes`, `write_bytes`, `read_all_bytes`, `copy_bytes`, `flush`, and `create_temp_file` behavior on top of the new descriptor model. Preserve EOF behavior as `None` for bounded reads, empty bytes for `read_all_bytes` on an empty file, existing invalid UTF-8 behavior for `read_utf8`, and integer byte counts for `copy_bytes`. Where libuv lacks an exact temp-file helper with the existing prefix/suffix contract, keep the existing narrow mkstemp/mkstemps compatibility fallback and immediately normalize the resulting handle back to the libuv-backed representation.
+The core file data operations use the libuv-backed `uv_file` handle representation, and this step adds the remaining focused C harness coverage for that descriptor model. Cover `read_utf8`, `write_utf8`, `read_bytes`, `write_bytes`, `read_all_bytes`, `copy_bytes`, `flush`, and `create_temp_file` behavior. Preserve EOF behavior as `None` for bounded reads, empty bytes for `read_all_bytes` on an empty file, existing invalid UTF-8 behavior for `read_utf8`, and integer byte counts for `copy_bytes`. Where libuv lacks an exact temp-file helper with the existing prefix/suffix contract, keep the existing narrow mkstemp/mkstemps compatibility fallback and immediately normalize the resulting handle back to the libuv-backed representation.
 
 #### Invariants
 
@@ -68,16 +68,20 @@ The core file data operations now use the libuv-backed `uv_file` handle represen
 
 #### Property Tests
 
-- For generated byte arrays of varying sizes around chunk boundaries, write through the C `IO/Core` path, read back with bounded reads and `read_all_bytes`, and assert byte-for-byte equality.
-- For generated copy limits and chunk sizes, copy from a source file to a destination file and assert destination bytes equal the expected prefix and returned count equals the copied length.
-- For generated valid UTF-8 strings, assert write/read round trips preserve the exact string bytes.
+- For byte arrays covering empty files, bounded reads, non-text bytes, and multi-chunk reads, write through the C `IO/Core` path, read back with bounded reads and `read_all_bytes`, and assert byte-for-byte equality.
+- For copy limits and chunk sizes that cross chunk boundaries, copy from a source file to a destination file and assert destination bytes equal the expected prefix and returned count equals the copied length.
+- For valid UTF-8 strings containing multibyte data, assert write/read round trips preserve the exact string bytes.
 
 #### Assertion Tests
 
-- Add C harness cases for EOF on `read_bytes` and `read_utf8`.
-- Add C harness cases for invalid UTF-8 bytes read through `read_utf8`.
-- Add C harness cases for write/read UTF-8, write/read bytes, `read_all_bytes`, `copy_bytes` with `None` and a finite limit, `flush`, and create-temp-file prefix/suffix behavior.
-- Add concrete error cases for reading from a write-only handle and writing to a read-only handle.
+- C harness coverage now checks EOF on `read_bytes` and `read_utf8`.
+- C harness coverage now checks invalid UTF-8 bytes read through `read_utf8` as InvalidUtf8.
+- C harness coverage now checks write/read UTF-8, write/read bytes, `read_all_bytes`, `copy_bytes` with `None` and a finite limit, `flush`, and create-temp-file prefix/suffix behavior.
+- C harness coverage now checks reading from a write-only handle and writing to a read-only handle as BadFileDescriptor.
+
+#### Completion Notes
+
+Added focused `c_runtime/test.c` harness coverage for the libuv-backed file data descriptor model. The tests exercise UTF-8 write/flush/read/EOF, byte write/flush/bounded-read/EOF, `read_all_bytes` across chunks and on an empty file, `copy_bytes` with unlimited and finite limits, invalid UTF-8 error mapping, read/write permission errors, and `create_temp_file` prefix/suffix plus writable returned handle behavior. No implementation fix was needed beyond the existing mkstemp/mkstemps compatibility fallback already normalizing to a `uv_file` handle. Verified with `make -C c_runtime test_out` and `scripts/test_basic.sh`.
 
 3. [ ] `step-3` Migrate Directory And Path Operations
 
@@ -127,4 +131,4 @@ Run focused C runtime coverage while iterating, then run the configured required
 
 #### Completion Notes
 
-For this completed slice, `make -C c_runtime test_out` and `scripts/test_basic.sh` both passed after the final test cleanup. Keep this step pending until the remaining file-data coverage and directory/path migration steps are complete.
+For this completed slice, `make -C c_runtime test_out` and `scripts/test_basic.sh` both passed after adding the step-2 file-data C harness coverage. Keep this step pending until the remaining directory/path migration step is complete.

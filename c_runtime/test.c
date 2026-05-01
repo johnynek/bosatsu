@@ -6,6 +6,7 @@
 #include "bosatsu_ext_Bosatsu_l_Num_l_Float64.h"
 #include "bosatsu_ext_Bosatsu_l_Num_l_Int64.h"
 #include "bosatsu_ext_Bosatsu_l_IO_l_Core.h"
+#include "bosatsu_ext_Bosatsu_l_IO_l_Bytes.h"
 #include "bosatsu_ext_Bosatsu_l_Prog.h"
 #include "bosatsu_ext_Bosatsu_l_Prog_internal.h"
 #include <stdlib.h>
@@ -21,7 +22,7 @@
 #endif
 #include "gc.h"
 
-void assert(_Bool cond, char* message) {
+void assert(_Bool cond, const char* message) {
   if (!cond) {
     printf("%s\n", message);
     exit(1);
@@ -536,15 +537,79 @@ static char io_core_file_missing_path[PATH_MAX];
 static char io_core_file_existing_path[PATH_MAX];
 static char io_core_file_close_path[PATH_MAX];
 static char io_core_file_closed_read_path[PATH_MAX];
+static char io_core_file_utf8_path[PATH_MAX];
+static char io_core_file_bytes_path[PATH_MAX];
+static char io_core_file_empty_path[PATH_MAX];
+static char io_core_file_copy_src_path[PATH_MAX];
+static char io_core_file_copy_dst_path[PATH_MAX];
+static char io_core_file_copy_limit_dst_path[PATH_MAX];
+static char io_core_file_invalid_utf8_path[PATH_MAX];
+static char io_core_file_write_only_path[PATH_MAX];
+static char io_core_file_read_only_path[PATH_MAX];
+static char io_core_file_temp_created_path[PATH_MAX];
 
 static BValue io_core_path_value(const char* path) {
   return bsts_string_from_utf8_bytes_copy(strlen(path), path);
+}
+
+static BValue io_core_bytes_value(const uint8_t* data, int len) {
+  uint8_t* owned = NULL;
+  if (len > 0) {
+    owned = (uint8_t*)GC_malloc_atomic((size_t)len);
+    if (owned == NULL) {
+      perror("GC_malloc_atomic failure in io_core_bytes_value");
+      exit(1);
+    }
+    memcpy(owned, data, (size_t)len);
+  }
+  return bsts_bytes_wrap(owned, 0, len);
 }
 
 static void io_core_test_unlink(const char* path) {
   uv_fs_t req;
   (void)uv_fs_unlink(NULL, &req, path, NULL);
   uv_fs_req_cleanup(&req);
+}
+
+static void io_core_write_fixture(const char* path, const uint8_t* data, size_t len) {
+  FILE* file = fopen(path, "wb");
+  assert(file != NULL, "creating IO/Core file fixture should succeed");
+  if (len > 0) {
+    assert(
+        fwrite(data, 1, len, file) == len,
+        "writing IO/Core file fixture should write all bytes");
+  }
+  assert(fclose(file) == 0, "closing IO/Core file fixture should succeed");
+}
+
+static void io_core_read_fixture(const char* path, uint8_t* data, size_t len, const char* message) {
+  FILE* file = fopen(path, "rb");
+  assert(file != NULL, "opening IO/Core file fixture should succeed");
+  if (len > 0) {
+    assert(fread(data, 1, len, file) == len, message);
+  }
+  assert(fgetc(file) == EOF, message);
+  assert(fclose(file) == 0, "closing IO/Core file fixture should succeed");
+}
+
+static void assert_bytes_equal(BValue bytes, const uint8_t* expected, int expected_len, const char* message) {
+  BSTS_Bytes* got = bsts_bytes_unbox(bytes);
+  if (got->len != expected_len) {
+    printf("%s\nexpected len: %d\ngot len: %d\n", message, expected_len, got->len);
+    exit(1);
+  }
+  if (expected_len > 0 && memcmp(got->data + got->offset, expected, (size_t)expected_len) != 0) {
+    printf("%s\nbyte payload mismatch\n", message);
+    exit(1);
+  }
+}
+
+static void assert_option_bytes_equal(BValue opt, const uint8_t* expected, int expected_len, const char* message) {
+  if (get_variant(opt) != 1) {
+    printf("%s\nexpected: Some(Bytes)\n", message);
+    exit(1);
+  }
+  assert_bytes_equal(get_enum_index(opt, 0), expected, expected_len, message);
 }
 
 static BValue io_core_open_missing_read_test_fn(BValue arg) {
@@ -603,6 +668,372 @@ static BValue io_core_read_closed_handle_test_fn(BValue arg) {
           io_core_path_value(io_core_file_closed_read_path),
           alloc_enum0(1)),
       alloc_boxed_pure_fn1(io_core_close_before_read_fn));
+}
+
+static BValue io_core_close_slot0_fn(BValue* slots, BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_IO_l_Core_l_close(slots[0]);
+}
+
+static BValue io_core_write_utf8_flush_fn(BValue* slots, BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_flush(slots[0]),
+      alloc_closure1(1, slots, io_core_close_slot0_fn));
+}
+
+static BValue io_core_write_utf8_close_fn(BValue* slots, BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_write__utf8(
+          slots[0],
+          bsts_string_from_utf8_bytes_static(8, "hello-\xc2\xb5")),
+      alloc_closure1(1, slots, io_core_write_utf8_flush_fn));
+}
+
+static BValue io_core_write_utf8_opened_fn(BValue handle) {
+  BValue slots[1] = { handle };
+  return io_core_write_utf8_close_fn(slots, bsts_unit_value());
+}
+
+static BValue io_core_write_utf8_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_open__file(
+          io_core_path_value(io_core_file_utf8_path),
+          alloc_enum0(1)),
+      alloc_boxed_pure_fn1(io_core_write_utf8_opened_fn));
+}
+
+static BValue io_core_read_utf8_eof_assert_fn(BValue* slots, BValue arg) {
+  assert_option_none(arg, "IO/Core read_utf8 should return None at EOF");
+  return ___bsts_g_Bosatsu_l_IO_l_Core_l_close(slots[0]);
+}
+
+static BValue io_core_read_utf8_after_some_fn(BValue* slots, BValue arg) {
+  if (get_variant(arg) != 1) {
+    printf("IO/Core read_utf8 should return Some text before EOF\n");
+    exit(1);
+  }
+  assert_string_equals(
+      get_enum_index(arg, 0),
+      "hello-\xc2\xb5",
+      "IO/Core read_utf8 should preserve UTF-8 text");
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_read__utf8(slots[0], bsts_integer_from_int(32)),
+      alloc_closure1(1, slots, io_core_read_utf8_eof_assert_fn));
+}
+
+static BValue io_core_read_utf8_test_fn(BValue handle) {
+  BValue slots[1] = { handle };
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_read__utf8(handle, bsts_integer_from_int(32)),
+      alloc_closure1(1, slots, io_core_read_utf8_after_some_fn));
+}
+
+static BValue io_core_read_utf8_file_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_open__file(
+          io_core_path_value(io_core_file_utf8_path),
+          alloc_enum0(0)),
+      alloc_boxed_pure_fn1(io_core_read_utf8_test_fn));
+}
+
+static BValue io_core_write_bytes_flush_fn(BValue* slots, BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_flush(slots[0]),
+      alloc_closure1(1, slots, io_core_close_slot0_fn));
+}
+
+static BValue io_core_write_bytes_close_fn(BValue* slots, BValue arg) {
+  (void)arg;
+  static const uint8_t payload[] = {0, 1, 2, 253, 254, 255};
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_write__bytes(
+          slots[0],
+          io_core_bytes_value(payload, (int)sizeof(payload))),
+      alloc_closure1(1, slots, io_core_write_bytes_flush_fn));
+}
+
+static BValue io_core_write_bytes_opened_fn(BValue handle) {
+  BValue slots[1] = { handle };
+  return io_core_write_bytes_close_fn(slots, bsts_unit_value());
+}
+
+static BValue io_core_write_bytes_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_open__file(
+          io_core_path_value(io_core_file_bytes_path),
+          alloc_enum0(1)),
+      alloc_boxed_pure_fn1(io_core_write_bytes_opened_fn));
+}
+
+static BValue io_core_read_bytes_eof_assert_fn(BValue* slots, BValue arg) {
+  assert_option_none(arg, "IO/Core read_bytes should return None at EOF");
+  return ___bsts_g_Bosatsu_l_IO_l_Core_l_close(slots[0]);
+}
+
+static BValue io_core_read_bytes_second_assert_fn(BValue* slots, BValue arg) {
+  static const uint8_t expected[] = {253, 254, 255};
+  assert_option_bytes_equal(
+      arg,
+      expected,
+      (int)sizeof(expected),
+      "IO/Core read_bytes should return the remaining bytes");
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_read__bytes(slots[0], bsts_integer_from_int(4)),
+      alloc_closure1(1, slots, io_core_read_bytes_eof_assert_fn));
+}
+
+static BValue io_core_read_bytes_first_assert_fn(BValue* slots, BValue arg) {
+  static const uint8_t expected[] = {0, 1, 2};
+  assert_option_bytes_equal(
+      arg,
+      expected,
+      (int)sizeof(expected),
+      "IO/Core read_bytes should return a bounded prefix");
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_read__bytes(slots[0], bsts_integer_from_int(4)),
+      alloc_closure1(1, slots, io_core_read_bytes_second_assert_fn));
+}
+
+static BValue io_core_read_bytes_test_fn(BValue handle) {
+  BValue slots[1] = { handle };
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_read__bytes(handle, bsts_integer_from_int(3)),
+      alloc_closure1(1, slots, io_core_read_bytes_first_assert_fn));
+}
+
+static BValue io_core_read_bytes_file_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_open__file(
+          io_core_path_value(io_core_file_bytes_path),
+          alloc_enum0(0)),
+      alloc_boxed_pure_fn1(io_core_read_bytes_test_fn));
+}
+
+static BValue io_core_read_all_bytes_assert_fn(BValue* slots, BValue arg) {
+  static const uint8_t expected[] = {0, 1, 2, 253, 254, 255};
+  assert_bytes_equal(
+      arg,
+      expected,
+      (int)sizeof(expected),
+      "IO/Core read_all_bytes should preserve byte ordering across chunks");
+  return ___bsts_g_Bosatsu_l_IO_l_Core_l_close(slots[0]);
+}
+
+static BValue io_core_read_all_bytes_test_fn(BValue handle) {
+  BValue slots[1] = { handle };
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_read__all__bytes(handle, bsts_integer_from_int(2)),
+      alloc_closure1(1, slots, io_core_read_all_bytes_assert_fn));
+}
+
+static BValue io_core_read_all_bytes_file_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_open__file(
+          io_core_path_value(io_core_file_bytes_path),
+          alloc_enum0(0)),
+      alloc_boxed_pure_fn1(io_core_read_all_bytes_test_fn));
+}
+
+static BValue io_core_read_all_empty_assert_fn(BValue* slots, BValue arg) {
+  assert_bytes_equal(arg, NULL, 0, "IO/Core read_all_bytes should return empty bytes for an empty file");
+  return ___bsts_g_Bosatsu_l_IO_l_Core_l_close(slots[0]);
+}
+
+static BValue io_core_read_all_empty_test_fn(BValue handle) {
+  BValue slots[1] = { handle };
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_read__all__bytes(handle, bsts_integer_from_int(8)),
+      alloc_closure1(1, slots, io_core_read_all_empty_assert_fn));
+}
+
+static BValue io_core_read_all_empty_file_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_open__file(
+          io_core_path_value(io_core_file_empty_path),
+          alloc_enum0(0)),
+      alloc_boxed_pure_fn1(io_core_read_all_empty_test_fn));
+}
+
+static BValue io_core_copy_bytes_close_dst_fn(BValue* slots, BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_IO_l_Core_l_close(slots[1]);
+}
+
+static BValue io_core_copy_bytes_close_src_fn(BValue* slots, BValue arg) {
+  assert_int_string(arg, "9", "IO/Core copy_bytes without a limit should return the copied byte count");
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_close(slots[0]),
+      alloc_closure1(2, slots, io_core_copy_bytes_close_dst_fn));
+}
+
+static BValue io_core_copy_bytes_run_fn(BValue* slots, BValue dst) {
+  BValue next_slots[2] = { slots[0], dst };
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_copy__bytes(
+          slots[0],
+          dst,
+          bsts_integer_from_int(4),
+          alloc_enum0(0)),
+      alloc_closure1(2, next_slots, io_core_copy_bytes_close_src_fn));
+}
+
+static BValue io_core_copy_bytes_open_dst_fn(BValue src) {
+  BValue slots[1] = { src };
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_open__file(
+          io_core_path_value(io_core_file_copy_dst_path),
+          alloc_enum0(1)),
+      alloc_closure1(1, slots, io_core_copy_bytes_run_fn));
+}
+
+static BValue io_core_copy_bytes_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_open__file(
+          io_core_path_value(io_core_file_copy_src_path),
+          alloc_enum0(0)),
+      alloc_boxed_pure_fn1(io_core_copy_bytes_open_dst_fn));
+}
+
+static BValue io_core_copy_bytes_limit_close_dst_fn(BValue* slots, BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_IO_l_Core_l_close(slots[1]);
+}
+
+static BValue io_core_copy_bytes_limit_close_src_fn(BValue* slots, BValue arg) {
+  assert_int_string(arg, "5", "IO/Core copy_bytes with a finite limit should return the limited count");
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_close(slots[0]),
+      alloc_closure1(2, slots, io_core_copy_bytes_limit_close_dst_fn));
+}
+
+static BValue io_core_copy_bytes_limit_run_fn(BValue* slots, BValue dst) {
+  BValue next_slots[2] = { slots[0], dst };
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_copy__bytes(
+          slots[0],
+          dst,
+          bsts_integer_from_int(3),
+          alloc_enum1(1, bsts_integer_from_int(5))),
+      alloc_closure1(2, next_slots, io_core_copy_bytes_limit_close_src_fn));
+}
+
+static BValue io_core_copy_bytes_limit_open_dst_fn(BValue src) {
+  BValue slots[1] = { src };
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_open__file(
+          io_core_path_value(io_core_file_copy_limit_dst_path),
+          alloc_enum0(1)),
+      alloc_closure1(1, slots, io_core_copy_bytes_limit_run_fn));
+}
+
+static BValue io_core_copy_bytes_limit_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_open__file(
+          io_core_path_value(io_core_file_copy_src_path),
+          alloc_enum0(0)),
+      alloc_boxed_pure_fn1(io_core_copy_bytes_limit_open_dst_fn));
+}
+
+static BValue io_core_invalid_utf8_read_test_fn(BValue handle) {
+  BValue slots[1] = { handle };
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_read__utf8(handle, bsts_integer_from_int(4)),
+      alloc_closure1(1, slots, io_core_close_slot0_fn));
+}
+
+static BValue io_core_invalid_utf8_file_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_open__file(
+          io_core_path_value(io_core_file_invalid_utf8_path),
+          alloc_enum0(0)),
+      alloc_boxed_pure_fn1(io_core_invalid_utf8_read_test_fn));
+}
+
+static BValue io_core_write_only_read_test_fn(BValue handle) {
+  return ___bsts_g_Bosatsu_l_IO_l_Core_l_read__bytes(handle, bsts_integer_from_int(1));
+}
+
+static BValue io_core_read_from_write_only_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_open__file(
+          io_core_path_value(io_core_file_write_only_path),
+          alloc_enum0(1)),
+      alloc_boxed_pure_fn1(io_core_write_only_read_test_fn));
+}
+
+static BValue io_core_read_only_write_test_fn(BValue handle) {
+  return ___bsts_g_Bosatsu_l_IO_l_Core_l_write__bytes(
+      handle,
+      bsts_bytes_empty());
+}
+
+static BValue io_core_write_to_read_only_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_open__file(
+          io_core_path_value(io_core_file_read_only_path),
+          alloc_enum0(0)),
+      alloc_boxed_pure_fn1(io_core_read_only_write_test_fn));
+}
+
+static BValue io_core_temp_file_close_fn(BValue* slots, BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_IO_l_Core_l_close(slots[0]);
+}
+
+static BValue io_core_temp_file_assert_fn(BValue temp_file) {
+  BValue path = get_struct_index(temp_file, 0);
+  BValue handle = get_struct_index(temp_file, 1);
+  BSTS_String_View view = bsts_string_view_ref(&path);
+  size_t name_start = 0;
+  for (size_t idx = 0; idx < view.len; idx++) {
+    if (view.bytes[idx] == '/') {
+      name_start = idx + 1;
+    }
+  }
+  static const char prefix[] = "bosatsu_test_";
+  assert(
+      view.len >= name_start + (sizeof(prefix) - 1) + 4 &&
+          memcmp(view.bytes + name_start, prefix, sizeof(prefix) - 1) == 0 &&
+          memcmp(view.bytes + view.len - 4, ".tmp", 4) == 0,
+      "IO/Core create_temp_file should preserve requested prefix and suffix");
+  char* path_copy = (char*)malloc(view.len + 1);
+  assert(path_copy != NULL, "allocating temp path copy should succeed");
+  memcpy(path_copy, view.bytes, view.len);
+  path_copy[view.len] = '\0';
+  strncpy(io_core_file_temp_created_path, path_copy, sizeof(io_core_file_temp_created_path) - 1);
+  io_core_file_temp_created_path[sizeof(io_core_file_temp_created_path) - 1] = '\0';
+  free(path_copy);
+
+  BValue slots[1] = { handle };
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_write__utf8(
+          handle,
+          bsts_string_from_utf8_bytes_static(4, "temp")),
+      alloc_closure1(1, slots, io_core_temp_file_close_fn));
+}
+
+static BValue io_core_create_temp_file_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_create__temp__file(
+          alloc_enum0(0),
+          bsts_string_from_utf8_bytes_static(13, "bosatsu_test_"),
+          bsts_string_from_utf8_bytes_static(4, ".tmp")),
+      alloc_boxed_pure_fn1(io_core_temp_file_assert_fn));
 }
 
 #if !defined(_WIN32)
@@ -2025,15 +2456,77 @@ void test_io_core_libuv_effects() {
       sizeof(io_core_file_closed_read_path),
       "/tmp/bosatsu-c-runtime-closed-read-%ld.txt",
       pid);
+  snprintf(
+      io_core_file_utf8_path,
+      sizeof(io_core_file_utf8_path),
+      "/tmp/bosatsu-c-runtime-utf8-%ld.txt",
+      pid);
+  snprintf(
+      io_core_file_bytes_path,
+      sizeof(io_core_file_bytes_path),
+      "/tmp/bosatsu-c-runtime-bytes-%ld.bin",
+      pid);
+  snprintf(
+      io_core_file_empty_path,
+      sizeof(io_core_file_empty_path),
+      "/tmp/bosatsu-c-runtime-empty-%ld.bin",
+      pid);
+  snprintf(
+      io_core_file_copy_src_path,
+      sizeof(io_core_file_copy_src_path),
+      "/tmp/bosatsu-c-runtime-copy-src-%ld.bin",
+      pid);
+  snprintf(
+      io_core_file_copy_dst_path,
+      sizeof(io_core_file_copy_dst_path),
+      "/tmp/bosatsu-c-runtime-copy-dst-%ld.bin",
+      pid);
+  snprintf(
+      io_core_file_copy_limit_dst_path,
+      sizeof(io_core_file_copy_limit_dst_path),
+      "/tmp/bosatsu-c-runtime-copy-limit-dst-%ld.bin",
+      pid);
+  snprintf(
+      io_core_file_invalid_utf8_path,
+      sizeof(io_core_file_invalid_utf8_path),
+      "/tmp/bosatsu-c-runtime-invalid-utf8-%ld.bin",
+      pid);
+  snprintf(
+      io_core_file_write_only_path,
+      sizeof(io_core_file_write_only_path),
+      "/tmp/bosatsu-c-runtime-write-only-%ld.bin",
+      pid);
+  snprintf(
+      io_core_file_read_only_path,
+      sizeof(io_core_file_read_only_path),
+      "/tmp/bosatsu-c-runtime-read-only-%ld.bin",
+      pid);
+  io_core_file_temp_created_path[0] = '\0';
 
   io_core_test_unlink(io_core_file_missing_path);
   io_core_test_unlink(io_core_file_existing_path);
   io_core_test_unlink(io_core_file_close_path);
   io_core_test_unlink(io_core_file_closed_read_path);
+  io_core_test_unlink(io_core_file_utf8_path);
+  io_core_test_unlink(io_core_file_bytes_path);
+  io_core_test_unlink(io_core_file_empty_path);
+  io_core_test_unlink(io_core_file_copy_src_path);
+  io_core_test_unlink(io_core_file_copy_dst_path);
+  io_core_test_unlink(io_core_file_copy_limit_dst_path);
+  io_core_test_unlink(io_core_file_invalid_utf8_path);
+  io_core_test_unlink(io_core_file_write_only_path);
+  io_core_test_unlink(io_core_file_read_only_path);
 
   FILE* existing = fopen(io_core_file_existing_path, "wb");
   assert(existing != NULL, "creating existing file fixture should succeed");
   assert(fclose(existing) == 0, "closing existing file fixture should succeed");
+  static const uint8_t bytes_payload[] = {0, 1, 2, 253, 254, 255};
+  static const uint8_t copy_payload[] = {'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'};
+  static const uint8_t invalid_utf8_payload[] = {0xff, 0x61};
+  io_core_write_fixture(io_core_file_empty_path, NULL, 0);
+  io_core_write_fixture(io_core_file_copy_src_path, copy_payload, sizeof(copy_payload));
+  io_core_write_fixture(io_core_file_invalid_utf8_path, invalid_utf8_payload, sizeof(invalid_utf8_payload));
+  io_core_write_fixture(io_core_file_read_only_path, bytes_payload, sizeof(bytes_payload));
 
   assert_prog_error_variant(
       bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_open_missing_read_test_fn)),
@@ -2050,10 +2543,98 @@ void test_io_core_libuv_effects() {
       bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_read_closed_handle_test_fn)),
       14,
       "IO/Core read on a closed runtime-owned handle should raise BadFileDescriptor");
+  (void)assert_prog_success(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_write_utf8_test_fn)),
+      "IO/Core write_utf8 and flush should succeed on a writable runtime-owned handle");
+  uint8_t utf8_readback[8];
+  io_core_read_fixture(
+      io_core_file_utf8_path,
+      utf8_readback,
+      sizeof(utf8_readback),
+      "IO/Core write_utf8 should persist exact UTF-8 bytes");
+  assert(memcmp(utf8_readback, "hello-\xc2\xb5", sizeof(utf8_readback)) == 0, "IO/Core write_utf8 persisted bytes should match");
+  (void)assert_prog_success(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_read_utf8_file_test_fn)),
+      "IO/Core read_utf8 should read text then return EOF");
+  (void)assert_prog_success(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_write_bytes_test_fn)),
+      "IO/Core write_bytes and flush should succeed on a writable runtime-owned handle");
+  uint8_t bytes_readback[sizeof(bytes_payload)];
+  io_core_read_fixture(
+      io_core_file_bytes_path,
+      bytes_readback,
+      sizeof(bytes_readback),
+      "IO/Core write_bytes should persist exact bytes");
+  assert(memcmp(bytes_readback, bytes_payload, sizeof(bytes_payload)) == 0, "IO/Core write_bytes persisted bytes should match");
+  (void)assert_prog_success(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_read_bytes_file_test_fn)),
+      "IO/Core read_bytes should read bounded chunks then return EOF");
+  (void)assert_prog_success(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_read_all_bytes_file_test_fn)),
+      "IO/Core read_all_bytes should read all bytes across chunks");
+  (void)assert_prog_success(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_read_all_empty_file_test_fn)),
+      "IO/Core read_all_bytes should return empty bytes for an empty file");
+  (void)assert_prog_success(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_copy_bytes_test_fn)),
+      "IO/Core copy_bytes should copy all bytes without a limit");
+  uint8_t copy_readback[sizeof(copy_payload)];
+  io_core_read_fixture(
+      io_core_file_copy_dst_path,
+      copy_readback,
+      sizeof(copy_readback),
+      "IO/Core copy_bytes should write all source bytes");
+  assert(memcmp(copy_readback, copy_payload, sizeof(copy_payload)) == 0, "IO/Core copy_bytes destination should match source");
+  (void)assert_prog_success(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_copy_bytes_limit_test_fn)),
+      "IO/Core copy_bytes should respect a finite max_total");
+  uint8_t copy_limit_readback[5];
+  io_core_read_fixture(
+      io_core_file_copy_limit_dst_path,
+      copy_limit_readback,
+      sizeof(copy_limit_readback),
+      "IO/Core copy_bytes with max_total should write only the prefix");
+  assert(memcmp(copy_limit_readback, copy_payload, sizeof(copy_limit_readback)) == 0, "IO/Core limited copy destination should match source prefix");
+  assert_prog_error_variant(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_invalid_utf8_file_test_fn)),
+      13,
+      "IO/Core read_utf8 should map invalid bytes to InvalidUtf8");
+  assert_prog_error_variant(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_read_from_write_only_test_fn)),
+      14,
+      "IO/Core read_bytes on a write-only handle should raise BadFileDescriptor");
+  assert_prog_error_variant(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_write_to_read_only_test_fn)),
+      14,
+      "IO/Core write_bytes on a read-only handle should raise BadFileDescriptor");
+  (void)assert_prog_success(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_create_temp_file_test_fn)),
+      "IO/Core create_temp_file should return a writable uv_file-backed handle");
+  if (io_core_file_temp_created_path[0] != '\0') {
+    uint8_t temp_readback[4];
+    io_core_read_fixture(
+        io_core_file_temp_created_path,
+        temp_readback,
+        sizeof(temp_readback),
+        "IO/Core temp file handle should write through to the created file");
+    assert(memcmp(temp_readback, "temp", sizeof(temp_readback)) == 0, "IO/Core temp file contents should match written data");
+  }
 
   io_core_test_unlink(io_core_file_existing_path);
   io_core_test_unlink(io_core_file_close_path);
   io_core_test_unlink(io_core_file_closed_read_path);
+  io_core_test_unlink(io_core_file_utf8_path);
+  io_core_test_unlink(io_core_file_bytes_path);
+  io_core_test_unlink(io_core_file_empty_path);
+  io_core_test_unlink(io_core_file_copy_src_path);
+  io_core_test_unlink(io_core_file_copy_dst_path);
+  io_core_test_unlink(io_core_file_copy_limit_dst_path);
+  io_core_test_unlink(io_core_file_invalid_utf8_path);
+  io_core_test_unlink(io_core_file_write_only_path);
+  io_core_test_unlink(io_core_file_read_only_path);
+  if (io_core_file_temp_created_path[0] != '\0') {
+    io_core_test_unlink(io_core_file_temp_created_path);
+  }
 }
 
 void test_prog_runner_loop() {
