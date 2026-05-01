@@ -7,8 +7,9 @@
 
 - Flow: `small_job`
 - Issue: `#2358` Implement libuv-backed process spawn and wait for C IO/Core
-- Pending steps: `4`
-- Completed steps: `0`
+- Source design doc: `docs/design/2342-document-the-libuv-c-runtime-integration-contract.md`
+- Pending steps: `3`
+- Completed steps: `1`
 - Total steps: `4`
 
 ## Summary
@@ -17,7 +18,7 @@ Implement the existing Bosatsu `IO/Core.spawn` and `IO/Core.wait` externals in t
 
 ## Current State
 
-The repository already has the libuv integration contract in `docs/design/2342-document-the-libuv-c-runtime-integration-contract.md`, suspend/resume support for C Prog effects in `c_runtime/bosatsu_ext_Bosatsu_l_Prog.c` and `c_runtime/bosatsu_ext_Bosatsu_l_Prog_internal.h`, and libuv-backed file and directory IO/Core operations in `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c`. The issue handoff says the C runtime may rely on runtime-owned libuv handles and continuation resumption being available. `test_workspace/Bosatsu/IO/Core.bosatsu` defines the public Bosatsu-side `SpawnResult`, `Stdio`, and `StdioConfig` values that the C externals must continue to return and consume. Today, process spawn and wait remain the known unsupported IO/Core gap in the C backend.
+The repository already has the libuv integration contract in `docs/design/2342-document-the-libuv-c-runtime-integration-contract.md`, suspend/resume support for C Prog effects in `c_runtime/bosatsu_ext_Bosatsu_l_Prog.c` and `c_runtime/bosatsu_ext_Bosatsu_l_Prog_internal.h`, and libuv-backed file and directory IO/Core operations in `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c`. The issue handoff says the C runtime may rely on runtime-owned libuv handles and continuation resumption being available. `test_workspace/Bosatsu/IO/Core.bosatsu` defines the public Bosatsu-side `SpawnResult`, `Stdio`, and `StdioConfig` values that the C externals must continue to return and consume. The process audit found that `Stdio` enum tags are `0 = Inherit`, `1 = Pipe`, `2 = Null`, and `3 = UseHandle(handle)`; `StdioConfig` is a struct3 ordered as stdin, stdout, stderr; `SpawnResult` is a struct4 ordered as proc, stdin, stdout, stderr with stdio handles wrapped in `Option`; and `Process` is currently an external struct with no C representation yet. Today, process spawn and wait remain the known unsupported IO/Core gap in the C backend, with `bsts_core_spawn_effect` and `bsts_core_wait_effect` raising `Unsupported`.
 
 ## Problem
 
@@ -25,9 +26,9 @@ The C backend cannot currently execute external processes through the existing I
 
 ## Steps
 
-1. [ ] `step-1-audit-shapes-and-runtime-contracts` Audit process API shapes and handle contracts
+1. [x] `step-1-audit-shapes-and-runtime-contracts` Audit process API shapes and handle contracts
 
-Read the existing unsupported `spawn` and `wait` externals in `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c`, the Bosatsu-side constructors in `test_workspace/Bosatsu/IO/Core.bosatsu`, the libuv runtime contract document, and the recent suspend/resume and file IO implementations. Pin down the exact C constructor tags, argument order, handle representation, ownership rules, and IOError mapping helpers before changing implementation code. This step should produce the smallest implementation shape that fits the existing API rather than introducing new Bosatsu-visible types.
+Read the existing unsupported `spawn` and `wait` externals in `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c`, the Bosatsu-side constructors in `test_workspace/Bosatsu/IO/Core.bosatsu`, the libuv runtime contract document, and the recent suspend/resume and file IO implementations. Pin down the exact C constructor tags, argument order, handle representation, ownership rules, and IOError mapping helpers before changing implementation code. This step produced the smallest implementation shape that fits the existing API rather than introducing new Bosatsu-visible types.
 
 #### Invariants
 
@@ -41,17 +42,21 @@ Read the existing unsupported `spawn` and `wait` externals in `c_runtime/bosatsu
 
 #### Assertion Tests
 
-- Add or update narrow C harness assertions documenting the constructor/tag decoding for each supported `StdioConfig` variant before relying on it in process setup, if the current harness has suitable helpers.
-- Add an assertion-style test for the current unsupported-gap replacement target: a simple spawn value can be constructed and no longer routes to the unsupported external path.
+- No runtime assertion tests were added in this audit-only slice; the audited tag and field-order facts are recorded in completion notes and should be encoded in focused C harness coverage while implementing process lifecycle and stdio decoding.
+- The unsupported-gap target remains concrete: `bsts_core_spawn_effect` and `bsts_core_wait_effect` are the only process externals still raising `Unsupported` in `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c`.
+
+#### Completion Notes
+
+Completed the contract audit. `spawn(cmd, args, stdio)` enters C as `bsts_prog_effect3(cmd, args, stdio, bsts_core_spawn_effect)`, so `bsts_core_spawn_effect` receives struct3 fields `0 = cmd`, `1 = args`, `2 = stdio`. `wait(process)` enters through `bsts_prog_effect1(process, bsts_core_wait_effect)`. Bosatsu-side process shapes are fixed by `test_workspace/Bosatsu/IO/Core.bosatsu`: `Process` is an external struct; `Stdio` tags are `0 = Inherit`, `1 = Pipe`, `2 = Null`, `3 = UseHandle(handle)`; `StdioConfig` is struct3 ordered stdin/stdout/stderr; `SpawnResult` is struct4 ordered proc/stdin/stdout/stderr where the stdio fields are `Option[Handle]`. Existing `Option` encoding is `0 = None`, `1 = Some(value)`. Runtime handles are currently boxed `BSTS_Core_Handle *` values with kind/file/stdio/readable/writable/close_on_close/closed fields; kinds are stdin/stdout/stderr/file only, so process support needs either a separate boxed process state for `Process` or an intentionally extended private handle family without changing Bosatsu-visible types. Existing IOError helpers to reuse are `bsts_ioerror_from_uv`, `bsts_ioerror_invalid_argument`, `bsts_ioerror_bad_fd`, and `bsts_ioerror_unsupported`. Any async process wait must use `bsts_Bosatsu_Prog_suspend`, keep retained Bosatsu values reachable through the Prog pending list, and resume with `bsts_Bosatsu_Prog_suspended_success/error` exactly once.
 
 2. [ ] `step-2-implement-libuv-spawn-and-wait-lifecycle` Implement process lifecycle
 
-Replace the unsupported C `spawn` and `wait` externals with a libuv-backed lifecycle built around `uv_spawn`, `uv_process_t`, and the existing Prog suspension/resumption API. Introduce a small runtime-owned process state that records the process handle, completion status, wait continuation if present, and any owned stdio pipe handles. Ensure `spawn` returns the existing `SpawnResult` shape with a process handle/value on success and mapped IOError on failure, while `wait` either returns an already-known exit result or suspends until the libuv exit callback resumes it. Cleanup must close process and pipe handles on all paths and reject double wait/completion states coherently.
+Replace the unsupported C `spawn` and `wait` externals with a libuv-backed lifecycle built around `uv_spawn`, `uv_process_t`, and the existing Prog suspension/resumption API. Decode `spawn`'s effect argument as struct3 fields `cmd`, `args`, and `stdio`; construct a private boxed `Process` state for the returned external struct; and return `SpawnResult` as `alloc_struct4(process, stdin_option, stdout_option, stderr_option)`. The process state should record the `uv_process_t`, completion status, exit code/term signal, any wait continuation, whether wait has consumed the exit result, and any owned stdio pipe handles. `wait` should either return an already-known exit code or suspend until the libuv exit callback resumes it. Cleanup must close process and pipe handles on all paths and reject double wait/completion states coherently.
 
 #### Invariants
 
 - A successfully spawned process has exactly one runtime-owned process state and its libuv handle remains valid until both process exit and runtime cleanup requirements are satisfied.
-- `wait` is idempotent only to the extent promised by the existing API; invalid, already-consumed, or incompatible handles must map to existing IOError/error behavior instead of use-after-free or double resume.
+- `wait` is idempotent only to the extent promised by the existing API; invalid, already-consumed, or incompatible process values must map to existing IOError/error behavior instead of use-after-free or double resume.
 - Each suspended wait continuation is resumed exactly once, with either the expected exit information or a mapped error.
 - Every `uv_process_options_t`, argument/env buffer, stdio container, and `uv_pipe_t` allocated for spawn is cleaned up on success, spawn failure, and later close callbacks as appropriate.
 - Missing-command, invalid-argument, and libuv negative-status failures must flow through the same IO/Core error conventions used by the file and directory migration.
@@ -66,11 +71,11 @@ Replace the unsupported C `spawn` and `wait` externals with a libuv-backed lifec
 - Spawn a simple portable command and assert `wait` returns the expected zero exit status.
 - Spawn a command that exits non-zero and assert the non-zero exit status is preserved.
 - Attempt to spawn a missing command and assert the result is the existing IOError/failure shape rather than a crash or unsupported marker.
-- Attempt to wait on an invalid or non-process handle and assert the existing invalid-handle error mapping.
+- Attempt to wait on an invalid or non-process value and assert the existing invalid-handle-style error mapping.
 
 3. [ ] `step-3-wire-stdio-configurations` Wire stdio configurations
 
-Implement translation from Bosatsu `StdioConfig` values into `uv_stdio_container_t` entries for stdin, stdout, and stderr. Support inherited stdio, null/ignored stdio, new piped stdio, and existing runtime handle stdio according to the reference document and the current handle model. For piped stdio, return the existing `Stdio` values in `SpawnResult` and ensure read/write/close behavior composes with the libuv-backed file/handle operations already in IO/Core. Keep platform-specific command and descriptor assumptions guarded so tests remain portable across the repo's sanitizer and valgrind targets.
+Implement translation from Bosatsu `StdioConfig` values into `uv_stdio_container_t` entries for stdin, stdout, and stderr. Decode `StdioConfig` as struct3 stdin/stdout/stderr and decode each `Stdio` by tag: `0 = Inherit`, `1 = Pipe`, `2 = Null`, `3 = UseHandle(handle)`. Support inherited stdio, null/ignored stdio, new piped stdio, and existing runtime handle stdio according to the reference document and the current handle model. For piped stdio, return `Some(handle)` in the matching `SpawnResult` field and `None` for non-piped entries; ensure read/write/close behavior composes with the libuv-backed file/handle operations already in IO/Core. Keep platform-specific command and descriptor assumptions guarded so tests remain portable across the repo's sanitizer and valgrind targets.
 
 #### Invariants
 
