@@ -62,12 +62,23 @@ typedef enum
 typedef struct
 {
   BSTS_Handle_Kind kind;
-  FILE *file;
+  uv_file file;
+  FILE *stdio_file;
   int readable;
   int writable;
   int close_on_close;
   int closed;
 } BSTS_Core_Handle;
+
+typedef struct
+{
+  uv_fs_t req;
+  BSTS_Prog_Suspended *suspended;
+  BSTS_Core_Handle *handle;
+  BValue success;
+  int mark_closed;
+  char context[512];
+} BSTS_Core_Fs_Request;
 
 typedef struct
 {
@@ -282,7 +293,8 @@ static BSTS_Core_Handle *bsts_core_unbox_handle(BValue handle)
 
 static BValue bsts_core_make_handle(
     BSTS_Handle_Kind kind,
-    FILE *file,
+    uv_file file,
+    FILE *stdio_file,
     int readable,
     int writable,
     int close_on_close)
@@ -295,11 +307,115 @@ static BValue bsts_core_make_handle(
   }
   h->kind = kind;
   h->file = file;
+  h->stdio_file = stdio_file;
   h->readable = readable;
   h->writable = writable;
   h->close_on_close = close_on_close;
   h->closed = 0;
   return BSTS_VALUE_FROM_PTR(h);
+}
+
+static void bsts_core_fs_request_resume(uv_fs_t *req)
+{
+  BSTS_Core_Fs_Request *request = (BSTS_Core_Fs_Request *)req->data;
+  ssize_t result = req->result;
+  uv_fs_req_cleanup(req);
+
+  if (result < 0)
+  {
+    bsts_Bosatsu_Prog_suspended_error(
+        request->suspended,
+        bsts_ioerror_from_uv((int)result, request->context));
+    return;
+  }
+
+  if (request->mark_closed && request->handle != NULL)
+  {
+    request->handle->closed = 1;
+    request->handle->file = -1;
+  }
+  bsts_Bosatsu_Prog_suspended_success(request->suspended, request->success);
+}
+
+static int bsts_core_uv_fs_cleanup_result(uv_fs_t *req, const char *context)
+{
+  ssize_t result = req->result;
+  uv_fs_req_cleanup(req);
+  if (result < 0)
+  {
+    errno = -((int)result);
+    (void)context;
+    return -1;
+  }
+  return (int)result;
+}
+
+static int bsts_core_uv_read(uv_file file, void *data, size_t len, const char *context)
+{
+  uv_buf_t buf = uv_buf_init((char *)data, (unsigned int)len);
+  uv_fs_t req;
+  int start = uv_fs_read(NULL, &req, file, &buf, 1, -1, NULL);
+  if (start < 0)
+  {
+    errno = -start;
+    return -1;
+  }
+  return bsts_core_uv_fs_cleanup_result(&req, context);
+}
+
+static int bsts_core_uv_write_all(uv_file file, const void *data, size_t len, const char *context)
+{
+  const char *cursor = (const char *)data;
+  size_t remaining = len;
+  while (remaining > 0U)
+  {
+    uv_buf_t buf = uv_buf_init((char *)cursor, (unsigned int)remaining);
+    uv_fs_t req;
+    int start = uv_fs_write(NULL, &req, file, &buf, 1, -1, NULL);
+    if (start < 0)
+    {
+      errno = -start;
+      return -1;
+    }
+
+    int wrote = bsts_core_uv_fs_cleanup_result(&req, context);
+    if (wrote <= 0)
+    {
+#ifdef EIO
+      errno = EIO;
+#else
+      errno = 0;
+#endif
+      return -1;
+    }
+    cursor += wrote;
+    remaining -= (size_t)wrote;
+  }
+  return 0;
+}
+
+static int bsts_core_flush_start(BSTS_Prog_Suspended *suspended)
+{
+  BSTS_Core_Fs_Request *request =
+      BSTS_PTR(BSTS_Core_Fs_Request, bsts_Bosatsu_Prog_suspended_request(suspended));
+  request->suspended = suspended;
+  return uv_fs_fsync(
+      bsts_Bosatsu_Prog_suspended_loop(suspended),
+      &request->req,
+      request->handle->file,
+      bsts_core_fs_request_resume);
+}
+
+static int bsts_core_close_start(BSTS_Prog_Suspended *suspended)
+{
+  BSTS_Core_Fs_Request *request =
+      BSTS_PTR(BSTS_Core_Fs_Request, bsts_Bosatsu_Prog_suspended_request(suspended));
+  request->suspended = suspended;
+  return uv_fs_close(
+      bsts_Bosatsu_Prog_suspended_loop(suspended),
+      &request->req,
+      request->handle->file,
+      bsts_core_fs_request_resume);
 }
 
 static char *bsts_string_to_cstr(BValue str)
@@ -826,26 +942,27 @@ static BValue bsts_core_read_utf8_effect(BValue pair)
   }
 
   errno = 0;
-  size_t read_count = fread(buf, 1, (size_t)max_chars, handle->file);
+  int read_count = bsts_core_uv_read(handle->file, buf, (size_t)max_chars, "reading utf8");
   if (read_count == 0)
   {
     free(buf);
-    if (feof(handle->file))
-    {
-      return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_option_none());
-    }
+    return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_option_none());
+  }
+  if (read_count < 0)
+  {
+    free(buf);
     return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
         bsts_ioerror_from_errno_default(errno, "reading utf8"));
   }
 
-  if (!bsts_utf8_is_valid_prefix(buf, (int)read_count))
+  if (!bsts_utf8_is_valid_prefix(buf, read_count))
   {
     free(buf);
     return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
         bsts_ioerror_invalid_utf8("decoding bytes from handle"));
   }
 
-  BValue text = bsts_string_from_utf8_bytes_copy(read_count, buf);
+  BValue text = bsts_string_from_utf8_bytes_copy((size_t)read_count, buf);
   free(buf);
   return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_option_some(text));
 }
@@ -871,8 +988,7 @@ static BValue bsts_core_write_utf8_effect(BValue pair)
   errno = 0;
   if (view.len > 0)
   {
-    size_t wrote = fwrite(view.bytes, 1, view.len, handle->file);
-    if (wrote < view.len)
+    if (bsts_core_uv_write_all(handle->file, view.bytes, view.len, "writing utf8") != 0)
     {
       return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
           bsts_ioerror_from_errno_default(errno, "writing utf8"));
@@ -914,29 +1030,30 @@ static BValue bsts_core_read_bytes_effect(BValue pair)
   }
 
   errno = 0;
-  size_t read_count = fread(buf, 1, (size_t)max_bytes, handle->file);
+  int read_count = bsts_core_uv_read(handle->file, buf, (size_t)max_bytes, "reading bytes");
   if (read_count == 0)
   {
     free(buf);
-    if (feof(handle->file))
-    {
-      return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_option_none());
-    }
+    return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_option_none());
+  }
+  if (read_count < 0)
+  {
+    free(buf);
     return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
         bsts_ioerror_from_errno_default(errno, "reading bytes"));
   }
 
-  uint8_t *data = (uint8_t *)GC_malloc_atomic(read_count);
+  uint8_t *data = (uint8_t *)GC_malloc_atomic((size_t)read_count);
   if (data == NULL)
   {
     free(buf);
     perror("GC_malloc_atomic failure in bsts_core_read_bytes_effect");
     abort();
   }
-  memcpy(data, buf, read_count);
+  memcpy(data, buf, (size_t)read_count);
   free(buf);
 
-  BValue bytes = bsts_bytes_wrap(data, 0, (int)read_count);
+  BValue bytes = bsts_bytes_wrap(data, 0, read_count);
   return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_option_some(bytes));
 }
 
@@ -961,8 +1078,11 @@ static BValue bsts_core_write_bytes_effect(BValue pair)
   errno = 0;
   if (bytes->len > 0)
   {
-    size_t wrote = fwrite(bytes->data + bytes->offset, 1, (size_t)bytes->len, handle->file);
-    if (wrote < (size_t)bytes->len)
+    if (bsts_core_uv_write_all(
+            handle->file,
+            bytes->data + bytes->offset,
+            (size_t)bytes->len,
+            "writing bytes") != 0)
     {
       return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
           bsts_ioerror_from_errno_default(errno, "writing bytes"));
@@ -1010,20 +1130,20 @@ static BValue bsts_core_read_all_bytes_effect(BValue pair)
   while (1)
   {
     errno = 0;
-    size_t read_count = fread(chunk_buf, 1, (size_t)chunk_size, handle->file);
+    int read_count = bsts_core_uv_read(handle->file, chunk_buf, (size_t)chunk_size, "reading bytes");
     if (read_count == 0)
     {
-      if (feof(handle->file))
-      {
-        break;
-      }
+      break;
+    }
+    if (read_count < 0)
+    {
       free(chunk_buf);
       free(acc);
       return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
           bsts_ioerror_from_errno_default(errno, "reading bytes"));
     }
 
-    if (total > (size_t)INT_MAX - read_count)
+    if (total > (size_t)INT_MAX - (size_t)read_count)
     {
       free(chunk_buf);
       free(acc);
@@ -1031,7 +1151,7 @@ static BValue bsts_core_read_all_bytes_effect(BValue pair)
           bsts_ioerror_invalid_argument("read_all_bytes result too large"));
     }
 
-    size_t needed = total + read_count;
+    size_t needed = total + (size_t)read_count;
     if (needed > cap)
     {
       size_t next_cap = cap == 0 ? needed : cap;
@@ -1057,13 +1177,8 @@ static BValue bsts_core_read_all_bytes_effect(BValue pair)
       cap = next_cap;
     }
 
-    memcpy(acc + total, chunk_buf, read_count);
-    total += read_count;
-
-    if ((read_count < (size_t)chunk_size) && feof(handle->file))
-    {
-      break;
-    }
+    memcpy(acc + total, chunk_buf, (size_t)read_count);
+    total += (size_t)read_count;
   }
 
   free(chunk_buf);
@@ -1170,28 +1285,27 @@ static BValue bsts_core_copy_bytes_effect(BValue args4)
     }
 
     errno = 0;
-    size_t read_count = fread(buf, 1, (size_t)to_read, src->file);
+    int read_count = bsts_core_uv_read(src->file, buf, (size_t)to_read, "reading bytes");
     if (read_count == 0)
     {
-      if (feof(src->file))
-      {
-        break;
-      }
+      break;
+    }
+    if (read_count < 0)
+    {
       free(buf);
       return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
           bsts_ioerror_from_errno_default(errno, "reading bytes"));
     }
 
     errno = 0;
-    size_t wrote = fwrite(buf, 1, read_count, dst->file);
-    if (wrote < read_count)
+    if (bsts_core_uv_write_all(dst->file, buf, (size_t)read_count, "writing bytes") != 0)
     {
       free(buf);
       return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
           bsts_ioerror_from_errno_default(errno, "writing bytes"));
     }
 
-    copied = bsts_integer_add(copied, bsts_integer_from_int((int32_t)read_count));
+    copied = bsts_integer_add(copied, bsts_integer_from_int(read_count));
   }
 
   free(buf);
@@ -1212,14 +1326,31 @@ static BValue bsts_core_flush_effect(BValue handle_value)
     return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_unit_value());
   }
 
-  errno = 0;
-  if (fflush(handle->file) != 0)
+  if (!handle->close_on_close)
   {
-    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
-        bsts_ioerror_from_errno_default(errno, "flushing handle"));
+    // Process-owned standard streams keep stdio buffering; libuv owns only runtime file descriptors.
+    errno = 0;
+    if (handle->stdio_file != NULL && fflush(handle->stdio_file) != 0)
+    {
+      return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+          bsts_ioerror_from_errno_default(errno, "flushing handle"));
+    }
+    return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_unit_value());
   }
 
-  return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_unit_value());
+  BSTS_Core_Fs_Request *request =
+      (BSTS_Core_Fs_Request *)GC_malloc(sizeof(BSTS_Core_Fs_Request));
+  if (request == NULL)
+  {
+    perror("GC_malloc failure in bsts_core_flush_effect");
+    abort();
+  }
+  request->handle = handle;
+  request->success = bsts_unit_value();
+  request->mark_closed = 0;
+  bsts_contextf(request->context, sizeof(request->context), "flushing handle");
+  request->req.data = request;
+  return bsts_Bosatsu_Prog_suspend(BSTS_VALUE_FROM_PTR(request), bsts_core_flush_start);
 }
 
 static BValue bsts_core_close_effect(BValue handle_value)
@@ -1232,12 +1363,19 @@ static BValue bsts_core_close_effect(BValue handle_value)
 
   if (handle->close_on_close)
   {
-    errno = 0;
-    if (fclose(handle->file) != 0)
+    BSTS_Core_Fs_Request *request =
+        (BSTS_Core_Fs_Request *)GC_malloc(sizeof(BSTS_Core_Fs_Request));
+    if (request == NULL)
     {
-      return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
-          bsts_ioerror_from_errno_default(errno, "closing handle"));
+      perror("GC_malloc failure in bsts_core_close_effect");
+      abort();
     }
+    request->handle = handle;
+    request->success = bsts_unit_value();
+    request->mark_closed = 1;
+    bsts_contextf(request->context, sizeof(request->context), "closing handle");
+    request->req.data = request;
+    return bsts_Bosatsu_Prog_suspend(BSTS_VALUE_FROM_PTR(request), bsts_core_close_start);
   }
 
   handle->closed = 1;
@@ -1263,60 +1401,28 @@ static BValue bsts_core_open_file_effect(BValue pair)
 
   ENUM_TAG mode_tag = get_variant(mode_value);
   const char *mode_name = bsts_open_mode_name(mode_tag);
-  const char *open_mode = NULL;
+  int open_flags = 0;
   int readable = 0;
   int writable = 0;
 
   switch (mode_tag)
   {
   case 0: // Read
-    open_mode = "rb";
+    open_flags = O_RDONLY;
     readable = 1;
     break;
   case 1: // WriteTruncate
-    open_mode = "wb";
+    open_flags = O_WRONLY | O_CREAT | O_TRUNC;
     writable = 1;
     break;
   case 2: // Append
-    open_mode = "ab";
+    open_flags = O_WRONLY | O_CREAT | O_APPEND;
     writable = 1;
     break;
   case 3: // CreateNew
-  {
-    errno = 0;
-    int fd = open(path, O_WRONLY | O_CREAT | O_EXCL, 0666);
-    if (fd < 0)
-    {
-      bsts_contextf(
-          context,
-          sizeof(context),
-          "open_file(path=%s, mode=%s): open(O_CREAT|O_EXCL) failed",
-          path,
-          mode_name);
-      BValue err = bsts_ioerror_from_errno_default(errno, context);
-      free(path);
-      return ___bsts_g_Bosatsu_l_Prog_l_raise__error(err);
-    }
-
-    FILE *created_file = fdopen(fd, "wb");
-    if (!created_file)
-    {
-      bsts_contextf(
-          context,
-          sizeof(context),
-          "open_file(path=%s, mode=%s): fdopen(\"wb\") failed",
-          path,
-          mode_name);
-      BValue err = bsts_ioerror_from_errno_default(errno, context);
-      close(fd);
-      free(path);
-      return ___bsts_g_Bosatsu_l_Prog_l_raise__error(err);
-    }
-
-    free(path);
-    BValue handle = bsts_core_make_handle(BSTS_HANDLE_FILE, created_file, 0, 1, 1);
-    return ___bsts_g_Bosatsu_l_Prog_l_pure(handle);
-  }
+    open_flags = O_WRONLY | O_CREAT | O_EXCL;
+    writable = 1;
+    break;
   default:
     bsts_contextf(
         context,
@@ -1330,23 +1436,30 @@ static BValue bsts_core_open_file_effect(BValue pair)
   }
 
   errno = 0;
-  FILE *file = fopen(path, open_mode);
-  if (!file)
+  bsts_contextf(
+      context,
+      sizeof(context),
+      "open_file(path=%s, mode=%s): uv_fs_open failed",
+      path,
+      mode_name);
+  uv_fs_t req;
+  int start = uv_fs_open(NULL, &req, path, open_flags, 0666, NULL);
+  if (start < 0)
   {
-    bsts_contextf(
-        context,
-        sizeof(context),
-        "open_file(path=%s, mode=%s): fopen(%s) failed",
-        path,
-        mode_name,
-        open_mode);
+    BValue err = bsts_ioerror_from_uv(start, context);
+    free(path);
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(err);
+  }
+  int fd = bsts_core_uv_fs_cleanup_result(&req, context);
+  if (fd < 0)
+  {
     BValue err = bsts_ioerror_from_errno_default(errno, context);
     free(path);
     return ___bsts_g_Bosatsu_l_Prog_l_raise__error(err);
   }
 
   free(path);
-  BValue handle = bsts_core_make_handle(BSTS_HANDLE_FILE, file, readable, writable, 1);
+  BValue handle = bsts_core_make_handle(BSTS_HANDLE_FILE, (uv_file)fd, NULL, readable, writable, 1);
   return ___bsts_g_Bosatsu_l_Prog_l_pure(handle);
 }
 
@@ -1536,35 +1649,11 @@ static BValue bsts_core_create_temp_file_effect(BValue args3)
     return ___bsts_g_Bosatsu_l_Prog_l_raise__error(err);
   }
 
-  FILE *file = fdopen(fd, "wb");
-  if (!file)
-  {
-    bsts_contextf(
-        context,
-        sizeof(context),
-        "create_temp_file(dir=%s, prefix=%s, suffix=%s): opening created path=%s with fdopen(\"wb\") failed",
-        dir_for_context,
-        prefix_raw,
-        suffix_raw,
-        template_path);
-    BValue err = bsts_ioerror_from_errno_default(errno, context);
-    close(fd);
-    free(prefix_raw);
-    free(suffix_raw);
-    free(prefix_norm);
-    free(template_path);
-    if (dir_path)
-    {
-      free(dir_path);
-    }
-    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(err);
-  }
-
   BValue path_out = bsts_path_from_cstr(template_path);
-  BValue handle_out = bsts_core_make_handle(BSTS_HANDLE_FILE, file, 0, 1, 1);
+  BValue handle_out = bsts_core_make_handle(BSTS_HANDLE_FILE, (uv_file)fd, NULL, 0, 1, 1);
   BValue out = alloc_struct2(path_out, handle_out);
 
-  // Release malloc-owned temporary buffers now that Bosatsu values/FILE* are built.
+  // mkstemp/mkstemps provide the compatibility name contract; the returned handle is uv_file-backed.
   free(prefix_raw);
   free(suffix_raw);
   free(prefix_norm);
@@ -2222,17 +2311,17 @@ BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_path__sep()
 
 BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_stdin()
 {
-  return bsts_core_make_handle(BSTS_HANDLE_STDIN, stdin, 1, 0, 0);
+  return bsts_core_make_handle(BSTS_HANDLE_STDIN, (uv_file)fileno(stdin), stdin, 1, 0, 0);
 }
 
 BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_stdout()
 {
-  return bsts_core_make_handle(BSTS_HANDLE_STDOUT, stdout, 0, 1, 0);
+  return bsts_core_make_handle(BSTS_HANDLE_STDOUT, (uv_file)fileno(stdout), stdout, 0, 1, 0);
 }
 
 BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_stderr()
 {
-  return bsts_core_make_handle(BSTS_HANDLE_STDERR, stderr, 0, 1, 0);
+  return bsts_core_make_handle(BSTS_HANDLE_STDERR, (uv_file)fileno(stderr), stderr, 0, 1, 0);
 }
 
 BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_read__utf8(BValue h, BValue max_chars)

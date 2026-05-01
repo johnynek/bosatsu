@@ -532,6 +532,79 @@ static BValue io_core_sleep_repeat_test_fn(BValue arg) {
       alloc_boxed_pure_fn1(io_core_sleep_repeat_first_fn));
 }
 
+static char io_core_file_missing_path[PATH_MAX];
+static char io_core_file_existing_path[PATH_MAX];
+static char io_core_file_close_path[PATH_MAX];
+static char io_core_file_closed_read_path[PATH_MAX];
+
+static BValue io_core_path_value(const char* path) {
+  return bsts_string_from_utf8_bytes_copy(strlen(path), path);
+}
+
+static void io_core_test_unlink(const char* path) {
+  uv_fs_t req;
+  (void)uv_fs_unlink(NULL, &req, path, NULL);
+  uv_fs_req_cleanup(&req);
+}
+
+static BValue io_core_open_missing_read_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_IO_l_Core_l_open__file(
+      io_core_path_value(io_core_file_missing_path),
+      alloc_enum0(0));
+}
+
+static BValue io_core_create_new_existing_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_IO_l_Core_l_open__file(
+      io_core_path_value(io_core_file_existing_path),
+      alloc_enum0(3));
+}
+
+static BValue io_core_close_again_fn(BValue* slots, BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_IO_l_Core_l_close(slots[0]);
+}
+
+static BValue io_core_close_first_fn(BValue handle) {
+  BValue slots[1] = { handle };
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_close(handle),
+      alloc_closure1(1, slots, io_core_close_again_fn));
+}
+
+static BValue io_core_close_twice_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_open__file(
+          io_core_path_value(io_core_file_close_path),
+          alloc_enum0(1)),
+      alloc_boxed_pure_fn1(io_core_close_first_fn));
+}
+
+static BValue io_core_read_after_close_fn(BValue* slots, BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_IO_l_Core_l_read__bytes(
+      slots[0],
+      bsts_integer_from_int(1));
+}
+
+static BValue io_core_close_before_read_fn(BValue handle) {
+  BValue slots[1] = { handle };
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_close(handle),
+      alloc_closure1(1, slots, io_core_read_after_close_fn));
+}
+
+static BValue io_core_read_closed_handle_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_open__file(
+          io_core_path_value(io_core_file_closed_read_path),
+          alloc_enum0(1)),
+      alloc_boxed_pure_fn1(io_core_close_before_read_fn));
+}
+
 #if !defined(_WIN32)
 typedef void (*VoidFn)(void);
 
@@ -1930,6 +2003,57 @@ void test_io_core_libuv_effects() {
   assert(
       io_core_sleep_continuations == sleep_calls_before_repeat + 3,
       "IO/Core repeated sleeps should run each continuation exactly once");
+
+  long pid = (long)uv_os_getpid();
+  snprintf(
+      io_core_file_missing_path,
+      sizeof(io_core_file_missing_path),
+      "/tmp/bosatsu-c-runtime-missing-%ld.txt",
+      pid);
+  snprintf(
+      io_core_file_existing_path,
+      sizeof(io_core_file_existing_path),
+      "/tmp/bosatsu-c-runtime-existing-%ld.txt",
+      pid);
+  snprintf(
+      io_core_file_close_path,
+      sizeof(io_core_file_close_path),
+      "/tmp/bosatsu-c-runtime-close-%ld.txt",
+      pid);
+  snprintf(
+      io_core_file_closed_read_path,
+      sizeof(io_core_file_closed_read_path),
+      "/tmp/bosatsu-c-runtime-closed-read-%ld.txt",
+      pid);
+
+  io_core_test_unlink(io_core_file_missing_path);
+  io_core_test_unlink(io_core_file_existing_path);
+  io_core_test_unlink(io_core_file_close_path);
+  io_core_test_unlink(io_core_file_closed_read_path);
+
+  FILE* existing = fopen(io_core_file_existing_path, "wb");
+  assert(existing != NULL, "creating existing file fixture should succeed");
+  assert(fclose(existing) == 0, "closing existing file fixture should succeed");
+
+  assert_prog_error_variant(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_open_missing_read_test_fn)),
+      0,
+      "IO/Core open_file Read should map a missing path to NotFound");
+  assert_prog_error_variant(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_create_new_existing_test_fn)),
+      2,
+      "IO/Core open_file CreateNew should map an existing path to AlreadyExists");
+  (void)assert_prog_success(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_close_twice_test_fn)),
+      "IO/Core close should be idempotent for runtime-owned handles");
+  assert_prog_error_variant(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_read_closed_handle_test_fn)),
+      14,
+      "IO/Core read on a closed runtime-owned handle should raise BadFileDescriptor");
+
+  io_core_test_unlink(io_core_file_existing_path);
+  io_core_test_unlink(io_core_file_close_path);
+  io_core_test_unlink(io_core_file_closed_read_path);
 }
 
 void test_prog_runner_loop() {
