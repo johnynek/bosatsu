@@ -1,0 +1,121 @@
+# Code Plan #2356
+
+> Generated from code plan JSON.
+> Edit the `.json` file, not this `.md` file.
+
+## Metadata
+
+- Flow: `small_job`
+- Issue: `#2356` Migrate file and directory C IO effects to libuv-backed operations
+- Pending steps: `4`
+- Completed steps: `0`
+- Total steps: `4`
+
+## Summary
+
+Migrate the existing C backend `IO/Core` file and directory externals from direct stdio/POSIX filesystem calls to libuv-backed operations while preserving the current Bosatsu API, value shapes, handle behavior, and `IOError` mapping. The change should cover file handle creation/closing, UTF-8 and bytes read/write paths, `read_all_bytes`, `copy_bytes`, `flush`, temp file/dir creation, directory listing, stat, mkdir, mkdir_with_mode, remove, and rename, with focused C backend tests and the configured `scripts/test_basic.sh` gate before PR submission.
+
+## Current State
+
+The repo already has the libuv-owned C Prog runtime, private suspend/resume support, and the phase-one `IO/Core` migration for wall time, monotonic time, environment lookup, and sleep. `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c` includes libuv and maps libuv errors into the existing local `IOError` constructors, but its file and directory operations still primarily use `FILE *`, `fopen`, `fread`, `fwrite`, `fflush`, `fclose`, `open`, `fdopen`, `mkstemp`, `mkdtemp`, `opendir`/`readdir`, `stat`/`lstat`, `mkdir`, `chmod`, `rmdir`, `unlink`, and `rename`. The C harness in `c_runtime/test.c` already exercises Prog suspension and phase-one IO/Core effects through `bsts_Bosatsu_Prog_run_test`, but it does not yet cover the file and directory externals listed in this issue.
+
+## Problem
+
+The remaining C `IO/Core` file and directory effects bypass the libuv filesystem API and keep a stdio-centered handle representation. That leaves the runtime split across two IO models: some effects are owned by the libuv-backed Prog runtime while file and directory behavior is still implemented through direct platform calls. This issue needs a scoped migration that uses libuv filesystem primitives where they match existing semantics, keeps compatibility fallbacks only where libuv has no exact equivalent, preserves current Bosatsu-visible behavior, and adds enough C backend coverage to catch handle lifetime, EOF, UTF-8 validation, directory metadata, mode, rename/remove, and common error mapping regressions.
+
+## Steps
+
+1. [ ] `step-1` Introduce Libuv File Handle And Fs Helpers
+
+Replace the stdio-centered private file handle implementation in `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c` with a libuv-compatible representation based on `uv_file` for runtime-owned files, while preserving the existing generated symbols and Bosatsu handle values. Add small local helpers for starting and completing `uv_fs_*` work through the existing Prog suspend/resume API, converting libuv status values through the existing `IOError` mapping, and cleaning up every `uv_fs_t` request with `uv_fs_req_cleanup`. Keep stdin/stdout/stderr behavior compatible, including not closing process-owned standard streams. If a standard stream path cannot be represented safely as a `uv_file` on every supported target, isolate that as a narrow compatibility branch with a short code comment rather than changing the public API.
+
+#### Invariants
+
+- No public Bosatsu API, generated symbol name, or `Prog` runner entry point changes.
+- Runtime-owned file handles record readable, writable, close-on-close, and closed state exactly as today.
+- Closing a runtime-owned file handle closes the underlying descriptor at most once; closing stdin/stdout/stderr remains a no-op for process ownership.
+- Closed, read-only, and write-only handle checks continue to raise the same existing `IOError` variants before scheduling filesystem work.
+- Every libuv filesystem request is cleaned up exactly once, and any suspended request remains GC-reachable until completion.
+
+#### Property Tests
+
+- For a deterministic table of handle states and requested operations, assert the operation is either allowed or raises the same BadFileDescriptor-style error class as the current contract.
+- For repeated open/close sequences over generated temporary filenames, assert close is idempotent and no later read/write/flush succeeds on the closed handle.
+
+#### Assertion Tests
+
+- Add C harness cases for opening a missing file for read as NotFound, CreateNew on an existing path as AlreadyExists, and invalid open mode as InvalidArgument if such construction is practical in the harness.
+- Add C harness cases that close a runtime-owned file handle twice and then verify read/write/flush on the closed handle report BadFileDescriptor.
+- Add a standard stream smoke case only if needed to prove stdin/stdout/stderr handles remain constructible and non-owning.
+
+2. [ ] `step-2` Migrate File Data Operations
+
+Move `open_file`, `create_temp_file`, `read_utf8`, `write_utf8`, `read_bytes`, `write_bytes`, `read_all_bytes`, `copy_bytes`, `flush`, and `close` onto the libuv-backed handle and `uv_fs_*` helpers. Preserve current open mode semantics for Read, WriteTruncate, Append, and CreateNew, including exclusive creation and writable/readable flags. Preserve EOF behavior as `None` for bounded reads, empty bytes for `read_all_bytes` on an empty file, existing invalid UTF-8 behavior for `read_utf8`, and integer byte counts for `copy_bytes`. Where libuv lacks an exact temp-file helper with the existing prefix/suffix contract, keep the smallest local compatibility fallback for name generation/opening and immediately normalize the resulting handle back to the libuv-backed representation.
+
+#### Invariants
+
+- Bounded byte and UTF-8 reads return `None` only at EOF before reading bytes.
+- `read_utf8` accepts only valid UTF-8 byte prefixes and raises the existing InvalidUtf8 variant for invalid input.
+- `read_all_bytes` preserves chunk-size validation, result-size bounds, and byte ordering.
+- `copy_bytes` preserves chunk-size validation, optional max-total semantics, EOF termination, and the exact number of copied bytes returned.
+- Append, truncate, read, and create-new modes preserve current observable file contents and error behavior.
+- Flush preserves successful unit behavior for writable handles and no-op success for non-writable handles where that is the current contract.
+
+#### Property Tests
+
+- For generated byte arrays of varying sizes around chunk boundaries, write through the C `IO/Core` path, read back with bounded reads and `read_all_bytes`, and assert byte-for-byte equality.
+- For generated copy limits and chunk sizes, copy from a source file to a destination file and assert destination bytes equal the expected prefix and returned count equals the copied length.
+- For generated valid UTF-8 strings, assert write/read round trips preserve the exact string bytes.
+
+#### Assertion Tests
+
+- Add C harness cases for EOF on `read_bytes` and `read_utf8`.
+- Add C harness cases for invalid UTF-8 bytes read through `read_utf8`.
+- Add C harness cases for write/read UTF-8, write/read bytes, `read_all_bytes`, `copy_bytes` with `None` and a finite limit, `flush`, and create-temp-file prefix/suffix behavior.
+- Add concrete error cases for reading from a write-only handle and writing to a read-only handle.
+
+3. [ ] `step-3` Migrate Directory And Path Operations
+
+Move `create_temp_dir`, `list_dir`, `stat`, `mkdir`, `mkdir_with_mode`, `remove`, and `rename` toward libuv-backed filesystem calls. Use direct `uv_fs_stat`/`uv_fs_lstat`, `uv_fs_mkdir`, `uv_fs_scandir`/`uv_fs_scandir_next`, `uv_fs_unlink`, `uv_fs_rmdir`, and `uv_fs_rename` where they preserve current semantics. Keep local recursive traversal, temp-dir naming, symlink-aware remove behavior, and post-mkdir chmod/mode repair only where libuv does not provide an exact semantic match, with short comments documenting those compatibility fallbacks. Preserve sorted `list_dir` output, `stat` returning `None` for missing paths, stat kind/size/mtime/mode encoding, and recursive mkdir/remove behavior.
+
+#### Invariants
+
+- `list_dir` excludes `.` and `..`, returns joined child paths, and preserves deterministic sorted order.
+- `stat` returns `None` for missing paths and raises existing `IOError` variants for other failures.
+- `stat` continues to distinguish file, directory, symlink, and other kinds, with size, mtime nanoseconds, and optional POSIX mode encoded as before.
+- Recursive mkdir accepts existing directory components and applies requested leaf mode semantics where supported by the platform.
+- Recursive remove does not follow directory symlinks as directories and removes nested files/directories in a deterministic cleanup path.
+- Rename preserves existing success and error behavior, including cross-device failures mapping to the existing variant when reported by the platform.
+
+#### Property Tests
+
+- For generated shallow directory trees, assert `list_dir` returns exactly the sorted set of immediate children as joined paths.
+- For generated nested directory/file layouts, assert recursive remove deletes the tree and non-recursive remove fails on non-empty directories.
+- For generated valid POSIX mode values within the supported mask, assert mkdir_with_mode records the requested mode bits where the platform exposes POSIX modes.
+
+#### Assertion Tests
+
+- Add C harness cases for mkdir, recursive mkdir, mkdir_with_mode, stat of file/dir/symlink-or-other where practical, list_dir sorting, rename, non-recursive remove, and recursive remove.
+- Add concrete common failure cases for missing path stat as `None`, listing a missing directory as NotFound, mkdir existing path as AlreadyExists, removing a missing path as NotFound, and renaming from a missing source as NotFound.
+- Add temp-dir creation coverage for default/provided directory and invalid prefix handling.
+
+4. [ ] `step-4` Verify Scope And Required Gate
+
+Run focused C runtime coverage while iterating, then run the configured required gate `scripts/test_basic.sh` with the repo-owned 2400 second timeout before the branch is considered PR-ready. Review the final diff for accidental public API changes, uncleaned `uv_fs_t` requests, leaked malloc buffers, inconsistent `IOError` contexts, and compatibility fallbacks that should be documented in code comments. Keep any discovered design cleanup inside this PR if it is under the configured 1000 line heuristic; otherwise record it in `technical_debt_notes` before finalizing the plan state.
+
+#### Invariants
+
+- `scripts/test_basic.sh` passes before PR submission.
+- The final change remains scoped to C `IO/Core` file and directory runtime behavior plus focused C harness coverage.
+- All libuv requests and runtime-owned handles have explicit cleanup/close paths for success and failure.
+- Compatibility fallbacks are narrow, documented only where needed, and do not reintroduce a parallel public runtime model.
+
+#### Property Tests
+
+- Treat the byte round-trip, copy prefix/count, directory listing set equality, recursive remove, and mode-mask checks from earlier steps as the main contract-style coverage for this job.
+
+#### Assertion Tests
+
+- Run the focused C runtime target used by the repo for `c_runtime/test.c` after file operation changes and again after directory operation changes.
+- Run `scripts/test_basic.sh` as the required final gate.
+- If failures expose platform-specific libuv filesystem behavior, add or adjust focused assertion tests for that exact compatibility case before rerunning the gate.
