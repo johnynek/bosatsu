@@ -23,6 +23,8 @@
 #endif
 #include "gc.h"
 
+unsigned int bsts_core_test_uv_io_chunk_size(size_t len);
+
 void assert(_Bool cond, const char* message) {
   if (!cond) {
     printf("%s\n", message);
@@ -79,6 +81,25 @@ void assert_u64_equals(uint64_t got, uint64_t expected, const char* message) {
 
 void assert_int64_bits(BValue value, uint64_t expected, const char* message) {
   assert_u64_equals(bsts_int64_to_bits(value), expected, message);
+}
+
+static void test_io_core_uv_chunk_sizes(void) {
+  assert(
+      bsts_core_test_uv_io_chunk_size(0) == 0U,
+      "IO/Core libuv chunk size should preserve zero-length buffers");
+  assert(
+      bsts_core_test_uv_io_chunk_size((size_t)INT_MAX) == (unsigned int)INT_MAX,
+      "IO/Core libuv chunk size should allow INT_MAX-byte buffers");
+#if SIZE_MAX > INT_MAX
+  assert(
+      bsts_core_test_uv_io_chunk_size((size_t)INT_MAX + 1U) == (unsigned int)INT_MAX,
+      "IO/Core libuv chunk size should cap buffers above INT_MAX");
+#endif
+#if SIZE_MAX > UINT_MAX
+  assert(
+      bsts_core_test_uv_io_chunk_size((size_t)UINT_MAX + 1U) == (unsigned int)INT_MAX,
+      "IO/Core libuv chunk size should not wrap 4GB buffers to zero");
+#endif
 }
 
 void assert_option_int64_bits(BValue opt, uint64_t expected, const char* message) {
@@ -3254,6 +3275,7 @@ int main(int argc, char** argv) {
   test_array_int64();
   test_prog_assoc();
   test_prog_runner_loop();
+  test_io_core_uv_chunk_sizes();
   test_io_core_libuv_effects();
   printf("success\n");
   return 0;

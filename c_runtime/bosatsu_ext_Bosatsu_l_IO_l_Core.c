@@ -50,6 +50,7 @@ enum
 
 #define BSTS_POSIX_MODE_MASK 07777
 #define BSTS_OWNER_WRITE_EXECUTE_MASK 0300
+#define BSTS_UV_IO_CHUNK_MAX ((unsigned int)INT_MAX)
 
 typedef enum
 {
@@ -337,7 +338,7 @@ static void bsts_core_fs_request_resume(uv_fs_t *req)
   bsts_Bosatsu_Prog_suspended_success(request->suspended, request->success);
 }
 
-static int bsts_core_uv_fs_cleanup_result(uv_fs_t *req, const char *context)
+static ssize_t bsts_core_uv_fs_cleanup_result(uv_fs_t *req, const char *context)
 {
   ssize_t result = req->result;
   uv_fs_req_cleanup(req);
@@ -347,10 +348,10 @@ static int bsts_core_uv_fs_cleanup_result(uv_fs_t *req, const char *context)
     (void)context;
     return -1;
   }
-  return (int)result;
+  return result;
 }
 
-static int bsts_core_uv_fs_cleanup_start_result(int start, uv_fs_t *req, const char *context)
+static ssize_t bsts_core_uv_fs_cleanup_start_result(int start, uv_fs_t *req, const char *context)
 {
   ssize_t result = (start < 0) ? (ssize_t)start : req->result;
   uv_fs_req_cleanup(req);
@@ -360,12 +361,24 @@ static int bsts_core_uv_fs_cleanup_start_result(int start, uv_fs_t *req, const c
     (void)context;
     return -1;
   }
-  return (int)result;
+  return result;
 }
 
-static int bsts_core_uv_read(uv_file file, void *data, size_t len, const char *context)
+static unsigned int bsts_core_uv_io_chunk_size(size_t len)
 {
-  uv_buf_t buf = uv_buf_init((char *)data, (unsigned int)len);
+  return (len > (size_t)BSTS_UV_IO_CHUNK_MAX)
+      ? BSTS_UV_IO_CHUNK_MAX
+      : (unsigned int)len;
+}
+
+unsigned int bsts_core_test_uv_io_chunk_size(size_t len)
+{
+  return bsts_core_uv_io_chunk_size(len);
+}
+
+static ssize_t bsts_core_uv_read(uv_file file, void *data, size_t len, const char *context)
+{
+  uv_buf_t buf = uv_buf_init((char *)data, bsts_core_uv_io_chunk_size(len));
   uv_fs_t req;
   int start = uv_fs_read(NULL, &req, file, &buf, 1, -1, NULL);
   return bsts_core_uv_fs_cleanup_start_result(start, &req, context);
@@ -377,11 +390,15 @@ static int bsts_core_uv_write_all(uv_file file, const void *data, size_t len, co
   size_t remaining = len;
   while (remaining > 0U)
   {
-    uv_buf_t buf = uv_buf_init((char *)cursor, (unsigned int)remaining);
+    uv_buf_t buf = uv_buf_init((char *)cursor, bsts_core_uv_io_chunk_size(remaining));
     uv_fs_t req;
     int start = uv_fs_write(NULL, &req, file, &buf, 1, -1, NULL);
-    int wrote = bsts_core_uv_fs_cleanup_start_result(start, &req, context);
-    if (wrote <= 0)
+    ssize_t wrote = bsts_core_uv_fs_cleanup_start_result(start, &req, context);
+    if (wrote < 0)
+    {
+      return -1;
+    }
+    if (wrote == 0)
     {
 #ifdef EIO
       errno = EIO;
@@ -398,7 +415,7 @@ static int bsts_core_uv_write_all(uv_file file, const void *data, size_t len, co
 
 static int bsts_core_uv_fs_simple(uv_fs_t *req, const char *context)
 {
-  int result = bsts_core_uv_fs_cleanup_result(req, context);
+  ssize_t result = bsts_core_uv_fs_cleanup_result(req, context);
   if (result < 0)
   {
     return -1;
@@ -417,13 +434,7 @@ static int bsts_core_uv_stat_path(const char *path, uv_stat_t *out, int follow)
     return bsts_core_uv_fs_cleanup_start_result(start, &req, "stating path");
   }
 
-  const uv_stat_t *statbuf = uv_fs_get_statbuf(&req);
-  if (req.result < 0 || statbuf == NULL)
-  {
-    return bsts_core_uv_fs_cleanup_result(&req, "stating path");
-  }
-
-  *out = *statbuf;
+  *out = *uv_fs_get_statbuf(&req);
   uv_fs_req_cleanup(&req);
   return 0;
 }
@@ -481,18 +492,6 @@ static int bsts_core_uv_rename_path(const char *from, const char *to)
     return bsts_core_uv_fs_cleanup_start_result(start, &req, "renaming path");
   }
   return bsts_core_uv_fs_simple(&req, "renaming path");
-}
-
-static int bsts_core_flush_start(BSTS_Prog_Suspended *suspended)
-{
-  BSTS_Core_Fs_Request *request =
-      BSTS_PTR(BSTS_Core_Fs_Request, bsts_Bosatsu_Prog_suspended_request(suspended));
-  request->suspended = suspended;
-  return uv_fs_fsync(
-      bsts_Bosatsu_Prog_suspended_loop(suspended),
-      &request->req,
-      request->handle->file,
-      bsts_core_fs_request_resume);
 }
 
 static int bsts_core_close_start(BSTS_Prog_Suspended *suspended)
@@ -961,11 +960,12 @@ static int bsts_remove_recursive_impl(const char *path)
     int scan_start = uv_fs_scandir(NULL, &req, path, 0, NULL);
     if (scan_start < 0)
     {
-      return bsts_core_uv_fs_cleanup_start_result(scan_start, &req, "scanning directory");
+      ssize_t cleanup_result = bsts_core_uv_fs_cleanup_start_result(scan_start, &req, "scanning directory");
+      return (cleanup_result < 0) ? -1 : 0;
     }
     if (req.result < 0)
     {
-      int status = bsts_core_uv_fs_cleanup_start_result(scan_start, &req, "scanning directory");
+      ssize_t status = bsts_core_uv_fs_cleanup_start_result(scan_start, &req, "scanning directory");
       (void)status;
       return -1;
     }
@@ -1043,7 +1043,7 @@ static BValue bsts_core_read_utf8_effect(BValue pair)
   }
 
   errno = 0;
-  int read_count = bsts_core_uv_read(handle->file, buf, (size_t)max_chars, "reading utf8");
+  ssize_t read_count = bsts_core_uv_read(handle->file, buf, (size_t)max_chars, "reading utf8");
   if (read_count == 0)
   {
     free(buf);
@@ -1056,14 +1056,15 @@ static BValue bsts_core_read_utf8_effect(BValue pair)
         bsts_ioerror_from_errno_default(errno, "reading utf8"));
   }
 
-  if (!bsts_utf8_is_valid_prefix(buf, read_count))
+  int read_len = (int)read_count;
+  if (!bsts_utf8_is_valid_prefix(buf, read_len))
   {
     free(buf);
     return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
         bsts_ioerror_invalid_utf8("decoding bytes from handle"));
   }
 
-  BValue text = bsts_string_from_utf8_bytes_copy((size_t)read_count, buf);
+  BValue text = bsts_string_from_utf8_bytes_copy((size_t)read_len, buf);
   free(buf);
   return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_option_some(text));
 }
@@ -1131,7 +1132,7 @@ static BValue bsts_core_read_bytes_effect(BValue pair)
   }
 
   errno = 0;
-  int read_count = bsts_core_uv_read(handle->file, buf, (size_t)max_bytes, "reading bytes");
+  ssize_t read_count = bsts_core_uv_read(handle->file, buf, (size_t)max_bytes, "reading bytes");
   if (read_count == 0)
   {
     free(buf);
@@ -1144,17 +1145,18 @@ static BValue bsts_core_read_bytes_effect(BValue pair)
         bsts_ioerror_from_errno_default(errno, "reading bytes"));
   }
 
-  uint8_t *data = (uint8_t *)GC_malloc_atomic((size_t)read_count);
+  int read_len = (int)read_count;
+  uint8_t *data = (uint8_t *)GC_malloc_atomic((size_t)read_len);
   if (data == NULL)
   {
     free(buf);
     perror("GC_malloc_atomic failure in bsts_core_read_bytes_effect");
     abort();
   }
-  memcpy(data, buf, (size_t)read_count);
+  memcpy(data, buf, (size_t)read_len);
   free(buf);
 
-  BValue bytes = bsts_bytes_wrap(data, 0, read_count);
+  BValue bytes = bsts_bytes_wrap(data, 0, read_len);
   return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_option_some(bytes));
 }
 
@@ -1231,7 +1233,7 @@ static BValue bsts_core_read_all_bytes_effect(BValue pair)
   while (1)
   {
     errno = 0;
-    int read_count = bsts_core_uv_read(handle->file, chunk_buf, (size_t)chunk_size, "reading bytes");
+    ssize_t read_count = bsts_core_uv_read(handle->file, chunk_buf, (size_t)chunk_size, "reading bytes");
     if (read_count == 0)
     {
       break;
@@ -1386,7 +1388,7 @@ static BValue bsts_core_copy_bytes_effect(BValue args4)
     }
 
     errno = 0;
-    int read_count = bsts_core_uv_read(src->file, buf, (size_t)to_read, "reading bytes");
+    ssize_t read_count = bsts_core_uv_read(src->file, buf, (size_t)to_read, "reading bytes");
     if (read_count == 0)
     {
       break;
@@ -1406,7 +1408,7 @@ static BValue bsts_core_copy_bytes_effect(BValue args4)
           bsts_ioerror_from_errno_default(errno, "writing bytes"));
     }
 
-    copied = bsts_integer_add(copied, bsts_integer_from_int(read_count));
+    copied = bsts_integer_add(copied, bsts_integer_from_int((int)read_count));
   }
 
   free(buf);
@@ -1439,19 +1441,7 @@ static BValue bsts_core_flush_effect(BValue handle_value)
     return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_unit_value());
   }
 
-  BSTS_Core_Fs_Request *request =
-      (BSTS_Core_Fs_Request *)GC_malloc(sizeof(BSTS_Core_Fs_Request));
-  if (request == NULL)
-  {
-    perror("GC_malloc failure in bsts_core_flush_effect");
-    abort();
-  }
-  request->handle = handle;
-  request->success = bsts_unit_value();
-  request->mark_closed = 0;
-  bsts_contextf(request->context, sizeof(request->context), "flushing handle");
-  request->req.data = request;
-  return bsts_Bosatsu_Prog_suspend(BSTS_VALUE_FROM_PTR(request), bsts_core_flush_start);
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_unit_value());
 }
 
 static BValue bsts_core_close_effect(BValue handle_value)
@@ -1547,16 +1537,18 @@ static BValue bsts_core_open_file_effect(BValue pair)
   int start = uv_fs_open(NULL, &req, path, open_flags, 0666, NULL);
   if (start < 0)
   {
-    int result = bsts_core_uv_fs_cleanup_start_result(start, &req, context);
+    ssize_t result = bsts_core_uv_fs_cleanup_start_result(start, &req, context);
     (void)result;
     BValue err = bsts_ioerror_from_uv(start, context);
     free(path);
     return ___bsts_g_Bosatsu_l_Prog_l_raise__error(err);
   }
-  int fd = bsts_core_uv_fs_cleanup_result(&req, context);
-  if (fd < 0)
+  ssize_t fd = bsts_core_uv_fs_cleanup_result(&req, context);
+  if (fd < 0 || fd > (ssize_t)INT_MAX)
   {
-    BValue err = bsts_ioerror_from_errno_default(errno, context);
+    BValue err = (fd > (ssize_t)INT_MAX)
+        ? bsts_ioerror_invalid_argument("open_file returned an unsupported file descriptor")
+        : bsts_ioerror_from_errno_default(errno, context);
     free(path);
     return ___bsts_g_Bosatsu_l_Prog_l_raise__error(err);
   }
@@ -1913,7 +1905,7 @@ static BValue bsts_core_list_dir_effect(BValue path_value)
   int scan_start = uv_fs_scandir(NULL, &req, path, 0, NULL);
   if (scan_start < 0)
   {
-    int result = bsts_core_uv_fs_cleanup_start_result(scan_start, &req, "listing directory");
+    ssize_t result = bsts_core_uv_fs_cleanup_start_result(scan_start, &req, "listing directory");
     (void)result;
     BValue err = bsts_ioerror_from_errno_default(errno, "listing directory");
     free(path);
@@ -1921,7 +1913,7 @@ static BValue bsts_core_list_dir_effect(BValue path_value)
   }
   if (req.result < 0)
   {
-    int result = bsts_core_uv_fs_cleanup_start_result(scan_start, &req, "listing directory");
+    ssize_t result = bsts_core_uv_fs_cleanup_start_result(scan_start, &req, "listing directory");
     (void)result;
     BValue err = bsts_ioerror_from_errno_default(errno, "listing directory");
     free(path);
