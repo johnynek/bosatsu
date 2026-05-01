@@ -210,6 +210,7 @@ Property-check style tests should cover the behavioral invariants where the resu
 
 - Stable status: once any operation observes `Some(code)` or `wait` returns `code`, all later status observations return that same code.
 - Timeout non-consumption: for generated short timeout durations and bounded long-running children, any number of `wait_timeout(...)=None` observations can be followed by stop or natural exit and then stable final `wait`.
+- Duration edge cases: generated non-positive and small positive `Duration.to_nanos` values preserve the immediate-poll or rounded-up-wait behavior without consuming final status.
 - Stop idempotence: after a child has exited and status is recorded, arbitrary sequences of `terminate`, `kill`, `poll`, `wait_timeout`, and `wait` preserve `AlreadyExited` or the same final status as appropriate.
 - Stop does not close stdio: after a low-level stop request, returned pipe handles remain ordinary handles until explicitly closed or until backend EOF/broken-pipe behavior occurs naturally.
 
