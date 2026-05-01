@@ -14,6 +14,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#if defined(__linux__)
+#include <sys/syscall.h>
+#endif
 #include <time.h>
 #include <unistd.h>
 #include <uv.h>
@@ -693,10 +696,39 @@ static int bsts_core_set_close_on_exec(uv_file fd)
   return fcntl((int)fd, F_SETFD, flags | FD_CLOEXEC);
 }
 
+static int bsts_core_pipe_cloexec(int fds[2])
+{
+#if defined(__linux__) && defined(SYS_pipe2) && defined(O_CLOEXEC)
+  if (syscall(SYS_pipe2, fds, O_CLOEXEC) == 0)
+  {
+    return 0;
+  }
+  if (errno != ENOSYS)
+  {
+    return -1;
+  }
+#endif
+
+  if (pipe(fds) != 0)
+  {
+    return -1;
+  }
+  if (bsts_core_set_close_on_exec((uv_file)fds[0]) != 0 ||
+      bsts_core_set_close_on_exec((uv_file)fds[1]) != 0)
+  {
+    int saved_errno = errno;
+    (void)close(fds[0]);
+    (void)close(fds[1]);
+    errno = saved_errno;
+    return -1;
+  }
+  return 0;
+}
+
 static int bsts_core_spawn_pipe_for_stdio(BSTS_Core_Spawn_Request *request, int index)
 {
   int fds[2] = {-1, -1};
-  if (pipe(fds) != 0)
+  if (bsts_core_pipe_cloexec(fds) != 0)
   {
     return 0;
   }
@@ -705,14 +737,6 @@ static int bsts_core_spawn_pipe_for_stdio(BSTS_Core_Spawn_Request *request, int 
   int child_index = (index == 0) ? 0 : 1;
   uv_file parent_fd = (uv_file)fds[parent_index];
   uv_file child_fd = (uv_file)fds[child_index];
-  if (bsts_core_set_close_on_exec(parent_fd) != 0)
-  {
-    int saved_errno = errno;
-    (void)close(fds[0]);
-    (void)close(fds[1]);
-    errno = saved_errno;
-    return 0;
-  }
 
   int parent_readable = (index != 0);
   int parent_writable = (index == 0);
