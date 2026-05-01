@@ -555,6 +555,61 @@ static BValue io_core_sleep_repeat_test_fn(BValue arg) {
       alloc_boxed_pure_fn1(io_core_sleep_repeat_first_fn));
 }
 
+static BValue io_core_list_cons(BValue head, BValue tail) {
+  return alloc_enum2(1, head, tail);
+}
+
+static BValue io_core_string_list2(const char *a, const char *b) {
+  return io_core_list_cons(
+      bsts_string_from_utf8_bytes_static(strlen(a), a),
+      io_core_list_cons(
+          bsts_string_from_utf8_bytes_static(strlen(b), b),
+          alloc_enum0(0)));
+}
+
+static BValue io_core_null_stdio_config(void) {
+  return alloc_struct3(alloc_enum0(2), alloc_enum0(2), alloc_enum0(2));
+}
+
+static BValue io_core_wait_spawned_process_fn(BValue spawn_result) {
+  return ___bsts_g_Bosatsu_l_IO_l_Core_l_wait(get_struct_index(spawn_result, 0));
+}
+
+static BValue io_core_spawn_wait_shell_exit(int exit_code) {
+  char script[32];
+  snprintf(script, sizeof(script), "exit %d", exit_code);
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_spawn(
+          bsts_string_from_utf8_bytes_static(7, "/bin/sh"),
+          io_core_string_list2("-c", script),
+          io_core_null_stdio_config()),
+      alloc_boxed_pure_fn1(io_core_wait_spawned_process_fn));
+}
+
+static BValue io_core_spawn_wait_zero_test_fn(BValue arg) {
+  (void)arg;
+  return io_core_spawn_wait_shell_exit(0);
+}
+
+static BValue io_core_spawn_wait_nonzero_test_fn(BValue arg) {
+  (void)arg;
+  return io_core_spawn_wait_shell_exit(7);
+}
+
+static BValue io_core_spawn_missing_test_fn(BValue arg) {
+  (void)arg;
+  const char *missing = "/tmp/bosatsu-missing-command-2358";
+  return ___bsts_g_Bosatsu_l_IO_l_Core_l_spawn(
+      bsts_string_from_utf8_bytes_static(strlen(missing), missing),
+      alloc_enum0(0),
+      io_core_null_stdio_config());
+}
+
+static BValue io_core_wait_invalid_process_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_IO_l_Core_l_wait(bsts_integer_from_int(42));
+}
+
 static char io_core_file_missing_path[PATH_MAX];
 static char io_core_file_existing_path[PATH_MAX];
 static char io_core_file_close_path[PATH_MAX];
@@ -2737,6 +2792,25 @@ void test_io_core_libuv_effects() {
   assert(
       io_core_sleep_continuations == sleep_calls_before_repeat + 3,
       "IO/Core repeated sleeps should run each continuation exactly once");
+
+#if !defined(_WIN32)
+  assert_prog_success_int(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_spawn_wait_zero_test_fn)),
+      "0",
+      "IO/Core spawn/wait should preserve a zero child exit code");
+  assert_prog_success_int(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_spawn_wait_nonzero_test_fn)),
+      "7",
+      "IO/Core spawn/wait should preserve a non-zero child exit code");
+  assert_prog_error_variant(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_spawn_missing_test_fn)),
+      0,
+      "IO/Core spawn should map a missing command to NotFound");
+#endif
+  assert_prog_error_variant(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_wait_invalid_process_test_fn)),
+      14,
+      "IO/Core wait should reject non-process values as BadFileDescriptor");
 
   long pid = (long)uv_os_getpid();
   snprintf(

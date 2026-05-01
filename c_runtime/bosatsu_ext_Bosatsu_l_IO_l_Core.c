@@ -90,6 +90,37 @@ typedef struct
   _Bool is_error;
 } BSTS_Core_Sleep_Request;
 
+#define BSTS_CORE_PROCESS_MAGIC 0x42505350u
+
+typedef struct
+{
+  uint32_t magic;
+  uv_process_t process;
+  int exited;
+  int exit_code;
+  int term_signal;
+  int wait_consumed;
+  int close_started;
+  BSTS_Prog_Suspended *wait_suspended;
+} BSTS_Core_Process;
+
+typedef struct
+{
+  BValue args3;
+  BSTS_Prog_Suspended *suspended;
+  BSTS_Core_Process *process;
+  char *cmd;
+  char **argv;
+  int argc;
+  unsigned int stdio_flags[3];
+} BSTS_Core_Spawn_Request;
+
+typedef struct
+{
+  BSTS_Core_Process *process;
+  BSTS_Prog_Suspended *suspended;
+} BSTS_Core_Wait_Request;
+
 static BValue bsts_ioerror_context(const char *context)
 {
   if (!context)
@@ -527,6 +558,116 @@ static char *bsts_string_to_cstr(BValue str)
   }
   out[view.len] = '\0';
   return out;
+}
+
+static void bsts_core_free_spawn_request_strings(BSTS_Core_Spawn_Request *request)
+{
+  if (request->argv != NULL)
+  {
+    for (int i = 0; i < request->argc; i++)
+    {
+      free(request->argv[i]);
+    }
+    free(request->argv);
+    request->argv = NULL;
+  }
+  free(request->cmd);
+  request->cmd = NULL;
+}
+
+static int bsts_core_list_length(BValue list, int *out)
+{
+  int len = 0;
+  BValue cursor = list;
+  while (1)
+  {
+    ENUM_TAG tag = get_variant(cursor);
+    if (tag == 0)
+    {
+      *out = len;
+      return 1;
+    }
+    if (tag != 1 || len == INT_MAX)
+    {
+      return 0;
+    }
+    len++;
+    cursor = get_enum_index(cursor, 1);
+  }
+}
+
+static int bsts_core_process_args_to_argv(
+    BValue cmd_value,
+    BValue args_value,
+    BSTS_Core_Spawn_Request *request)
+{
+  int arg_count = 0;
+  if (!bsts_core_list_length(args_value, &arg_count))
+  {
+    return 0;
+  }
+
+  request->cmd = bsts_string_to_cstr(cmd_value);
+  if (request->cmd == NULL)
+  {
+    return 0;
+  }
+
+  request->argc = arg_count + 1;
+  request->argv = (char **)calloc((size_t)request->argc + 1U, sizeof(char *));
+  if (request->argv == NULL)
+  {
+    return 0;
+  }
+
+  request->argv[0] = bsts_string_to_cstr(cmd_value);
+  if (request->argv[0] == NULL)
+  {
+    return 0;
+  }
+
+  BValue cursor = args_value;
+  for (int i = 1; i < request->argc; i++)
+  {
+    request->argv[i] = bsts_string_to_cstr(get_enum_index(cursor, 0));
+    if (request->argv[i] == NULL)
+    {
+      return 0;
+    }
+    cursor = get_enum_index(cursor, 1);
+  }
+  request->argv[request->argc] = NULL;
+  return 1;
+}
+
+static int bsts_core_decode_stdio_config(
+    BValue stdio_config,
+    BSTS_Core_Spawn_Request *request,
+    BValue *error)
+{
+  for (int i = 0; i < 3; i++)
+  {
+    BValue stdio_value = get_struct_index(stdio_config, i);
+    switch (get_variant(stdio_value))
+    {
+    case 0: // Inherit
+      request->stdio_flags[i] = UV_INHERIT_FD;
+      break;
+    case 2: // Null
+      request->stdio_flags[i] = UV_IGNORE;
+      break;
+    case 1: // Pipe
+      *error = bsts_ioerror_unsupported("spawn piped stdio is not implemented yet");
+      return 0;
+    case 3: // UseHandle
+      *error = bsts_ioerror_unsupported("spawn existing-handle stdio is not implemented yet");
+      return 0;
+    default:
+      *error = bsts_ioerror_invalid_argument("spawn stdio config has invalid Stdio tag");
+      return 0;
+    }
+  }
+  return 1;
 }
 
 static char *bsts_path_to_cstr(BValue path)
@@ -2300,18 +2441,215 @@ static BValue bsts_core_get_env_effect(BValue name_value)
   return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_option_some(v));
 }
 
+static BSTS_Core_Process *bsts_core_unbox_process(BValue process_value)
+{
+  if ((process_value & (BValue)0x1) != (BValue)0x0)
+  {
+    return NULL;
+  }
+  BSTS_Core_Process *process = BSTS_PTR(BSTS_Core_Process, process_value);
+  if (process == NULL || process->magic != BSTS_CORE_PROCESS_MAGIC)
+  {
+    return NULL;
+  }
+  return process;
+}
+
+static BValue bsts_core_process_exit_value(BSTS_Core_Process *process)
+{
+  int code = process->exit_code;
+  if (process->term_signal != 0)
+  {
+    code = 128 + process->term_signal;
+  }
+  return bsts_integer_from_int(code);
+}
+
+static void bsts_core_process_close_cb(uv_handle_t *handle)
+{
+  (void)handle;
+}
+
+static void bsts_core_process_maybe_close(BSTS_Core_Process *process)
+{
+  if (!process->close_started)
+  {
+    process->close_started = 1;
+    uv_close((uv_handle_t *)&process->process, bsts_core_process_close_cb);
+  }
+}
+
+static void bsts_core_process_exit_cb(
+    uv_process_t *uv_process,
+    int64_t exit_status,
+    int term_signal)
+{
+  BSTS_Core_Process *process = (BSTS_Core_Process *)uv_process->data;
+  process->exited = 1;
+  process->exit_code = (int)exit_status;
+  process->term_signal = term_signal;
+
+  BSTS_Prog_Suspended *suspended = process->wait_suspended;
+  if (suspended != NULL)
+  {
+    process->wait_suspended = NULL;
+    process->wait_consumed = 1;
+    bsts_Bosatsu_Prog_suspended_success(
+        suspended,
+        bsts_core_process_exit_value(process));
+  }
+  bsts_core_process_maybe_close(process);
+}
+
+static BValue bsts_core_process_spawn_result(BSTS_Core_Process *process)
+{
+  return alloc_struct4(
+      BSTS_VALUE_FROM_PTR(process),
+      bsts_option_none(),
+      bsts_option_none(),
+      bsts_option_none());
+}
+
+static int bsts_core_spawn_start(BSTS_Prog_Suspended *suspended)
+{
+  BSTS_Core_Spawn_Request *request =
+      BSTS_PTR(BSTS_Core_Spawn_Request, bsts_Bosatsu_Prog_suspended_request(suspended));
+  request->suspended = suspended;
+
+  uv_process_options_t options;
+  memset(&options, 0, sizeof(options));
+  uv_stdio_container_t stdio[3];
+  memset(stdio, 0, sizeof(stdio));
+  for (int i = 0; i < 3; i++)
+  {
+    stdio[i].flags = request->stdio_flags[i];
+    if (request->stdio_flags[i] == UV_INHERIT_FD)
+    {
+      stdio[i].data.fd = i;
+    }
+  }
+
+  request->process->process.data = request->process;
+  options.exit_cb = bsts_core_process_exit_cb;
+  options.file = request->cmd;
+  options.args = request->argv;
+  options.stdio_count = 3;
+  options.stdio = stdio;
+
+  int spawn_result = uv_spawn(
+      bsts_Bosatsu_Prog_suspended_loop(suspended),
+      &request->process->process,
+      &options);
+  bsts_core_free_spawn_request_strings(request);
+
+  if (spawn_result != 0)
+  {
+    bsts_Bosatsu_Prog_suspended_error(
+        suspended,
+        bsts_ioerror_from_uv(spawn_result, "spawning process"));
+    return 0;
+  }
+
+  bsts_Bosatsu_Prog_suspended_success(
+      suspended,
+      bsts_core_process_spawn_result(request->process));
+  return 0;
+}
+
 static BValue bsts_core_spawn_effect(BValue args3)
 {
-  (void)args3;
-  return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
-      bsts_ioerror_unsupported("spawn is unsupported in c_runtime"));
+  BValue cmd_value = get_struct_index(args3, 0);
+  BValue args_value = get_struct_index(args3, 1);
+  BValue stdio_value = get_struct_index(args3, 2);
+
+  BSTS_Core_Spawn_Request *request =
+      (BSTS_Core_Spawn_Request *)GC_malloc(sizeof(BSTS_Core_Spawn_Request));
+  if (request == NULL)
+  {
+    perror("GC_malloc failure in bsts_core_spawn_effect");
+    abort();
+  }
+  memset(request, 0, sizeof(*request));
+  request->args3 = args3;
+
+  BSTS_Core_Process *process =
+      (BSTS_Core_Process *)GC_malloc(sizeof(BSTS_Core_Process));
+  if (process == NULL)
+  {
+    perror("GC_malloc failure in bsts_core_spawn_effect process");
+    abort();
+  }
+  memset(process, 0, sizeof(*process));
+  process->magic = BSTS_CORE_PROCESS_MAGIC;
+  request->process = process;
+
+  errno = 0;
+  if (!bsts_core_process_args_to_argv(cmd_value, args_value, request))
+  {
+    bsts_core_free_spawn_request_strings(request);
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+        bsts_ioerror_from_errno_default(errno, "building process arguments"));
+  }
+
+  BValue stdio_error = bsts_unit_value();
+  if (!bsts_core_decode_stdio_config(stdio_value, request, &stdio_error))
+  {
+    bsts_core_free_spawn_request_strings(request);
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(stdio_error);
+  }
+
+  BValue suspended = bsts_Bosatsu_Prog_suspend(
+      BSTS_VALUE_FROM_PTR(request),
+      bsts_core_spawn_start);
+  GC_reachable_here(args3);
+  return suspended;
+}
+
+static int bsts_core_wait_start(BSTS_Prog_Suspended *suspended)
+{
+  BSTS_Core_Wait_Request *request =
+      BSTS_PTR(BSTS_Core_Wait_Request, bsts_Bosatsu_Prog_suspended_request(suspended));
+  request->suspended = suspended;
+  request->process->wait_suspended = suspended;
+  return 0;
 }
 
 static BValue bsts_core_wait_effect(BValue process)
 {
-  (void)process;
-  return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
-      bsts_ioerror_unsupported("wait is unsupported in c_runtime"));
+  BSTS_Core_Process *process_state = bsts_core_unbox_process(process);
+  if (process_state == NULL)
+  {
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+        bsts_ioerror_bad_fd("waiting on invalid process"));
+  }
+
+  if (process_state->wait_consumed || process_state->wait_suspended != NULL)
+  {
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+        bsts_ioerror_bad_fd("process wait already consumed"));
+  }
+
+  if (process_state->exited)
+  {
+    process_state->wait_consumed = 1;
+    return ___bsts_g_Bosatsu_l_Prog_l_pure(
+        bsts_core_process_exit_value(process_state));
+  }
+
+  BSTS_Core_Wait_Request *request =
+      (BSTS_Core_Wait_Request *)GC_malloc(sizeof(BSTS_Core_Wait_Request));
+  if (request == NULL)
+  {
+    perror("GC_malloc failure in bsts_core_wait_effect");
+    abort();
+  }
+  request->process = process_state;
+  request->suspended = NULL;
+  BValue suspended = bsts_Bosatsu_Prog_suspend(
+      BSTS_VALUE_FROM_PTR(request),
+      bsts_core_wait_start);
+  GC_reachable_here(process);
+  return suspended;
 }
 
 static BValue bsts_core_now_wall_effect(BValue unit)
