@@ -350,17 +350,25 @@ static int bsts_core_uv_fs_cleanup_result(uv_fs_t *req, const char *context)
   return (int)result;
 }
 
+static int bsts_core_uv_fs_cleanup_start_result(int start, uv_fs_t *req, const char *context)
+{
+  ssize_t result = (start < 0) ? (ssize_t)start : req->result;
+  uv_fs_req_cleanup(req);
+  if (result < 0)
+  {
+    errno = -((int)result);
+    (void)context;
+    return -1;
+  }
+  return (int)result;
+}
+
 static int bsts_core_uv_read(uv_file file, void *data, size_t len, const char *context)
 {
   uv_buf_t buf = uv_buf_init((char *)data, (unsigned int)len);
   uv_fs_t req;
   int start = uv_fs_read(NULL, &req, file, &buf, 1, -1, NULL);
-  if (start < 0)
-  {
-    errno = -start;
-    return -1;
-  }
-  return bsts_core_uv_fs_cleanup_result(&req, context);
+  return bsts_core_uv_fs_cleanup_start_result(start, &req, context);
 }
 
 static int bsts_core_uv_write_all(uv_file file, const void *data, size_t len, const char *context)
@@ -372,13 +380,7 @@ static int bsts_core_uv_write_all(uv_file file, const void *data, size_t len, co
     uv_buf_t buf = uv_buf_init((char *)cursor, (unsigned int)remaining);
     uv_fs_t req;
     int start = uv_fs_write(NULL, &req, file, &buf, 1, -1, NULL);
-    if (start < 0)
-    {
-      errno = -start;
-      return -1;
-    }
-
-    int wrote = bsts_core_uv_fs_cleanup_result(&req, context);
+    int wrote = bsts_core_uv_fs_cleanup_start_result(start, &req, context);
     if (wrote <= 0)
     {
 #ifdef EIO
@@ -412,8 +414,7 @@ static int bsts_core_uv_stat_path(const char *path, uv_stat_t *out, int follow)
       : uv_fs_lstat(NULL, &req, path, NULL);
   if (start < 0)
   {
-    errno = -start;
-    return -1;
+    return bsts_core_uv_fs_cleanup_start_result(start, &req, "stating path");
   }
 
   const uv_stat_t *statbuf = uv_fs_get_statbuf(&req);
@@ -433,8 +434,7 @@ static int bsts_core_uv_mkdir_path(const char *path, int mode_bits)
   int start = uv_fs_mkdir(NULL, &req, path, mode_bits, NULL);
   if (start < 0)
   {
-    errno = -start;
-    return -1;
+    return bsts_core_uv_fs_cleanup_start_result(start, &req, "creating directory");
   }
   return bsts_core_uv_fs_simple(&req, "creating directory");
 }
@@ -445,8 +445,7 @@ static int bsts_core_uv_chmod_path(const char *path, int mode_bits)
   int start = uv_fs_chmod(NULL, &req, path, mode_bits, NULL);
   if (start < 0)
   {
-    errno = -start;
-    return -1;
+    return bsts_core_uv_fs_cleanup_start_result(start, &req, "setting path mode");
   }
   return bsts_core_uv_fs_simple(&req, "setting path mode");
 }
@@ -457,8 +456,7 @@ static int bsts_core_uv_unlink_path(const char *path)
   int start = uv_fs_unlink(NULL, &req, path, NULL);
   if (start < 0)
   {
-    errno = -start;
-    return -1;
+    return bsts_core_uv_fs_cleanup_start_result(start, &req, "removing file path");
   }
   return bsts_core_uv_fs_simple(&req, "removing file path");
 }
@@ -469,8 +467,7 @@ static int bsts_core_uv_rmdir_path(const char *path)
   int start = uv_fs_rmdir(NULL, &req, path, NULL);
   if (start < 0)
   {
-    errno = -start;
-    return -1;
+    return bsts_core_uv_fs_cleanup_start_result(start, &req, "removing directory path");
   }
   return bsts_core_uv_fs_simple(&req, "removing directory path");
 }
@@ -481,8 +478,7 @@ static int bsts_core_uv_rename_path(const char *from, const char *to)
   int start = uv_fs_rename(NULL, &req, from, to, NULL);
   if (start < 0)
   {
-    errno = -start;
-    return -1;
+    return bsts_core_uv_fs_cleanup_start_result(start, &req, "renaming path");
   }
   return bsts_core_uv_fs_simple(&req, "renaming path");
 }
@@ -965,12 +961,11 @@ static int bsts_remove_recursive_impl(const char *path)
     int scan_start = uv_fs_scandir(NULL, &req, path, 0, NULL);
     if (scan_start < 0)
     {
-      errno = -scan_start;
-      return -1;
+      return bsts_core_uv_fs_cleanup_start_result(scan_start, &req, "scanning directory");
     }
     if (req.result < 0)
     {
-      int status = bsts_core_uv_fs_cleanup_result(&req, "scanning directory");
+      int status = bsts_core_uv_fs_cleanup_start_result(scan_start, &req, "scanning directory");
       (void)status;
       return -1;
     }
@@ -1552,6 +1547,8 @@ static BValue bsts_core_open_file_effect(BValue pair)
   int start = uv_fs_open(NULL, &req, path, open_flags, 0666, NULL);
   if (start < 0)
   {
+    int result = bsts_core_uv_fs_cleanup_start_result(start, &req, context);
+    (void)result;
     BValue err = bsts_ioerror_from_uv(start, context);
     free(path);
     return ___bsts_g_Bosatsu_l_Prog_l_raise__error(err);
@@ -1916,14 +1913,15 @@ static BValue bsts_core_list_dir_effect(BValue path_value)
   int scan_start = uv_fs_scandir(NULL, &req, path, 0, NULL);
   if (scan_start < 0)
   {
-    errno = -scan_start;
+    int result = bsts_core_uv_fs_cleanup_start_result(scan_start, &req, "listing directory");
+    (void)result;
     BValue err = bsts_ioerror_from_errno_default(errno, "listing directory");
     free(path);
     return ___bsts_g_Bosatsu_l_Prog_l_raise__error(err);
   }
   if (req.result < 0)
   {
-    int result = bsts_core_uv_fs_cleanup_result(&req, "listing directory");
+    int result = bsts_core_uv_fs_cleanup_start_result(scan_start, &req, "listing directory");
     (void)result;
     BValue err = bsts_ioerror_from_errno_default(errno, "listing directory");
     free(path);
