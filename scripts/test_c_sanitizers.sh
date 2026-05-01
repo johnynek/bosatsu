@@ -24,7 +24,8 @@ CFLAGS="$SANITIZER_CFLAGS" \
 LDFLAGS="$SANITIZER_LDFLAGS" \
 CPPFLAGS='-DBSTS_CI=1' \
 ./bosatsuj c-runtime install --repo_root . --archive "$RUNTIME_ARCHIVE" --git_sha "$SHA" --profile release
-eval "$(python3 scripts/c_runtime_ci_env.py --sha "$SHA" --validate-vendored-libuv --require-cflag=-fsanitize=address,undefined --require-cflag=-DBSTS_CI=1)"
+ci_env_exports="$(python3 scripts/c_runtime_ci_env.py --sha "$SHA" --validate-vendored-libuv --require-cflag=-fsanitize=address,undefined --require-cflag=-DBSTS_CI=1)"
+eval "$ci_env_exports"
 
 cd c_runtime
 rm -f test_exe
