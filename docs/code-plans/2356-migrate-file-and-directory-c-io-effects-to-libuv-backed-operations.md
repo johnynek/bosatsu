@@ -8,21 +8,21 @@
 - Flow: `small_job`
 - Issue: `#2356` Migrate file and directory C IO effects to libuv-backed operations
 - Source design doc: `docs/design/2342-document-the-libuv-c-runtime-integration-contract.md`
-- Pending steps: `0`
+- Pending steps: `1`
 - Completed steps: `4`
-- Total steps: `4`
+- Total steps: `5`
 
 ## Summary
 
-Migrate the existing C backend `IO/Core` file and directory externals from direct stdio/POSIX filesystem calls to libuv-backed operations while preserving the current Bosatsu API, value shapes, handle behavior, and `IOError` mapping. The branch now has the `uv_file`-backed handle representation, file open/read/write/read_all/copy/temp-file/flush/close operations on that representation, directory/path operations routed through libuv filesystem calls where libuv preserves current semantics, and focused C harness coverage across file and directory behavior.
+Migrate the existing C backend `IO/Core` file and directory externals from direct stdio/POSIX filesystem calls to libuv-backed operations while preserving the current Bosatsu API, value shapes, handle behavior, and `IOError` mapping. The branch has the `uv_file`-backed handle representation, file open/read/write/read_all/copy/temp-file/flush/close operations on that representation, directory/path operations routed through libuv filesystem calls where libuv preserves current semantics, and focused C harness coverage across file and directory behavior. Pre-PR review found that common synchronous libuv filesystem error paths still skip `uv_fs_req_cleanup`, so the remaining work is to close that cleanup contract across all synchronous fs wrappers and rerun the focused and required gates.
 
 ## Current State
 
-The repo has the libuv-owned C Prog runtime, private suspend/resume support, and the phase-one `IO/Core` migration for wall time, monotonic time, environment lookup, and sleep. `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c` stores runtime-owned file handles as `uv_file` descriptors, keeps standard streams non-owning, uses local `uv_fs_*` cleanup helpers for file read/write/open and suspend/resume-backed flush/close operations, and now routes directory/path operations through synchronous libuv filesystem primitives for stat/lstat, mkdir, chmod mode repair, scandir, unlink, rmdir, and rename. The narrow `mkdtemp` compatibility fallback remains for `create_temp_dir` because libuv has no exact prefix-preserving equivalent. The C harness in `c_runtime/test.c` covers missing read open, CreateNew collision, idempotent close, read-after-close BadFileDescriptor behavior, UTF-8 and byte round trips, bounded-read EOF, invalid UTF-8, read_all_bytes including empty files, copy_bytes with unlimited and finite limits, flush on writable handles, temp-file prefix/suffix behavior, read/write permission errors, temp-dir creation and invalid prefixes, mkdir and recursive mkdir, mkdir_with_mode mode bits, list_dir sorting, stat file/dir/symlink/missing, remove file/non-empty/recursive/missing, and rename success/missing-source behavior. Focused `make -C c_runtime test_out` passes, and the configured `scripts/test_basic.sh` gate passed after the final directory/path coverage cleanup.
+The repo has the libuv-owned C Prog runtime, private suspend/resume support, and the phase-one `IO/Core` migration for wall time, monotonic time, environment lookup, and sleep. `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c` stores runtime-owned file handles as `uv_file` descriptors, keeps standard streams non-owning, uses local `uv_fs_*` cleanup helpers for file read/write/open and suspend/resume-backed flush/close operations, and routes directory/path operations through synchronous libuv filesystem primitives for stat/lstat, mkdir, chmod mode repair, scandir, unlink, rmdir, and rename. The narrow `mkdtemp` compatibility fallback remains for `create_temp_dir` because libuv has no exact prefix-preserving equivalent. The C harness in `c_runtime/test.c` covers missing read open, CreateNew collision, idempotent close, read-after-close BadFileDescriptor behavior, UTF-8 and byte round trips, bounded-read EOF, invalid UTF-8, read_all_bytes including empty files, copy_bytes with unlimited and finite limits, flush on writable handles, temp-file prefix/suffix behavior, read/write permission errors, temp-dir creation and invalid prefixes, mkdir and recursive mkdir, mkdir_with_mode mode bits, list_dir sorting, stat file/dir/symlink/missing, remove file/non-empty/recursive/missing, and rename success/missing-source behavior. Focused `make -C c_runtime test_out` and the configured `scripts/test_basic.sh` gate passed before review, but reviewer finding F1 shows the implementation does not yet satisfy its own cleanup invariant because synchronous `uv_fs_*` calls can populate request-owned state even when returning negative status.
 
 ## Problem
 
-The remaining C `IO/Core` directory and path effects previously bypassed the libuv filesystem API. That gap is now closed for the scoped operations: stat, mkdir, mkdir_with_mode, list_dir, remove, and rename use libuv filesystem calls, while create_temp_dir retains a documented mkdtemp fallback for the existing prefix contract. The branch still needs normal PR review, but no additional planned implementation work remains for this small-job slice.
+The remaining C `IO/Core` directory and path effects previously bypassed the libuv filesystem API. That gap is mostly closed for the scoped operations: stat, mkdir, mkdir_with_mode, list_dir, remove, and rename use libuv filesystem calls, while create_temp_dir retains a documented mkdtemp fallback for the existing prefix contract. However, pre-PR review identified an approval-blocking cleanup contract violation: synchronous libuv filesystem requests return immediately on negative status in several helpers, including stat, mkdir/chmod/unlink/rmdir/rename, read/write, recursive scandir, list_dir, and open_file paths. For synchronous libuv filesystem calls, those negative completions can still require `uv_fs_req_cleanup`, so the branch can leak libuv request-owned state on common error cases already exercised by the C harness. The plan needs one closure-oriented repair step that audits and fixes every synchronous `uv_fs_*` completion path, then re-verifies the existing behavioral tests and cleanup-focused review checklist.
 
 ## Steps
 
@@ -51,7 +51,7 @@ Replace the stdio-centered private file handle implementation in `c_runtime/bosa
 
 #### Completion Notes
 
-Implemented `BSTS_Core_Handle` around `uv_file`, with `FILE *` retained only for non-owning standard-stream flush compatibility. Added local `uv_fs_*` helpers that clean requests and used suspend/resume-backed requests for runtime-owned `flush` and `close`. To avoid an unsafe intermediate state where `open_file` produced descriptors but data operations expected `FILE *`, this round also moved file open/read/write/read_all/copy/temp-file handles onto the new descriptor representation. Verified with `make -C c_runtime test_out` and `scripts/test_basic.sh`.
+Implemented `BSTS_Core_Handle` around `uv_file`, with `FILE *` retained only for non-owning standard-stream flush compatibility. Added local `uv_fs_*` helpers that clean requests and used suspend/resume-backed requests for runtime-owned `flush` and `close`. To avoid an unsafe intermediate state where `open_file` produced descriptors but data operations expected `FILE *`, this round also moved file open/read/write/read_all/copy/temp-file handles onto the new descriptor representation. Verified with `make -C c_runtime test_out` and `scripts/test_basic.sh` before pre-PR review. Reviewer finding F1 later showed this step's cleanup invariant is not fully satisfied by the synchronous error paths; that repair is tracked in `step-5` rather than rewriting the completed implementation history.
 
 2. [x] `step-2` Expand File Data Operation Coverage
 
@@ -81,7 +81,7 @@ The core file data operations use the libuv-backed `uv_file` handle representati
 
 #### Completion Notes
 
-Added focused `c_runtime/test.c` harness coverage for the libuv-backed file data descriptor model. The tests exercise UTF-8 write/flush/read/EOF, byte write/flush/bounded-read/EOF, `read_all_bytes` across chunks and on an empty file, `copy_bytes` with unlimited and finite limits, invalid UTF-8 error mapping, read/write permission errors, and `create_temp_file` prefix/suffix plus writable returned handle behavior. No implementation fix was needed beyond the existing mkstemp/mkstemps compatibility fallback already normalizing to a `uv_file` handle. Verified with `make -C c_runtime test_out` and `scripts/test_basic.sh`.
+Added focused `c_runtime/test.c` harness coverage for the libuv-backed file data descriptor model. The tests exercise UTF-8 write/flush/read/EOF, byte write/flush/bounded-read/EOF, `read_all_bytes` across chunks and on an empty file, `copy_bytes` with unlimited and finite limits, invalid UTF-8 error mapping, read/write permission errors, and `create_temp_file` prefix/suffix plus writable returned handle behavior. No implementation fix was needed beyond the existing mkstemp/mkstemps compatibility fallback already normalizing to a `uv_file` handle. Verified with `make -C c_runtime test_out` and `scripts/test_basic.sh` before pre-PR review.
 
 3. [x] `step-3` Migrate Directory And Path Operations
 
@@ -110,7 +110,7 @@ Move `create_temp_dir`, `list_dir`, `stat`, `mkdir`, `mkdir_with_mode`, `remove`
 
 #### Completion Notes
 
-Added synchronous libuv filesystem wrappers for stat/lstat, mkdir, chmod, unlink, rmdir, and rename, and reused the existing request cleanup/error mapping path. Migrated directory/path effects to `uv_fs_scandir`, `uv_fs_lstat`, `uv_fs_stat`, `uv_fs_mkdir`, `uv_fs_chmod`, `uv_fs_unlink`, `uv_fs_rmdir`, and `uv_fs_rename` while preserving sorted list output, symlink-aware stat/remove behavior, recursive mkdir/remove traversal, and existing `IOError` variants. Kept `mkdtemp` for `create_temp_dir` with a short compatibility comment because libuv has no exact prefix-preserving temp-directory helper. Added focused C harness coverage for success and common failure cases. Verified with `make -C c_runtime test_out` and `scripts/test_basic.sh`.
+Added synchronous libuv filesystem wrappers for stat/lstat, mkdir, chmod, unlink, rmdir, and rename, and reused the existing request cleanup/error mapping path. Migrated directory/path effects to `uv_fs_scandir`, `uv_fs_lstat`, `uv_fs_stat`, `uv_fs_mkdir`, `uv_fs_chmod`, `uv_fs_unlink`, `uv_fs_rmdir`, and `uv_fs_rename` while preserving sorted list output, symlink-aware stat/remove behavior, recursive mkdir/remove traversal, and existing `IOError` variants. Kept `mkdtemp` for `create_temp_dir` with a short compatibility comment because libuv has no exact prefix-preserving temp-directory helper. Added focused C harness coverage for success and common failure cases. Verified with `make -C c_runtime test_out` and `scripts/test_basic.sh` before pre-PR review. Reviewer finding F1 later showed that some synchronous directory/path error exits need an explicit cleanup repair, tracked in `step-5`.
 
 4. [x] `step-4` Verify Scope And Required Gate
 
@@ -135,4 +135,26 @@ Run focused C runtime coverage while iterating, then run the configured required
 
 #### Completion Notes
 
-Verified the completed directory/path slice with `make -C c_runtime test_out`. Ran `scripts/test_basic.sh` after the initial implementation and reran it after tightening the C harness to explicitly check recursive remove and rename postconditions; the refreshed required gate passed. Final git status shows only `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c` and `c_runtime/test.c` modified.
+Verified the completed directory/path slice with `make -C c_runtime test_out`. Ran `scripts/test_basic.sh` after the initial implementation and reran it after tightening the C harness to explicitly check recursive remove and rename postconditions; the refreshed required gate passed. Final git status at that point showed only `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c` and `c_runtime/test.c` modified. Pre-PR review later found an approval-blocking cleanup issue that the completed verification checklist did not catch; the targeted repair and refreshed verification are tracked in `step-5`.
+
+5. [ ] `step-5` Close Synchronous Fs Request Cleanup Gaps
+
+Address reviewer finding F1 by auditing every synchronous `uv_fs_*` call introduced or touched by this migration in `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c` and routing both success and negative-status completions through exactly one `uv_fs_req_cleanup` path whenever libuv may have initialized request-owned state. Prefer small local helper patterns that make cleanup unavoidable for stat/lstat, mkdir/chmod, unlink/rmdir, rename, open_file, read/write, recursive scandir, and list_dir instead of repeating early returns. Preserve the existing `IOError` mapping and Bosatsu return shapes; this is a cleanup-contract repair, not a semantic rewrite. Re-run focused C runtime tests and the configured required gate after the audit so the next review can see both behavior preservation and the closed cleanup invariant.
+
+#### Invariants
+
+- Corresponds directly to blocking review finding F1: every synchronous `uv_fs_*` request in the migrated file/directory paths is cleaned exactly once on success and on negative libuv status.
+- Error conversion observes the original libuv status after cleanup and continues to map missing open/list/stat/remove/rename cases to the same `IOError` or `None` behavior already covered by the harness.
+- Recursive directory traversal and list_dir cleanup handle partial-progress failures without leaking the active scandir request or heap-owned child path buffers.
+- The repair remains local to C `IO/Core` filesystem request cleanup plus any focused harness/check additions needed to make the cleanup contract reviewable.
+
+#### Property Tests
+
+- Use the existing missing-path and invalid-operation harness cases as cleanup-contract exercisers: missing open, missing list_dir, missing stat, missing remove, missing rename, mkdir existing path, non-empty remove, read/write permission errors, and closed/read-only/write-only handle errors should preserve their observable result while passing under the cleaned request paths.
+- Where available in the local toolchain, run the focused C runtime target under a leak checker or sanitizer configuration for the synchronous filesystem error matrix and assert no libuv request-owned allocations remain reachable from the exercised failure cases.
+
+#### Assertion Tests
+
+- Inspect `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c` for every synchronous `uv_fs_open`, `uv_fs_stat`, `uv_fs_lstat`, `uv_fs_mkdir`, `uv_fs_chmod`, `uv_fs_unlink`, `uv_fs_rmdir`, `uv_fs_rename`, `uv_fs_read`, `uv_fs_write`, and `uv_fs_scandir` call site and verify no initialized request returns before cleanup.
+- Run `make -C c_runtime test_out` after the cleanup repair.
+- Run the configured required gate `scripts/test_basic.sh` after the cleanup repair.
