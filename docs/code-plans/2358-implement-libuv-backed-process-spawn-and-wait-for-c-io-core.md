@@ -1,0 +1,114 @@
+# Code Plan #2358
+
+> Generated from code plan JSON.
+> Edit the `.json` file, not this `.md` file.
+
+## Metadata
+
+- Flow: `small_job`
+- Issue: `#2358` Implement libuv-backed process spawn and wait for C IO/Core
+- Pending steps: `4`
+- Completed steps: `0`
+- Total steps: `4`
+
+## Summary
+
+Implement the existing Bosatsu `IO/Core.spawn` and `IO/Core.wait` externals in the C runtime using libuv process APIs, preserving the current Bosatsu API shapes for `SpawnResult`, `Stdio`, and `StdioConfig`. The intended final branch should support inherited, null, piped, and existing-handle stdio where the current runtime handle model can represent them, integrate process completion with the libuv-backed Prog suspend/resume machinery, and add focused C backend coverage for successful process execution, stdio behavior, and error mapping. The branch remains shippable only when `scripts/test_basic.sh` passes within the configured 2400 second required-tests timeout.
+
+## Current State
+
+The repository already has the libuv integration contract in `docs/design/2342-document-the-libuv-c-runtime-integration-contract.md`, suspend/resume support for C Prog effects in `c_runtime/bosatsu_ext_Bosatsu_l_Prog.c` and `c_runtime/bosatsu_ext_Bosatsu_l_Prog_internal.h`, and libuv-backed file and directory IO/Core operations in `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c`. The issue handoff says the C runtime may rely on runtime-owned libuv handles and continuation resumption being available. `test_workspace/Bosatsu/IO/Core.bosatsu` defines the public Bosatsu-side `SpawnResult`, `Stdio`, and `StdioConfig` values that the C externals must continue to return and consume. Today, process spawn and wait remain the known unsupported IO/Core gap in the C backend.
+
+## Problem
+
+The C backend cannot currently execute external processes through the existing IO/Core API, so any Bosatsu program using process spawning or waiting fails or reaches unsupported runtime behavior despite adjacent file, directory, and Prog async infrastructure being present. Implementing only a narrow synchronous wrapper would not satisfy the runtime contract because process exit is asynchronous, stdio handles need ownership-aware libuv setup and cleanup, and results/errors must map back into the existing Bosatsu value shapes without leaking handles, losing continuations, or breaking sanitizer and valgrind runs.
+
+## Steps
+
+1. [ ] `step-1-audit-shapes-and-runtime-contracts` Audit process API shapes and handle contracts
+
+Read the existing unsupported `spawn` and `wait` externals in `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c`, the Bosatsu-side constructors in `test_workspace/Bosatsu/IO/Core.bosatsu`, the libuv runtime contract document, and the recent suspend/resume and file IO implementations. Pin down the exact C constructor tags, argument order, handle representation, ownership rules, and IOError mapping helpers before changing implementation code. This step should produce the smallest implementation shape that fits the existing API rather than introducing new Bosatsu-visible types.
+
+#### Invariants
+
+- The implementation must preserve the public Bosatsu `SpawnResult`, `Stdio`, and `StdioConfig` shapes exactly as defined today.
+- Process support must reuse the existing C runtime loop, handle ownership, error mapping, and suspend/resume helpers instead of adding a second event-loop or continuation mechanism.
+- Any `BValue` retained across libuv callbacks must be rooted through the runtime suspension/pending machinery or otherwise kept reachable according to the patterns introduced by #2351 and #2356.
+
+#### Property Tests
+
+- None recorded.
+
+#### Assertion Tests
+
+- Add or update narrow C harness assertions documenting the constructor/tag decoding for each supported `StdioConfig` variant before relying on it in process setup, if the current harness has suitable helpers.
+- Add an assertion-style test for the current unsupported-gap replacement target: a simple spawn value can be constructed and no longer routes to the unsupported external path.
+
+2. [ ] `step-2-implement-libuv-spawn-and-wait-lifecycle` Implement process lifecycle
+
+Replace the unsupported C `spawn` and `wait` externals with a libuv-backed lifecycle built around `uv_spawn`, `uv_process_t`, and the existing Prog suspension/resumption API. Introduce a small runtime-owned process state that records the process handle, completion status, wait continuation if present, and any owned stdio pipe handles. Ensure `spawn` returns the existing `SpawnResult` shape with a process handle/value on success and mapped IOError on failure, while `wait` either returns an already-known exit result or suspends until the libuv exit callback resumes it. Cleanup must close process and pipe handles on all paths and reject double wait/completion states coherently.
+
+#### Invariants
+
+- A successfully spawned process has exactly one runtime-owned process state and its libuv handle remains valid until both process exit and runtime cleanup requirements are satisfied.
+- `wait` is idempotent only to the extent promised by the existing API; invalid, already-consumed, or incompatible handles must map to existing IOError/error behavior instead of use-after-free or double resume.
+- Each suspended wait continuation is resumed exactly once, with either the expected exit information or a mapped error.
+- Every `uv_process_options_t`, argument/env buffer, stdio container, and `uv_pipe_t` allocated for spawn is cleaned up on success, spawn failure, and later close callbacks as appropriate.
+- Missing-command, invalid-argument, and libuv negative-status failures must flow through the same IO/Core error conventions used by the file and directory migration.
+
+#### Property Tests
+
+- For a set of short-lived commands that deterministically exit with selected small codes, spawning then waiting preserves the child exit code and never leaves an unfinished suspended request after `uv_run` drains.
+- For repeated spawn/wait cycles of a simple command, every cycle independently completes exactly once and does not poison later cycles in the same runtime loop.
+
+#### Assertion Tests
+
+- Spawn a simple portable command and assert `wait` returns the expected zero exit status.
+- Spawn a command that exits non-zero and assert the non-zero exit status is preserved.
+- Attempt to spawn a missing command and assert the result is the existing IOError/failure shape rather than a crash or unsupported marker.
+- Attempt to wait on an invalid or non-process handle and assert the existing invalid-handle error mapping.
+
+3. [ ] `step-3-wire-stdio-configurations` Wire stdio configurations
+
+Implement translation from Bosatsu `StdioConfig` values into `uv_stdio_container_t` entries for stdin, stdout, and stderr. Support inherited stdio, null/ignored stdio, new piped stdio, and existing runtime handle stdio according to the reference document and the current handle model. For piped stdio, return the existing `Stdio` values in `SpawnResult` and ensure read/write/close behavior composes with the libuv-backed file/handle operations already in IO/Core. Keep platform-specific command and descriptor assumptions guarded so tests remain portable across the repo's sanitizer and valgrind targets.
+
+#### Invariants
+
+- The order and meaning of stdin, stdout, and stderr in the C translation must match `test_workspace/Bosatsu/IO/Core.bosatsu`.
+- Inherited and null stdio must not create Bosatsu-visible handles or leak libuv handles.
+- Piped stdio must create handles with correct read/write direction and ownership, and those handles must remain usable by existing IO/Core read/write/close operations until closed or process cleanup makes them invalid.
+- Existing-handle stdio must validate handle kind/direction before passing it to libuv, and invalid handles must produce mapped IOError results without corrupting the original handle.
+- All stdio resources created during a failed spawn attempt must be closed or freed on the failure path.
+
+#### Property Tests
+
+- For generated byte payloads within a small bounded size, piping data through a child command that echoes stdin to stdout returns exactly the same bytes, when a portable echo-through command is available on the test platform.
+- For repeated stdout/stderr pipe spawns of bounded output size, collected output is isolated per process and no output from one process appears in another process's handles.
+
+#### Assertion Tests
+
+- Spawn a command with piped stdout and assert the expected stdout bytes can be read through the returned Bosatsu handle.
+- Spawn a command with piped stderr and assert expected stderr bytes can be read when the platform fixture supports it.
+- Spawn a command with piped stdin, write bytes through the returned handle, close stdin, and assert the child receives the bytes where a portable fixture is available.
+- Spawn with inherited and null stdio variants and assert the process can still be waited successfully without returned pipe handles.
+- Pass an incompatible existing handle as stdio and assert the mapped invalid-handle IOError path.
+
+4. [ ] `step-4-verify-required-gate-and-memory-safety` Verify required gate
+
+Run the repository-required gate `scripts/test_basic.sh` with the configured 2400 second timeout after implementation. Also run the most focused C runtime test target directly during development when available so process failures are faster to diagnose. Review sanitizer/valgrind-sensitive paths for libuv request cleanup, process and pipe close callbacks, GC reachability of retained `BValue`s, and raw `GC_malloc`/`GC_malloc_atomic` uses as called out in the dependency handoff review notes.
+
+#### Invariants
+
+- `scripts/test_basic.sh` must pass before the branch is considered submit-ready.
+- No test may depend on a platform-only shell path without a guard or fallback appropriate for the current CI targets.
+- The final implementation must not introduce leaked libuv requests/handles, double closes, double resumes, or unrooted suspended Bosatsu values.
+- Failure-path cleanup must be covered at least by missing-command and invalid-handle tests.
+
+#### Property Tests
+
+- Keep any bounded repeated spawn/wait or pipe round-trip checks in the normal C runtime test suite only if they are deterministic and fast enough for the required gate.
+
+#### Assertion Tests
+
+- Record that `scripts/test_basic.sh` was run successfully in completion notes for the implementation PR.
+- If focused sanitizer or valgrind scripts are available and practical within the repo conventions, run the relevant one and record results; otherwise explicitly note the required gate coverage and any residual manual-review risk.
