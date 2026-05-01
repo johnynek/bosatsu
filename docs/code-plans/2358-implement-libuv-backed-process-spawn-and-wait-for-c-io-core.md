@@ -8,21 +8,21 @@
 - Flow: `small_job`
 - Issue: `#2358` Implement libuv-backed process spawn and wait for C IO/Core
 - Source design doc: `docs/design/2342-document-the-libuv-c-runtime-integration-contract.md`
-- Pending steps: `0`
+- Pending steps: `1`
 - Completed steps: `4`
-- Total steps: `4`
+- Total steps: `5`
 
 ## Summary
 
-Implement the existing Bosatsu `IO/Core.spawn` and `IO/Core.wait` externals in the C runtime using libuv process APIs, preserving the current Bosatsu API shapes for `SpawnResult`, `Stdio`, and `StdioConfig`. The branch now has process lifecycle and stdio wiring in place: `spawn` creates a libuv process on the Prog-owned loop, supports inherited, null, piped, and existing-handle stdio configurations, returns pipe handles in the existing `SpawnResult` fields, and `wait` resumes exactly once with the child exit code. The focused C runtime target and the configured required gate pass for this branch state.
+Implement the existing Bosatsu `IO/Core.spawn` and `IO/Core.wait` externals in the C runtime using libuv process APIs, preserving the current Bosatsu API shapes for `SpawnResult`, `Stdio`, and `StdioConfig`. The branch has process lifecycle and stdio wiring in place, but pre-PR review found one approval-blocking lifecycle safety gap: active libuv process handles are backed by GC-owned state that can become unreachable before libuv invokes the exit callback. The remaining work is a small ownership refactor so active process state is native-owned or runtime-rooted until `uv_close` completes, plus focused regression coverage for ignored or dropped process values.
 
 ## Current State
 
-The repository already has the libuv integration contract in `docs/design/2342-document-the-libuv-c-runtime-integration-contract.md`, suspend/resume support for C Prog effects in `c_runtime/bosatsu_ext_Bosatsu_l_Prog.c` and `c_runtime/bosatsu_ext_Bosatsu_l_Prog_internal.h`, and libuv-backed file and directory IO/Core operations in `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c`. `test_workspace/Bosatsu/IO/Core.bosatsu` defines the public Bosatsu-side `SpawnResult`, `Stdio`, and `StdioConfig` values that the C externals must continue to return and consume. The process audit found that `Stdio` enum tags are `0 = Inherit`, `1 = Pipe`, `2 = Null`, and `3 = UseHandle(handle)`; `StdioConfig` is a struct3 ordered as stdin, stdout, stderr; `SpawnResult` is a struct4 ordered as proc, stdin, stdout, stderr with stdio handles wrapped in `Option`; and `Process` is an external struct. The branch now replaces the unsupported `spawn` and `wait` C externals with a private boxed process state backed by `uv_process_t`, supports inherited and null stdio, creates fd-backed pipe handles for piped stdin/stdout/stderr, validates existing-handle stdio directions before passing descriptors to libuv, and closes created pipe descriptors on failure paths. Focused C runtime coverage and the required `scripts/test_basic.sh` gate pass after the stdio wiring slice.
+The repository already has the libuv integration contract in `docs/design/2342-document-the-libuv-c-runtime-integration-contract.md`, suspend/resume support for C Prog effects in `c_runtime/bosatsu_ext_Bosatsu_l_Prog.c` and `c_runtime/bosatsu_ext_Bosatsu_l_Prog_internal.h`, and libuv-backed file and directory IO/Core operations in `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c`. `test_workspace/Bosatsu/IO/Core.bosatsu` defines the public Bosatsu-side `SpawnResult`, `Stdio`, and `StdioConfig` values that the C externals must continue to return and consume. The process audit found that `Stdio` enum tags are `0 = Inherit`, `1 = Pipe`, `2 = Null`, and `3 = UseHandle(handle)`; `StdioConfig` is a struct3 ordered as stdin, stdout, stderr; `SpawnResult` is a struct4 ordered as proc, stdin, stdout, stderr with stdio handles wrapped in `Option`; and `Process` is an external struct. The branch now replaces the unsupported `spawn` and `wait` C externals with a private boxed process state backed by `uv_process_t`, supports inherited and null stdio, creates fd-backed pipe handles for piped stdin/stdout/stderr, validates existing-handle stdio directions before passing descriptors to libuv, and closes created pipe descriptors on failure paths. Pre-PR review found that the private `BSTS_Core_Process` is allocated with `GC_malloc` and can become unreachable after successful spawn if user code ignores or drops the returned process value, while libuv can still call the exit callback through `uv_process_t.data`.
 
 ## Problem
 
-The C backend previously could not execute external processes through the existing IO/Core API, so any Bosatsu program using process spawning or waiting failed through unsupported runtime behavior despite adjacent file, directory, and Prog async infrastructure being present. The lifecycle gap and the stdio configuration gap are now closed for the existing `StdioConfig` surface: inherited, null, piped, and existing-handle cases no longer hit the temporary Unsupported paths, and invalid existing handles map through the established BadFileDescriptor IOError path.
+The C backend previously could not execute external processes through the existing IO/Core API, so any Bosatsu program using process spawning or waiting failed through unsupported runtime behavior despite adjacent file, directory, and Prog async infrastructure being present. The unsupported process and stdio gaps are now mostly closed, but the current process ownership model is not submit-ready: an active libuv process handle must not point at GC-reclaimable callback state. This violates the libuv/GC contract and can become a use-after-free when the process value is not retained until child exit. The next revision must make active process state lifetime independent of Bosatsu value reachability, while preserving the existing wait rooting and single-resume behavior.
 
 ## Steps
 
@@ -55,7 +55,7 @@ Replace the unsupported C `spawn` and `wait` externals with a libuv-backed lifec
 
 #### Invariants
 
-- A successfully spawned process has exactly one runtime-owned process state and its libuv handle remains valid until process exit closes the handle and the boxed process state remains reachable through Bosatsu values or active Prog suspension records.
+- A successfully spawned process has exactly one process state and its libuv handle must remain valid until process exit closes the handle; pre-PR review found the current GC-owned implementation does not yet satisfy this lifetime invariant when the Bosatsu process value is dropped.
 - `wait` is single-consumption for this C representation: invalid, already-consumed, or currently-waited process values map to `BadFileDescriptor` instead of use-after-free or double resume.
 - Each suspended wait continuation is resumed exactly once from the libuv process exit callback with the child exit value.
 - Spawn argument buffers and stdio containers are cleaned up after `uv_spawn` returns; failed spawn resumes through the existing IOError conventions.
@@ -74,7 +74,7 @@ Replace the unsupported C `spawn` and `wait` externals with a libuv-backed lifec
 
 #### Completion Notes
 
-Implemented the lifecycle in `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c` using a private `BSTS_Core_Process` box with a magic value, embedded `uv_process_t`, exit status/signal fields, single wait continuation, wait-consumed state, and process-handle close tracking. `spawn` now suspends briefly to access the Prog-owned libuv loop, builds `argv` from the Bosatsu command and argument list, decodes `StdioConfig` enough to support `Inherit` and `Null`, invokes `uv_spawn`, and resumes with `SpawnResult(process, None, None, None)` on success or a mapped IOError on failure. `wait` returns immediately for already-exited unconsumed processes, otherwise suspends and is resumed exactly once by the libuv exit callback. Piped and existing-handle stdio were intentionally left to the next planned step in that round and were completed by `step-3-wire-stdio-configurations`. Added C harness tests in `c_runtime/test.c` for zero exit, non-zero exit, missing command error mapping, and invalid wait input. Verification run for that lifecycle round: `make -C c_runtime test_out PROFILE=debug` passed; `scripts/test_basic.sh` passed with 2116 tests passed and 2 ignored.
+Implemented the lifecycle in `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c` using a private `BSTS_Core_Process` box with a magic value, embedded `uv_process_t`, exit status/signal fields, single wait continuation, wait-consumed state, and process-handle close tracking. `spawn` now suspends briefly to access the Prog-owned libuv loop, builds `argv` from the Bosatsu command and argument list, decodes `StdioConfig` enough to support `Inherit` and `Null`, invokes `uv_spawn`, and resumes with `SpawnResult(process, None, None, None)` on success or a mapped IOError on failure. `wait` returns immediately for already-exited unconsumed processes, otherwise suspends and is resumed exactly once by the libuv exit callback. Piped and existing-handle stdio were intentionally left to the next planned step in that round and were completed by `step-3-wire-stdio-configurations`. Added C harness tests in `c_runtime/test.c` for zero exit, non-zero exit, missing command error mapping, and invalid wait input. Verification run for that lifecycle round: `make -C c_runtime test_out PROFILE=debug` passed; `scripts/test_basic.sh` passed with 2116 tests passed and 2 ignored. Pre-PR review later identified that active process state ownership still needs a pending correction, captured in `step-5-root-active-process-state-until-close`.
 
 3. [x] `step-3-wire-stdio-configurations` Wire stdio configurations
 
@@ -128,4 +128,28 @@ Run the repository-required gate `scripts/test_basic.sh` with the configured 240
 
 #### Completion Notes
 
-Verification completed after stdio wiring landed. `make -C c_runtime test_out PROFILE=debug` passed, covering the focused C runtime harness and new process stdio cases. `scripts/test_basic.sh` passed with 2116 tests passed and 2 ignored in 87 seconds on the final branch state. `git diff --check` passed. This round did not run separate sanitizer or valgrind scripts; the required gate and focused C runtime target were used for this small-job checkpoint.
+Verification completed after stdio wiring landed. `make -C c_runtime test_out PROFILE=debug` passed, covering the focused C runtime harness and new process stdio cases. `scripts/test_basic.sh` passed with 2116 tests passed and 2 ignored in 87 seconds on the final branch state. `git diff --check` passed. This round did not run separate sanitizer or valgrind scripts; the required gate and focused C runtime target were used for this small-job checkpoint. Pre-PR review later identified an active process ownership gap that was not caught by these gates, so final verification must be repeated after `step-5-root-active-process-state-until-close`.
+
+5. [ ] `step-5-root-active-process-state-until-close` Root active process state until close
+
+Address approval-blocking review finding F1 in `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c`: `BSTS_Core_Process` currently embeds an active `uv_process_t` but is allocated with `GC_malloc` and is only returned through the `SpawnResult` process value. After successful spawn, user code may ignore or drop that process value before child exit, leaving libuv with `uv_process_t.data` pointing at GC-reclaimable memory. Refactor the process state lifetime so active libuv callback state remains valid independently of Bosatsu value reachability. The smallest acceptable designs are either native-owning `BSTS_Core_Process` with explicit free from the process close callback, or adding active processes to a GC-scanned/rooted runtime list until `uv_close` completes. Keep the existing public `Process` representation, wait single-consumption semantics, stdio behavior, and error mapping. Verify the adjacent pending wait path still keeps the process and suspended continuation reachable while wait is outstanding, and that process state is removed/freed only after the libuv close callback has run.
+
+#### Invariants
+
+- Corresponds to review finding F1: every successfully spawned active `uv_process_t` must have callback state whose lifetime extends until the `uv_close` callback completes, even when no Bosatsu `Process` value remains reachable.
+- `uv_process_t.data` must never point at GC-reclaimable memory unless that memory is also held by an explicit runtime root for the entire active-handle lifetime.
+- A pending `wait` must continue to root both the suspended continuation and the associated process state until it is resumed exactly once or rejected before suspension.
+- The process close callback must be the single terminal ownership point for native-owned process state or the point where rooted process state is unlinked; no exit path may double-free, double-unlink, double-close, or leave an active process permanently rooted.
+- The fix should be local to the C runtime process implementation and expected to stay well under the 1000 LoC refactor threshold; do the refactor in this PR rather than deferring it as technical debt.
+
+#### Property Tests
+
+- For any spawned child whose `Process` result is ignored or dropped before exit, forcing a GC cycle before the child exits and then draining the libuv loop must not crash, dereference freed process state, leak an active process root, or skip process close cleanup.
+- For any spawned child with a pending `wait`, the wait continuation must be resumed exactly once with the same exit value regardless of whether other references to the returned `Process` value are retained.
+- Across repeated spawn/drop and spawn/wait cycles, the number of active native-owned or runtime-rooted process states should return to its baseline after children exit and close callbacks run.
+
+#### Assertion Tests
+
+- Add focused C harness coverage that spawns a short-lived or delayed command, deliberately discards the returned process value, forces Boehm collection before child exit where practical, drains the Prog/libuv loop, and asserts the run completes without crash or unfinished suspension faults.
+- Add a focused wait regression that starts `wait`, drops other process references, forces collection before child exit where practical, and asserts wait still returns the expected exit code exactly once.
+- Retain existing spawn/wait, missing-command, pipe stdout/stderr/stdin, invalid existing-handle, and invalid wait tests; rerun `make -C c_runtime test_out PROFILE=debug`, `scripts/test_basic.sh`, and `git diff --check` after the ownership refactor.
