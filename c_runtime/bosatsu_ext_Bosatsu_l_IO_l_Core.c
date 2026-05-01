@@ -300,6 +300,8 @@ static BValue bsts_core_make_handle(
     int writable,
     int close_on_close)
 {
+  // This allocation does not cross an unboxed Bosatsu object: all inputs are
+  // primitive or native handles, and the returned handle is rooted by callers.
   BSTS_Core_Handle *h = (BSTS_Core_Handle *)GC_malloc(sizeof(BSTS_Core_Handle));
   if (h == NULL)
   {
@@ -1146,6 +1148,9 @@ static BValue bsts_core_read_bytes_effect(BValue pair)
   }
 
   int read_len = (int)read_count;
+  // Keep pair reachable across the GC allocation below: it owns the handle
+  // BValue we unboxed before reading, and the atomic data allocation cannot
+  // contain references back to Bosatsu values.
   uint8_t *data = (uint8_t *)GC_malloc_atomic((size_t)read_len);
   if (data == NULL)
   {
@@ -1157,6 +1162,7 @@ static BValue bsts_core_read_bytes_effect(BValue pair)
   free(buf);
 
   BValue bytes = bsts_bytes_wrap(data, 0, read_len);
+  GC_reachable_here(pair);
   return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_option_some(bytes));
 }
 
@@ -1292,6 +1298,9 @@ static BValue bsts_core_read_all_bytes_effect(BValue pair)
     return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_bytes_empty());
   }
 
+  // Keep pair reachable across the GC allocation below: it owns the handle
+  // BValue used for the completed reads, while this atomic buffer stores only
+  // raw byte payload.
   uint8_t *data = (uint8_t *)GC_malloc_atomic(total);
   if (data == NULL)
   {
@@ -1303,6 +1312,7 @@ static BValue bsts_core_read_all_bytes_effect(BValue pair)
   free(acc);
 
   BValue bytes = bsts_bytes_wrap(data, 0, (int)total);
+  GC_reachable_here(pair);
   return ___bsts_g_Bosatsu_l_Prog_l_pure(bytes);
 }
 
@@ -1454,6 +1464,8 @@ static BValue bsts_core_close_effect(BValue handle_value)
 
   if (handle->close_on_close)
   {
+    // Keep handle_value reachable across request allocation and setup. The
+    // request is GC-managed and stores handle before suspension roots it.
     BSTS_Core_Fs_Request *request =
         (BSTS_Core_Fs_Request *)GC_malloc(sizeof(BSTS_Core_Fs_Request));
     if (request == NULL)
@@ -1466,7 +1478,9 @@ static BValue bsts_core_close_effect(BValue handle_value)
     request->mark_closed = 1;
     bsts_contextf(request->context, sizeof(request->context), "closing handle");
     request->req.data = request;
-    return bsts_Bosatsu_Prog_suspend(BSTS_VALUE_FROM_PTR(request), bsts_core_close_start);
+    BValue suspended = bsts_Bosatsu_Prog_suspend(BSTS_VALUE_FROM_PTR(request), bsts_core_close_start);
+    GC_reachable_here(handle_value);
+    return suspended;
   }
 
   handle->closed = 1;
@@ -2396,6 +2410,8 @@ static BValue bsts_core_sleep_effect(BValue duration)
         bsts_ioerror_invalid_argument("sleep duration must be >= 0"));
   }
 
+  // duration is still needed after this allocation to compute the timeout, so
+  // keep it explicitly reachable through request initialization.
   BSTS_Core_Sleep_Request *request =
       (BSTS_Core_Sleep_Request *)GC_malloc(sizeof(BSTS_Core_Sleep_Request));
   if (request == NULL)
@@ -2409,9 +2425,11 @@ static BValue bsts_core_sleep_effect(BValue duration)
       bsts_sleep_timeout_millis(bsts_integer_to_low_uint64(nanos_value));
   request->error = bsts_unit_value();
   request->is_error = 0;
-  return bsts_Bosatsu_Prog_suspend(
+  BValue suspended = bsts_Bosatsu_Prog_suspend(
       BSTS_VALUE_FROM_PTR(request),
       bsts_core_sleep_start);
+  GC_reachable_here(duration);
+  return suspended;
 }
 
 BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_path__sep()
