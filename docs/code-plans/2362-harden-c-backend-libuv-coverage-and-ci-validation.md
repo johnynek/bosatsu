@@ -8,21 +8,21 @@
 - Flow: `small_job`
 - Issue: `#2362` Harden C backend libuv coverage and CI validation
 - Source design doc: `docs/design/2342-document-the-libuv-c-runtime-integration-contract.md`
-- Pending steps: `0`
+- Pending steps: `1`
 - Completed steps: `4`
-- Total steps: `4`
+- Total steps: `5`
 
 ## Summary
 
-Harden validation for the completed libuv-backed C runtime by making the sanitizer and valgrind scripts exercise the vendored dependency pipeline, generated C binaries, `GC_THREADS`, libuv link flags, Main/Test compatibility, async continuation behavior, file IO, process wait, and practical GC/thread safety assumptions. The branch is gated by `scripts/test_basic.sh`, with targeted C validation documented for PR submission.
+Harden validation for the completed libuv-backed C runtime by making the sanitizer and valgrind scripts exercise the vendored dependency pipeline, generated C binaries, `GC_THREADS`, libuv link flags, Main/Test compatibility, async continuation behavior, file IO, process wait, and practical GC/thread safety assumptions. One remaining pre-PR review closure step must make the CI helper validation fail-fast before shell evaluation so stale caller-provided `C_RUNTIME_*` variables cannot bypass the vendored-libuv gate.
 
 ## Current State
 
-The repository contains the direct dependency work for this roadmap node: `c_runtime/deps.json` pins vendored libuv, `VendoredDeps` and `CDeps` have libuv recipe/link metadata tests, the C runtime `Makefile` supports libuv for vendored and non-vendored builds, and `c_runtime/test.c` exercises the libuv Prog loop, Main/Test argument-list compatibility, async suspend/resume helpers, async GC reachability around suspended request results, IO/Core libuv effects, and process-related paths. Step 1 tightened `scripts/c_runtime_ci_env.py` with opt-in vendored libuv validation, updated the sanitizer and valgrind scripts to require vendored libuv/bdwgc archives, `GC_THREADS`, script-specific compile flags, and preserved transitive system link flags, and scoped generated-runtime cleanliness checks to `c_runtime`. Step 2 extended focused Scala coverage for vendored link-flag ordering and generated Main initialization before the Prog runner. Step 3 filled narrow C runtime gaps for Main/Test argument handling and GC pressure during async suspension. Step 4 completed practical verification: the focused Scala suites passed, `scripts/test_c_sanitizers.sh` passed, `scripts/test_basic.sh` passed, and valgrind is not installed in this worker environment, so `scripts/test_c_valgrind.sh` remains an environment-dependent PR note rather than a local execution result.
+The repository contains the direct dependency work for this roadmap node: `c_runtime/deps.json` pins vendored libuv, `VendoredDeps` and `CDeps` have libuv recipe/link metadata tests, the C runtime `Makefile` supports libuv for vendored and non-vendored builds, and `c_runtime/test.c` exercises the libuv Prog loop, Main/Test argument-list compatibility, async suspend/resume helpers, async GC reachability around suspended request results, IO/Core libuv effects, and process-related paths. Step 1 tightened `scripts/c_runtime_ci_env.py` with opt-in vendored libuv validation, updated the sanitizer and valgrind scripts to invoke that validation, require vendored libuv/bdwgc archives, `GC_THREADS`, script-specific compile flags, and preserved transitive system link flags, and scoped generated-runtime cleanliness checks to `c_runtime`. Step 2 extended focused Scala coverage for vendored link-flag ordering and generated Main initialization before the Prog runner. Step 3 filled narrow C runtime gaps for Main/Test argument handling and GC pressure during async suspension. Step 4 completed practical verification for the current candidate: the focused Scala suites passed, `scripts/test_c_sanitizers.sh` passed, `scripts/test_basic.sh` passed, and valgrind is not installed in this worker environment, so `scripts/test_c_valgrind.sh` remains an environment-dependent PR note rather than a local execution result. Pre-PR review finding F001 identified one remaining script robustness gap: both C validation scripts currently run `c_runtime_ci_env.py` inside command substitution passed directly to `eval`, which can hide a helper validation failure before the exported environment is used.
 
 ## Problem
 
-The libuv integration spans several risk families that are easy to regress independently: vendored link metadata can omit required system flags or `GC_THREADS`; generated C programs can accidentally stop linking against the same dependency set as the runtime; Main and Test runners can diverge in initialization, loop ownership, or argument-list behavior; async success/error continuations can break after IO completion; file/process IO can leak handles or lose error recovery behavior; and GC-managed `BValue`s must stay reachable across libuv callbacks. Issue #2362 requires tying those pieces into CI-oriented scripts, focused regression coverage, and a required gate before the roadmap closes.
+The libuv integration spans several risk families that are easy to regress independently: vendored link metadata can omit required system flags or `GC_THREADS`; generated C programs can accidentally stop linking against the same dependency set as the runtime; Main and Test runners can diverge in initialization, loop ownership, or argument-list behavior; async success/error continuations can break after IO completion; file/process IO can leak handles or lose error recovery behavior; and GC-managed `BValue`s must stay reachable across libuv callbacks. Issue #2362 requires tying those pieces into CI-oriented scripts, focused regression coverage, and a required gate before the roadmap closes. The current remaining approval blocker is that a failing helper validation can be swallowed by `eval "$(python3 scripts/c_runtime_ci_env.py ...)"`; if stale `C_RUNTIME_*` variables are already present, sanitizer or valgrind validation could continue with old values instead of failing the gate.
 
 ## Steps
 
@@ -134,3 +134,25 @@ Use the repo-required gate as the shippability condition and document the practi
 #### Completion Notes
 
 Completed step-4 verification on May 1, 2026. Focused Scala verification passed with `sbt -batch "coreJVM/testOnly dev.bosatsu.cruntime.CDepsTest dev.bosatsu.cruntime.VendoredDepsTest dev.bosatsu.cruntime.CDepsJvmTest dev.bosatsu.codegen.clang.ClangGenLibraryDepsTest -- --log=failure"`. `scripts/test_c_sanitizers.sh` passed and exercised the vendored libuv/bdwgc generated C configuration under sanitizer flags. `command -v valgrind` exited 1, confirming valgrind is unavailable in this worker, so the updated valgrind script remains unexecuted locally and should be noted in the PR. The final required gate `scripts/test_basic.sh` passed. Generated untracked test artifacts were removed, and `git status --short` was clean after cleanup.
+
+5. [ ] `step-5` Make CI Helper Evaluation Fail Fast
+
+Close pre-PR review finding F001 by changing both `scripts/test_c_sanitizers.sh` and `scripts/test_c_valgrind.sh` so `c_runtime_ci_env.py --validate-vendored-libuv ...` is executed in a standalone assignment or equivalent source step whose exit status is checked before `eval` runs. Keep the fix limited to the two adjacent shell scripts unless a tiny shared helper is already present locally. The key behavior is that missing vendored libuv/bdwgc archives, missing `GC_THREADS`, missing required compile flags, unreadable `cc_conf.json`, or any future helper validation failure must terminate the script before any old caller-provided `C_RUNTIME_CC`, `C_RUNTIME_CPPFLAGS`, `C_RUNTIME_LIBS`, or `C_RUNTIME_CC_CONF` values can be used.
+
+#### Invariants
+
+- F001 mapping: shell command substitution failure from `c_runtime_ci_env.py` is fatal before evaluating exports in both sanitizer and valgrind scripts.
+- F001 mapping: stale `C_RUNTIME_*` environment variables supplied by the caller cannot let either script continue after helper validation fails.
+- The helper output is evaluated only after the helper process exits successfully, preserving the existing exported variable names and quoting behavior.
+- The sanitizer and valgrind scripts continue to invoke `--validate-vendored-libuv` with their script-specific `--require-cflag` checks.
+
+#### Property Tests
+
+- A shell-level invariant test is acceptable here if practical: with a deliberately failing helper command and pre-set stale `C_RUNTIME_*` variables, the evaluation pattern exits non-zero and does not proceed to a command that would use those variables.
+
+#### Assertion Tests
+
+- Add or perform a focused negative check for the shell pattern, such as temporarily invoking the helper with an impossible `--require-cflag` value after install or using a small bash snippet that mirrors the assignment-plus-eval pattern, and assert the command exits non-zero before downstream runtime commands run.
+- Run `bash -n scripts/test_c_sanitizers.sh scripts/test_c_valgrind.sh` after the shell edit.
+- Rerun `scripts/test_c_sanitizers.sh` so the repaired fail-fast evaluation path is exercised in the available environment.
+- Check `command -v valgrind`; if valgrind remains unavailable, do not claim a full local `scripts/test_c_valgrind.sh` run, but keep the script syntax and fail-fast evaluation validated.
