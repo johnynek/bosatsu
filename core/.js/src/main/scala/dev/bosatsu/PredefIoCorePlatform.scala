@@ -1558,6 +1558,46 @@ private[bosatsu] object PredefIoCorePlatform {
     )
   }
 
+  def prog_core_terminate(process: Value): Value = {
+    val _ = process
+    PredefImpl.prog_raise_error(
+      ioerror_known(
+        IOErrorTagUnsupported,
+        "terminate is unsupported in the Scala.js evaluator runtime"
+      )
+    )
+  }
+
+  def prog_core_kill(process: Value): Value = {
+    val _ = process
+    PredefImpl.prog_raise_error(
+      ioerror_known(
+        IOErrorTagUnsupported,
+        "kill is unsupported in the Scala.js evaluator runtime"
+      )
+    )
+  }
+
+  def prog_core_poll(process: Value): Value = {
+    val _ = process
+    PredefImpl.prog_raise_error(
+      ioerror_known(
+        IOErrorTagUnsupported,
+        "poll is unsupported in the Scala.js evaluator runtime"
+      )
+    )
+  }
+
+  def prog_core_wait_timeout(process: Value, duration: Value): Value = {
+    val _ = (process, duration)
+    PredefImpl.prog_raise_error(
+      ioerror_known(
+        IOErrorTagUnsupported,
+        "wait_timeout is unsupported in the Scala.js evaluator runtime"
+      )
+    )
+  }
+
   val prog_core_now_wall: Value =
     prog_effect(
       UnitValue,
@@ -1630,6 +1670,14 @@ private[bosatsu] object PredefIoCorePlatform {
       .add(ioCorePackageName, "get_env", FfiCall.Fn1(prog_core_get_env(_)))
       .add(ioCorePackageName, "spawn", FfiCall.Fn3(prog_core_spawn(_, _, _)))
       .add(ioCorePackageName, "wait", FfiCall.Fn1(prog_core_wait(_)))
+      .add(ioCorePackageName, "terminate", FfiCall.Fn1(prog_core_terminate(_)))
+      .add(ioCorePackageName, "kill", FfiCall.Fn1(prog_core_kill(_)))
+      .add(ioCorePackageName, "poll", FfiCall.Fn1(prog_core_poll(_)))
+      .add(
+        ioCorePackageName,
+        "wait_timeout",
+        FfiCall.Fn2(prog_core_wait_timeout(_, _))
+      )
       .add(ioCorePackageName, "now_wall", FfiCall.Const(prog_core_now_wall))
       .add(ioCorePackageName, "now_mono", FfiCall.Const(prog_core_now_mono))
       .add(ioCorePackageName, "sleep", FfiCall.Fn1(prog_core_sleep(_)))

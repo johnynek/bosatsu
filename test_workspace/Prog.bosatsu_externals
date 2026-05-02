@@ -37,6 +37,10 @@
     get_env: ProgExt.get_env,
     spawn: ProgExt.spawn_process,
     wait: ProgExt.wait_process,
+    terminate: ProgExt.terminate_process,
+    kill: ProgExt.kill_process,
+    poll: ProgExt.poll_process,
+    wait_timeout: ProgExt.wait_timeout_process,
     now_wall: ProgExt.now_wall,
     now_mono: ProgExt.now_mono,
     sleep: ProgExt.sleep_for

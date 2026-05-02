@@ -27,6 +27,10 @@ BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_rename(BValue from, BValue to);
 BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_get__env(BValue name);
 BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_spawn(BValue cmd, BValue args, BValue stdio);
 BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_wait(BValue process);
+BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_terminate(BValue process);
+BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_kill(BValue process);
+BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_poll(BValue process);
+BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_wait__timeout(BValue process, BValue duration);
 
 BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_now__wall();
 BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_now__mono();

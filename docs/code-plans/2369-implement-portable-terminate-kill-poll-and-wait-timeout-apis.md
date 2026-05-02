@@ -7,8 +7,9 @@
 
 - Flow: `small_job`
 - Issue: `#2369` Implement portable terminate, kill, poll, and wait_timeout APIs
-- Pending steps: `4`
-- Completed steps: `0`
+- Source design doc: `docs/design/2365-specify-the-portable-process-stop-and-status-contract.md`
+- Pending steps: `3`
+- Completed steps: `1`
 - Total steps: `4`
 
 ## Summary
@@ -17,37 +18,43 @@ Add the low-level portable process stop/status API from the reviewed contract: p
 
 ## Current State
 
-`test_workspace/Bosatsu/IO/Core.bosatsu` currently exposes `Process`, `spawn`, and `wait`, but no public stop, poll, or timeout operations. The prior wait-state work is present: JVM `ProcessValue` in `core/src/main/scala/dev/bosatsu/Predef.scala`, Python `_CoreProcess` in `test_workspace/ProgExt.py`, and C `BSTS_Core_Process` in `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c` each cache final process status so repeated `wait` calls return the same code. Existing process coverage lives in `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu`, `core/src/test/scala/dev/bosatsu/EvaluationTest.scala`, `test_python.sh`, and `c_runtime/test.c`. The reviewed contract is in `docs/design/2365-specify-the-portable-process-stop-and-status-contract.md`; coding guidance in `coding_style.md` emphasizes typed invariants, immutable public APIs, focused tests while iterating, and the repository required gate.
+`test_workspace/Bosatsu/IO/Core.bosatsu` now exposes `StopResult`, `terminate`, `kill`, `poll`, and `wait_timeout` beside the existing `Process`, `spawn`, and `wait` API. The Python external map, JVM and Scala.js evaluator external registries, and C runtime declarations/definitions are wired for the new names. The new runtime entries intentionally return `Unsupported` placeholders until the backend semantics steps replace them. The prior wait-state work remains present: JVM `ProcessValue` in `core/src/main/scala/dev/bosatsu/Predef.scala`, Python `_CoreProcess` in `test_workspace/ProgExt.py`, and C `BSTS_Core_Process` in `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c` each cache final process status so repeated `wait` calls return the same code. Existing process coverage lives in `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu`, `core/src/test/scala/dev/bosatsu/EvaluationTest.scala`, `test_python.sh`, and `c_runtime/test.c`. The reviewed contract is in `docs/design/2365-specify-the-portable-process-stop-and-status-contract.md`; coding guidance in `coding_style.md` emphasizes typed invariants, immutable public APIs, focused tests while iterating, and the repository required gate.
 
 ## Problem
 
-Callers cannot currently build portable process timeout and escalation flows. There is no way to request normal termination, forceful termination, non-blocking status observation, or bounded waiting without consuming the eventual status. Implementing these APIs separately per backend would risk divergent semantics, especially around already-exited children, timeout non-consumption, POSIX-style signal normalization, and returned stdio handle ownership. The implementation needs to extend the existing stable process-state slots rather than add one-off paths that race with or bypass `wait`.
+Callers still cannot build portable process timeout and escalation flows because the runtime semantics for stop, poll, and bounded wait remain placeholders after this public wiring slice. There is now a common public API and external name shape for every existing runtime path, so the remaining work can focus on replacing the `Unsupported` stubs with shared stable-status semantics per backend without changing the public surface again.
 
 ## Steps
 
-1. [ ] `step-1-public-api-and-external-wiring` Add Public API Surface
+1. [x] `step-1-public-api-and-external-wiring` Add Public API Surface
 
-Update `test_workspace/Bosatsu/IO/Core.bosatsu` to define `enum StopResult: StopSent | AlreadyExited`, add external definitions for `terminate`, `kill`, `poll`, and `wait_timeout`, and export the new type and functions beside `Process`, `spawn`, and `wait`. Wire matching external names through `test_workspace/Prog.bosatsu_externals` and C runtime declarations in `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.h` so all backends expose the same shape before backend logic is filled in.
+Updated `test_workspace/Bosatsu/IO/Core.bosatsu` to define `enum StopResult: StopSent | AlreadyExited`, add external definitions for `terminate`, `kill`, `poll`, and `wait_timeout`, and export the new type and functions beside `Process`, `spawn`, and `wait`. Wired matching external names through `test_workspace/Prog.bosatsu_externals`, JVM and Scala.js evaluator external registries, Python placeholder functions, and C runtime declarations/definitions so all current backend entry points expose the same shape before backend logic is filled in.
 
 #### Invariants
 
 - `StopResult` is a portable semantic result type; no raw signal names, signal numbers, process ids, process groups, or process-tree behavior are exposed.
 - The new public functions use the existing `Process`, `Duration`, `Option[Int]`, and `Prog[IOError, ...]` types from `Bosatsu/IO/Core`.
 - Existing `spawn` and `wait` exports remain source-compatible.
+- Runtime placeholder functions return `Unsupported` until the planned backend semantics steps replace them; they do not claim stop/status behavior is implemented yet.
 
 #### Property Tests
 
-- Compile/typecheck coverage should establish that the new exports are available from `Bosatsu/IO/Core` without changing existing callers.
-- Where Bosatsu-level tests generate operation sequences later, every sequence should be able to refer to the same public API across backends.
+- Compile/typecheck coverage establishes that the new exports are available from `Bosatsu/IO/Core` without changing existing callers.
+- Where Bosatsu-level tests generate operation sequences later, every sequence can refer to the same public API across backends.
 
 #### Assertion Tests
 
-- Add or update a small Bosatsu process test module/import path so `StopResult`, `terminate`, `kill`, `poll`, and `wait_timeout` are imported from `Bosatsu/IO/Core`.
-- Keep existing `ProcessWaitMain` repeated-wait behavior passing to prove the public API addition does not regress `wait`.
+- Updated `ProcessWaitMain.bosatsu` so `StopResult`, `StopSent`, `AlreadyExited`, `terminate`, `kill`, `poll`, and `wait_timeout` are imported from `Bosatsu/IO/Core` and typechecked through an unreachable branch that does not execute placeholder runtime behavior.
+- Kept existing `ProcessWaitMain` repeated-wait behavior passing to prove the public API addition does not regress `wait`.
+- Ran `scripts/test_basic.sh`; it passed with 74 tests.
+
+#### Completion Notes
+
+Completed the public API and external-name wiring slice. Added temporary `Unsupported` placeholders for newly wired runtime entries so package-level evaluation/transpilation does not fail on missing externals while later steps implement real behavior. Verification: `scripts/test_basic.sh` passed after fixing Bosatsu import/typecheck coverage.
 
 2. [ ] `step-2-jvm-and-python-runtime-semantics` Implement JVM And Python Backends
 
-Extend JVM `ProcessValue` with shared helpers for final status recording, non-blocking poll, bounded wait, and stop requests. Map JVM `terminate` to `Process.destroy()` and `kill` to `Process.destroyForcibly()`. Extend Python `_CoreProcess` with the same shared state helpers, mapping `terminate` to `Popen.terminate()`, `kill` to `Popen.kill()`, `poll` to `Popen.poll()`, and `wait_timeout` to `Popen.wait(timeout=...)` with `TimeoutExpired` returning `None`. Convert positive nanosecond durations to backend timeout units by rounding up, treat zero or negative durations as an immediate poll, clamp excessive positive durations rather than overflowing, and preserve Python negative return-code normalization as `128 + abs(code)`.
+Replace the JVM and Python `Unsupported` placeholders added in step 1 with real process semantics. Extend JVM `ProcessValue` with shared helpers for final status recording, non-blocking poll, bounded wait, and stop requests. Map JVM `terminate` to `Process.destroy()` and `kill` to `Process.destroyForcibly()`. Extend Python `_CoreProcess` with the same shared state helpers, mapping `terminate` to `Popen.terminate()`, `kill` to `Popen.kill()`, `poll` to `Popen.poll()`, and `wait_timeout` to `Popen.wait(timeout=...)` with `TimeoutExpired` returning `None`. Convert positive nanosecond durations to backend timeout units by rounding up, treat zero or negative durations as an immediate poll, clamp excessive positive durations rather than overflowing, and preserve Python negative return-code normalization as `128 + abs(code)`.
 
 #### Invariants
 
@@ -55,6 +62,7 @@ Extend JVM `ProcessValue` with shared helpers for final status recording, non-bl
 - `wait_timeout` returning `None` never records a fake result and never prevents a later `wait` from observing the real exit code.
 - `terminate` and `kill` return `AlreadyExited` when final status is already recorded, otherwise return `StopSent` after issuing the backend stop request.
 - Stop/status operations do not close, drain, or flush returned stdin/stdout/stderr handles.
+- Scala.js may continue returning `Unsupported` for process stop/status APIs unless Node process support is intentionally added in this issue.
 
 #### Property Tests
 
@@ -70,7 +78,7 @@ Extend JVM `ProcessValue` with shared helpers for final status recording, non-bl
 
 3. [ ] `step-3-c-libuv-runtime-semantics` Implement C/libuv Backend
 
-Extend `BSTS_Core_Process` in `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c` so `wait`, `poll`, `wait_timeout`, `terminate`, and `kill` all observe or update one normalized final-status record. Add public C entry points in the `.c` and `.h` files. Implement stop through the live `uv_process_t` handle with `uv_process_kill` using the strongest portable mapping from the contract: normal termination via the backend normal stop signal where available and forceful kill via the strongest available forceful stop signal where available, while preserving Windows libuv behavior as a portable semantic mapping. Implement `wait_timeout` with a `uv_timer_t` deadline coordinated with the process exit callback; if the timer wins, resume with `None` while leaving exit observation live for later `wait`, `poll`, or `wait_timeout`.
+Replace the C runtime `Unsupported` placeholders added in step 1 with real libuv process semantics. Extend `BSTS_Core_Process` in `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c` so `wait`, `poll`, `wait_timeout`, `terminate`, and `kill` all observe or update one normalized final-status record. Implement stop through the live `uv_process_t` handle with `uv_process_kill` using the strongest portable mapping from the contract: normal termination via the backend normal stop signal where available and forceful kill via the strongest available forceful stop signal where available, while preserving Windows libuv behavior as a portable semantic mapping. Implement `wait_timeout` with a `uv_timer_t` deadline coordinated with the process exit callback; if the timer wins, resume with `None` while leaving exit observation live for later `wait`, `poll`, or `wait_timeout`.
 
 #### Invariants
 

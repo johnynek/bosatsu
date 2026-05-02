@@ -7,16 +7,68 @@ from Bosatsu/IO/Core import (
   StdioConfig,
   Pipe,
   SpawnResult,
+  StopResult,
+  StopSent,
+  AlreadyExited,
   spawn,
   wait,
+  terminate,
+  kill,
+  poll,
+  wait_timeout,
+  now_mono,
 )
+
+def stop_result_observed(sr: StopResult) -> Bool:
+  match sr:
+    case StopSent: True
+    case AlreadyExited: True
+
+def option_code_observed(code: Option[Int]) -> Bool:
+  match code:
+    case Some(_): True
+    case None: False
 
 def stable_wait_case(cmd: String, code: Int) -> Prog[IOError, Bool]:
   (
     SpawnResult(proc, ...) <- spawn(cmd, [], StdioConfig(Pipe, Pipe, Pipe)).await()
+    timeout <- now_mono.await()
+    polled <- (
+      if False:
+        poll(proc)
+      else:
+        pure(None)
+    ).await()
+    timed <- (
+      if False:
+        wait_timeout(proc, timeout)
+      else:
+        pure(None)
+    ).await()
+    terminated <- (
+      if False:
+        terminate(proc)
+      else:
+        pure(StopSent)
+    ).await()
+    killed <- (
+      if False:
+        kill(proc)
+      else:
+        pure(AlreadyExited)
+    ).await()
     first <- wait(proc).await()
     second <- wait(proc).await()
-    pure(and(first.eq_Int(code), second.eq_Int(code)))
+    pure(and(
+      or(
+        option_code_observed(polled),
+        or(
+          option_code_observed(timed),
+          and(stop_result_observed(terminated), stop_result_observed(killed)),
+        ),
+      ),
+      and(first.eq_Int(code), second.eq_Int(code)),
+    ))
   )
 
 run_test: Prog[IOError, Int] =

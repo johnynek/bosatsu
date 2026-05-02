@@ -3576,6 +3576,34 @@ object PredefImpl {
       }
     )
 
+  private def unsupportedProcessStatus(opName: String): Value =
+    prog_raise_error(
+      ioerror_known(
+        IOErrorTagUnsupported,
+        s"$opName is not implemented in the JVM evaluator yet"
+      )
+    )
+
+  def prog_core_terminate(process: Value): Value = {
+    val _ = process
+    unsupportedProcessStatus("terminate")
+  }
+
+  def prog_core_kill(process: Value): Value = {
+    val _ = process
+    unsupportedProcessStatus("kill")
+  }
+
+  def prog_core_poll(process: Value): Value = {
+    val _ = process
+    unsupportedProcessStatus("poll")
+  }
+
+  def prog_core_wait_timeout(process: Value, duration: Value): Value = {
+    val _ = (process, duration)
+    unsupportedProcessStatus("wait_timeout")
+  }
+
   private def nowWallEpochNanos(): BigInteger = {
     val instant = java.time.Instant.now()
     BigInteger

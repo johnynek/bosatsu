@@ -33,6 +33,7 @@ export (
   Stdio(),
   StdioConfig(),
   SpawnResult(),
+  StopResult(),
   stdin,
   stdout,
   stderr,
@@ -56,6 +57,10 @@ export (
   get_env,
   spawn,
   wait,
+  terminate,
+  kill,
+  poll,
+  wait_timeout,
   now_wall,
   now_mono,
   sleep,
@@ -106,6 +111,10 @@ struct SpawnResult(
   stderr: Option[Handle],
 )
 
+enum StopResult:
+  StopSent
+  AlreadyExited
+
 external stdin: Handle
 external stdout: Handle
 external stderr: Handle
@@ -130,6 +139,10 @@ external def rename(from: Path, to: Path) -> Prog[IOError, Unit]
 external def get_env(name: String) -> Prog[IOError, Option[String]]
 external def spawn(cmd: String, args: List[String], stdio: StdioConfig) -> Prog[IOError, SpawnResult]
 external def wait(p: Process) -> Prog[IOError, Int]
+external def terminate(p: Process) -> Prog[IOError, StopResult]
+external def kill(p: Process) -> Prog[IOError, StopResult]
+external def poll(p: Process) -> Prog[IOError, Option[Int]]
+external def wait_timeout(p: Process, d: Duration) -> Prog[IOError, Option[Int]]
 external now_wall: Prog[IOError, Instant]
 external now_mono: Prog[IOError, Duration]
 external def sleep(d: Duration) -> Prog[IOError, Unit]

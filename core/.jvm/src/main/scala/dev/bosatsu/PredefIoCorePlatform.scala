@@ -124,6 +124,26 @@ private[bosatsu] object PredefIoCorePlatform {
       )
       .add(
         ioCorePackageName,
+        "terminate",
+        FfiCall.Fn1(PredefImpl.prog_core_terminate(_))
+      )
+      .add(
+        ioCorePackageName,
+        "kill",
+        FfiCall.Fn1(PredefImpl.prog_core_kill(_))
+      )
+      .add(
+        ioCorePackageName,
+        "poll",
+        FfiCall.Fn1(PredefImpl.prog_core_poll(_))
+      )
+      .add(
+        ioCorePackageName,
+        "wait_timeout",
+        FfiCall.Fn2(PredefImpl.prog_core_wait_timeout(_, _))
+      )
+      .add(
+        ioCorePackageName,
         "now_wall",
         FfiCall.Const(PredefImpl.prog_core_now_wall)
       )

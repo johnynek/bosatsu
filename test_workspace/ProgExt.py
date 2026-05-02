@@ -1618,6 +1618,24 @@ def wait_process(proc_value):
 
     return effect(fn)
 
+def _unsupported_process_status(op_name):
+    def fn():
+        return raise_error(_unsupported(f"{op_name} is not implemented in this runtime yet"))
+
+    return effect(fn)
+
+def terminate_process(proc_value):
+    return _unsupported_process_status("terminate")
+
+def kill_process(proc_value):
+    return _unsupported_process_status("kill")
+
+def poll_process(proc_value):
+    return _unsupported_process_status("poll")
+
+def wait_timeout_process(proc_value, duration):
+    return _unsupported_process_status("wait_timeout")
+
 def sleep_for(duration):
     def fn():
         try:

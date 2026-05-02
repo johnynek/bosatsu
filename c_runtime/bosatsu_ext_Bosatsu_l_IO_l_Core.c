@@ -2863,6 +2863,15 @@ static BValue bsts_core_wait_effect(BValue process)
   return suspended;
 }
 
+static BValue bsts_core_process_status_unsupported_effect(BValue unit)
+{
+  (void)unit;
+  return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+      bsts_ioerror_known(
+          BSTS_IOERR_Unsupported,
+          "process status API is not implemented in this runtime yet"));
+}
+
 static BValue bsts_core_now_wall_effect(BValue unit)
 {
   (void)unit;
@@ -3100,6 +3109,39 @@ BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_spawn(BValue cmd, BValue args, BValue std
 BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_wait(BValue process)
 {
   return bsts_prog_effect1(process, bsts_core_wait_effect);
+}
+
+BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_terminate(BValue process)
+{
+  (void)process;
+  return bsts_prog_effect1(
+      bsts_unit_value(),
+      bsts_core_process_status_unsupported_effect);
+}
+
+BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_kill(BValue process)
+{
+  (void)process;
+  return bsts_prog_effect1(
+      bsts_unit_value(),
+      bsts_core_process_status_unsupported_effect);
+}
+
+BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_poll(BValue process)
+{
+  (void)process;
+  return bsts_prog_effect1(
+      bsts_unit_value(),
+      bsts_core_process_status_unsupported_effect);
+}
+
+BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_wait__timeout(BValue process, BValue duration)
+{
+  (void)process;
+  (void)duration;
+  return bsts_prog_effect1(
+      bsts_unit_value(),
+      bsts_core_process_status_unsupported_effect);
 }
 
 BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_now__wall()
