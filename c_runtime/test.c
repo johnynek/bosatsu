@@ -643,6 +643,53 @@ static BValue io_core_spawn_wait_nonzero_test_fn(BValue arg) {
   return io_core_spawn_wait_shell_exit(7);
 }
 
+static BValue io_core_spawn_wait_repeated_second_fn(BValue* slots, BValue second) {
+  assert(
+      bsts_integer_cmp(second, slots[0]) == 0,
+      "IO/Core repeated wait should preserve the same child exit code on second wait");
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(second);
+}
+
+static BValue io_core_spawn_wait_repeated_first_fn(BValue* slots, BValue first) {
+  assert(
+      bsts_integer_cmp(first, slots[1]) == 0,
+      "IO/Core repeated wait should preserve the expected child exit code on first wait");
+  BValue next_slots[1] = { first };
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_wait(slots[0]),
+      alloc_closure1(1, next_slots, io_core_spawn_wait_repeated_second_fn));
+}
+
+static BValue io_core_spawn_wait_repeated_process_fn(BValue* slots, BValue spawn_result) {
+  BValue process = get_struct_index(spawn_result, 0);
+  BValue next_slots[2] = { process, slots[0] };
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_wait(process),
+      alloc_closure1(2, next_slots, io_core_spawn_wait_repeated_first_fn));
+}
+
+static BValue io_core_spawn_wait_repeated_shell_exit(int exit_code) {
+  char script[32];
+  snprintf(script, sizeof(script), "exit %d", exit_code);
+  BValue slots[1] = { bsts_integer_from_int(exit_code) };
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_spawn(
+          bsts_string_from_utf8_bytes_static(7, "/bin/sh"),
+          io_core_string_list2("-c", script),
+          io_core_null_stdio_config()),
+      alloc_closure1(1, slots, io_core_spawn_wait_repeated_process_fn));
+}
+
+static BValue io_core_spawn_wait_repeated_zero_test_fn(BValue arg) {
+  (void)arg;
+  return io_core_spawn_wait_repeated_shell_exit(0);
+}
+
+static BValue io_core_spawn_wait_repeated_nonzero_test_fn(BValue arg) {
+  (void)arg;
+  return io_core_spawn_wait_repeated_shell_exit(7);
+}
+
 static BValue io_core_spawn_drop_process_after_fn(BValue spawn_result) {
   (void)spawn_result;
   GC_gcollect();
@@ -3070,6 +3117,14 @@ void test_io_core_libuv_effects() {
       bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_spawn_wait_nonzero_test_fn)),
       "7",
       "IO/Core spawn/wait should preserve a non-zero child exit code");
+  assert_prog_success_int(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_spawn_wait_repeated_zero_test_fn)),
+      "0",
+      "IO/Core repeated wait should preserve a zero child exit code");
+  assert_prog_success_int(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_spawn_wait_repeated_nonzero_test_fn)),
+      "7",
+      "IO/Core repeated wait should preserve a non-zero child exit code");
   assert_prog_success_int(
       bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_spawn_drop_process_test_fn)),
       "0",

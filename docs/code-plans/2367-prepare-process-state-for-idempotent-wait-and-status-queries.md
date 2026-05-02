@@ -8,8 +8,8 @@
 - Flow: `small_job`
 - Issue: `#2367` Prepare process state for idempotent wait and status queries
 - Source design doc: `docs/design/2365-specify-the-portable-process-stop-and-status-contract.md`
-- Pending steps: `2`
-- Completed steps: `1`
+- Pending steps: `1`
+- Completed steps: `2`
 - Total steps: `3`
 
 ## Summary
@@ -18,11 +18,11 @@ Prepare the existing process runtime state so `wait(p)` is stable and idempotent
 
 ## Current State
 
-The reviewed dependency artifact is `docs/design/2365-specify-the-portable-process-stop-and-status-contract.md`, which defines stable process-status invariants for the later stop/status API work. Today `test_workspace/Bosatsu/IO/Core.bosatsu` exposes only `spawn` and `wait` for process handles. In `core/src/main/scala/dev/bosatsu/Predef.scala`, `ProcessValue` is now private to the JVM evaluator and owns a synchronized final-exit-code slot through `waitForExitCode()`, so repeated JVM `wait` calls return the recorded value. In `test_workspace/ProgExt.py`, `_CoreProcess` remains the Python runtime handle, and `wait_process` now routes through helpers that normalize and record exactly one final integer status, including Python negative return-code normalization to `128 + abs(code)`. Focused repeated-wait coverage was added through `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu`, a JVM evaluation test, and `test_python.sh`. In `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c`, `BSTS_Core_Process` still records libuv exit fields but also has `wait_consumed`, causing the current C wait path to reject a second wait as `BadFileDescriptor`; this directly conflicts with the stable-status contract and remains the next implementation step.
+The reviewed dependency artifact is `docs/design/2365-specify-the-portable-process-stop-and-status-contract.md`, which defines stable process-status invariants for the later stop/status API work. Today `test_workspace/Bosatsu/IO/Core.bosatsu` exposes only `spawn` and `wait` for process handles. In `core/src/main/scala/dev/bosatsu/Predef.scala`, `ProcessValue` is private to the JVM evaluator and owns a synchronized final-exit-code slot through `waitForExitCode()`, so repeated JVM `wait` calls return the recorded value. In `test_workspace/ProgExt.py`, `_CoreProcess` remains the Python runtime handle, and `wait_process` routes through helpers that normalize and record exactly one final integer status, including Python negative return-code normalization to `128 + abs(code)`. In `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c`, `BSTS_Core_Process` now records libuv exit fields once and no longer carries or sets `wait_consumed`; post-exit waits return the cached normalized status repeatedly, while an already-suspended wait is still resumed exactly once from the exit callback. Focused repeated-wait coverage exists through `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu`, JVM/Python tests, and `c_runtime/test.c` cases for repeated zero and nonzero C/libuv waits.
 
 ## Problem
 
-Downstream `poll`, `wait_timeout`, `terminate`, and `kill` work needs a process object whose final status can be observed repeatedly without consuming it. The current C/libuv implementation is still single-consumption, while the JVM/Python state model has now been factored into explicit final-status recording helpers. The remaining root state issue is C/libuv: later public status APIs would inherit inconsistent wait behavior until that backend stops treating wait as consumed. This slice should continue to keep the public API unchanged and avoid opportunistic stop, poll, or timeout additions.
+Downstream `poll`, `wait_timeout`, `terminate`, and `kill` work needs a process object whose final status can be observed repeatedly without consuming it. The former C/libuv single-consumption wait model conflicted with that stable-status contract; this round removed that root state issue for existing `wait` behavior. The remaining work is verification breadth: the repository-required gate still needs to pass before PR submission, and this slice should continue to avoid opportunistic stop, poll, or timeout additions.
 
 ## Steps
 
@@ -53,9 +53,9 @@ Update the JVM and Python process wrappers so final exit-code recording is an ex
 
 Implemented the JVM state refactor in `core/src/main/scala/dev/bosatsu/Predef.scala` by replacing the mutable public-ish case-class field with a private evaluator class and synchronized `waitForExitCode()` helper. Implemented the Python state refactor in `test_workspace/ProgExt.py` with `_normalize_process_exit_code`, `_record_process_exit_code`, and `_wait_core_process`. Added `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu` and wired it into JVM/Python-focused tests without changing shared `Bosatsu/IO/Core.bosatsu`, `Prog.bosatsu_externals`, or any public stop/status API.
 
-2. [ ] `step-2` Make C Libuv Wait Non-Consuming
+2. [x] `step-2` Make C Libuv Wait Non-Consuming
 
-Replace the C/libuv wait-consumption model with stable cached status observation. The libuv exit callback should record the normalized final status once, resume any currently suspended waiter with that status, and leave the process object able to answer later waits from the recorded value. Remove or bypass `wait_consumed` as a source of user-visible failure for repeated waits. Keep the `uv_process_t` lifecycle handle-based: do not close or invalidate it before libuv delivers the process exit callback, and continue closing/root cleanup only after exit has been observed or spawn setup fails as today.
+Replace the C/libuv wait-consumption model with stable cached status observation. The libuv exit callback records the final status fields, resumes any currently suspended waiter with the normalized status, and leaves the process object able to answer later waits from the recorded value. `wait_consumed` has been removed as a source of user-visible failure for repeated waits. The `uv_process_t` lifecycle remains handle-based: the implementation does not close or invalidate it before libuv delivers the process exit callback, and cleanup still happens after exit observation or spawn setup failure as before.
 
 #### Invariants
 
@@ -67,14 +67,18 @@ Replace the C/libuv wait-consumption model with stable cached status observation
 
 #### Property Tests
 
-- For C tests, express the stable-status invariant as a small table over exit codes `0` and `7`: for each code, spawn a child, wait on the same process more than once after exit, and assert all observed waits equal the expected code.
-- If the current C test harness makes arbitrary repeat counts awkward, keep the property narrow but explicit by checking at least two sequential waits for each representative code.
+- Added C runtime repeated-wait coverage as a small table over exit codes `0` and `7`: for each code, spawn a child, wait on the same process twice, and assert both observed waits equal the expected code.
+- The property is intentionally narrow to match the current C test harness while covering the stable-status invariant for representative zero and nonzero exits.
 
 #### Assertion Tests
 
-- Add `c_runtime/test.c` regressions for repeated wait after a zero exit.
-- Add `c_runtime/test.c` regressions for repeated wait after a nonzero exit.
-- Retain and re-run existing C assertions for single wait, process rooting after dropped `Process` values, wait after GC, spawn failure recovery, piped stdout/stderr/stdin, incompatible stdio handles, and invalid process wait.
+- Added `c_runtime/test.c` regression coverage for repeated wait after a zero exit.
+- Added `c_runtime/test.c` regression coverage for repeated wait after a nonzero exit.
+- Re-ran the existing C libuv runtime assertions through `make -C c_runtime test_out`, including single wait, process rooting after dropped `Process` values, wait after GC, spawn failure recovery, piped stdout/stderr/stdin, incompatible stdio handles, and invalid process wait.
+
+#### Completion Notes
+
+Implemented the C/libuv state change in `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c` by removing `wait_consumed`, stopping the exit callback and post-exit wait path from consuming status, and keeping only an active `wait_suspended` guard for a currently pending wait. Added a defensive exited check in `bsts_core_wait_start` so a wait starting after exit observation returns the cached status immediately. Added repeated wait tests in `c_runtime/test.c` for `/bin/sh -c 'exit 0'` and `/bin/sh -c 'exit 7'`. Focused checks passed: `make -C c_runtime test_out`, `rg -n "wait_consumed" c_runtime` returned no matches, and `git diff --check` passed.
 
 3. [ ] `step-3` Verify Public Behavior And Required Gate
 
@@ -100,4 +104,4 @@ Run focused backend tests while iterating, then run the configured repository-re
 
 #### Completion Notes
 
-Round-local checks completed: `python3 -m py_compile test_workspace/ProgExt.py`, direct Python helper assertions for repeated recording and negative-code normalization, and `git diff --check` passed. `./bosatsuj` could not run focused transpile checks because this checkout has no assembly jar. `sbt "coreJVM/testOnly dev.bosatsu.EvaluationTest -- *process wait is stable*"` and `sbt "coreJVM/test:compile"` did not return after initial project compilation; a subprocess-wrapped `sbt "coreJVM / Test / compile"` timed out after 600 seconds. The configured required gate `scripts/test_basic.sh` was not run in this round.
+Round-local checks from step 1 completed: `python3 -m py_compile test_workspace/ProgExt.py`, direct Python helper assertions for repeated recording and negative-code normalization, and `git diff --check` passed. `./bosatsuj` could not run focused transpile checks because this checkout has no assembly jar. `sbt "coreJVM/testOnly dev.bosatsu.EvaluationTest -- *process wait is stable*"` and `sbt "coreJVM/test:compile"` did not return after initial project compilation; a subprocess-wrapped `sbt "coreJVM / Test / compile"` timed out after 600 seconds. This C-focused round additionally passed `make -C c_runtime test_out` and `git diff --check`. The configured required gate `scripts/test_basic.sh` was not run in this round and remains pending before PR submission.

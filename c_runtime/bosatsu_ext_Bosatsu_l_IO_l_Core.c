@@ -104,7 +104,6 @@ typedef struct BSTS_Core_Process
   int exited;
   int exit_code;
   int term_signal;
-  int wait_consumed;
   int close_started;
   BSTS_Prog_Suspended *wait_suspended;
 } BSTS_Core_Process;
@@ -2686,7 +2685,6 @@ static void bsts_core_process_exit_cb(
   if (suspended != NULL)
   {
     process->wait_suspended = NULL;
-    process->wait_consumed = 1;
     bsts_Bosatsu_Prog_suspended_success(
         suspended,
         bsts_core_process_exit_value(process));
@@ -2817,6 +2815,13 @@ static int bsts_core_wait_start(BSTS_Prog_Suspended *suspended)
   BSTS_Core_Wait_Request *request =
       BSTS_PTR(BSTS_Core_Wait_Request, bsts_Bosatsu_Prog_suspended_request(suspended));
   request->suspended = suspended;
+  if (request->process->exited)
+  {
+    bsts_Bosatsu_Prog_suspended_success(
+        suspended,
+        bsts_core_process_exit_value(request->process));
+    return 0;
+  }
   request->process->wait_suspended = suspended;
   return 0;
 }
@@ -2830,15 +2835,14 @@ static BValue bsts_core_wait_effect(BValue process)
         bsts_ioerror_bad_fd("waiting on invalid process"));
   }
 
-  if (process_state->wait_consumed || process_state->wait_suspended != NULL)
+  if (process_state->wait_suspended != NULL)
   {
     return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
-        bsts_ioerror_bad_fd("process wait already consumed"));
+        bsts_ioerror_bad_fd("process wait already pending"));
   }
 
   if (process_state->exited)
   {
-    process_state->wait_consumed = 1;
     return ___bsts_g_Bosatsu_l_Prog_l_pure(
         bsts_core_process_exit_value(process_state));
   }
