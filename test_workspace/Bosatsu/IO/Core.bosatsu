@@ -22,6 +22,7 @@ export (
   Process,
   Instant,
   Duration,
+  duration_from_nanos,
   duration_to_nanos,
   PosixMode,
   posix_mode,
@@ -150,6 +151,9 @@ external def sleep(d: Duration) -> Prog[IOError, Unit]
 def duration_to_nanos(d: Duration) -> Int:
   Duration { to_nanos } = d
   to_nanos
+
+def duration_from_nanos(nanos: Int) -> Duration:
+  Duration(nanos)
 
 posix_mode_mask = 4095
 owner_write_execute_mask = 192

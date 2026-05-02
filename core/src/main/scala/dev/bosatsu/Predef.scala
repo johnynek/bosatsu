@@ -42,6 +42,7 @@ import java.nio.file.{
   StandardOpenOption
 }
 import java.util.{EnumSet, Locale}
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import scala.util.control.NonFatal
 import scala.util.DynamicVariable
@@ -1750,21 +1751,85 @@ object PredefImpl {
   private final class ProcessValue(val process: java.lang.Process) {
     private var cachedExitCode: Option[Int] = None
 
+    private def recordExitCode(code: Int): Int = {
+      cachedExitCode match {
+        case Some(cached) => cached
+        case None         =>
+          cachedExitCode = Some(code)
+          code
+      }
+    }
+
     def waitForExitCode(): Either[Value, Int] =
       synchronized {
         cachedExitCode match {
           case Some(code) => Right(code)
           case None       =>
             try {
-              val code = process.waitFor()
-              cachedExitCode = Some(code)
-              Right(code)
+              Right(recordExitCode(process.waitFor()))
             } catch {
               case _: InterruptedException =>
                 Thread.currentThread().interrupt()
                 Left(ioerror_known(IOErrorTagInterrupted, "wait interrupted"))
               case NonFatal(t)             =>
                 Left(ioerror_from_throwable("wait", t))
+            }
+        }
+      }
+
+    def pollExitCode(): Either[Value, Option[Int]] =
+      synchronized {
+        cachedExitCode match {
+          case some @ Some(_) => Right(some)
+          case None           =>
+            try {
+              Right(Some(recordExitCode(process.exitValue())))
+            } catch {
+              case _: IllegalThreadStateException => Right(None)
+              case NonFatal(t)                    =>
+                Left(ioerror_from_throwable("poll", t))
+            }
+        }
+      }
+
+    def waitForExitCodeTimeout(nanos: BigInteger): Either[Value, Option[Int]] =
+      synchronized {
+        cachedExitCode match {
+          case some @ Some(_) => Right(some)
+          case None           =>
+            if (nanos.signum <= 0) pollExitCode()
+            else {
+              val timeout =
+                if (nanos.compareTo(LongMaxBI) > 0) Long.MaxValue
+                else nanos.longValue
+              try {
+                if (process.waitFor(timeout, TimeUnit.NANOSECONDS))
+                  Right(Some(recordExitCode(process.exitValue())))
+                else Right(None)
+              } catch {
+                case _: InterruptedException =>
+                  Thread.currentThread().interrupt()
+                  Left(ioerror_known(IOErrorTagInterrupted, "wait interrupted"))
+                case NonFatal(t)             =>
+                  Left(ioerror_from_throwable("wait_timeout", t))
+              }
+            }
+        }
+      }
+
+    def stopProcess(force: Boolean): Either[Value, Boolean] =
+      synchronized {
+        pollExitCode() match {
+          case Left(err)      => Left(err)
+          case Right(Some(_)) => Right(false)
+          case Right(None)    =>
+            try {
+              if (force) process.destroyForcibly()
+              else process.destroy()
+              Right(true)
+            } catch {
+              case NonFatal(t) =>
+                Left(ioerror_from_throwable(if (force) "kill" else "terminate", t))
             }
         }
       }
@@ -3576,33 +3641,66 @@ object PredefImpl {
       }
     )
 
-  private def unsupportedProcessStatus(opName: String): Value =
-    prog_raise_error(
-      ioerror_known(
-        IOErrorTagUnsupported,
-        s"$opName is not implemented in the JVM evaluator yet"
-      )
+  private val stopSentValue: Value = SumValue(0, UnitValue)
+  private val alreadyExitedValue: Value = SumValue(1, UnitValue)
+
+  private def progStopProcess(process: Value, force: Boolean): Value =
+    prog_effect(
+      process,
+      p => {
+        val result = for {
+          procValue <- asProcessValue(p)
+          stopSent <- procValue.stopProcess(force)
+        } yield if (stopSent) stopSentValue else alreadyExitedValue
+
+        result match {
+          case Right(value) => prog_pure(value)
+          case Left(err)    => prog_raise_error(err)
+        }
+      }
     )
 
-  def prog_core_terminate(process: Value): Value = {
-    val _ = process
-    unsupportedProcessStatus("terminate")
-  }
+  def prog_core_terminate(process: Value): Value =
+    progStopProcess(process, force = false)
 
-  def prog_core_kill(process: Value): Value = {
-    val _ = process
-    unsupportedProcessStatus("kill")
-  }
+  def prog_core_kill(process: Value): Value =
+    progStopProcess(process, force = true)
 
-  def prog_core_poll(process: Value): Value = {
-    val _ = process
-    unsupportedProcessStatus("poll")
-  }
+  def prog_core_poll(process: Value): Value =
+    prog_effect(
+      process,
+      p => {
+        val result = for {
+          procValue <- asProcessValue(p)
+          code <- procValue.pollExitCode()
+        } yield code
 
-  def prog_core_wait_timeout(process: Value, duration: Value): Value = {
-    val _ = (process, duration)
-    unsupportedProcessStatus("wait_timeout")
-  }
+        result match {
+          case Right(Some(code)) => prog_pure(VOption.some(VInt(code)))
+          case Right(None)       => prog_pure(VOption.none)
+          case Left(err)         => prog_raise_error(err)
+        }
+      }
+    )
+
+  def prog_core_wait_timeout(process: Value, duration: Value): Value =
+    prog_effect2(
+      process,
+      duration,
+      (p, d) => {
+        val result = for {
+          procValue <- asProcessValue(p)
+          nanos <- asDurationNanos(d)
+          code <- procValue.waitForExitCodeTimeout(nanos)
+        } yield code
+
+        result match {
+          case Right(Some(code)) => prog_pure(VOption.some(VInt(code)))
+          case Right(None)       => prog_pure(VOption.none)
+          case Left(err)         => prog_raise_error(err)
+        }
+      }
+    )
 
   private def nowWallEpochNanos(): BigInteger = {
     val instant = java.time.Instant.now()

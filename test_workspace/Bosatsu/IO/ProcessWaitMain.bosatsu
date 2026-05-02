@@ -8,6 +8,8 @@ from Bosatsu/IO/Core import (
   Pipe,
   SpawnResult,
   StopResult,
+  Duration,
+  duration_from_nanos,
   StopSent,
   AlreadyExited,
   spawn,
@@ -18,6 +20,101 @@ from Bosatsu/IO/Core import (
   wait_timeout,
   now_mono,
 )
+
+def stop_result_eq(left: StopResult, right: StopResult) -> Bool:
+  match (left, right):
+    case (StopSent, StopSent): True
+    case (AlreadyExited, AlreadyExited): True
+    case _: False
+
+def option_code_eq(actual: Option[Int], expected: Option[Int]) -> Bool:
+  match (actual, expected):
+    case (None, None): True
+    case (Some(a), Some(e)): a.eq_Int(e)
+    case _: False
+
+def is_nonzero(code: Int) -> Bool:
+  not(code.eq_Int(0))
+
+sleep_args: List[String] = ["-c", "import time; time.sleep(10)"]
+
+short_sleep_args: List[String] = ["-c", "import time; time.sleep(0.2)"]
+
+def exited_stop_case() -> Prog[IOError, Bool]:
+  (
+    SpawnResult(proc, ...) <- spawn("true", [], StdioConfig(Pipe, Pipe, Pipe)).await()
+    first <- wait(proc).await()
+    poll_after <- poll(proc).await()
+    timeout_after <- wait_timeout(proc, duration_from_nanos(-1)).await()
+    terminated <- terminate(proc).await()
+    killed <- kill(proc).await()
+    second <- wait(proc).await()
+    pure(and(
+      first.eq_Int(0),
+      and(
+        option_code_eq(poll_after, Some(0)),
+        and(
+          option_code_eq(timeout_after, Some(0)),
+          and(
+            stop_result_eq(terminated, AlreadyExited),
+            and(stop_result_eq(killed, AlreadyExited), second.eq_Int(0)),
+          ),
+        ),
+      ),
+    ))
+  )
+
+def poll_timeout_case() -> Prog[IOError, Bool]:
+  (
+    SpawnResult(proc, ...) <- spawn("python3", short_sleep_args, StdioConfig(Pipe, Pipe, Pipe)).await()
+    poll_before <- poll(proc).await()
+    zero_timeout <- wait_timeout(proc, duration_from_nanos(0)).await()
+    tiny_timeout <- wait_timeout(proc, duration_from_nanos(1)).await()
+    first <- wait(proc).await()
+    poll_after <- poll(proc).await()
+    timeout_after <- wait_timeout(proc, duration_from_nanos(92233720368547758079223372036854775807)).await()
+    second <- wait(proc).await()
+    pure(and(
+      option_code_eq(poll_before, None),
+      and(
+        option_code_eq(zero_timeout, None),
+        and(
+          option_code_eq(tiny_timeout, None),
+          and(
+            first.eq_Int(0),
+            and(
+              option_code_eq(poll_after, Some(0)),
+              and(option_code_eq(timeout_after, Some(0)), second.eq_Int(0)),
+            ),
+          ),
+        ),
+      ),
+    ))
+  )
+
+def terminate_case() -> Prog[IOError, Bool]:
+  (
+    SpawnResult(proc, ...) <- spawn("python3", sleep_args, StdioConfig(Pipe, Pipe, Pipe)).await()
+    stopped <- terminate(proc).await()
+    first <- wait(proc).await()
+    second <- wait(proc).await()
+    pure(and(
+      stop_result_eq(stopped, StopSent),
+      and(is_nonzero(first), first.eq_Int(second)),
+    ))
+  )
+
+def kill_case() -> Prog[IOError, Bool]:
+  (
+    SpawnResult(proc, ...) <- spawn("python3", sleep_args, StdioConfig(Pipe, Pipe, Pipe)).await()
+    stopped <- kill(proc).await()
+    first <- wait(proc).await()
+    second <- wait(proc).await()
+    pure(and(
+      stop_result_eq(stopped, StopSent),
+      and(is_nonzero(first), first.eq_Int(second)),
+    ))
+  )
 
 def stop_result_observed(sr: StopResult) -> Bool:
   match sr:
@@ -75,7 +172,20 @@ run_test: Prog[IOError, Int] =
   (
     zero_ok <- stable_wait_case("true", 0).await()
     nonzero_ok <- stable_wait_case("false", 1).await()
-    pure(0 if and(zero_ok, nonzero_ok) else 1)
+    exited_stop_ok <- exited_stop_case().await()
+    poll_timeout_ok <- poll_timeout_case().await()
+    terminate_ok <- terminate_case().await()
+    kill_ok <- kill_case().await()
+    pure(0 if and(
+      zero_ok,
+      and(
+        nonzero_ok,
+        and(
+          exited_stop_ok,
+          and(poll_timeout_ok, and(terminate_ok, kill_ok)),
+        ),
+      ),
+    ) else 1)
   )
 
 main = Main(_ -> show_error(run_test, 1))
