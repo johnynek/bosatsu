@@ -5,7 +5,7 @@ from Bosatsu/IO/Error import IOError
 from Bosatsu/IO/Std import show_error
 from Bosatsu/IO/Core import (
   StdioConfig,
-  Null,
+  Pipe,
   SpawnResult,
   spawn,
   wait,
@@ -13,9 +13,9 @@ from Bosatsu/IO/Core import (
 
 andb = and
 
-def stable_wait_case(code: Int) -> Prog[IOError, Bool]:
+def stable_wait_case(cmd: String, code: Int) -> Prog[IOError, Bool]:
   (
-    spawned <- spawn("python3", ["-c", "import sys; sys.exit(${int_to_String(code)})"], StdioConfig(Null, Null, Null)).await()
+    spawned <- spawn(cmd, [], StdioConfig(Pipe, Pipe, Pipe)).await()
     SpawnResult(proc, _, _, _) = spawned
     first <- wait(proc).await()
     second <- wait(proc).await()
@@ -24,8 +24,8 @@ def stable_wait_case(code: Int) -> Prog[IOError, Bool]:
 
 run_test: Prog[IOError, Int] =
   (
-    zero_ok <- stable_wait_case(0).await()
-    nonzero_ok <- stable_wait_case(7).await()
+    zero_ok <- stable_wait_case("true", 0).await()
+    nonzero_ok <- stable_wait_case("false", 1).await()
     pure(if andb(zero_ok, nonzero_ok):
       0
     else:

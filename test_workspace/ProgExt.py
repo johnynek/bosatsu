@@ -408,11 +408,11 @@ def _normalize_process_exit_code(code):
 def _record_process_exit_code(proc_value, code):
     if proc_value.exit_code is None:
         proc_value.exit_code = _normalize_process_exit_code(code)
-    return int(proc_value.exit_code)
+    return proc_value.exit_code
 
 def _wait_core_process(proc_value):
     if proc_value.exit_code is not None:
-        return int(proc_value.exit_code)
+        return proc_value.exit_code
     return _record_process_exit_code(proc_value, proc_value.process.wait())
 
 def _invalid_argument(context: str):

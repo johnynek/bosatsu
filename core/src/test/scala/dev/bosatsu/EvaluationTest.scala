@@ -4070,6 +4070,8 @@ external struct Bytes
 """
       val ioCorePack =
         Predef.loadFileInCompile("test_workspace/Bosatsu/IO/Core.bosatsu")
+      val ioStdPack =
+        Predef.loadFileInCompile("test_workspace/Bosatsu/IO/Std.bosatsu")
       val processWaitPack =
         Predef.loadFileInCompile("test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu")
 
@@ -4080,6 +4082,7 @@ external struct Bytes
           ioErrorPack,
           bytesPack,
           ioCorePack,
+          ioStdPack,
           processWaitPack
         ),
         "Bosatsu/IO/ProcessWaitMain",
@@ -4094,8 +4097,10 @@ external struct Bytes
             PredefImpl.runProgMain(mainEval.value, Nil, "")
 
           run.result match {
-            case Right(VInt(i)) => assertEquals(i.intValue, 0)
-            case other          => fail(s"unexpected prog result: $other")
+            case Right(VInt(i)) =>
+              assertEquals(i.intValue, 0, s"stderr: ${run.stderr}")
+            case other          =>
+              fail(s"unexpected prog result: $other; stderr: ${run.stderr}")
           }
         }
       )
