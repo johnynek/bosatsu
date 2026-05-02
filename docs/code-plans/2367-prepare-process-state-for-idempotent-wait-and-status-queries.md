@@ -8,21 +8,21 @@
 - Flow: `small_job`
 - Issue: `#2367` Prepare process state for idempotent wait and status queries
 - Source design doc: `docs/design/2365-specify-the-portable-process-stop-and-status-contract.md`
-- Pending steps: `1`
-- Completed steps: `2`
+- Pending steps: `0`
+- Completed steps: `3`
 - Total steps: `3`
 
 ## Summary
 
-Prepare the existing process runtime state so `wait(p)` is stable and idempotent across the JVM evaluator, Python external runtime, and C/libuv runtime, without adding any new public Bosatsu APIs. The final change should make each process object own one recorded final normalized exit code, allow repeated waits after exit to return the same value, preserve existing spawn/stdio behavior, and pass the repository gate `scripts/test_basic.sh` within the configured 2400 second timeout.
+Prepare the existing process runtime state so `wait(p)` is stable and idempotent across the JVM evaluator, Python external runtime, and C/libuv runtime, without adding any new public Bosatsu APIs. The final change makes each process object own one recorded final normalized exit code, allows repeated waits after exit to return the same value, preserves existing spawn/stdio behavior, and passes the repository gate `scripts/test_basic.sh` within the configured 2400 second timeout.
 
 ## Current State
 
-The reviewed dependency artifact is `docs/design/2365-specify-the-portable-process-stop-and-status-contract.md`, which defines stable process-status invariants for the later stop/status API work. Today `test_workspace/Bosatsu/IO/Core.bosatsu` exposes only `spawn` and `wait` for process handles. In `core/src/main/scala/dev/bosatsu/Predef.scala`, `ProcessValue` is private to the JVM evaluator and owns a synchronized final-exit-code slot through `waitForExitCode()`, so repeated JVM `wait` calls return the recorded value. In `test_workspace/ProgExt.py`, `_CoreProcess` remains the Python runtime handle, and `wait_process` routes through helpers that normalize and record exactly one final integer status, including Python negative return-code normalization to `128 + abs(code)`. In `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c`, `BSTS_Core_Process` now records libuv exit fields once and no longer carries or sets `wait_consumed`; post-exit waits return the cached normalized status repeatedly, while an already-suspended wait is still resumed exactly once from the exit callback. Focused repeated-wait coverage exists through `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu`, JVM/Python tests, and `c_runtime/test.c` cases for repeated zero and nonzero C/libuv waits.
+The reviewed dependency artifact is `docs/design/2365-specify-the-portable-process-stop-and-status-contract.md`, which defines stable process-status invariants for the later stop/status API work. Today `test_workspace/Bosatsu/IO/Core.bosatsu` exposes only `spawn` and `wait` for process handles. In `core/src/main/scala/dev/bosatsu/Predef.scala`, `ProcessValue` is private to the JVM evaluator and owns a synchronized final-exit-code slot through `waitForExitCode()`, so repeated JVM `wait` calls return the recorded value. In `test_workspace/ProgExt.py`, `_CoreProcess` remains the Python runtime handle, and `wait_process` routes through helpers that normalize and record exactly one final integer status, including Python negative return-code normalization to `128 + abs(code)`. In `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c`, `BSTS_Core_Process` now records libuv exit fields once and no longer carries or sets `wait_consumed`; post-exit waits return the cached normalized status repeatedly, while an already-suspended wait is still resumed exactly once from the exit callback. Focused repeated-wait coverage exists through `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu`, JVM/Python tests, and `c_runtime/test.c` cases for repeated zero and nonzero C/libuv waits. This verification round fixed `ProcessWaitMain.main` to wrap `run_test` with `show_error(run_test, 1)`, matching the existing IO test program pattern and giving `Main` the required `forall err. Prog[err, Int]` shape.
 
 ## Problem
 
-Downstream `poll`, `wait_timeout`, `terminate`, and `kill` work needs a process object whose final status can be observed repeatedly without consuming it. The former C/libuv single-consumption wait model conflicted with that stable-status contract; this round removed that root state issue for existing `wait` behavior. The remaining work is verification breadth: the repository-required gate still needs to pass before PR submission, and this slice should continue to avoid opportunistic stop, poll, or timeout additions.
+Downstream `poll`, `wait_timeout`, `terminate`, and `kill` work needs a process object whose final status can be observed repeatedly without consuming it. The former C/libuv single-consumption wait model conflicted with that stable-status contract; this branch removes that root state issue for existing `wait` behavior. The verification round found and repaired a narrow test-program typing issue in `ProcessWaitMain.bosatsu`; the repository-required gate now passes, and the slice still avoids opportunistic stop, poll, or timeout additions.
 
 ## Steps
 
@@ -80,7 +80,7 @@ Replace the C/libuv wait-consumption model with stable cached status observation
 
 Implemented the C/libuv state change in `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c` by removing `wait_consumed`, stopping the exit callback and post-exit wait path from consuming status, and keeping only an active `wait_suspended` guard for a currently pending wait. Added a defensive exited check in `bsts_core_wait_start` so a wait starting after exit observation returns the cached status immediately. Added repeated wait tests in `c_runtime/test.c` for `/bin/sh -c 'exit 0'` and `/bin/sh -c 'exit 7'`. Focused checks passed: `make -C c_runtime test_out`, `rg -n "wait_consumed" c_runtime` returned no matches, and `git diff --check` passed.
 
-3. [ ] `step-3` Verify Public Behavior And Required Gate
+3. [x] `step-3` Verify Public Behavior And Required Gate
 
 Run focused backend tests while iterating, then run the configured repository-required gate before the PR is considered ready. Because this slice touches Scala evaluator code, Python externals, and C/libuv runtime code, include focused checks for those surfaces in addition to `scripts/test_basic.sh`. Keep the final diff limited to process state/wait behavior and regression tests.
 
@@ -88,20 +88,23 @@ Run focused backend tests while iterating, then run the configured repository-re
 
 - No new public Bosatsu API is introduced in this issue.
 - Existing `spawn`, stdio, and single `wait` behavior remains compatible for current callers.
-- The implementation remains shippable only after `scripts/test_basic.sh` passes under the configured 2400 second timeout.
+- The implementation is shippable only after `scripts/test_basic.sh` passes under the configured 2400 second timeout; this verification round reached that state.
 - Coverage is focused on stable repeated wait behavior and does not drift into stop/status API implementation.
 
 #### Property Tests
 
-- Use the repeated-wait stable-status tests from the JVM/Python and C steps as the behavioral contract: for each backend and representative exit code, all waits on the same process handle after final status observation return the same code.
+- Used the repeated-wait stable-status tests from the JVM/Python and C steps as the behavioral contract: for each backend and representative exit code, all waits on the same process handle after final status observation return the same code.
 
 #### Assertion Tests
 
-- Run the relevant focused Scala test target for the process evaluation/tool tests touched by the change.
-- Run the relevant Python-backed test flow that exercises `test_workspace/ProgExt.py` externals, if separate from the Scala test invocation in this repo version.
-- Run `make -C c_runtime test_out` for the C/libuv runtime tests.
-- Run the required gate `scripts/test_basic.sh` before PR submission.
+- Ran `python3 -m py_compile test_workspace/ProgExt.py`.
+- Ran `make -B -C c_runtime test_out` after noticing a stale zero-byte `c_runtime/test_out` made a plain make invocation a no-op.
+- Built the local CLI assembly with `sbt -batch cli/assembly` so the Python transpile/runtime script could run through `./bosatsuj`.
+- Ran `./test_python.sh`, including the `ProcessWaitMain` Python external/runtime path.
+- Ran focused Scala invocation `sbt -batch "coreJVM/testOnly dev.bosatsu.EvaluationTest -- *process wait is stable*"`; sbt completed successfully, though the filter reported zero matching tests, so the required gate is the stronger Scala signal for this round.
+- Ran the required gate `scripts/test_basic.sh` successfully after the `ProcessWaitMain.main` typing fix.
+- Ran `git diff --check` successfully.
 
 #### Completion Notes
 
-Round-local checks from step 1 completed: `python3 -m py_compile test_workspace/ProgExt.py`, direct Python helper assertions for repeated recording and negative-code normalization, and `git diff --check` passed. `./bosatsuj` could not run focused transpile checks because this checkout has no assembly jar. `sbt "coreJVM/testOnly dev.bosatsu.EvaluationTest -- *process wait is stable*"` and `sbt "coreJVM/test:compile"` did not return after initial project compilation; a subprocess-wrapped `sbt "coreJVM / Test / compile"` timed out after 600 seconds. This C-focused round additionally passed `make -C c_runtime test_out` and `git diff --check`. The configured required gate `scripts/test_basic.sh` was not run in this round and remains pending before PR submission.
+The first `scripts/test_basic.sh` run failed in `cli / Test / testOnly` because `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu` used `main = Main(_ -> run_test)`, which left the `Main` branch at `Prog[IOError, Int]` instead of the required `forall err. Prog[err, Int]`. Fixed the test program by importing `show_error` from `Bosatsu/IO/Std` and using `main = Main(_ -> show_error(run_test, 1))`, matching adjacent IO examples such as `CreateModeMain.bosatsu`. After that fix, `scripts/test_basic.sh` passed. Additional focused checks passed: `python3 -m py_compile test_workspace/ProgExt.py`, `make -B -C c_runtime test_out`, `sbt -batch cli/assembly`, `./test_python.sh`, focused Scala invocation, and `git diff --check`. A stale earlier focused sbt tool session produced no further output and could not be inspected or killed due sandbox process-list restrictions, but it was superseded by the successful focused rerun and required gate.

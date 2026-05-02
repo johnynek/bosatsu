@@ -2,6 +2,7 @@ package Bosatsu/IO/ProcessWaitMain
 
 from Bosatsu/Prog import Prog, Main, pure, await
 from Bosatsu/IO/Error import IOError
+from Bosatsu/IO/Std import show_error
 from Bosatsu/IO/Core import (
   StdioConfig,
   Null,
@@ -31,4 +32,4 @@ run_test: Prog[IOError, Int] =
       1)
   )
 
-main = Main(_ -> run_test)
+main = Main(_ -> show_error(run_test, 1))
