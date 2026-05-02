@@ -690,6 +690,236 @@ static BValue io_core_spawn_wait_repeated_nonzero_test_fn(BValue arg) {
   return io_core_spawn_wait_repeated_shell_exit(7);
 }
 
+static void io_core_assert_stop_result(BValue value, int expected, const char* message) {
+  if (get_variant(value) != expected) {
+    printf("%s\nexpected StopResult variant: %d\ngot: %u\n", message, expected, get_variant(value));
+    exit(1);
+  }
+}
+
+static BValue io_core_spawn_poll_after_wait_poll_fn(BValue* slots, BValue opt) {
+  (void)slots;
+  assert_option_int(opt, "3", "IO/Core poll after wait should return the cached child status");
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(get_enum_index(opt, 0));
+}
+
+static BValue io_core_spawn_poll_after_wait_fn(BValue* slots, BValue status) {
+  assert(
+      bsts_integer_cmp(status, bsts_integer_from_int(3)) == 0,
+      "IO/Core poll test wait should observe the child status");
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_poll(slots[0]),
+      alloc_closure1(1, slots, io_core_spawn_poll_after_wait_poll_fn));
+}
+
+static BValue io_core_spawn_poll_before_wait_fn(BValue* slots, BValue opt) {
+  assert_option_none(opt, "IO/Core poll before exit should return None");
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_wait(slots[0]),
+      alloc_closure1(1, slots, io_core_spawn_poll_after_wait_fn));
+}
+
+static BValue io_core_spawn_poll_process_fn(BValue spawn_result) {
+  BValue process = get_struct_index(spawn_result, 0);
+  BValue slots[1] = { process };
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_poll(process),
+      alloc_closure1(1, slots, io_core_spawn_poll_before_wait_fn));
+}
+
+static BValue io_core_spawn_poll_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_spawn(
+          bsts_string_from_utf8_bytes_static(7, "/bin/sh"),
+          io_core_string_list2("-c", "sleep 1; exit 3"),
+          io_core_null_stdio_config()),
+      alloc_boxed_pure_fn1(io_core_spawn_poll_process_fn));
+}
+
+static BValue io_core_spawn_wait_timeout_wait_fn(BValue* slots, BValue status) {
+  assert(
+      bsts_integer_cmp(status, bsts_integer_from_int(4)) == 0,
+      "IO/Core wait_timeout should not consume the later child status");
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(status);
+}
+
+static BValue io_core_spawn_wait_timeout_none_fn(BValue* slots, BValue opt) {
+  assert_option_none(opt, "IO/Core wait_timeout should return None when the timer wins");
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_wait(slots[0]),
+      alloc_closure1(1, slots, io_core_spawn_wait_timeout_wait_fn));
+}
+
+static BValue io_core_spawn_wait_timeout_process_fn(BValue spawn_result) {
+  BValue process = get_struct_index(spawn_result, 0);
+  BValue slots[1] = { process };
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_wait__timeout(process, bsts_integer_from_int(1000000)),
+      alloc_closure1(1, slots, io_core_spawn_wait_timeout_none_fn));
+}
+
+static BValue io_core_spawn_wait_timeout_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_spawn(
+          bsts_string_from_utf8_bytes_static(7, "/bin/sh"),
+          io_core_string_list2("-c", "sleep 1; exit 4"),
+          io_core_null_stdio_config()),
+      alloc_boxed_pure_fn1(io_core_spawn_wait_timeout_process_fn));
+}
+
+static BValue io_core_spawn_wait_timeout_nonpositive_kill_fn(BValue* slots, BValue opt);
+
+static BValue io_core_spawn_wait_timeout_zero_fn(BValue* slots, BValue opt) {
+  assert_option_none(opt, "IO/Core zero wait_timeout should return None for a running child");
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_wait__timeout(slots[0], bsts_integer_from_int(-1000000)),
+      alloc_closure1(1, slots, io_core_spawn_wait_timeout_nonpositive_kill_fn));
+}
+
+static BValue io_core_spawn_wait_timeout_zero_wait_fn(BValue* slots, BValue stop_result) {
+  io_core_assert_stop_result(
+      stop_result,
+      0,
+      "IO/Core kill after non-positive wait_timeout should return StopSent");
+  return ___bsts_g_Bosatsu_l_IO_l_Core_l_wait(slots[0]);
+}
+
+static BValue io_core_spawn_wait_timeout_nonpositive_kill_fn(BValue* slots, BValue opt) {
+  assert_option_none(opt, "IO/Core non-positive wait_timeout should return None for a running child");
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_kill(slots[0]),
+      alloc_closure1(1, slots, io_core_spawn_wait_timeout_zero_wait_fn));
+}
+
+static BValue io_core_spawn_wait_timeout_zero_process_fn(BValue spawn_result) {
+  BValue process = get_struct_index(spawn_result, 0);
+  BValue slots[1] = { process };
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_wait__timeout(process, bsts_integer_from_int(0)),
+      alloc_closure1(1, slots, io_core_spawn_wait_timeout_zero_fn));
+}
+
+static BValue io_core_spawn_wait_timeout_zero_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_spawn(
+          bsts_string_from_utf8_bytes_static(7, "/bin/sh"),
+          io_core_string_list2("-c", "sleep 10"),
+          io_core_null_stdio_config()),
+      alloc_boxed_pure_fn1(io_core_spawn_wait_timeout_zero_process_fn));
+}
+
+static BValue io_core_spawn_stop_wait_fn(BValue* slots, BValue status) {
+  (void)slots;
+  assert(
+      bsts_integer_cmp(status, bsts_integer_from_int(0)) != 0,
+      "IO/Core stop followed by wait should observe a non-zero stopped status");
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(status);
+}
+
+static BValue io_core_spawn_terminate_sent_fn(BValue* slots, BValue stop_result) {
+  io_core_assert_stop_result(
+      stop_result,
+      0,
+      "IO/Core terminate should return StopSent for a running child");
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_wait(slots[0]),
+      alloc_closure1(1, slots, io_core_spawn_stop_wait_fn));
+}
+
+static BValue io_core_spawn_terminate_process_fn(BValue spawn_result) {
+  BValue process = get_struct_index(spawn_result, 0);
+  BValue slots[1] = { process };
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_terminate(process),
+      alloc_closure1(1, slots, io_core_spawn_terminate_sent_fn));
+}
+
+static BValue io_core_spawn_terminate_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_spawn(
+          bsts_string_from_utf8_bytes_static(7, "/bin/sh"),
+          io_core_string_list2("-c", "sleep 10"),
+          io_core_null_stdio_config()),
+      alloc_boxed_pure_fn1(io_core_spawn_terminate_process_fn));
+}
+
+static BValue io_core_spawn_kill_sent_fn(BValue* slots, BValue stop_result) {
+  io_core_assert_stop_result(
+      stop_result,
+      0,
+      "IO/Core kill should return StopSent for a running child");
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_wait(slots[0]),
+      alloc_closure1(1, slots, io_core_spawn_stop_wait_fn));
+}
+
+static BValue io_core_spawn_kill_process_fn(BValue spawn_result) {
+  BValue process = get_struct_index(spawn_result, 0);
+  BValue slots[1] = { process };
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_kill(process),
+      alloc_closure1(1, slots, io_core_spawn_kill_sent_fn));
+}
+
+static BValue io_core_spawn_kill_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_spawn(
+          bsts_string_from_utf8_bytes_static(7, "/bin/sh"),
+          io_core_string_list2("-c", "sleep 10"),
+          io_core_null_stdio_config()),
+      alloc_boxed_pure_fn1(io_core_spawn_kill_process_fn));
+}
+
+static BValue io_core_spawn_already_exited_final_wait_fn(BValue* slots, BValue stop_result) {
+  io_core_assert_stop_result(
+      stop_result,
+      1,
+      "IO/Core kill after recorded exit should return AlreadyExited");
+  return ___bsts_g_Bosatsu_l_IO_l_Core_l_wait(slots[0]);
+}
+
+static BValue io_core_spawn_already_exited_kill_fn(BValue* slots, BValue stop_result) {
+  io_core_assert_stop_result(
+      stop_result,
+      1,
+      "IO/Core terminate after recorded exit should return AlreadyExited");
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_kill(slots[0]),
+      alloc_closure1(1, slots, io_core_spawn_already_exited_final_wait_fn));
+}
+
+static BValue io_core_spawn_already_exited_wait_fn(BValue* slots, BValue status) {
+  assert(
+      bsts_integer_cmp(status, bsts_integer_from_int(0)) == 0,
+      "IO/Core already-exited stop test should first record zero child status");
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_terminate(slots[0]),
+      alloc_closure1(1, slots, io_core_spawn_already_exited_kill_fn));
+}
+
+static BValue io_core_spawn_already_exited_process_fn(BValue spawn_result) {
+  BValue process = get_struct_index(spawn_result, 0);
+  BValue slots[1] = { process };
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_wait(process),
+      alloc_closure1(1, slots, io_core_spawn_already_exited_wait_fn));
+}
+
+static BValue io_core_spawn_already_exited_stop_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_spawn(
+          bsts_string_from_utf8_bytes_static(7, "/bin/sh"),
+          io_core_string_list2("-c", "exit 0"),
+          io_core_null_stdio_config()),
+      alloc_boxed_pure_fn1(io_core_spawn_already_exited_process_fn));
+}
+
 static BValue io_core_spawn_drop_process_after_fn(BValue spawn_result) {
   (void)spawn_result;
   GC_gcollect();
@@ -3125,6 +3355,27 @@ void test_io_core_libuv_effects() {
       bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_spawn_wait_repeated_nonzero_test_fn)),
       "7",
       "IO/Core repeated wait should preserve a non-zero child exit code");
+  assert_prog_success_int(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_spawn_poll_test_fn)),
+      "3",
+      "IO/Core poll should report None before exit and Some after wait records status");
+  assert_prog_success_int(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_spawn_wait_timeout_test_fn)),
+      "4",
+      "IO/Core wait_timeout should time out without consuming the child status");
+  (void)assert_prog_success(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_spawn_wait_timeout_zero_test_fn)),
+      "IO/Core zero and non-positive wait_timeout should act as immediate polls");
+  (void)assert_prog_success(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_spawn_terminate_test_fn)),
+      "IO/Core terminate should stop a long-running child before wait");
+  (void)assert_prog_success(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_spawn_kill_test_fn)),
+      "IO/Core kill should stop a long-running child before wait");
+  assert_prog_success_int(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_spawn_already_exited_stop_test_fn)),
+      "0",
+      "IO/Core terminate and kill should return AlreadyExited after status is recorded");
   assert_prog_success_int(
       bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_spawn_drop_process_test_fn)),
       "0",

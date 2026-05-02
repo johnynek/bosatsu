@@ -8,21 +8,21 @@
 - Flow: `small_job`
 - Issue: `#2369` Implement portable terminate, kill, poll, and wait_timeout APIs
 - Source design doc: `docs/design/2365-specify-the-portable-process-stop-and-status-contract.md`
-- Pending steps: `2`
-- Completed steps: `2`
+- Pending steps: `1`
+- Completed steps: `3`
 - Total steps: `4`
 
 ## Summary
 
-Add the low-level portable process stop/status API from the reviewed contract: public `StopResult`, `terminate`, `kill`, `poll`, and `wait_timeout` in `Bosatsu/IO/Core`, implemented consistently across the JVM evaluator, Python test runtime, and C/libuv runtime. The branch now includes JVM and Python semantics plus shared JVM/Python Bosatsu-level coverage; the remaining runtime work is the C/libuv implementation and final cross-backend verification.
+Add the low-level portable process stop/status API from the reviewed contract: public `StopResult`, `terminate`, `kill`, `poll`, and `wait_timeout` in `Bosatsu/IO/Core`, implemented consistently across the JVM evaluator, Python test runtime, and C/libuv runtime. The branch now includes JVM, Python, and C/libuv runtime semantics with focused process coverage; the remaining work is final cross-backend review/verification before PR submission if later edits land.
 
 ## Current State
 
-`test_workspace/Bosatsu/IO/Core.bosatsu` exposes `StopResult`, `terminate`, `kill`, `poll`, and `wait_timeout` beside the existing `Process`, `spawn`, and `wait` API, and now also exposes `duration_from_nanos` so callers and tests can construct timeout `Duration` values without changing the existing `Duration` constructor export compatibility. JVM `ProcessValue` in `core/src/main/scala/dev/bosatsu/Predef.scala` now records one stable final exit code across `wait`, `poll`, and `wait_timeout`, maps `terminate` to `Process.destroy()`, and maps `kill` to `Process.destroyForcibly()`. Python `_CoreProcess` in `test_workspace/ProgExt.py` now has matching stable-status helpers, maps `terminate` to `Popen.terminate()`, maps `kill` to `Popen.kill()`, maps `poll` to `Popen.poll()`, and maps `wait_timeout` to `Popen.wait(timeout=...)` with `TimeoutExpired` returning `None`. Python still normalizes negative return codes as `128 + abs(code)`. C/libuv runtime entries remain placeholders for the pending C step. Shared process coverage in `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu` now exercises repeated wait, poll before and after exit, timeout non-consumption, terminate followed by wait, kill followed by wait, and already-exited stop behavior through the JVM evaluator and Python runtime.
+`test_workspace/Bosatsu/IO/Core.bosatsu` exposes `StopResult`, `terminate`, `kill`, `poll`, and `wait_timeout` beside the existing `Process`, `spawn`, and `wait` API, and also exposes `duration_from_nanos` so callers and tests can construct timeout `Duration` values without changing the existing `Duration` constructor export compatibility. JVM `ProcessValue` in `core/src/main/scala/dev/bosatsu/Predef.scala` records one stable final exit code across `wait`, `poll`, and `wait_timeout`, maps `terminate` to `Process.destroy()`, and maps `kill` to `Process.destroyForcibly()`. Python `_CoreProcess` in `test_workspace/ProgExt.py` has matching stable-status helpers, maps `terminate` to `Popen.terminate()`, maps `kill` to `Popen.kill()`, maps `poll` to `Popen.poll()`, and maps `wait_timeout` to `Popen.wait(timeout=...)` with `TimeoutExpired` returning `None`; Python still normalizes negative return codes as `128 + abs(code)`. C/libuv process state in `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c` now routes `wait`, `poll`, `wait_timeout`, `terminate`, and `kill` through one recorded libuv exit status, with handle-based stop requests and timer-coordinated timeout waits. Shared process coverage in `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu` exercises repeated wait, poll before and after exit, timeout non-consumption, terminate followed by wait, kill followed by wait, and already-exited stop behavior through the JVM evaluator and Python runtime. C runtime coverage in `c_runtime/test.c` now exercises the matching libuv cases. Verification this round: `make -B -C c_runtime test_out`, `git diff --check`, and `scripts/test_basic.sh` all passed.
 
 ## Problem
 
-Callers can now build portable process timeout and escalation flows on JVM and Python, but the public API is not fully portable until the C/libuv backend replaces its remaining placeholder implementations. The directly coupled JVM/Python stable-status contract is implemented and covered; the remaining insufficiency is the C/libuv stop, poll, and bounded-wait semantics plus final cross-backend verification after that backend lands.
+The public API and backend implementations now exist across JVM, Python, and C/libuv. The main remaining insufficiency is final PR-level review/verification if subsequent edits land, especially keeping the cross-backend contract aligned and avoiding accidental broadening into process-tree, pid, public signal, or managed cleanup semantics.
 
 ## Steps
 
@@ -50,7 +50,7 @@ Updated `test_workspace/Bosatsu/IO/Core.bosatsu` to define `enum StopResult: Sto
 
 #### Completion Notes
 
-Completed the public API and external-name wiring slice. Added temporary `Unsupported` placeholders for newly wired runtime entries so package-level evaluation/transpilation does not fail on missing externals while later steps implement real behavior. Verification: `scripts/test_basic.sh` passed after fixing Bosatsu import/typecheck coverage.
+Completed the public API and external-name wiring slice. Added temporary `Unsupported` placeholders for newly wired runtime entries so package-level evaluation/transpilation did not fail on missing externals while later steps implemented real behavior. Verification: `scripts/test_basic.sh` passed after fixing Bosatsu import/typecheck coverage.
 
 2. [x] `step-2-jvm-and-python-runtime-semantics` Implement JVM And Python Backends
 
@@ -78,11 +78,11 @@ Replaced the JVM and Python `Unsupported` placeholders with real process semanti
 
 #### Completion Notes
 
-Implemented the JVM and Python backend semantics and updated shared Bosatsu process coverage. Added `duration_from_nanos` after the required gate showed that changing the `Duration` constructor export shape would break API compatibility checks. Verification run this round: `sbt "coreJVM/clean; coreJVM/testOnly dev.bosatsu.EvaluationTest -- --log=failure"` passed with 88 tests; `sbt cli/assembly` succeeded; `./test_python.sh` passed; `git diff --check` passed; `scripts/test_basic.sh` passed with 2118 passed and 2 ignored.
+Implemented the JVM and Python backend semantics and updated shared Bosatsu process coverage. Added `duration_from_nanos` after the required gate showed that changing the `Duration` constructor export shape would break API compatibility checks. Verification run for that slice: `sbt "coreJVM/clean; coreJVM/testOnly dev.bosatsu.EvaluationTest -- --log=failure"` passed with 88 tests; `sbt cli/assembly` succeeded; `./test_python.sh` passed; `git diff --check` passed; `scripts/test_basic.sh` passed with 2118 passed and 2 ignored.
 
-3. [ ] `step-3-c-libuv-runtime-semantics` Implement C/libuv Backend
+3. [x] `step-3-c-libuv-runtime-semantics` Implement C/libuv Backend
 
-Replace the C runtime `Unsupported` placeholders added in step 1 with real libuv process semantics. Extend `BSTS_Core_Process` in `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c` so `wait`, `poll`, `wait_timeout`, `terminate`, and `kill` all observe or update one normalized final-status record. Implement stop through the live `uv_process_t` handle with `uv_process_kill` using the strongest portable mapping from the contract: normal termination via the backend normal stop signal where available and forceful kill via the strongest available forceful stop signal where available, while preserving Windows libuv behavior as a portable semantic mapping. Implement `wait_timeout` with a `uv_timer_t` deadline coordinated with the process exit callback; if the timer wins, resume with `None` while leaving exit observation live for later `wait`, `poll`, or `wait_timeout`.
+Replaced the C runtime `Unsupported` placeholders with real libuv process semantics. Extended `BSTS_Core_Process` in `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c` so `wait`, `poll`, `wait_timeout`, `terminate`, and `kill` observe one normalized final-status record. Stop requests are issued through the live `uv_process_t` handle with `uv_process_kill`; `terminate` uses the backend normal stop signal where available and `kill` uses the strongest available forceful stop signal where available, while preserving libuv's portable Windows mapping. `wait_timeout` now uses a `uv_timer_t` deadline coordinated with the process exit callback; if the timer wins, it resumes with `None` and leaves exit observation live for later `wait`, `poll`, or `wait_timeout`.
 
 #### Invariants
 
@@ -95,19 +95,23 @@ Replace the C runtime `Unsupported` placeholders added in step 1 with real libuv
 
 #### Property Tests
 
-- Model C process state transitions as operation sequences: timeout, poll, stop, exit callback, wait, and repeated observations must converge on one final normalized code.
-- For repeated timeout observations before exit, any number of `None` results followed by exit must still allow stable `wait` and `poll` results.
-- For stop after recorded exit, repeated terminate/kill observations should always return `AlreadyExited` and preserve the cached code.
+- C process state transitions for timeout, poll, stop, exit callback, wait, and repeated observations converge on one final normalized code in the focused runtime tests.
+- Repeated timeout observations before exit preserve later stable final observation: zero, negative, and small positive timeout cases return `None` for running children and are followed by stop/wait or natural wait.
+- Stop after recorded exit returns `AlreadyExited` for both terminate and kill and preserves the cached code.
 
 #### Assertion Tests
 
-- Add C runtime tests in `c_runtime/test.c` for poll before/after exit, wait_timeout timeout followed by wait, terminate followed by wait, kill of a long-running child, and terminate/kill after an already-exited child has been recorded.
-- Add C tests for zero or non-positive timeout as immediate poll and small positive timeout as a real bounded wait that does not collapse to an accidental zero-duration conversion.
-- Keep existing repeated wait, dropped process rooting, and piped stdio tests passing.
+- Added C runtime tests in `c_runtime/test.c` for poll before/after exit, wait_timeout timeout followed by wait, terminate followed by wait, kill of a long-running child, and terminate/kill after an already-exited child has been recorded.
+- Added C tests for zero and negative timeout as immediate poll and small positive timeout as a real bounded wait that does not collapse to an accidental zero-duration conversion.
+- Kept existing repeated wait, dropped process rooting, piped stdio, and invalid-process tests passing.
+
+#### Completion Notes
+
+Implemented the C/libuv backend and focused C tests. During verification, an early test bug returned the process pointer instead of the observed poll status; fixing that made the C runtime target pass in both debug and release builds. Verification this round: `make -B -C c_runtime PROFILE=debug test_out` passed, `make -B -C c_runtime test_out` passed, `git diff --check` passed, and `scripts/test_basic.sh` passed with 2118 passed and 2 ignored.
 
 4. [ ] `step-4-cross-backend-tests-and-required-gate` Verify Cross-Backend Contract
 
-Consolidate the process tests so the same public contract is exercised through the existing JVM, Python, and C runtime entry points without depending on shell-specific behavior beyond existing guarded helpers. JVM and Python now share Bosatsu-level coverage in `ProcessWaitMain.bosatsu`; after the C backend lands, add or align C runtime assertions for the same contract and rerun the configured repository gate `scripts/test_basic.sh` with the 2400 second timeout expectation. Also run focused process tests during implementation, including the existing C runtime test target when touching C/libuv.
+Perform final PR-level verification after any later edits. The current branch has JVM/Python shared Bosatsu-level coverage and C runtime coverage for the same low-level process contract, and `scripts/test_basic.sh` passed this round. If no further code changes land, this step can be completed by confirming the current assertions remain sufficient for reviewer expectations and rerunning the configured repository gate only if MergeXO requires a fresh gate near PR submission.
 
 #### Invariants
 
@@ -124,6 +128,6 @@ Consolidate the process tests so the same public contract is exercised through t
 
 #### Assertion Tests
 
-- Concrete tests for idempotent stop on an already-exited child, stop followed by wait, kill escalation for a long-running child, poll before and after exit, and wait_timeout timeout followed by successful wait.
-- Concrete tests that stop/status calls do not automatically close returned stdin/stdout/stderr handles where existing pipe helpers make that practical.
-- Run `scripts/test_basic.sh`; if C runtime changes are not covered by that gate on the local platform, also run the focused C runtime test command used by the repo before PR submission.
+- Concrete tests now cover idempotent stop on an already-exited child, stop followed by wait, kill escalation for a long-running child, poll before and after exit, and wait_timeout timeout followed by successful wait across the existing JVM/Python shared program and focused C runtime tests.
+- Concrete tests that stop/status calls do not automatically close returned stdin/stdout/stderr handles remain a final-review consideration where existing pipe helpers make that practical; current implementation does not touch stdio handles in stop/status paths.
+- `scripts/test_basic.sh` passed this round; rerun it if any subsequent code or test edits land before PR submission.
