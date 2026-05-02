@@ -1749,8 +1749,13 @@ object PredefImpl {
   ) extends HandleValue
 
   private final class ProcessValue(val process: java.lang.Process) {
+    // All cachedExitCode access is behind this object's synchronized methods;
+    // no code reads or writes it outside that monitor, so AtomicReference is
+    // not needed for visibility or compare-and-set semantics here.
     private var cachedExitCode: Option[Int] = None
 
+    // Several operations can be the first to observe exit. Centralize the
+    // write-once cache so wait, poll, and timeout all return the same code.
     private def recordExitCode(code: Int): Int = {
       cachedExitCode match {
         case Some(cached) => cached

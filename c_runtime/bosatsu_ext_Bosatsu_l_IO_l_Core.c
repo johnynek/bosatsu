@@ -96,6 +96,8 @@ typedef struct
 
 #define BSTS_CORE_PROCESS_MAGIC 0x42505350u
 
+// Wait requests link back to the owning process, and the process stores the
+// currently pending request, so forward-declare the recursive request type.
 typedef struct BSTS_Core_Wait_Request BSTS_Core_Wait_Request;
 
 typedef struct BSTS_Core_Process
@@ -3058,6 +3060,7 @@ static BValue bsts_core_wait_timeout_effect(BValue args2)
   BValue zero = bsts_integer_from_int(0);
   if (bsts_integer_cmp(duration, zero) <= 0)
   {
+    // This early return does not reach the later keep-alive after suspend.
     GC_reachable_here(args2);
     return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_option_none());
   }
