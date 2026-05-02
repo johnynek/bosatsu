@@ -38,6 +38,7 @@ python3 -m unittest discover "$tmp_dir" -v --pattern "*.py"
   --input test_workspace/Bosatsu/IO/Bytes.bosatsu \
   --input test_workspace/Bosatsu/IO/Std.bosatsu \
   --input test_workspace/Bosatsu/IO/CreateModeMain.bosatsu \
+  --input test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu \
   python --outdir "$tmp_dir" \
   --externals test_workspace/Prog.bosatsu_externals \
   --evaluators test_workspace/Prog.bosatsu_eval
@@ -47,3 +48,5 @@ check_ls_output "$ls_output"
 
 create_mode_output=$(PYTHONPATH="$tmp_dir:$PWD/test_workspace" python3 -c "import Bosatsu.IO.CreateModeMain as CreateModeMain; import ProgExt; ProgExt.run(CreateModeMain.main)")
 check_create_mode_output "$create_mode_output"
+
+PYTHONPATH="$tmp_dir:$PWD/test_workspace" python3 -c "import Bosatsu.IO.ProcessWaitMain as ProcessWaitMain; import ProgExt; raise SystemExit(ProgExt.run(ProcessWaitMain.main))"

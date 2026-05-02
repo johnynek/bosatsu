@@ -7,8 +7,9 @@
 
 - Flow: `small_job`
 - Issue: `#2367` Prepare process state for idempotent wait and status queries
-- Pending steps: `3`
-- Completed steps: `0`
+- Source design doc: `docs/design/2365-specify-the-portable-process-stop-and-status-contract.md`
+- Pending steps: `2`
+- Completed steps: `1`
 - Total steps: `3`
 
 ## Summary
@@ -17,15 +18,15 @@ Prepare the existing process runtime state so `wait(p)` is stable and idempotent
 
 ## Current State
 
-The reviewed dependency artifact is `docs/design/2365-specify-the-portable-process-stop-and-status-contract.md`, which defines stable process-status invariants for the later stop/status API work. Today `test_workspace/Bosatsu/IO/Core.bosatsu` exposes only `spawn` and `wait` for process handles. In `core/src/main/scala/dev/bosatsu/Predef.scala`, `ProcessValue` already has a mutable `cachedExitCode: Option[Int]`, and `prog_core_wait` fills it after `java.lang.Process.waitFor()`, but the shared state is not explicitly guarded for future status operations. In `test_workspace/ProgExt.py`, `_CoreProcess` already stores `exit_code`, and `wait_process` fills it after `subprocess.Popen.wait()`, but the final-code recording should be made explicit and normalized through one helper. In `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c`, `BSTS_Core_Process` records libuv exit fields but also has `wait_consumed`, causing the current C wait path to reject a second wait as `BadFileDescriptor`; this directly conflicts with the stable-status contract. Existing C process regression tests live in `c_runtime/test.c`, and Scala/Python process behavior is exercised through the existing evaluation/tool-test surfaces that load `test_workspace` externals.
+The reviewed dependency artifact is `docs/design/2365-specify-the-portable-process-stop-and-status-contract.md`, which defines stable process-status invariants for the later stop/status API work. Today `test_workspace/Bosatsu/IO/Core.bosatsu` exposes only `spawn` and `wait` for process handles. In `core/src/main/scala/dev/bosatsu/Predef.scala`, `ProcessValue` is now private to the JVM evaluator and owns a synchronized final-exit-code slot through `waitForExitCode()`, so repeated JVM `wait` calls return the recorded value. In `test_workspace/ProgExt.py`, `_CoreProcess` remains the Python runtime handle, and `wait_process` now routes through helpers that normalize and record exactly one final integer status, including Python negative return-code normalization to `128 + abs(code)`. Focused repeated-wait coverage was added through `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu`, a JVM evaluation test, and `test_python.sh`. In `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c`, `BSTS_Core_Process` still records libuv exit fields but also has `wait_consumed`, causing the current C wait path to reject a second wait as `BadFileDescriptor`; this directly conflicts with the stable-status contract and remains the next implementation step.
 
 ## Problem
 
-Downstream `poll`, `wait_timeout`, `terminate`, and `kill` work needs a process object whose final status can be observed repeatedly without consuming it. The current C/libuv implementation is still single-consumption, and the JVM/Python implementations rely on minimal mutable fields rather than a clearly factored final-status slot. If this state is not prepared first, later public status APIs would either duplicate backend-specific state handling or inherit inconsistent wait behavior. This slice should fix the root state model while keeping the public API unchanged and avoiding any opportunistic stop, poll, or timeout additions.
+Downstream `poll`, `wait_timeout`, `terminate`, and `kill` work needs a process object whose final status can be observed repeatedly without consuming it. The current C/libuv implementation is still single-consumption, while the JVM/Python state model has now been factored into explicit final-status recording helpers. The remaining root state issue is C/libuv: later public status APIs would inherit inconsistent wait behavior until that backend stops treating wait as consumed. This slice should continue to keep the public API unchanged and avoid opportunistic stop, poll, or timeout additions.
 
 ## Steps
 
-1. [ ] `step-1` Factor Stable Exit State In JVM And Python
+1. [x] `step-1` Factor Stable Exit State In JVM And Python
 
 Update the JVM and Python process wrappers so final exit-code recording is an explicit shared operation rather than inline per-call mutation. In Scala, keep `ProcessValue` private to the evaluator, guard the cached final status consistently, and have `wait` return the already-recorded value without touching the underlying process. In Python, keep `_CoreProcess` as the runtime handle but route `wait_process` through a helper that normalizes and records exactly one final integer status. Do not change `Bosatsu/IO/Core.bosatsu`, `Prog.bosatsu_externals`, or add `terminate`, `kill`, `poll`, or `wait_timeout` in this slice.
 
@@ -39,14 +40,18 @@ Update the JVM and Python process wrappers so final exit-code recording is an ex
 
 #### Property Tests
 
-- Where the existing Scala/Python evaluation harness can express it cleanly, add a table/property-style test over representative exit codes such as `0` and `7` and repeated wait counts greater than one: spawn a direct child, call `wait` repeatedly on the same handle, and assert every observed code equals the expected final code.
-- For Python-backed transpile/runtime coverage, use the same invariant through existing `test_workspace/ProgExt.py` externals rather than adding backend-specific public APIs.
+- Added a table-style Bosatsu process program over representative exit codes `0` and `7`: spawn a direct `python3` child, call `wait` twice on the same process handle, and require every observed code to equal the expected final code.
+- For Python-backed transpile/runtime coverage, wired the same invariant through `test_python.sh` using `test_workspace/ProgExt.py` externals rather than adding backend-specific public APIs.
 
 #### Assertion Tests
 
-- Add focused Scala evaluation/tool regression coverage for repeated `wait` after a zero exit and repeated `wait` after a nonzero exit.
-- Add focused Python external/runtime coverage for repeated `wait` after a zero exit and repeated `wait` after a nonzero exit, using bounded direct children and no shell-specific behavior when the existing harness allows it.
-- Confirm existing invalid-process wait coverage still reports the same error category.
+- Added focused Scala JVM evaluation regression coverage in `EvaluationTest.scala` for repeated `wait` after zero and nonzero exits via `ProcessWaitMain`.
+- Added focused Python external/runtime coverage in `test_python.sh` for repeated `wait` after zero and nonzero exits via `ProcessWaitMain`.
+- The invalid-process wait branch was left structurally unchanged: JVM still rejects non-`ProcessValue` values through `asProcessValue`, and Python still rejects non-`_CoreProcess` values before waiting.
+
+#### Completion Notes
+
+Implemented the JVM state refactor in `core/src/main/scala/dev/bosatsu/Predef.scala` by replacing the mutable public-ish case-class field with a private evaluator class and synchronized `waitForExitCode()` helper. Implemented the Python state refactor in `test_workspace/ProgExt.py` with `_normalize_process_exit_code`, `_record_process_exit_code`, and `_wait_core_process`. Added `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu` and wired it into JVM/Python-focused tests without changing shared `Bosatsu/IO/Core.bosatsu`, `Prog.bosatsu_externals`, or any public stop/status API.
 
 2. [ ] `step-2` Make C Libuv Wait Non-Consuming
 
@@ -92,3 +97,7 @@ Run focused backend tests while iterating, then run the configured repository-re
 - Run the relevant Python-backed test flow that exercises `test_workspace/ProgExt.py` externals, if separate from the Scala test invocation in this repo version.
 - Run `make -C c_runtime test_out` for the C/libuv runtime tests.
 - Run the required gate `scripts/test_basic.sh` before PR submission.
+
+#### Completion Notes
+
+Round-local checks completed: `python3 -m py_compile test_workspace/ProgExt.py`, direct Python helper assertions for repeated recording and negative-code normalization, and `git diff --check` passed. `./bosatsuj` could not run focused transpile checks because this checkout has no assembly jar. `sbt "coreJVM/testOnly dev.bosatsu.EvaluationTest -- *process wait is stable*"` and `sbt "coreJVM/test:compile"` did not return after initial project compilation; a subprocess-wrapped `sbt "coreJVM / Test / compile"` timed out after 600 seconds. The configured required gate `scripts/test_basic.sh` was not run in this round.

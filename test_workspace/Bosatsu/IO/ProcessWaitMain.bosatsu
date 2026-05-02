@@ -1,0 +1,34 @@
+package Bosatsu/IO/ProcessWaitMain
+
+from Bosatsu/Prog import Prog, Main, pure, await
+from Bosatsu/IO/Error import IOError
+from Bosatsu/IO/Core import (
+  StdioConfig,
+  Null,
+  SpawnResult,
+  spawn,
+  wait,
+)
+
+andb = and
+
+def stable_wait_case(code: Int) -> Prog[IOError, Bool]:
+  (
+    spawned <- spawn("python3", ["-c", "import sys; sys.exit(${int_to_String(code)})"], StdioConfig(Null, Null, Null)).await()
+    SpawnResult(proc, _, _, _) = spawned
+    first <- wait(proc).await()
+    second <- wait(proc).await()
+    pure(andb(first.eq_Int(code), second.eq_Int(code)))
+  )
+
+run_test: Prog[IOError, Int] =
+  (
+    zero_ok <- stable_wait_case(0).await()
+    nonzero_ok <- stable_wait_case(7).await()
+    pure(if andb(zero_ok, nonzero_ok):
+      0
+    else:
+      1)
+  )
+
+main = Main(_ -> run_test)

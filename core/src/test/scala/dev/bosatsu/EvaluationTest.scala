@@ -4054,6 +4054,54 @@ main = Main(args -> (
     }
 
   if (Platform.isScalaJvm)
+    test("process wait is stable and idempotent in JVM evaluation") {
+      val progPack = Predef.loadFileInCompile("test_workspace/Prog.bosatsu")
+      val charPack = Predef.loadFileInCompile("test_workspace/Char.bosatsu")
+      val ioErrorPack =
+        Predef.loadFileInCompile("test_workspace/Bosatsu/IO/Error.bosatsu")
+      val bytesPack = """
+package Bosatsu/IO/Bytes
+
+export (
+  Bytes,
+)
+
+external struct Bytes
+"""
+      val ioCorePack =
+        Predef.loadFileInCompile("test_workspace/Bosatsu/IO/Core.bosatsu")
+      val processWaitPack =
+        Predef.loadFileInCompile("test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu")
+
+      testInferred(
+        List(
+          progPack,
+          charPack,
+          ioErrorPack,
+          bytesPack,
+          ioCorePack,
+          processWaitPack
+        ),
+        "Bosatsu/IO/ProcessWaitMain",
+        { (pm, mainPack) =>
+          val ev =
+            library.LibraryEvaluation.fromPackageMap(pm, Predef.jvmExternals)
+          val (mainEval, _) =
+            ev.evaluateMainValue(mainPack)
+              .fold(err => fail(err.toString), identity)
+
+          val run =
+            PredefImpl.runProgMain(mainEval.value, Nil, "")
+
+          run.result match {
+            case Right(VInt(i)) => assertEquals(i.intValue, 0)
+            case other          => fail(s"unexpected prog result: $other")
+          }
+        }
+      )
+    }
+
+  if (Platform.isScalaJvm)
     test("mkdir_with_mode and stat externals are registered for JVM evaluation") {
       val progPack = Predef.loadFileInCompile("test_workspace/Prog.bosatsu")
       val charPack = Predef.loadFileInCompile("test_workspace/Char.bosatsu")

@@ -399,6 +399,22 @@ class _CoreProcess:
         self.process = process
         self.exit_code = None
 
+def _normalize_process_exit_code(code):
+    code = int(code)
+    if code < 0:
+        return 128 + abs(code)
+    return code
+
+def _record_process_exit_code(proc_value, code):
+    if proc_value.exit_code is None:
+        proc_value.exit_code = _normalize_process_exit_code(code)
+    return int(proc_value.exit_code)
+
+def _wait_core_process(proc_value):
+    if proc_value.exit_code is not None:
+        return int(proc_value.exit_code)
+    return _record_process_exit_code(proc_value, proc_value.process.wait())
+
 def _invalid_argument(context: str):
     return _ioerr(_IOERR_INVALID_ARGUMENT, context)
 
@@ -1595,12 +1611,8 @@ def wait_process(proc_value):
     def fn():
         if not isinstance(proc_value, _CoreProcess):
             return raise_error(_invalid_argument("wait expects a process handle"))
-        if proc_value.exit_code is not None:
-            return pure(int(proc_value.exit_code))
         try:
-            code = proc_value.process.wait()
-            proc_value.exit_code = int(code)
-            return pure(int(code))
+            return pure(_wait_core_process(proc_value))
         except OSError as exc:
             return raise_error(_ioerror_from_errno(exc.errno, "waiting on process"))
 

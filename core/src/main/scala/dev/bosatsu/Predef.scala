@@ -1747,10 +1747,28 @@ object PredefImpl {
       var closed: Boolean = false
   ) extends HandleValue
 
-  final case class ProcessValue(
-      process: java.lang.Process,
-      var cachedExitCode: Option[Int]
-  )
+  private final class ProcessValue(val process: java.lang.Process) {
+    private var cachedExitCode: Option[Int] = None
+
+    def waitForExitCode(): Either[Value, Int] =
+      synchronized {
+        cachedExitCode match {
+          case Some(code) => Right(code)
+          case None       =>
+            try {
+              val code = process.waitFor()
+              cachedExitCode = Some(code)
+              Right(code)
+            } catch {
+              case _: InterruptedException =>
+                Thread.currentThread().interrupt()
+                Left(ioerror_known(IOErrorTagInterrupted, "wait interrupted"))
+              case NonFatal(t)             =>
+                Left(ioerror_from_throwable("wait", t))
+            }
+        }
+      }
+  }
 
   private val defaultPathSep: String =
     if (Platform.detectOs() eq OsPlatformId.Windows) "\\"
@@ -3478,7 +3496,7 @@ object PredefImpl {
               }
 
               val process = pb.start()
-              val processValue = ProcessValue(process, None)
+              val processValue = ProcessValue(process)
               val stdinHandle =
                 if (stdinMode == 1) {
                   val processStdin = process.getOutputStream
@@ -3548,21 +3566,7 @@ object PredefImpl {
       p => {
         val result = for {
           procValue <- asProcessValue(p)
-          exitCode <- procValue.cachedExitCode match {
-            case Some(code) => Right(code)
-            case None       =>
-              try {
-                val code = procValue.process.waitFor()
-                procValue.cachedExitCode = Some(code)
-                Right(code)
-              } catch {
-                case _: InterruptedException =>
-                  Thread.currentThread().interrupt()
-                  Left(ioerror_known(IOErrorTagInterrupted, "wait interrupted"))
-                case NonFatal(t)             =>
-                  Left(ioerror_from_throwable("wait", t))
-              }
-          }
+          exitCode <- procValue.waitForExitCode()
         } yield exitCode
 
         result match {
