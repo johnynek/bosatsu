@@ -49,4 +49,20 @@ check_ls_output "$ls_output"
 create_mode_output=$(PYTHONPATH="$tmp_dir:$PWD/test_workspace" python3 -c "import Bosatsu.IO.CreateModeMain as CreateModeMain; import ProgExt; ProgExt.run(CreateModeMain.main)")
 check_create_mode_output "$create_mode_output"
 
+PYTHONPATH="$tmp_dir:$PWD/test_workspace" python3 - <<'PY'
+import math
+import threading
+
+import ProgExt
+
+timeout_max = getattr(threading, "TIMEOUT_MAX", float("inf"))
+assert ProgExt._timeout_seconds_from_nanos(1) == 1e-9
+assert ProgExt._timeout_seconds_from_nanos(1_000_001) > 0.001
+huge_timeout = ProgExt._timeout_seconds_from_nanos(10 ** 10000)
+if math.isfinite(timeout_max):
+    assert huge_timeout == timeout_max
+else:
+    assert math.isfinite(huge_timeout)
+PY
+
 PYTHONPATH="$tmp_dir:$PWD/test_workspace" python3 -c "import Bosatsu.IO.ProcessWaitMain as ProcessWaitMain; import ProgExt; raise SystemExit(ProgExt.run(ProcessWaitMain.main))"

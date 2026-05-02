@@ -24,6 +24,7 @@
 #include "gc.h"
 
 unsigned int bsts_core_test_uv_io_chunk_size(size_t len);
+uint64_t bsts_core_test_timeout_millis_from_nanos(BValue nanos_value);
 
 void assert(_Bool cond, const char* message) {
   if (!cond) {
@@ -100,6 +101,30 @@ static void test_io_core_uv_chunk_sizes(void) {
       bsts_core_test_uv_io_chunk_size((size_t)UINT_MAX + 1U) == (unsigned int)INT_MAX,
       "IO/Core libuv chunk size should not wrap 4GB buffers to zero");
 #endif
+
+  assert_u64_equals(
+      bsts_core_test_timeout_millis_from_nanos(bsts_integer_from_int(1)),
+      1ULL,
+      "IO/Core timeout conversion should round positive sub-ms durations up");
+  assert_u64_equals(
+      bsts_core_test_timeout_millis_from_nanos(bsts_integer_from_int(1000001)),
+      2ULL,
+      "IO/Core timeout conversion should round partial milliseconds up");
+  BValue two_to_64 = bsts_integer_shift_left(
+      bsts_integer_from_int(1),
+      bsts_integer_from_int(64));
+  assert_u64_equals(
+      bsts_core_test_timeout_millis_from_nanos(two_to_64),
+      UINT64_C(18446744073710),
+      "IO/Core timeout conversion should not wrap 2^64ns to zero");
+  BValue max_timer_nanos = bsts_integer_times(
+      bsts_integer_from_uint64(UINT64_MAX),
+      bsts_integer_from_int(1000000));
+  assert_u64_equals(
+      bsts_core_test_timeout_millis_from_nanos(
+          bsts_integer_add(max_timer_nanos, bsts_integer_from_int(1))),
+      UINT64_MAX,
+      "IO/Core timeout conversion should clamp above the max finite timer delay");
 }
 
 void assert_option_int64_bits(BValue opt, uint64_t expected, const char* message) {

@@ -430,7 +430,13 @@ def _timeout_seconds_from_nanos(nanos: int):
     if nanos <= 0:
         return 0.0
     timeout_max = getattr(threading, "TIMEOUT_MAX", float("inf"))
-    return min(max(float(nanos) / 1_000_000_000.0, 1e-9), timeout_max)
+    if math.isfinite(timeout_max):
+        timeout_max_nanos = int(timeout_max * 1_000_000_000)
+        if nanos >= timeout_max_nanos:
+            return timeout_max
+    elif nanos > int(sys.float_info.max):
+        return sys.float_info.max / 1_000_000_000.0
+    return max(float(nanos) / 1_000_000_000.0, 1e-9)
 
 def _wait_timeout_core_process(proc_value, nanos: int):
     with proc_value.lock:

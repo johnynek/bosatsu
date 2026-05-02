@@ -8,21 +8,21 @@
 - Flow: `small_job`
 - Issue: `#2369` Implement portable terminate, kill, poll, and wait_timeout APIs
 - Source design doc: `docs/design/2365-specify-the-portable-process-stop-and-status-contract.md`
-- Pending steps: `1`
-- Completed steps: `4`
+- Pending steps: `0`
+- Completed steps: `5`
 - Total steps: `5`
 
 ## Summary
 
-Add the low-level portable process stop/status API from the reviewed contract: public `StopResult`, `terminate`, `kill`, `poll`, and `wait_timeout` in `Bosatsu/IO/Core`, implemented consistently across the JVM evaluator, Python test runtime, and C/libuv runtime. Pre-PR review found one remaining timeout-conversion gap: oversized positive durations must be clamped while still arbitrary precision in the C/libuv and Python backends before narrowing to backend timeout units.
+Add the low-level portable process stop/status API from the reviewed contract: public `StopResult`, `terminate`, `kill`, `poll`, and `wait_timeout` in `Bosatsu/IO/Core`, implemented consistently across the JVM evaluator, Python test runtime, and C/libuv runtime. The final review gap F001 is now addressed: oversized positive durations are clamped in integer/arbitrary-precision form before backend timeout narrowing in C/libuv and Python.
 
 ## Current State
 
-`test_workspace/Bosatsu/IO/Core.bosatsu` exposes `StopResult`, `terminate`, `kill`, `poll`, and `wait_timeout` beside the existing `Process`, `spawn`, and `wait` API, and also exposes `duration_from_nanos` so callers and tests can construct timeout `Duration` values without changing the existing `Duration` constructor export compatibility. JVM `ProcessValue` in `core/src/main/scala/dev/bosatsu/Predef.scala` records one stable final exit code across `wait`, `poll`, and `wait_timeout`, maps `terminate` to `Process.destroy()`, and maps `kill` to `Process.destroyForcibly()`. Python `_CoreProcess` in `test_workspace/ProgExt.py` has matching stable-status helpers, maps `terminate` to `Popen.terminate()`, maps `kill` to `Popen.kill()`, maps `poll` to `Popen.poll()`, and maps `wait_timeout` to `Popen.wait(timeout=...)` with `TimeoutExpired` returning `None`; Python still normalizes negative return codes as `128 + abs(code)`. C/libuv process state in `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c` now routes `wait`, `poll`, `wait_timeout`, `terminate`, and `kill` through one recorded libuv exit status, with handle-based stop requests and timer-coordinated timeout waits. Shared process coverage in `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu` exercises repeated wait, poll before and after exit, timeout non-consumption, terminate followed by wait, kill followed by wait, and already-exited stop behavior through the JVM evaluator and Python runtime. C runtime coverage in `c_runtime/test.c` exercises the matching libuv cases. Pre-PR review finding F001 shows that oversized positive timeout conversion is still not contract-correct in the C/libuv and Python paths: C currently narrows through `bsts_integer_to_low_uint64(duration)` before computing milliseconds, and Python currently calls `float(nanos)` before clamping to `threading.TIMEOUT_MAX`.
+`test_workspace/Bosatsu/IO/Core.bosatsu` exposes `StopResult`, `terminate`, `kill`, `poll`, and `wait_timeout` beside the existing `Process`, `spawn`, and `wait` API, and also exposes `duration_from_nanos` so callers and tests can construct timeout `Duration` values without changing the existing `Duration` constructor export compatibility. JVM `ProcessValue` in `core/src/main/scala/dev/bosatsu/Predef.scala` records one stable final exit code across `wait`, `poll`, and `wait_timeout`, maps `terminate` to `Process.destroy()`, and maps `kill` to `Process.destroyForcibly()`. Python `_CoreProcess` in `test_workspace/ProgExt.py` has matching stable-status helpers, maps `terminate` to `Popen.terminate()`, maps `kill` to `Popen.kill()`, maps `poll` to `Popen.poll()`, and maps `wait_timeout` to `Popen.wait(timeout=...)` with `TimeoutExpired` returning `None`; Python now clamps oversized timeout nanoseconds against `threading.TIMEOUT_MAX` in integer form before converting to float seconds. C/libuv process state in `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c` now routes `wait`, `poll`, `wait_timeout`, `terminate`, and `kill` through one recorded libuv exit status, with handle-based stop requests and timer-coordinated timeout waits; C timeout conversion now divides arbitrary-precision nanoseconds to milliseconds before narrowing, rounds positive sub-millisecond values up, and clamps values above `UINT64_MAX` milliseconds. Shared process coverage in `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu` exercises repeated wait, poll before and after exit, timeout non-consumption, terminate followed by wait, kill followed by wait, and already-exited stop behavior through the JVM evaluator and Python runtime. C runtime coverage in `c_runtime/test.c` exercises the matching libuv cases plus direct oversized timeout conversion regressions.
 
 ## Problem
 
-The public API and most backend behavior now exist across JVM, Python, and C/libuv, but the reviewed timeout contract is not yet fully satisfied. The reference design requires a positive `Duration.to_nanos` value that exceeds a backend timeout type to clamp to the maximum finite wait rather than overflowing, wrapping, or becoming an immediate timeout. The current C and Python helpers can narrow oversized arbitrary-precision Bosatsu integers before clamp logic, so values such as `2^64` nanoseconds can wrap to zero in C or overflow during Python float conversion. The final PR should fix that root cause without broadening into process-tree, pid, public signal, or managed cleanup semantics.
+The low-level portable stop/status API is now implemented across the supported runtime surfaces and satisfies the reviewed timeout conversion contract. Positive `Duration.to_nanos` values that exceed a backend timeout type are clamped instead of overflowing, wrapping, or becoming immediate timeouts, while non-positive durations remain immediate polls and timeout observations still do not consume final process status. This PR intentionally stays within the direct-child low-level API scope and does not add process-tree, pid, public signal, high-level managed cleanup, cwd/env spawn redesign, or structured exit-status behavior.
 
 ## Steps
 
@@ -74,7 +74,7 @@ Replaced the JVM and Python `Unsupported` placeholders with real process semanti
 
 - JVM evaluator coverage in `EvaluationTest.scala`/`ProcessWaitMain.bosatsu` now covers poll before and after exit, timeout followed by successful wait, terminate followed by wait, kill of a long-running child, and stop on an already-exited child.
 - Python runtime coverage through `test_python.sh` and `ProcessWaitMain.bosatsu` now covers the same concrete cases; Python stop return-code normalization is exercised through nonzero terminated/killed waits without depending on exact platform signal numbers.
-- Focused timeout cases cover zero, negative, and tiny positive durations. Oversized Python duration conversion coverage is pending in `step-5-clamp-oversized-timeout-conversions` for review finding F001.
+- Focused timeout cases cover zero, negative, and tiny positive durations. Oversized Python duration conversion coverage is completed in `step-5-clamp-oversized-timeout-conversions` for review finding F001.
 
 #### Completion Notes
 
@@ -102,7 +102,7 @@ Replaced the C runtime `Unsupported` placeholders with real libuv process semant
 #### Assertion Tests
 
 - Added C runtime tests in `c_runtime/test.c` for poll before/after exit, wait_timeout timeout followed by wait, terminate followed by wait, kill of a long-running child, and terminate/kill after an already-exited child has been recorded.
-- Added C tests for zero and negative timeout as immediate poll and small positive timeout as a real bounded wait that does not collapse to an accidental zero-duration conversion. Oversized C duration conversion coverage is pending in `step-5-clamp-oversized-timeout-conversions` for review finding F001.
+- Added C tests for zero and negative timeout as immediate poll and small positive timeout as a real bounded wait that does not collapse to an accidental zero-duration conversion. Oversized C duration conversion coverage is completed in `step-5-clamp-oversized-timeout-conversions` for review finding F001.
 - Kept existing repeated wait, dropped process rooting, piped stdio, and invalid-process tests passing.
 
 #### Completion Notes
@@ -111,7 +111,7 @@ Implemented the C/libuv backend and focused C tests. During verification, an ear
 
 4. [x] `step-4-cross-backend-tests-and-required-gate` Verify Cross-Backend Contract
 
-Performed PR-level verification for the selected step before pre-PR review. The branch had JVM/Python shared Bosatsu-level coverage and C runtime coverage for the main low-level process contract, and `scripts/test_basic.sh` passed that round. Pre-PR review subsequently identified missing oversized timeout conversion coverage and behavior in C/Python; final verification must be refreshed after `step-5-clamp-oversized-timeout-conversions` is implemented.
+Performed PR-level verification for the selected step before pre-PR review. The branch had JVM/Python shared Bosatsu-level coverage and C runtime coverage for the main low-level process contract, and `scripts/test_basic.sh` passed that round. Pre-PR review subsequently identified missing oversized timeout conversion coverage and behavior in C/Python; final verification was refreshed after `step-5-clamp-oversized-timeout-conversions` was implemented.
 
 #### Invariants
 
@@ -130,15 +130,15 @@ Performed PR-level verification for the selected step before pre-PR review. The 
 
 - Concrete tests now cover idempotent stop on an already-exited child, stop followed by wait, kill escalation for a long-running child, poll before and after exit, and wait_timeout timeout followed by successful wait across the existing JVM/Python shared program and focused C runtime tests.
 - Concrete tests that stop/status calls do not automatically close returned stdin/stdout/stderr handles remain a final-review consideration where existing pipe helpers make that practical; current implementation does not touch stdio handles in stop/status paths.
-- `scripts/test_basic.sh` passed for the earlier selected-step verification with 2118 tests and 2 ignored. A fresh gate is pending after review finding F001 is addressed.
+- `scripts/test_basic.sh` passed after the F001 conversion fixes with 2118 tests and 2 ignored.
 
 #### Completion Notes
 
-Completed the original PR-level verification for the selected step. Re-read the reviewed contract, current plan, and coding guidelines; confirmed the shared Bosatsu JVM/Python process program and focused C runtime tests covered the main required stop/status contract cases without adding out-of-scope process-tree, pid, signal, or managed cleanup semantics. Verification at that point: `git diff --check` passed and `scripts/test_basic.sh` passed with 2118 tests and 2 ignored. Pre-PR review later found the oversized timeout conversion gap tracked by F001.
+Completed the original PR-level verification for the selected step. Re-read the reviewed contract, current plan, and coding guidelines; confirmed the shared Bosatsu JVM/Python process program and focused C runtime tests covered the main required stop/status contract cases without adding out-of-scope process-tree, pid, signal, or managed cleanup semantics. Verification at that point: `git diff --check` passed and `scripts/test_basic.sh` passed with 2118 tests and 2 ignored. After F001 was addressed, the fresh required gate also passed with 2118 tests and 2 ignored.
 
-5. [ ] `step-5-clamp-oversized-timeout-conversions` Clamp Oversized Timeout Conversions
+5. [x] `step-5-clamp-oversized-timeout-conversions` Clamp Oversized Timeout Conversions
 
-Address review finding F001 by repairing the shared timeout conversion boundary in the C/libuv and Python `wait_timeout` paths. In C, compare the arbitrary-precision Bosatsu `Duration.to_nanos` value against the maximum representable finite timeout before any `bsts_integer_to_low_uint64` narrowing, then round positive sub-millisecond values up and clamp oversized values to the maximum finite libuv timer delay. In Python, avoid `float(nanos)` until after integer-domain comparison against the timeout maximum expressed in nanoseconds, then convert only the clamped value to seconds for `Popen.wait(timeout=...)`. Keep zero and negative durations as immediate polls, preserve timeout non-consumption, and leave JVM behavior unchanged unless inspection shows the same pre-narrowing bug there.
+Addressed review finding F001 by repairing the shared timeout conversion boundary in the C/libuv and Python `wait_timeout` paths. In C, timeout conversion now divides the arbitrary-precision Bosatsu nanosecond value by one millisecond before any `bsts_integer_to_low_uint64` narrowing, rounds positive sub-millisecond values up, and clamps oversized millisecond values to `UINT64_MAX`. The same helper is also used by C `sleep` because it shared the same timer conversion boundary. In Python, `_timeout_seconds_from_nanos` now compares oversized values against `threading.TIMEOUT_MAX` expressed in nanoseconds before converting the clamped value to float seconds for `Popen.wait(timeout=...)`. Zero and negative durations remain immediate polls, timeout non-consumption is preserved, and JVM behavior was left unchanged.
 
 #### Invariants
 
@@ -150,12 +150,16 @@ Address review finding F001 by repairing the shared timeout conversion boundary 
 
 #### Property Tests
 
-- F001 property-style contract for C/Python conversion helpers: for generated positive durations above the backend maximum, conversion returns the backend maximum finite timeout rather than a wrapped, zero, negative, infinite, or overflowing value.
-- F001 property-style contract for C/Python conversion helpers: for generated positive sub-unit durations, conversion rounds up to the smallest representable positive backend wait rather than collapsing to an immediate poll.
-- Timeout non-consumption property remains covered after oversized conversion changes: an oversized positive `wait_timeout` observation on an already-exited or quickly exiting child yields stable final status, and timeout cases followed by stop or natural exit still converge on one final code.
+- F001 property-style contract for C/Python conversion helpers: positive durations above the backend maximum return the backend maximum finite timeout rather than a wrapped, zero, negative, infinite, or overflowing value.
+- F001 property-style contract for C/Python conversion helpers: positive sub-unit durations round up to the smallest representable positive backend wait rather than collapsing to an immediate poll.
+- Timeout non-consumption property remains covered after oversized conversion changes by the existing process wait_timeout tests and the refreshed required gate.
 
 #### Assertion Tests
 
-- Add focused Python coverage for an oversized Bosatsu `Duration` whose nanoseconds value would overflow `float(nanos)` if converted before clamping; assert the conversion reaches `threading.TIMEOUT_MAX` or otherwise behaves as a bounded wait without raising `OverflowError`.
-- Add focused C coverage for an oversized Bosatsu integer such as `2^64` nanoseconds; assert conversion clamps to the maximum finite timer delay instead of wrapping to zero or scheduling an immediate timeout.
-- Run the focused Python process tests, the C runtime tests in debug and release where practical, `git diff --check`, and the configured `scripts/test_basic.sh` gate after the conversion fixes.
+- Added focused Python coverage in `test_python.sh` for `_timeout_seconds_from_nanos(10 ** 10000)`, asserting it clamps to `threading.TIMEOUT_MAX` when finite or otherwise remains finite without raising `OverflowError`; the same check verifies tiny positive conversion remains nonzero.
+- Added focused C coverage through `bsts_core_test_timeout_millis_from_nanos` for 1ns rounding to 1ms, partial-millisecond rounding, `2^64` nanoseconds not wrapping to zero, and values above `UINT64_MAX` milliseconds clamping to `UINT64_MAX`.
+- Ran `python3 -m py_compile test_workspace/ProgExt.py`, `make -B -C c_runtime PROFILE=debug test_out`, `make -B -C c_runtime test_out`, `./test_python.sh`, `git diff --check`, and the configured `scripts/test_basic.sh` gate.
+
+#### Completion Notes
+
+Completed F001. C/libuv no longer narrows arbitrary-precision timeout nanoseconds before conversion; it uses integer division/remainder to derive milliseconds, rounds positive sub-millisecond values up, and clamps above the max finite libuv timer delay. Python now clamps huge nanosecond values against `threading.TIMEOUT_MAX` in integer space before float conversion. Verification passed: `python3 -m py_compile test_workspace/ProgExt.py`; `make -B -C c_runtime PROFILE=debug test_out`; `make -B -C c_runtime test_out`; `./test_python.sh`; `git diff --check`; and `scripts/test_basic.sh` with 2118 passed and 2 ignored.

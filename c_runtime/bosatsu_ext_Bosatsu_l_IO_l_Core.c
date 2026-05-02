@@ -112,7 +112,7 @@ typedef struct BSTS_Core_Process
 } BSTS_Core_Process;
 
 static BSTS_Core_Process *bsts_core_active_processes = NULL;
-static uint64_t bsts_sleep_timeout_millis(uint64_t nanos);
+static uint64_t bsts_timeout_millis_from_nanos_value(BValue nanos_value);
 
 typedef struct
 {
@@ -429,6 +429,11 @@ static unsigned int bsts_core_uv_io_chunk_size(size_t len)
 unsigned int bsts_core_test_uv_io_chunk_size(size_t len)
 {
   return bsts_core_uv_io_chunk_size(len);
+}
+
+uint64_t bsts_core_test_timeout_millis_from_nanos(BValue nanos_value)
+{
+  return bsts_timeout_millis_from_nanos_value(nanos_value);
 }
 
 static ssize_t bsts_core_uv_read(uv_file file, void *data, size_t len, const char *context)
@@ -3066,8 +3071,7 @@ static BValue bsts_core_wait_timeout_effect(BValue args2)
   }
   request->process = process_state;
   request->suspended = NULL;
-  request->timeout_millis =
-      bsts_sleep_timeout_millis(bsts_integer_to_low_uint64(duration));
+  request->timeout_millis = bsts_timeout_millis_from_nanos_value(duration);
   request->has_timer = 1;
   request->result = bsts_unit_value();
   request->result_is_error = 0;
@@ -3102,11 +3106,33 @@ static BValue bsts_core_now_mono_effect(BValue unit)
   return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_integer_from_uint64(uv_hrtime()));
 }
 
-static uint64_t bsts_sleep_timeout_millis(uint64_t nanos)
+static uint64_t bsts_timeout_millis_from_nanos_value(BValue nanos_value)
 {
-  uint64_t millis = nanos / 1000000ULL;
-  if ((nanos % 1000000ULL) != 0ULL)
+  BValue zero = bsts_integer_from_int(0);
+  if (bsts_integer_cmp(nanos_value, zero) <= 0)
   {
+    return 0ULL;
+  }
+
+  BValue divmod = bsts_integer_div_mod(
+      nanos_value,
+      bsts_integer_from_int(1000000));
+  BValue millis_value = get_struct_index(divmod, 0);
+  BValue nanos_remainder = get_struct_index(divmod, 1);
+  BValue max_millis_value = bsts_integer_from_uint64(UINT64_MAX);
+
+  if (bsts_integer_cmp(millis_value, max_millis_value) > 0)
+  {
+    return UINT64_MAX;
+  }
+
+  uint64_t millis = bsts_integer_to_low_uint64(millis_value);
+  if (!bsts_integer_is_zero(nanos_remainder))
+  {
+    if (millis == UINT64_MAX)
+    {
+      return UINT64_MAX;
+    }
     millis += 1ULL;
   }
   return millis;
@@ -3185,8 +3211,7 @@ static BValue bsts_core_sleep_effect(BValue duration)
   }
 
   request->suspended = NULL;
-  request->timeout_millis =
-      bsts_sleep_timeout_millis(bsts_integer_to_low_uint64(nanos_value));
+  request->timeout_millis = bsts_timeout_millis_from_nanos_value(nanos_value);
   request->error = bsts_unit_value();
   request->is_error = 0;
   BValue suspended = bsts_Bosatsu_Prog_suspend(
