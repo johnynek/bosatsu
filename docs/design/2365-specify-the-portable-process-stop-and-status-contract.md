@@ -69,6 +69,7 @@ The existing `wait(p: Process) -> Prog[IOError, Int]` becomes part of the same s
 - It returns `None` if the timeout expires first. A timeout is not a process result and must not consume or invalidate the later final status.
 - A zero or negative `Duration` is valid and behaves as a non-blocking status check: return `Some(code)` if final status is already recorded, otherwise return `None`.
 - `Duration.to_nanos` is interpreted as nanoseconds. Backends that require a coarser timeout unit must round positive durations up to the next representable unit so a positive timeout is not accidentally converted to an immediate poll.
+- If a positive duration exceeds the backend timeout type's maximum representable value, clamp to that maximum finite wait rather than overflowing or wrapping.
 - Timeout measurement must use a monotonic clock or the backend's monotonic wait primitive, not wall-clock time.
 
 `wait` waits until the final normalized exit code is recorded and returns that code.
