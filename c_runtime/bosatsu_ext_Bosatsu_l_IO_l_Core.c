@@ -3119,7 +3119,11 @@ static uint64_t bsts_timeout_millis_from_nanos_value(BValue nanos_value)
       bsts_integer_from_int(1000000));
   BValue millis_value = get_struct_index(divmod, 0);
   BValue nanos_remainder = get_struct_index(divmod, 1);
-  BValue max_millis_value = bsts_integer_from_uint64(UINT64_MAX);
+  static BValue max_millis_value = 0;
+  if (max_millis_value == 0)
+  {
+    max_millis_value = bsts_integer_from_uint64(UINT64_MAX);
+  }
 
   if (bsts_integer_cmp(millis_value, max_millis_value) > 0)
   {
