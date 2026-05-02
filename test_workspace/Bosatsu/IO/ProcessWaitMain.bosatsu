@@ -11,25 +11,19 @@ from Bosatsu/IO/Core import (
   wait,
 )
 
-andb = and
-
 def stable_wait_case(cmd: String, code: Int) -> Prog[IOError, Bool]:
   (
-    spawned <- spawn(cmd, [], StdioConfig(Pipe, Pipe, Pipe)).await()
-    SpawnResult(proc, _, _, _) = spawned
+    SpawnResult(proc, ...) <- spawn(cmd, [], StdioConfig(Pipe, Pipe, Pipe)).await()
     first <- wait(proc).await()
     second <- wait(proc).await()
-    pure(andb(first.eq_Int(code), second.eq_Int(code)))
+    pure(and(first.eq_Int(code), second.eq_Int(code)))
   )
 
 run_test: Prog[IOError, Int] =
   (
     zero_ok <- stable_wait_case("true", 0).await()
     nonzero_ok <- stable_wait_case("false", 1).await()
-    pure(if andb(zero_ok, nonzero_ok):
-      0
-    else:
-      1)
+    pure(0 if and(zero_ok, nonzero_ok) else 1)
   )
 
 main = Main(_ -> show_error(run_test, 1))
