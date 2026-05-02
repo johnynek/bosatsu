@@ -77,17 +77,22 @@ After `spawn` succeeds, cleanup is mandatory whether `use` succeeds or fails. If
 
 Required cleanup order:
 
-1. Close returned `stdin`, `stdout`, and `stderr` handles, in that order, when the corresponding `SpawnResult` field is `Some(handle)`.
+1. Close returned `stdin` when `SpawnResult.stdin` is `Some(handle)`. Closing parent-owned stdin first gives the child an EOF/broken-pipe signal on its input side without forcing the output side closed while the child may still be writing.
 2. Call `poll(proc)`.
-3. If `poll(proc)` returns `Some(_)`, call `wait(proc)` before returning from cleanup. This should be immediate under the stable-status contract and makes the reap/final-status step explicit.
+3. If `poll(proc)` returns `Some(_)`, call `wait(proc)` before closing output handles. This should be immediate under the stable-status contract and makes the reap/final-status step explicit.
 4. If `poll(proc)` returns `None`, call `terminate(proc)`.
 5. Call `wait_timeout(proc, grace)`.
-6. If `wait_timeout` returns `Some(_)`, call `wait(proc)` before returning from cleanup.
+6. If `wait_timeout` returns `Some(_)`, call `wait(proc)` before closing output handles.
 7. If `wait_timeout` returns `None`, call `kill(proc)` and then call `wait(proc)`.
+8. Close returned `stdout` and `stderr` handles, in that order, when the corresponding `SpawnResult` field is `Some(handle)`.
 
 The helper must not skip final `wait(proc)` just because `poll` or `wait_timeout` observed a final status. The low-level contract makes repeated `wait` idempotent, so this final call is the helper's durable reap boundary.
 
 A zero or negative `grace` is allowed and delegates to the reviewed `wait_timeout` contract: it behaves as an immediate status check after `terminate`. If the process is still running, cleanup escalates to `kill` without an additional sleep.
+
+The helper deliberately closes output handles after the direct child is reaped. Closing `stdout` or `stderr` while the child is still running can cause the child to observe `SIGPIPE`, `EPIPE`, or an equivalent backend write failure and can change the final status that the helper is trying to observe. The managed helper should prefer a clean process lifecycle over early output-handle release. Callers that need early output cancellation can still use the low-level APIs directly.
+
+For C/libuv, this ordering means the implementation must keep the event loop making progress through process exit and handle-close callbacks rather than closing process or pipe handles prematurely. The helper itself should remain Bosatsu library code; the C/libuv runtime remains responsible for driving `uv_run(loop, UV_RUN_DEFAULT)` or the existing runtime-loop equivalent until pending process, timer, pipe, and close callbacks needed by `wait`, `wait_timeout`, `kill`, and `close` have completed. If a runtime-level shutdown path later closes remaining handles with `uv_walk`, that is a backend shutdown concern and not new public helper behavior.
 
 ## Stdio Ownership
 
@@ -96,7 +101,9 @@ A zero or negative `grace` is allowed and delegates to the reviewed `wait_timeou
 Required stdio behavior:
 
 - Close every returned pipe handle at most once during cleanup.
-- Attempt all returned-handle closes even if an earlier close fails.
+- Attempt `stdin` close before process stop/wait escalation.
+- Attempt `stdout` and `stderr` closes after the direct child has been reaped or after final `wait` has produced an error.
+- Attempt both output-handle closes even if the first output close fails.
 - Do not close handles supplied through `Stdio.UseHandle`; those are not returned in `SpawnResult` and remain caller-owned.
 - Do not attempt to drain `stdout` or `stderr` during cleanup.
 - Do not flush `stdin` during cleanup; close is the cleanup boundary.
@@ -117,15 +124,15 @@ Accepted precedence:
 Cleanup phase order for choosing the first cleanup error:
 
 1. `stdin` close error.
-2. `stdout` close error.
-3. `stderr` close error.
-4. `poll` error.
-5. `terminate` error.
-6. `wait_timeout` error.
-7. `kill` error.
-8. final `wait` error.
+2. `poll` error.
+3. `terminate` error.
+4. `wait_timeout` error.
+5. `kill` error.
+6. final `wait` error.
+7. `stdout` close error.
+8. `stderr` close error.
 
-Cleanup must continue after recoverable cleanup errors whenever continuing is meaningful. In particular, close all returned handles even if an earlier close failed, and still attempt process stop/reap after close failures. If a stop request fails but the final status is not yet recorded, cleanup should continue through the remaining escalation path and final `wait` rather than returning before the child is reaped.
+Cleanup must continue after recoverable cleanup errors whenever continuing is meaningful. In particular, still attempt process stop/reap after a `stdin` close failure, and still attempt both output closes after final `wait` completes or fails. If a stop request fails but the final status is not yet recorded, cleanup should continue through the remaining escalation path and final `wait` rather than returning before the child is reaped.
 
 The returned process exit code is not part of `with_process`'s result. Non-zero child exit remains a status observation, not an `IOError`. If a caller needs the final exit code as application data, the `use` block can call `wait`, `poll`, or `wait_timeout`, or the caller can use the low-level APIs directly.
 
@@ -137,6 +144,8 @@ The following properties must hold after the helper is implemented:
 - Cleanup is invoked exactly once after `use` completes, whether `use` succeeds or raises `IOError`.
 - Every returned `SpawnResult` pipe handle is closed at most once by the helper.
 - Every returned `SpawnResult` pipe handle is attempted for close before the helper returns.
+- Returned `stdin` is closed before stop/wait escalation.
+- Returned `stdout` and `stderr` are closed only after the helper has attempted final `wait`.
 - The helper never closes caller-owned `UseHandle` resources.
 - If cleanup returns, the direct child has been observed by a final `wait` call or that final `wait` error is the cleanup error under the precedence rules.
 - If the child is already recorded as exited before cleanup process-control begins, cleanup does not send `terminate` or `kill`; it still performs final `wait`.
@@ -155,6 +164,7 @@ Property-check style tests should cover the lifecycle invariants that are indepe
 - For generated operation outcomes in a fake or test double model of `poll`, `terminate`, `wait_timeout`, `kill`, and `wait`, cleanup ordering is stable and error precedence is deterministic.
 - For generated grace durations including negative, zero, small positive, and large positive values, cleanup delegates timeout behavior to `wait_timeout` and escalates only when the timeout result is `None`.
 - For generated child timing states, the helper always converges on final `wait` before returning when the mocked low-level operations allow progress.
+- For generated child/output-handle states, `stdout` and `stderr` close attempts occur after the final `wait` attempt, never before stop/wait escalation.
 
 Narrow case-based tests remain the right fit for real process behavior and backend-sensitive edges:
 
@@ -162,7 +172,7 @@ Narrow case-based tests remain the right fit for real process behavior and backe
 - `use` failure returns the original `IOError` while still closing returned handles and reaping/stopping the child.
 - Already-exited children are not terminated or killed and still pass through final `wait`.
 - A long-running child is terminated, then force-killed after a short grace duration if it remains running.
-- Returned pipe handles are closed during cleanup; subsequent reads/writes through those handles should fail with the existing closed-handle behavior where the test can observe it.
+- Returned pipe handles are closed during cleanup; `stdin` is closed before stop/wait escalation, and `stdout`/`stderr` are closed after final wait. Subsequent reads/writes through those handles should fail with the existing closed-handle behavior where the test can observe it.
 - `Stdio.UseHandle` inputs remain open after `with_process` returns.
 - Cleanup close errors after successful `use` become the returned error; cleanup close errors after failed `use` do not replace the original `use` error.
 
@@ -179,7 +189,7 @@ Expected verification for implementation workers:
 
 - `Bosatsu/IO/Core` exports `with_process` with the accepted signature.
 - The helper is implemented as Bosatsu library code using public `spawn`, `close`, `poll`, `terminate`, `wait_timeout`, `kill`, and `wait` APIs.
-- The helper closes returned `stdin`, `stdout`, and `stderr` pipe handles during cleanup.
+- The helper closes returned `stdin`, `stdout`, and `stderr` pipe handles during cleanup, with `stdin` before stop/wait escalation and `stdout`/`stderr` after final wait.
 - The helper does not close `Stdio.UseHandle` resources or any handles not returned in `SpawnResult`.
 - A still-running direct child is terminated, given the configured grace duration, force-killed if still running, and finally waited.
 - Cleanup runs after both successful and failed `use` blocks.
@@ -190,7 +200,9 @@ Expected verification for implementation workers:
 
 ## Risks And Rollout Notes
 
-The main behavioral risk is that closing stdout or stderr before waiting can cause a child that writes during cleanup to observe a broken pipe. That is acceptable for this helper because it is the managed cleanup path for callers that do not need output draining. Callers that need complete output must use low-level APIs and choose their own drain/close order.
+The main behavioral risk is output backpressure. Because the helper does not drain `stdout` or `stderr`, a child that writes enough output to fill a pipe may fail to exit during the graceful wait and may require forceful cleanup. The helper still closes output handles after final wait, but callers that need complete output or protocol-aware draining must use low-level APIs and choose their own drain/close order.
+
+Closing output handles before process exit was rejected for this helper. It can cause a child that writes during cleanup to observe `SIGPIPE`, `EPIPE`, or equivalent backend errors and can change the final status. The accepted contract closes `stdin` first, performs stop/wait escalation, and closes `stdout`/`stderr` only after final wait.
 
 A second risk is indefinite cleanup if a backend cannot stop a child and final `wait` never completes. The helper's contract intentionally prioritizes not returning before reap. Tests should use bounded child programs and should not depend on process-tree cleanup to make progress.
 
