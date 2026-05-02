@@ -15,22 +15,24 @@ public dependencies: [`Bosatsu/IO/Bytes`](Bytes.html), [`Bosatsu/IO/Error`](Erro
 [`Handle`](#type-handle), [`Instant`](#type-instant), [`OpenMode`](#type-openmode),
 [`Path`](#type-path), [`PosixMode`](#type-posixmode), [`Process`](#type-process),
 [`SpawnResult`](#type-spawnresult), [`Stdio`](#type-stdio), [`StdioConfig`](#type-stdioconfig),
-[`TempFile`](#type-tempfile)
+[`StopResult`](#type-stopresult), [`TempFile`](#type-tempfile)
 - Values: [`close`](#value-close), [`copy_bytes`](#value-copy-bytes),
 [`create_temp_dir`](#value-create-temp-dir), [`create_temp_file`](#value-create-temp-file),
+[`duration_from_nanos`](#value-duration-from-nanos),
 [`duration_to_nanos`](#value-duration-to-nanos), [`flush`](#value-flush),
-[`get_env`](#value-get-env), [`list_dir`](#value-list-dir), [`mkdir`](#value-mkdir),
-[`mkdir_with_mode`](#value-mkdir-with-mode), [`now_mono`](#value-now-mono),
+[`get_env`](#value-get-env), [`kill`](#value-kill), [`list_dir`](#value-list-dir),
+[`mkdir`](#value-mkdir), [`mkdir_with_mode`](#value-mkdir-with-mode), [`now_mono`](#value-now-mono),
 [`now_wall`](#value-now-wall), [`open_file`](#value-open-file),
 [`path_file_name`](#value-path-file-name), [`path_join`](#value-path-join),
 [`path_parent`](#value-path-parent), [`path_sep`](#value-path-sep),
-[`path_to_String`](#value-path-to-string), [`posix_mode`](#value-posix-mode),
+[`path_to_String`](#value-path-to-string), [`poll`](#value-poll), [`posix_mode`](#value-posix-mode),
 [`posix_mode_to_Int`](#value-posix-mode-to-int), [`read_all_bytes`](#value-read-all-bytes),
 [`read_bytes`](#value-read-bytes), [`read_utf8`](#value-read-utf8), [`remove`](#value-remove),
 [`rename`](#value-rename), [`sleep`](#value-sleep), [`spawn`](#value-spawn), [`stat`](#value-stat),
 [`stderr`](#value-stderr), [`stdin`](#value-stdin), [`stdout`](#value-stdout),
-[`string_to_Path`](#value-string-to-path), [`wait`](#value-wait),
-[`write_bytes`](#value-write-bytes), [`write_utf8`](#value-write-utf8)
+[`string_to_Path`](#value-string-to-path), [`terminate`](#value-terminate), [`wait`](#value-wait),
+[`wait_timeout`](#value-wait-timeout), [`write_bytes`](#value-write-bytes),
+[`write_utf8`](#value-write-utf8)
 
 ## Types
 
@@ -167,6 +169,19 @@ type StdioConfig
 
 - `StdioConfig(stdin: Stdio, stdout: Stdio, stderr: Stdio)`
 
+<a id="type-stopresult"></a>
+
+### `StopResult`
+
+```bosatsu
+type StopResult
+```
+
+#### Constructors
+
+- `AlreadyExited`
+- `StopSent`
+
 <a id="type-tempfile"></a>
 
 ### `TempFile`
@@ -221,6 +236,16 @@ references: [`Bosatsu/IO/Error::IOError`](Error.html#type-ioerror), [`Bosatsu/Pr
 def create_temp_file(dir: Option[Path], prefix: String, suffix: String) -> Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, TempFile]
 ```
 
+<a id="value-duration-from-nanos"></a>
+
+### `duration_from_nanos`
+
+references: [`Duration`](#type-duration), [`Int`](../Predef.html#type-int)
+
+```bosatsu
+def duration_from_nanos(nanos: Int) -> Duration
+```
+
 <a id="value-duration-to-nanos"></a>
 
 ### `duration_to_nanos`
@@ -249,6 +274,16 @@ references: [`Bosatsu/IO/Error::IOError`](Error.html#type-ioerror), [`Bosatsu/Pr
 
 ```bosatsu
 def get_env(name: String) -> Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, Option[String]]
+```
+
+<a id="value-kill"></a>
+
+### `kill`
+
+references: [`Bosatsu/IO/Error::IOError`](Error.html#type-ioerror), [`Bosatsu/Prog::Prog`](../Prog.html#type-prog), [`Process`](#type-process), [`StopResult`](#type-stopresult)
+
+```bosatsu
+def kill(p: Process) -> Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, StopResult]
 ```
 
 <a id="value-list-dir"></a>
@@ -359,6 +394,16 @@ references: [`Path`](#type-path), [`String`](../Predef.html#type-string)
 
 ```bosatsu
 def path_to_String(path: Path) -> String
+```
+
+<a id="value-poll"></a>
+
+### `poll`
+
+references: [`Bosatsu/IO/Error::IOError`](Error.html#type-ioerror), [`Bosatsu/Prog::Prog`](../Prog.html#type-prog), [`Int`](../Predef.html#type-int), [`Option`](../Predef.html#type-option), [`Process`](#type-process)
+
+```bosatsu
+def poll(p: Process) -> Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, Option[Int]]
 ```
 
 <a id="value-posix-mode"></a>
@@ -501,6 +546,16 @@ references: [`Option`](../Predef.html#type-option), [`Path`](#type-path), [`Stri
 def string_to_Path(s: String) -> Option[Path]
 ```
 
+<a id="value-terminate"></a>
+
+### `terminate`
+
+references: [`Bosatsu/IO/Error::IOError`](Error.html#type-ioerror), [`Bosatsu/Prog::Prog`](../Prog.html#type-prog), [`Process`](#type-process), [`StopResult`](#type-stopresult)
+
+```bosatsu
+def terminate(p: Process) -> Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, StopResult]
+```
+
 <a id="value-wait"></a>
 
 ### `wait`
@@ -509,6 +564,16 @@ references: [`Bosatsu/IO/Error::IOError`](Error.html#type-ioerror), [`Bosatsu/Pr
 
 ```bosatsu
 def wait(p: Process) -> Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, Int]
+```
+
+<a id="value-wait-timeout"></a>
+
+### `wait_timeout`
+
+references: [`Bosatsu/IO/Error::IOError`](Error.html#type-ioerror), [`Bosatsu/Prog::Prog`](../Prog.html#type-prog), [`Duration`](#type-duration), [`Int`](../Predef.html#type-int), [`Option`](../Predef.html#type-option), [`Process`](#type-process)
+
+```bosatsu
+def wait_timeout(p: Process, d: Duration) -> Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, Option[Int]]
 ```
 
 <a id="value-write-bytes"></a>
