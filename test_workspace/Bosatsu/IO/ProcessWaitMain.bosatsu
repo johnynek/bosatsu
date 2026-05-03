@@ -1,23 +1,44 @@
 package Bosatsu/IO/ProcessWaitMain
 
-from Bosatsu/Prog import Prog, Main, pure, await
+from Bosatsu/Prog import (
+  Prog,
+  Main,
+  Var,
+  pure,
+  raise_error,
+  recover,
+  await,
+  new_var,
+  set,
+  get,
+)
 from Bosatsu/IO/Error import IOError
 from Bosatsu/IO/Std import show_error
 from Bosatsu/IO/Core import (
+  Handle,
   StdioConfig,
   Pipe,
+  UseHandle,
+  TempFile,
+  Read,
   SpawnResult,
   StopResult,
   Duration,
   duration_from_nanos,
   StopSent,
   AlreadyExited,
+  read_utf8,
+  write_utf8,
+  close,
+  create_temp_file,
+  open_file,
   spawn,
   wait,
   terminate,
   kill,
   poll,
   wait_timeout,
+  with_process,
   now_mono,
 )
 
@@ -168,6 +189,159 @@ def stable_wait_case(cmd: String, code: Int) -> Prog[IOError, Bool]:
     ))
   )
 
+def handle_read_is_closed(handle: Handle) -> Prog[IOError, Bool]:
+  recover(
+    (
+      _ <- read_utf8(handle, 1).await()
+      pure(False)
+    ),
+    _ -> pure(True)
+  )
+
+def handle_write_is_closed(handle: Handle) -> Prog[IOError, Bool]:
+  recover(
+    (
+      _ <- write_utf8(handle, "x").await()
+      pure(False)
+    ),
+    _ -> pure(True)
+  )
+
+def check_closed_returned_handles(
+  stdin_ref: Var[Option[Handle]],
+  stdout_ref: Var[Option[Handle]],
+  stderr_ref: Var[Option[Handle]]) -> Prog[IOError, Bool]:
+  (
+    stdin_handle <- get(stdin_ref).await()
+    stdout_handle <- get(stdout_ref).await()
+    stderr_handle <- get(stderr_ref).await()
+    match (stdin_handle, stdout_handle, stderr_handle):
+      case (Some(stdin_h), Some(stdout_h), Some(stderr_h)):
+        (
+          stdin_closed <- handle_write_is_closed(stdin_h).await()
+          stdout_closed <- handle_read_is_closed(stdout_h).await()
+          stderr_closed <- handle_read_is_closed(stderr_h).await()
+          pure(and(stdin_closed, and(stdout_closed, stderr_closed)))
+        )
+      case _: pure(False)
+  )
+
+def with_process_success_case() -> Prog[IOError, Bool]:
+  (
+    result <- with_process(
+      "true",
+      [],
+      StdioConfig(Pipe, Pipe, Pipe),
+      duration_from_nanos(1000000),
+      err -> raise_error(err),
+      _ -> pure(42),
+    ).await()
+    pure(result.eq_Int(42))
+  )
+
+def with_process_nonzero_exit_case() -> Prog[IOError, Bool]:
+  (
+    result <- with_process(
+      "false",
+      [],
+      StdioConfig(Pipe, Pipe, Pipe),
+      duration_from_nanos(1000000),
+      _ -> pure(17),
+      _ -> pure(42),
+    ).await()
+    pure(result.eq_Int(42))
+  )
+
+def with_process_use_failure_case() -> Prog[IOError, Bool]:
+  recover(
+    with_process(
+      "python3",
+      sleep_args,
+      StdioConfig(Pipe, Pipe, Pipe),
+      duration_from_nanos(0),
+      _ -> raise_error("helper-owned error"),
+      _ -> raise_error("use-failed"),
+    ),
+    err -> pure(err matches "use-failed")
+  )
+
+def with_process_already_exited_case() -> Prog[IOError, Bool]:
+  (
+    result <- with_process(
+      "true",
+      [],
+      StdioConfig(Pipe, Pipe, Pipe),
+      duration_from_nanos(0),
+      err -> raise_error(err),
+      SpawnResult(proc, ...) -> (
+        code <- wait(proc).await()
+        pure(code)
+      ),
+    ).await()
+    pure(result.eq_Int(0))
+  )
+
+def with_process_kill_escalation_case() -> Prog[IOError, Bool]:
+  (
+    result <- with_process(
+      "python3",
+      sleep_args,
+      StdioConfig(Pipe, Pipe, Pipe),
+      duration_from_nanos(0),
+      err -> raise_error(err),
+      SpawnResult(proc, ...) -> (
+        before <- poll(proc).await()
+        pure(before)
+      ),
+    ).await()
+    pure(option_code_eq(result, None))
+  )
+
+def with_process_returned_handle_close_case() -> Prog[IOError, Bool]:
+  (
+    stdin_ref <- new_var(None).await()
+    stdout_ref <- new_var(None).await()
+    stderr_ref <- new_var(None).await()
+    result <- with_process(
+      "true",
+      [],
+      StdioConfig(Pipe, Pipe, Pipe),
+      duration_from_nanos(1000000),
+      err -> raise_error(err),
+      SpawnResult(_, stdin_h, stdout_h, stderr_h) -> (
+        _ <- set(stdin_ref, stdin_h).await()
+        _ <- set(stdout_ref, stdout_h).await()
+        _ <- set(stderr_ref, stderr_h).await()
+        pure(29)
+      ),
+    ).await()
+    closed <- check_closed_returned_handles(stdin_ref, stdout_ref, stderr_ref).await()
+    pure(and(result.eq_Int(29), closed))
+  )
+
+def with_process_use_handle_case() -> Prog[IOError, Bool]:
+  (
+    TempFile(path, write_handle) <- create_temp_file(None, "bosatsu_with_process", ".tmp").await()
+    _ <- close(write_handle).await()
+    handle <- open_file(path, Read).await()
+    result <- with_process(
+      "true",
+      [],
+      StdioConfig(UseHandle(handle), Pipe, Pipe),
+      duration_from_nanos(1000000),
+      err -> raise_error(err),
+      _ -> pure(31),
+    ).await()
+    close_ok <- recover(
+      (
+        _ <- close(handle).await()
+        pure(True)
+      ),
+      _ -> pure(False)
+    ).await()
+    pure(and(result.eq_Int(31), close_ok))
+  )
+
 run_test: Prog[IOError, Int] =
   (
     zero_ok <- stable_wait_case("true", 0).await()
@@ -176,7 +350,14 @@ run_test: Prog[IOError, Int] =
     poll_timeout_ok <- poll_timeout_case().await()
     terminate_ok <- terminate_case().await()
     kill_ok <- kill_case().await()
-    pure(0 if and(
+    with_process_success_ok <- with_process_success_case().await()
+    with_process_nonzero_exit_ok <- with_process_nonzero_exit_case().await()
+    with_process_use_failure_ok <- with_process_use_failure_case().await()
+    with_process_already_exited_ok <- with_process_already_exited_case().await()
+    with_process_kill_escalation_ok <- with_process_kill_escalation_case().await()
+    with_process_returned_handle_close_ok <- with_process_returned_handle_close_case().await()
+    with_process_use_handle_ok <- with_process_use_handle_case().await()
+    low_level_ok = and(
       zero_ok,
       and(
         nonzero_ok,
@@ -185,7 +366,27 @@ run_test: Prog[IOError, Int] =
           and(poll_timeout_ok, and(terminate_ok, kill_ok)),
         ),
       ),
-    ) else 1)
+    )
+    with_process_ok = and(
+      with_process_success_ok,
+      and(
+        with_process_nonzero_exit_ok,
+        and(
+          with_process_use_failure_ok,
+          and(
+            with_process_already_exited_ok,
+            and(
+              with_process_kill_escalation_ok,
+              and(
+                with_process_returned_handle_close_ok,
+                with_process_use_handle_ok,
+              ),
+            ),
+          ),
+        ),
+      ),
+    )
+    pure(0 if and(low_level_ok, with_process_ok) else 1)
   )
 
 main = Main(_ -> show_error(run_test, 1))

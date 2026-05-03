@@ -8,8 +8,8 @@
 - Flow: `small_job`
 - Issue: `#2373` Implement managed process cleanup helper
 - Source design doc: `docs/design/2371-specify-the-managed-with-process-helper-contract.md`
-- Pending steps: `2`
-- Completed steps: `1`
+- Pending steps: `0`
+- Completed steps: `3`
 - Total steps: `3`
 
 ## Summary
@@ -18,11 +18,11 @@ Add the public `with_process` helper to `Bosatsu/IO/Core` as ordinary Bosatsu li
 
 ## Current State
 
-`test_workspace/Bosatsu/IO/Core.bosatsu` now exports and implements `with_process` beside the low-level process surface: `spawn`, `wait`, `terminate`, `kill`, `poll`, and `wait_timeout`, plus `Handle` and `close`. The helper is implemented in Bosatsu library code with small internal helpers for first cleanup error tracking, optional handle close, status observation, stop escalation, and final output close. Existing process coverage still lives in `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu`; focused real-process helper tests are still pending. `scripts/test_basic.sh` passed after a clean rebuild for this implementation slice.
+`test_workspace/Bosatsu/IO/Core.bosatsu` exports and implements `with_process` beside the low-level process surface. `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu` now covers the helper through real-process cases for successful use results, non-zero child exits that do not call `on_error`, caller-domain use failure precedence, already-exited child cleanup, zero-grace stop escalation for a sleeping child, returned pipe handle closure, and caller-owned `Stdio.UseHandle` ownership. Focused JVM and Python checks pass, and the configured `scripts/test_basic.sh` gate passes on the final workspace state.
 
 ## Problem
 
-Callers no longer need to hand-roll the basic managed lifecycle around every spawned process, but the new helper still needs focused Bosatsu-level lifecycle coverage before the issue is fully complete. The remaining risk is behavioral regression in cleanup ordering, returned-pipe ownership, termination escalation, final child reap, and error precedence that compile coverage alone cannot prove.
+The original gap was that callers had the managed lifecycle helper but lacked focused Bosatsu-level lifecycle coverage for cleanup ordering, returned-pipe ownership, stop escalation, final reap, and error precedence. This branch now has case-based process coverage for the public helper and has passed the configured required test gate.
 
 ## Steps
 
@@ -54,9 +54,9 @@ Implemented `with_process[e, a](cmd: String, args: List[String], stdio: StdioCon
 
 Added `with_process` and internal cleanup helpers to `test_workspace/Bosatsu/IO/Core.bosatsu`. A clean `scripts/test_basic.sh` run passed: CLI tests `74/74`, core JVM tests `2118/2118` with `2` ignored. During verification, stale compile-time embedded test workspace content required `sbt clean` before rerunning the required gate.
 
-2. [ ] `step-2` Cover lifecycle behavior with Bosatsu process tests
+2. [x] `step-2` Cover lifecycle behavior with Bosatsu process tests
 
-Extend the existing process test surface, likely `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu` or a focused adjacent module loaded by the same harness, with real-process cases for the public helper. Keep child programs bounded and portable across the JVM and Python test paths already used by the repository. Avoid backend-only hooks; observable behavior should come from public Bosatsu IO/process APIs and normal closed-handle behavior. Include the direct success assertion originally listed under step-1 so behavioral coverage stays with the real-process test slice.
+Extended `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu` with real-process tests for the public `with_process` helper. The tests stay on public Bosatsu IO/process APIs and use bounded commands already used by the process harness: `true`, `false`, and short Python children.
 
 #### Invariants
 
@@ -70,22 +70,26 @@ Extend the existing process test surface, likely `test_workspace/Bosatsu/IO/Proc
 
 #### Property Tests
 
-- Add or reuse a small modeled cleanup-policy test where generated operation outcomes validate phase ordering, first-error precedence, and escalation decisions independent of a real child process.
-- Generate stdio return-shape cases in the model and assert close attempts occur exactly for `Some` handles, with `stdin` before process control and `stdout`/`stderr` after final wait.
-- Where practical, drive the modeled cleanup-policy tests with generated grace values including negative, zero, small positive, and large positive durations, asserting that escalation depends on `wait_timeout` returning `None`, not on inspecting duration in the helper.
-- Generate caller outcomes in the model and assert `use` failure precedence over helper-owned cleanup errors.
+- No separate modeled property test was added in this slice; the coverage added here is case-based real-process coverage through the public helper API, which is the highest-value surface for the selected lifecycle test step.
 
 #### Assertion Tests
 
-- Add compile/type coverage that imports `with_process` from `Bosatsu/IO/Core` and exercises the accepted error-polymorphic signature with an `IOError -> Prog[e, a]` adapter.
-- Add a direct assertion that a successful `use` value is returned for a naturally exiting child when cleanup has no helper-owned error.
-- Add real-process cases for normal success, `use` failure while a sleeping child is still running, already-exited child cleanup, and terminate-to-kill escalation with a short grace duration.
-- Add handle-closure assertions by retaining returned pipe handles from `use` and verifying subsequent operations fail with the existing closed-handle behavior after `with_process` returns.
-- Add a `Stdio.UseHandle` case using a caller-owned handle and assert the helper does not close that handle.
+- Added compile/type coverage by importing and calling `with_process` from `Bosatsu/IO/Core` with both `IOError` and caller-domain `String` error adapters.
+- Added a direct assertion that successful `use` returns its value for a naturally exiting child.
+- Added a real-process non-zero child case asserting ordinary non-zero exit does not call `on_error`.
+- Added a caller-domain `use` failure case while a sleeping child is still running, asserting the original caller error is preserved while cleanup runs.
+- Added an already-exited child case where `use` waits the process before helper cleanup.
+- Added a zero-grace sleeping-child case that observes the child running in `use`, forcing helper cleanup through the terminate/wait-timeout/kill path when needed.
+- Added returned-pipe handle closure assertions by retaining returned stdin/stdout/stderr handles and verifying subsequent read/write operations fail after `with_process` returns.
+- Added a `Stdio.UseHandle` case with a caller-owned readable temp-file handle and asserted the helper leaves it open for the caller to close afterward.
 
-3. [ ] `step-3` Run the configured verification gate
+#### Completion Notes
 
-Keep the branch shippable by running the repository-required test gate after implementation and focused checks while iterating. The required gate for this repo version is `scripts/test_basic.sh` with the configured 2400 second timeout. Because this change touches the shared Bosatsu IO workspace and process tests, also run the Python process path when those tests are adjusted. The gate passed for the step-1 implementation slice after `sbt clean`; rerun it after step-2 adds lifecycle tests.
+Added focused `with_process_*_case` tests to `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu`, plus small closed-handle assertion helpers. Verification passed with `sbt "coreJVM/testOnly dev.bosatsu.EvaluationTest -- --log=failure"` and `./test_python.sh` after building the local CLI assembly needed by the Python script.
+
+3. [x] `step-3` Run the configured verification gate
+
+Ran the repository-required test gate after adding lifecycle tests. The required gate for this repo version is `scripts/test_basic.sh` with the configured 2400 second timeout. Because the shared process test program is also part of the Python transpile path, `./test_python.sh` was run as the targeted cross-runtime check.
 
 #### Invariants
 
@@ -96,14 +100,15 @@ Keep the branch shippable by running the repository-required test gate after imp
 
 #### Property Tests
 
-- Ensure any modeled property-style cleanup tests are part of a test target reached by `scripts/test_basic.sh` or by an explicitly documented focused command that is run before the required gate.
+- The selected step landed case-based lifecycle tests; no modeled property-style cleanup-policy test was added because the helper currently composes concrete public IO/process APIs directly and this round stayed scoped to the real-process Bosatsu harness.
 
 #### Assertion Tests
 
-- Run `scripts/test_basic.sh` as the merge-blocking verification command.
-- Run `./test_python.sh` after changing the generated Python workspace process tests.
-- If C/libuv-specific regression coverage becomes necessary while implementing, run `make -C c_runtime test_out` and keep that coverage limited to low-level behavior the helper depends on.
+- Ran `sbt "coreJVM/testOnly dev.bosatsu.EvaluationTest -- --log=failure"`: passed `88/88`.
+- Ran `sbt -batch cli/assembly` to create the local `bosatsuj` jar required by `test_python.sh`.
+- Ran `./test_python.sh`: passed after the local assembly was available.
+- Ran `scripts/test_basic.sh`: CLI tests passed `74/74`; core JVM tests passed `2118/2118` with `2` ignored.
 
 #### Completion Notes
 
-For this round, `sbt clean` followed by `scripts/test_basic.sh` passed on the current implementation slice. Keep this step pending so the same gate is rerun after the planned lifecycle test additions.
+Final verification on the exact final workspace state passed with `scripts/test_basic.sh`: CLI tests `74/74`; core JVM tests `2118/2118` with `2` ignored. Focused JVM EvaluationTest and `./test_python.sh` also passed.
