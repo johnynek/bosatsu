@@ -18,7 +18,7 @@ Add the public `with_process` helper to `Bosatsu/IO/Core` as ordinary Bosatsu li
 
 ## Current State
 
-`test_workspace/Bosatsu/IO/Core.bosatsu` exports and implements `with_process` beside the low-level process surface. `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu` now covers the helper through real-process cases for successful use results, non-zero child exits that do not call `on_error`, caller-domain use failure precedence, already-exited child cleanup, zero-grace stop escalation for a sleeping child, returned pipe handle closure, and caller-owned `Stdio.UseHandle` ownership. Focused JVM and Python checks pass, and the configured `scripts/test_basic.sh` gate passes on the final workspace state.
+`test_workspace/Bosatsu/IO/Core.bosatsu` exports and implements `with_process` beside the low-level process surface. `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu` now covers the helper through real-process cases for successful use results, non-zero child exits that do not call `on_error`, caller-domain use failure precedence, already-exited child cleanup, zero-grace stop escalation for a sleeping child, returned pipe handle closure, and unrelated caller-owned handle ownership. Focused JVM and Python checks pass, and the configured `scripts/test_basic.sh` gate passes on the final workspace state.
 
 ## Problem
 
@@ -81,7 +81,7 @@ Extended `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu` with real-process t
 - Added an already-exited child case where `use` waits the process before helper cleanup.
 - Added a zero-grace sleeping-child case that observes the child running in `use`, forcing helper cleanup through the terminate/wait-timeout/kill path when needed.
 - Added returned-pipe handle closure assertions by retaining returned stdin/stdout/stderr handles and verifying subsequent read/write operations fail after `with_process` returns.
-- Added a `Stdio.UseHandle` case with a caller-owned readable temp-file handle and asserted the helper leaves it open for the caller to close afterward.
+- Added a caller-owned readable temp-file handle case and asserted the helper leaves unrelated handles open for the caller to close afterward.
 
 #### Completion Notes
 

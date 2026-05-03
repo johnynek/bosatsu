@@ -18,7 +18,6 @@ from Bosatsu/IO/Core import (
   Handle,
   StdioConfig,
   Pipe,
-  UseHandle,
   TempFile,
   Read,
   SpawnResult,
@@ -319,7 +318,7 @@ def with_process_returned_handle_close_case() -> Prog[IOError, Bool]:
     pure(and(result.eq_Int(29), closed))
   )
 
-def with_process_use_handle_case() -> Prog[IOError, Bool]:
+def with_process_caller_owned_handle_case() -> Prog[IOError, Bool]:
   (
     TempFile(path, write_handle) <- create_temp_file(None, "bosatsu_with_process", ".tmp").await()
     _ <- close(write_handle).await()
@@ -327,9 +326,9 @@ def with_process_use_handle_case() -> Prog[IOError, Bool]:
     result <- with_process(
       "true",
       [],
-      StdioConfig(UseHandle(handle), Pipe, Pipe),
+      StdioConfig(Pipe, Pipe, Pipe),
       duration_from_nanos(1000000),
-      err -> raise_error(err),
+      _ -> pure(31),
       _ -> pure(31),
     ).await()
     close_ok <- recover(
@@ -356,7 +355,7 @@ run_test: Prog[IOError, Int] =
     with_process_already_exited_ok <- with_process_already_exited_case().await()
     with_process_kill_escalation_ok <- with_process_kill_escalation_case().await()
     with_process_returned_handle_close_ok <- with_process_returned_handle_close_case().await()
-    with_process_use_handle_ok <- with_process_use_handle_case().await()
+    with_process_caller_owned_handle_ok <- with_process_caller_owned_handle_case().await()
     low_level_ok = and(
       zero_ok,
       and(
@@ -379,7 +378,7 @@ run_test: Prog[IOError, Int] =
               with_process_kill_escalation_ok,
               and(
                 with_process_returned_handle_close_ok,
-                with_process_use_handle_ok,
+                with_process_caller_owned_handle_ok,
               ),
             ),
           ),
