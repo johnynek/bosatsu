@@ -8,21 +8,21 @@
 - Flow: `small_job`
 - Issue: `#2376` Add cross-backend process stop and cleanup regression coverage
 - Source design doc: `docs/design/2365-specify-the-portable-process-stop-and-status-contract.md`
-- Pending steps: `2`
-- Completed steps: `2`
+- Pending steps: `1`
+- Completed steps: `3`
 - Total steps: `4`
 
 ## Summary
 
-Add durable regression coverage for the portable process stop/status contract and the managed `with_process` cleanup helper across the supported backend paths. This round completed the shared JVM/Python stop/status strengthening in `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu`; the remaining work is the focused C/libuv stdio ownership assertion and final verification gate.
+Add durable regression coverage for the portable process stop/status contract and the managed `with_process` cleanup helper across the supported backend paths. This round added the focused C/libuv low-level stdio ownership assertion after stop requests; remaining work is final JVM/Python and required-gate verification.
 
 ## Current State
 
-The direct dependencies for issue #2376 are present on `main`: the process stop/status contract exists in `docs/design/2365-specify-the-portable-process-stop-and-status-contract.md`, the low-level `terminate`, `kill`, `poll`, and `wait_timeout` APIs are wired through the JVM, Python test runtime, and C/libuv runtime, and `Bosatsu/IO/Core.with_process` implements managed process cleanup in Bosatsu library code. The audit for step-1 confirmed the smallest useful test surfaces: shared JVM/Python behavior flows through `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu`, JVM execution is anchored by `core/src/test/scala/dev/bosatsu/EvaluationTest.scala`, Python execution is anchored by `test_python.sh` with externals in `test_workspace/ProgExt.py` and `test_workspace/Prog.bosatsu_externals`, and C/libuv-specific process assertions live in `c_runtime/test.c`. Step-2 replaced the inert `stable_wait_case` observation branches with real `wait`, `poll`, `wait_timeout`, `terminate`, and `kill` observations after a recorded final status, and strengthened `terminate_case` and `kill_case` so stopped children remain observable through `wait`, `poll`, and `wait_timeout`. `ProcessWaitMain.bosatsu` still also covers repeated wait, poll/timeout non-consumption, already-exited stop, and several `with_process` cleanup cases; `c_runtime/test.c` already covers focused C poll, timeout, terminate/kill, already-exited stop, and GC rooting cases.
+The direct dependencies for issue #2376 are present on `main`: the process stop/status contract exists in `docs/design/2365-specify-the-portable-process-stop-and-status-contract.md`, the low-level `terminate`, `kill`, `poll`, and `wait_timeout` APIs are wired through the JVM, Python test runtime, and C/libuv runtime, and `Bosatsu/IO/Core.with_process` implements managed process cleanup in Bosatsu library code. Step-2 strengthened shared JVM/Python status-stability coverage in `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu`. Step-3 added a C/libuv regression in `c_runtime/test.c` that spawns a child with all three stdio streams piped, issues a low-level `terminate`, reads from returned stdout/stderr handles after the stop request, explicitly closes stdin/stdout/stderr handles, and waits for the stopped child. The existing shared `with_process` cases already cover helper-owned returned handle closure, caller-owned `UseHandle` ownership, running-child escalation, already-exited cleanup, non-zero child exit, and caller failure precedence.
 
 ## Problem
 
-Process lifecycle behavior can regress independently in each backend because process handles, timeout waits, final-status caching, stop semantics, and stdio ownership are implemented separately. The shared JVM/Python status-stability gap from the inert `stable_wait_case` branches is now covered, including post-wait `poll` and `wait_timeout` observations and already-exited stop idempotence. Remaining coverage risk for this issue is concentrated in the C/libuv low-level stdio ownership assertion after stop requests, plus completing focused JVM/Python and required-gate verification so backend regressions do not slip through.
+Process lifecycle behavior can regress independently in each backend because process handles, timeout waits, final-status caching, stop semantics, and stdio ownership are implemented separately. The shared JVM/Python status-stability gap from the inert `stable_wait_case` branches is now covered, and the C/libuv low-level stdio ownership gap is now covered by an explicit post-stop returned-handle regression. Remaining risk for this issue is verification: the focused C target passed, but JVM/Python focused flows and the repository-required `scripts/test_basic.sh` gate still need authoritative completion before PR readiness.
 
 ## Steps
 
@@ -80,7 +80,7 @@ Extend the existing shared Bosatsu process scenarios in `test_workspace/Bosatsu/
 
 Updated `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu` only. Removed the dead `if False` observation scaffolding and unused helpers from `stable_wait_case`; the case now records final status with `wait`, then asserts `poll`, non-blocking `wait_timeout`, `terminate`, `kill`, and a second `wait` all preserve the same final status for both `true` and `false`. Strengthened `terminate_case` and `kill_case` so after a stop request and final `wait`, both `poll` and non-blocking `wait_timeout` observe the same non-zero stopped-child status. Verification attempted: `./test_python.sh` failed immediately because no `cli/target/.../bosatsu-cli-assembly-*.jar` exists in this checkout; a fallback attempt with `cli/bosatsu.jar` used the older CLI shape and failed parsing current workspace syntax, so it was not a valid regression result. The focused JVM `sbt 'coreJVM/testOnly dev.bosatsu.EvaluationTest -- "process wait is stable and idempotent in JVM evaluation"'` began initial checkout compilation but did not produce a completed test result during this worker round; step-4 remains pending for authoritative verification.
 
-3. [ ] `step-3` Cover Stdio Ownership And Managed Cleanup
+3. [x] `step-3` Cover Stdio Ownership And Managed Cleanup
 
 Add the backend-specific regression assertions needed for ownership and cleanup behavior. Use `c_runtime/test.c` for the missing C/libuv low-level stdio ownership assertion: spawn with piped stdio, issue a low-level stop request, then explicitly close returned handles to prove stop did not take ownership. Keep the existing shared Bosatsu/Python/JVM `with_process` cases in `ProcessWaitMain.bosatsu` for helper-owned returned handle closure, caller-owned `UseHandle` ownership, running-child escalation, already-exited cleanup, non-zero child exit, and caller failure precedence; strengthen them only if step-2 edits expose an obvious gap.
 
@@ -103,6 +103,10 @@ Add the backend-specific regression assertions needed for ownership and cleanup 
 - C runtime: keep or strengthen focused assertions for poll before/after exit, timeout followed by wait, terminate/kill followed by wait, and already-exited stop behavior.
 - Shared/Python/JVM flow: `with_process` closes returned pipe handles owned by `SpawnResult` during cleanup.
 - Shared/Python/JVM flow: `with_process` reaps or observes completion for normal success, non-zero child exit, caller failure, already-exited child, and zero-grace stop escalation cases.
+
+#### Completion Notes
+
+Updated `c_runtime/test.c` only. Added `io_core_spawn_stop_stdio_ownership_test_fn`, which spawns `/bin/sh -c 'sleep 10'` with stdin/stdout/stderr configured as `Pipe`, sends low-level `terminate`, then reads from the returned stdout and stderr handles after the stop request before explicitly closing all three returned handles and waiting for the stopped child. Reading from the returned pipe handles after `terminate` makes the regression stronger than relying on `close` alone, since C runtime handle close is intentionally idempotent. The existing shared `ProcessWaitMain.bosatsu` `with_process` cases were reviewed and already cover the helper-managed cleanup and caller-owned handle assertions listed for this step, so they were not changed. Verification: `make -C c_runtime test_out` passed after this edit.
 
 4. [ ] `step-4` Verify Focused Targets And Required Gate
 
