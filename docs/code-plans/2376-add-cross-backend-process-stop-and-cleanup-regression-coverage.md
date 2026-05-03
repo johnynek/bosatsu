@@ -8,21 +8,21 @@
 - Flow: `small_job`
 - Issue: `#2376` Add cross-backend process stop and cleanup regression coverage
 - Source design doc: `docs/design/2365-specify-the-portable-process-stop-and-status-contract.md`
-- Pending steps: `3`
-- Completed steps: `1`
+- Pending steps: `2`
+- Completed steps: `2`
 - Total steps: `4`
 
 ## Summary
 
-Add durable regression coverage for the portable process stop/status contract and the managed `with_process` cleanup helper across the supported backend paths. The final change should strengthen the existing shared Bosatsu process program and the focused C runtime process tests rather than introduce a new harness, then verify the touched focused targets and the required repository gate `scripts/test_basic.sh`.
+Add durable regression coverage for the portable process stop/status contract and the managed `with_process` cleanup helper across the supported backend paths. This round completed the shared JVM/Python stop/status strengthening in `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu`; the remaining work is the focused C/libuv stdio ownership assertion and final verification gate.
 
 ## Current State
 
-The direct dependencies for issue #2376 are present on `main`: the process stop/status contract exists in `docs/design/2365-specify-the-portable-process-stop-and-status-contract.md`, the low-level `terminate`, `kill`, `poll`, and `wait_timeout` APIs are wired through the JVM, Python test runtime, and C/libuv runtime, and `Bosatsu/IO/Core.with_process` implements managed process cleanup in Bosatsu library code. The audit for step-1 confirmed the smallest useful test surfaces: shared JVM/Python behavior flows through `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu`, JVM execution is anchored by `core/src/test/scala/dev/bosatsu/EvaluationTest.scala`, Python execution is anchored by `test_python.sh` with externals in `test_workspace/ProgExt.py` and `test_workspace/Prog.bosatsu_externals`, and C/libuv-specific process assertions live in `c_runtime/test.c`. `ProcessWaitMain.bosatsu` already covers repeated wait, poll/timeout, terminate, kill, already-exited stop, and several `with_process` cleanup cases; `c_runtime/test.c` already covers focused C poll, timeout, terminate/kill, already-exited stop, and GC rooting cases.
+The direct dependencies for issue #2376 are present on `main`: the process stop/status contract exists in `docs/design/2365-specify-the-portable-process-stop-and-status-contract.md`, the low-level `terminate`, `kill`, `poll`, and `wait_timeout` APIs are wired through the JVM, Python test runtime, and C/libuv runtime, and `Bosatsu/IO/Core.with_process` implements managed process cleanup in Bosatsu library code. The audit for step-1 confirmed the smallest useful test surfaces: shared JVM/Python behavior flows through `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu`, JVM execution is anchored by `core/src/test/scala/dev/bosatsu/EvaluationTest.scala`, Python execution is anchored by `test_python.sh` with externals in `test_workspace/ProgExt.py` and `test_workspace/Prog.bosatsu_externals`, and C/libuv-specific process assertions live in `c_runtime/test.c`. Step-2 replaced the inert `stable_wait_case` observation branches with real `wait`, `poll`, `wait_timeout`, `terminate`, and `kill` observations after a recorded final status, and strengthened `terminate_case` and `kill_case` so stopped children remain observable through `wait`, `poll`, and `wait_timeout`. `ProcessWaitMain.bosatsu` still also covers repeated wait, poll/timeout non-consumption, already-exited stop, and several `with_process` cleanup cases; `c_runtime/test.c` already covers focused C poll, timeout, terminate/kill, already-exited stop, and GC rooting cases.
 
 ## Problem
 
-Process lifecycle behavior can regress independently in each backend because process handles, timeout waits, final-status caching, stop semantics, and stdio ownership are implemented separately. Existing coverage is close but not yet sufficient for issue #2376's cross-backend regression intent: the shared `stable_wait_case` contains inert `if False` branches instead of exercising post-status observation sequences, low-level stop/status stdio ownership is not directly asserted in C after a stop request on piped handles, and the remaining verification plan should explicitly tie each touched surface to its focused command. Without this coverage, a backend could accidentally consume status during `poll` or `wait_timeout`, close caller-owned pipes during `terminate`/`kill`, fail to reap a stopped child, or break `with_process` cleanup while still passing narrower tests.
+Process lifecycle behavior can regress independently in each backend because process handles, timeout waits, final-status caching, stop semantics, and stdio ownership are implemented separately. The shared JVM/Python status-stability gap from the inert `stable_wait_case` branches is now covered, including post-wait `poll` and `wait_timeout` observations and already-exited stop idempotence. Remaining coverage risk for this issue is concentrated in the C/libuv low-level stdio ownership assertion after stop requests, plus completing focused JVM/Python and required-gate verification so backend regressions do not slip through.
 
 ## Steps
 
@@ -50,7 +50,7 @@ Review the contract document, `coding_style.md`, and current process tests to id
 
 Audited `coding_style.md`, the contract in `docs/design/2365-specify-the-portable-process-stop-and-status-contract.md`, `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu`, `test_workspace/ProgExt.py`, `test_workspace/Prog.bosatsu_externals`, `core/src/test/scala/dev/bosatsu/EvaluationTest.scala`, `test_python.sh`, and `c_runtime/test.c`. The next implementation should keep shared JVM/Python regressions in `ProcessWaitMain.bosatsu` and its existing evaluator/Python runners, and keep C/libuv-only status/handle ownership checks in `c_runtime/test.c`. No new harness is needed.
 
-2. [ ] `step-2` Strengthen Shared Stop/Status Regressions
+2. [x] `step-2` Strengthen Shared Stop/Status Regressions
 
 Extend the existing shared Bosatsu process scenarios in `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu` so JVM and Python execution exercise the portable stop/status contract. Keep the existing `exited_stop_case`, `poll_timeout_case`, `terminate_case`, and `kill_case`, but replace or strengthen the inert observation branches in `stable_wait_case` so completed processes are actually observed through `wait`, `poll`, and `wait_timeout` sequences. Cover direct termination, force kill, stop after already-recorded exit, stable final status after stop, `poll` before and after exit, and `wait_timeout` returning `None` without consuming a later final `wait`.
 
@@ -75,6 +75,10 @@ Extend the existing shared Bosatsu process scenarios in `test_workspace/Bosatsu/
 - `poll` returns no status before a known-running child exits and returns the expected status after exit is recorded.
 - Zero or very short `wait_timeout` returns no status for a known-running child, and a later `wait` returns the expected final code.
 - Stopping an already-exited child reports `AlreadyExited` or the documented equivalent in the existing Bosatsu API.
+
+#### Completion Notes
+
+Updated `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu` only. Removed the dead `if False` observation scaffolding and unused helpers from `stable_wait_case`; the case now records final status with `wait`, then asserts `poll`, non-blocking `wait_timeout`, `terminate`, `kill`, and a second `wait` all preserve the same final status for both `true` and `false`. Strengthened `terminate_case` and `kill_case` so after a stop request and final `wait`, both `poll` and non-blocking `wait_timeout` observe the same non-zero stopped-child status. Verification attempted: `./test_python.sh` failed immediately because no `cli/target/.../bosatsu-cli-assembly-*.jar` exists in this checkout; a fallback attempt with `cli/bosatsu.jar` used the older CLI shape and failed parsing current workspace syntax, so it was not a valid regression result. The focused JVM `sbt 'coreJVM/testOnly dev.bosatsu.EvaluationTest -- "process wait is stable and idempotent in JVM evaluation"'` began initial checkout compilation but did not produce a completed test result during this worker round; step-4 remains pending for authoritative verification.
 
 3. [ ] `step-3` Cover Stdio Ownership And Managed Cleanup
 
@@ -102,7 +106,7 @@ Add the backend-specific regression assertions needed for ownership and cleanup 
 
 4. [ ] `step-4` Verify Focused Targets And Required Gate
 
-Run focused tests for the touched backend surfaces, then run the repository-required gate before the branch is considered reviewable. If `ProcessWaitMain.bosatsu` changes, run the JVM evaluator test that loads it and the Python flow that imports `Bosatsu.IO.ProcessWaitMain`; if `c_runtime/test.c` changes, run the focused C runtime target. Keep new process tests bounded so they fit within the configured `scripts/test_basic.sh` timeout of 2400 seconds.
+Run focused tests for the touched backend surfaces, then run the repository-required gate before the branch is considered reviewable. If `ProcessWaitMain.bosatsu` changes, run the JVM evaluator test that loads it and the Python flow that imports `Bosatsu.IO.ProcessWaitMain`; if `c_runtime/test.c` changes, run the focused C runtime target. Keep new process tests bounded so they fit within the configured `scripts/test_basic.sh` timeout of 2400 seconds. Before the Python flow can be used in this checkout, build the expected CLI assembly jar with `sbt cli/assembly` or otherwise restore `cli/target/scala-*/bosatsu-cli-assembly-*.jar` so `./bosatsuj` and `./test_python.sh` exercise the current compiler/runtime rather than the stale `cli/bosatsu.jar`.
 
 #### Invariants
 

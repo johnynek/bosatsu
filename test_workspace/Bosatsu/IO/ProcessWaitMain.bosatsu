@@ -38,7 +38,6 @@ from Bosatsu/IO/Core import (
   poll,
   wait_timeout,
   with_process,
-  now_mono,
 )
 
 def stop_result_eq(left: StopResult, right: StopResult) -> Bool:
@@ -117,10 +116,18 @@ def terminate_case() -> Prog[IOError, Bool]:
     SpawnResult(proc, ...) <- spawn("python3", sleep_args, StdioConfig(Pipe, Pipe, Pipe)).await()
     stopped <- terminate(proc).await()
     first <- wait(proc).await()
+    poll_after <- poll(proc).await()
+    timeout_after <- wait_timeout(proc, duration_from_nanos(-1)).await()
     second <- wait(proc).await()
     pure(and(
       stop_result_eq(stopped, StopSent),
-      and(is_nonzero(first), first.eq_Int(second)),
+      and(
+        is_nonzero(first),
+        and(
+          option_code_eq(poll_after, Some(first)),
+          and(option_code_eq(timeout_after, Some(first)), first.eq_Int(second)),
+        ),
+      ),
     ))
   )
 
@@ -129,62 +136,42 @@ def kill_case() -> Prog[IOError, Bool]:
     SpawnResult(proc, ...) <- spawn("python3", sleep_args, StdioConfig(Pipe, Pipe, Pipe)).await()
     stopped <- kill(proc).await()
     first <- wait(proc).await()
+    poll_after <- poll(proc).await()
+    timeout_after <- wait_timeout(proc, duration_from_nanos(-1)).await()
     second <- wait(proc).await()
     pure(and(
       stop_result_eq(stopped, StopSent),
-      and(is_nonzero(first), first.eq_Int(second)),
+      and(
+        is_nonzero(first),
+        and(
+          option_code_eq(poll_after, Some(first)),
+          and(option_code_eq(timeout_after, Some(first)), first.eq_Int(second)),
+        ),
+      ),
     ))
   )
-
-def stop_result_observed(sr: StopResult) -> Bool:
-  match sr:
-    case StopSent: True
-    case AlreadyExited: True
-
-def option_code_observed(code: Option[Int]) -> Bool:
-  match code:
-    case Some(_): True
-    case None: False
 
 def stable_wait_case(cmd: String, code: Int) -> Prog[IOError, Bool]:
   (
     SpawnResult(proc, ...) <- spawn(cmd, [], StdioConfig(Pipe, Pipe, Pipe)).await()
-    timeout <- now_mono.await()
-    polled <- (
-      if False:
-        poll(proc)
-      else:
-        pure(None)
-    ).await()
-    timed <- (
-      if False:
-        wait_timeout(proc, timeout)
-      else:
-        pure(None)
-    ).await()
-    terminated <- (
-      if False:
-        terminate(proc)
-      else:
-        pure(StopSent)
-    ).await()
-    killed <- (
-      if False:
-        kill(proc)
-      else:
-        pure(AlreadyExited)
-    ).await()
     first <- wait(proc).await()
+    polled <- poll(proc).await()
+    timed <- wait_timeout(proc, duration_from_nanos(-1)).await()
+    terminated <- terminate(proc).await()
+    killed <- kill(proc).await()
     second <- wait(proc).await()
     pure(and(
-      or(
-        option_code_observed(polled),
-        or(
-          option_code_observed(timed),
-          and(stop_result_observed(terminated), stop_result_observed(killed)),
+      first.eq_Int(code),
+      and(
+        option_code_eq(polled, Some(code)),
+        and(
+          option_code_eq(timed, Some(code)),
+          and(
+            stop_result_eq(terminated, AlreadyExited),
+            and(stop_result_eq(killed, AlreadyExited), second.eq_Int(code)),
+          ),
         ),
       ),
-      and(first.eq_Int(code), second.eq_Int(code)),
     ))
   )
 
