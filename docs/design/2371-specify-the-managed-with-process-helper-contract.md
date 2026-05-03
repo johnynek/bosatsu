@@ -73,6 +73,8 @@ Accepted argument order:
 
 The `use` block has the exact type `SpawnResult -> Prog[e, a]`. The `on_error` handler has the exact type `IOError -> Prog[e, a]` and is used for helper-owned `IOError` values from `spawn`, stdio close, `poll`, `terminate`, `wait_timeout`, `kill`, and final `wait`. This keeps the helper error-polymorphic without hiding where process and stdio `IOError` values enter the caller's program.
 
+Do not add a narrower `Prog[IOError, a]`-only overload in this issue. Callers that want the simple `IOError` shape can instantiate `e` as `IOError` and make `on_error` re-raise or otherwise handle the helper-owned error.
+
 ## Cleanup Ordering
 
 After `spawn` succeeds, cleanup is mandatory whether `use` succeeds or fails. If `spawn` itself fails, no cleanup runs because no `SpawnResult` exists.
