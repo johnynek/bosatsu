@@ -7,32 +7,33 @@
 
 - Flow: `small_job`
 - Issue: `#2373` Implement managed process cleanup helper
-- Pending steps: `3`
-- Completed steps: `0`
+- Source design doc: `docs/design/2371-specify-the-managed-with-process-helper-contract.md`
+- Pending steps: `2`
+- Completed steps: `1`
 - Total steps: `3`
 
 ## Summary
 
-Add the public `with_process` helper to `Bosatsu/IO/Core` as ordinary Bosatsu library code. The helper will wrap `spawn`, invoke caller code exactly once after a successful spawn, then run deterministic cleanup that closes returned stdio pipe handles, terminates or kills still-running direct children after the configured grace duration, and always reaches a final `wait` attempt before returning from cleanup. The implementation stays on top of the public low-level APIs from issue #2369 and preserves the error-polymorphic contract from the accepted helper design document.
+Add the public `with_process` helper to `Bosatsu/IO/Core` as ordinary Bosatsu library code. The helper wraps `spawn`, invokes caller code after a successful spawn, then runs deterministic cleanup that closes returned stdio pipe handles, terminates or kills still-running direct children after the configured grace duration, and reaches a final `wait` attempt before returning from cleanup. The implementation stays on top of the public low-level APIs from issue #2369 and preserves the error-polymorphic contract from the accepted helper design document.
 
 ## Current State
 
-`test_workspace/Bosatsu/IO/Core.bosatsu` currently exports the low-level process surface: `spawn`, `wait`, `terminate`, `kill`, `poll`, and `wait_timeout`, plus `Handle` and `close`. `SpawnResult` carries optional returned pipe handles for `stdin`, `stdout`, and `stderr`. Existing process coverage lives in `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu`, with JVM evaluation coverage in `core/src/test/scala/dev/bosatsu/EvaluationTest.scala` and Python coverage through `test_python.sh`. The accepted helper contract is recorded in `docs/design/2371-specify-the-managed-with-process-helper-contract.md`, but the helper itself is not yet present in the `Bosatsu/IO/Core` export list or implementation.
+`test_workspace/Bosatsu/IO/Core.bosatsu` now exports and implements `with_process` beside the low-level process surface: `spawn`, `wait`, `terminate`, `kill`, `poll`, and `wait_timeout`, plus `Handle` and `close`. The helper is implemented in Bosatsu library code with small internal helpers for first cleanup error tracking, optional handle close, status observation, stop escalation, and final output close. Existing process coverage still lives in `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu`; focused real-process helper tests are still pending. `scripts/test_basic.sh` passed after a clean rebuild for this implementation slice.
 
 ## Problem
 
-Callers currently have to hand-roll the same lifecycle sequence around every spawned process. That leaves cleanup ordering, returned pipe ownership, termination escalation, final child reap, and error precedence easy to implement inconsistently. The missing helper should centralize this common lifecycle without adding backend-specific hooks, process-tree behavior, signal APIs, or a new error aggregation type.
+Callers no longer need to hand-roll the basic managed lifecycle around every spawned process, but the new helper still needs focused Bosatsu-level lifecycle coverage before the issue is fully complete. The remaining risk is behavioral regression in cleanup ordering, returned-pipe ownership, termination escalation, final child reap, and error precedence that compile coverage alone cannot prove.
 
 ## Steps
 
-1. [ ] `step-1` Add the managed helper to Bosatsu/IO/Core
+1. [x] `step-1` Add the managed helper to Bosatsu/IO/Core
 
-Implement `with_process[e, a](cmd: String, args: List[String], stdio: StdioConfig, grace: Duration, on_error: IOError -> Prog[e, a], use: SpawnResult -> Prog[e, a]) -> Prog[e, a]` in `test_workspace/Bosatsu/IO/Core.bosatsu` and export it beside the low-level process APIs. Keep it as Bosatsu library code. Structure the cleanup into small local helpers for optional handle close, first cleanup error tracking, stop escalation, and final output close so the ordering from the helper contract is readable and maintainable. Use `recover` to ensure cleanup runs after both successful and failed `use`, while preserving caller-domain `use` failures over cleanup `IOError` values.
+Implemented `with_process[e, a](cmd: String, args: List[String], stdio: StdioConfig, grace: Duration, on_error: IOError -> Prog[e, a], use: SpawnResult -> Prog[e, a]) -> Prog[e, a]` in `test_workspace/Bosatsu/IO/Core.bosatsu` and exported it beside the low-level process APIs. The implementation remains Bosatsu library code and uses public `spawn`, `close`, `poll`, `terminate`, `wait_timeout`, `kill`, and `wait`. Cleanup uses small helpers for optional handle close, first cleanup error tracking, status observation, stop escalation, and output close ordering.
 
 #### Invariants
 
 - `spawn` failure calls `on_error` and does not run cleanup because there is no `SpawnResult`.
-- For each successful `spawn`, `use` is invoked exactly once and cleanup is invoked exactly once after `use` completes or fails.
+- For each successful `spawn`, `use` is invoked exactly once and cleanup is invoked exactly once after `use` succeeds or fails.
 - Returned `stdin` is closed before `poll`, `terminate`, `wait_timeout`, `kill`, or final `wait` escalation.
 - Returned `stdout` and `stderr` are closed only after the helper has attempted final `wait`, and both output close attempts are made when both handles exist.
 - Only handles returned in `SpawnResult` are closed; `Stdio.UseHandle` resources remain caller-owned.
@@ -43,17 +44,19 @@ Implement `with_process[e, a](cmd: String, args: List[String], stdio: StdioConfi
 
 #### Property Tests
 
-- Add or reuse a small modeled cleanup-policy test where generated operation outcomes validate phase ordering, first-error precedence, and escalation decisions independent of a real child process.
-- Generate stdio return-shape cases in the model and assert close attempts occur exactly for `Some` handles, with `stdin` before process control and `stdout`/`stderr` after final wait.
+- None recorded.
 
 #### Assertion Tests
 
-- Add compile/type coverage that imports `with_process` from `Bosatsu/IO/Core` and exercises the accepted error-polymorphic signature with an `IOError -> Prog[e, a]` adapter.
-- Add a direct assertion that a successful `use` value is returned for a naturally exiting child when cleanup has no helper-owned error.
+- Compile/type coverage for the exported helper is covered by the clean `scripts/test_basic.sh` run, which exercises the full test workspace and embedded JVM evaluation sources.
+
+#### Completion Notes
+
+Added `with_process` and internal cleanup helpers to `test_workspace/Bosatsu/IO/Core.bosatsu`. A clean `scripts/test_basic.sh` run passed: CLI tests `74/74`, core JVM tests `2118/2118` with `2` ignored. During verification, stale compile-time embedded test workspace content required `sbt clean` before rerunning the required gate.
 
 2. [ ] `step-2` Cover lifecycle behavior with Bosatsu process tests
 
-Extend the existing process test surface, likely `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu` or a focused adjacent module loaded by the same harness, with real-process cases for the public helper. Keep child programs bounded and portable across the JVM and Python test paths already used by the repository. Avoid backend-only hooks; observable behavior should come from public Bosatsu IO/process APIs and normal closed-handle behavior.
+Extend the existing process test surface, likely `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu` or a focused adjacent module loaded by the same harness, with real-process cases for the public helper. Keep child programs bounded and portable across the JVM and Python test paths already used by the repository. Avoid backend-only hooks; observable behavior should come from public Bosatsu IO/process APIs and normal closed-handle behavior. Include the direct success assertion originally listed under step-1 so behavioral coverage stays with the real-process test slice.
 
 #### Invariants
 
@@ -67,18 +70,22 @@ Extend the existing process test surface, likely `test_workspace/Bosatsu/IO/Proc
 
 #### Property Tests
 
+- Add or reuse a small modeled cleanup-policy test where generated operation outcomes validate phase ordering, first-error precedence, and escalation decisions independent of a real child process.
+- Generate stdio return-shape cases in the model and assert close attempts occur exactly for `Some` handles, with `stdin` before process control and `stdout`/`stderr` after final wait.
 - Where practical, drive the modeled cleanup-policy tests with generated grace values including negative, zero, small positive, and large positive durations, asserting that escalation depends on `wait_timeout` returning `None`, not on inspecting duration in the helper.
 - Generate caller outcomes in the model and assert `use` failure precedence over helper-owned cleanup errors.
 
 #### Assertion Tests
 
+- Add compile/type coverage that imports `with_process` from `Bosatsu/IO/Core` and exercises the accepted error-polymorphic signature with an `IOError -> Prog[e, a]` adapter.
+- Add a direct assertion that a successful `use` value is returned for a naturally exiting child when cleanup has no helper-owned error.
 - Add real-process cases for normal success, `use` failure while a sleeping child is still running, already-exited child cleanup, and terminate-to-kill escalation with a short grace duration.
 - Add handle-closure assertions by retaining returned pipe handles from `use` and verifying subsequent operations fail with the existing closed-handle behavior after `with_process` returns.
 - Add a `Stdio.UseHandle` case using a caller-owned handle and assert the helper does not close that handle.
 
 3. [ ] `step-3` Run the configured verification gate
 
-Keep the branch shippable by running the repository-required test gate after implementation and focused checks while iterating. The required gate for this repo version is `scripts/test_basic.sh` with the configured 2400 second timeout. Because this change touches the shared Bosatsu IO workspace and process tests, also run the Python process path when those tests are adjusted.
+Keep the branch shippable by running the repository-required test gate after implementation and focused checks while iterating. The required gate for this repo version is `scripts/test_basic.sh` with the configured 2400 second timeout. Because this change touches the shared Bosatsu IO workspace and process tests, also run the Python process path when those tests are adjusted. The gate passed for the step-1 implementation slice after `sbt clean`; rerun it after step-2 adds lifecycle tests.
 
 #### Invariants
 
@@ -96,3 +103,7 @@ Keep the branch shippable by running the repository-required test gate after imp
 - Run `scripts/test_basic.sh` as the merge-blocking verification command.
 - Run `./test_python.sh` after changing the generated Python workspace process tests.
 - If C/libuv-specific regression coverage becomes necessary while implementing, run `make -C c_runtime test_out` and keep that coverage limited to low-level behavior the helper depends on.
+
+#### Completion Notes
+
+For this round, `sbt clean` followed by `scripts/test_basic.sh` passed on the current implementation slice. Keep this step pending so the same gate is rerun after the planned lifecycle test additions.

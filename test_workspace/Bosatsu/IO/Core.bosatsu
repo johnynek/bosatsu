@@ -1,6 +1,6 @@
 package Bosatsu/IO/Core
 
-from Bosatsu/Prog import Prog, ProgTest, pure, recover, await
+from Bosatsu/Prog import Prog, ProgTest, pure, raise_error, recover, await, map
 from Bosatsu/IO/Error import IOError, AlreadyExists, Unsupported, error_to_String
 from Bosatsu/IO/Bytes import Bytes
 from Bosatsu/Char import (
@@ -62,6 +62,7 @@ export (
   kill,
   poll,
   wait_timeout,
+  with_process,
   now_wall,
   now_mono,
   sleep,
@@ -116,6 +117,12 @@ enum StopResult:
   StopSent
   AlreadyExited
 
+enum WithProcessStart[a]:
+  Spawned(spawned: SpawnResult)
+  SpawnErrorValue(value: a)
+
+struct CleanupStatus(first_error: Option[IOError], status: Option[Int])
+
 external stdin: Handle
 external stdout: Handle
 external stderr: Handle
@@ -147,6 +154,95 @@ external def wait_timeout(p: Process, d: Duration) -> Prog[IOError, Option[Int]]
 external now_wall: Prog[IOError, Instant]
 external now_mono: Prog[IOError, Duration]
 external def sleep(d: Duration) -> Prog[IOError, Unit]
+
+def first_error(current: Option[IOError], next: IOError) -> Option[IOError]:
+  match current:
+    case Some(_): current
+    case None: Some(next)
+
+def keep_first_unit(current: Option[IOError], prog: Prog[IOError, Unit]) -> forall e. Prog[e, Option[IOError]]:
+  recover(
+    (
+      _ <- prog.await()
+      pure(current)
+    ),
+    err -> pure(first_error(current, err))
+  )
+
+def keep_first_status(current: Option[IOError], prog: Prog[IOError, Option[Int]]) -> forall e. Prog[e, CleanupStatus]:
+  recover(
+    (
+      status <- prog.await()
+      pure(CleanupStatus(current, status))
+    ),
+    err -> pure(CleanupStatus(first_error(current, err), None))
+  )
+
+def close_optional(current: Option[IOError], handle: Option[Handle]) -> forall e. Prog[e, Option[IOError]]:
+  match handle:
+    case Some(h): keep_first_unit(current, close(h))
+    case None: pure(current)
+
+def stop_running(proc: Process, grace: Duration, current: Option[IOError]) -> forall e. Prog[e, Option[IOError]]:
+  (
+    after_terminate <- keep_first_unit(
+      current,
+      terminate(proc).map(_ -> ())
+    ).await()
+    CleanupStatus(after_timeout, timeout_status) <- keep_first_status(
+      after_terminate,
+      wait_timeout(proc, grace)
+    ).await()
+    after_kill <- (match timeout_status:
+      case Some(_): pure(after_timeout)
+      case None:
+        keep_first_unit(after_timeout, kill(proc).map(_ -> ()))
+    ).await()
+    keep_first_unit(after_kill, wait(proc).map(_ -> ()))
+  )
+
+def cleanup_process(spawned: SpawnResult, grace: Duration) -> forall e. Prog[e, Option[IOError]]:
+  SpawnResult { proc, stdin, stdout, stderr } = spawned
+  (
+    after_stdin <- close_optional(None, stdin).await()
+    CleanupStatus(after_poll, poll_status) <- keep_first_status(after_stdin, poll(proc)).await()
+    after_wait <- (match poll_status:
+      case Some(_): keep_first_unit(after_poll, wait(proc).map(_ -> ()))
+      case None: stop_running(proc, grace, after_poll)
+    ).await()
+    after_stdout <- close_optional(after_wait, stdout).await()
+    close_optional(after_stdout, stderr)
+  )
+
+def with_process[e, a](
+  cmd: String,
+  args: List[String],
+  stdio: StdioConfig,
+  grace: Duration,
+  on_error: IOError -> Prog[e, a],
+  use: SpawnResult -> Prog[e, a]) -> Prog[e, a]:
+  (
+    start <- recover(
+      spawn(cmd, args, stdio).map(spawned -> Spawned(spawned)),
+      err -> on_error(err).map(value -> SpawnErrorValue(value))
+    ).await()
+    match start:
+      case SpawnErrorValue(value): pure(value)
+      case Spawned(spawned):
+        (
+          value <- recover(
+            use(spawned),
+            err -> (
+              _ <- cleanup_process(spawned, grace).await()
+              raise_error(err)
+            )
+          ).await()
+          cleanup_error <- cleanup_process(spawned, grace).await()
+          match cleanup_error:
+            case Some(err): on_error(err)
+            case None: pure(value)
+        )
+  )
 
 def duration_to_nanos(d: Duration) -> Int:
   Duration { to_nanos } = d
