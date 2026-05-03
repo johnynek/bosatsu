@@ -21,7 +21,7 @@ _Issue: #2371 (https://github.com/johnynek/bosatsu/issues/2371)_
 
 ## Summary
 
-Defines the reviewed Bosatsu-level managed process helper contract, including the public `with_process` shape in `Bosatsu/IO/Core`, cleanup ordering, error precedence, stdio ownership, process reap invariants, test guidance, risks, and rollout notes.
+Defines the reviewed Bosatsu-level managed process helper contract, including the public error-polymorphic `with_process` shape in `Bosatsu/IO/Core`, cleanup ordering, error precedence, stdio ownership, process reap invariants, test guidance, risks, and rollout notes.
 
 ## Context
 
@@ -42,11 +42,12 @@ The managed helper must provide one standard lifecycle for common process use:
 
 - Spawn a direct child using the existing argv-based `spawn(cmd, args, stdio)` API.
 - Pass the resulting `SpawnResult` to user code.
-- Run cleanup after user code succeeds or raises `IOError`.
+- Run cleanup after user code succeeds or raises its own error type.
 - Close all stdio pipe handles returned in `SpawnResult` during cleanup.
 - If the direct child is still running, request normal termination, wait for a grace duration, then request forceful termination if needed.
 - Always wait for the direct child before cleanup returns, so the child is reaped and its final status is recorded.
-- Preserve the user result on success, or preserve the user `IOError` when user code failed.
+- Preserve the user result on success, or preserve the user's error when user code failed.
+- Let callers choose their own error type while still providing one explicit path for helper-owned `IOError` values from spawn and cleanup.
 
 ## Public API Shape
 
@@ -54,7 +55,7 @@ Add the helper to `test_workspace/Bosatsu/IO/Core.bosatsu` and export it beside 
 
 Accepted public shape:
 
-    def with_process[a](cmd: String, args: List[String], stdio: StdioConfig, grace: Duration, use: SpawnResult -> Prog[IOError, a]) -> Prog[IOError, a]
+    def with_process[e, a](cmd: String, args: List[String], stdio: StdioConfig, grace: Duration, on_error: IOError -> Prog[e, a], use: SpawnResult -> Prog[e, a]) -> Prog[e, a]
 
 Accepted naming and placement:
 
@@ -67,9 +68,10 @@ Accepted argument order:
 
 - `cmd`, `args`, and `stdio` come first, in the same order as `spawn`.
 - `grace` comes after `stdio`, because it configures cleanup rather than spawn itself.
+- `on_error` comes before `use`, because it adapts helper-owned `IOError` values into the caller's chosen `Prog[e, a]` domain.
 - `use` is last so call sites can pass the lifecycle body in the final position.
 
-The `use` block has the exact type `SpawnResult -> Prog[IOError, a]`. This helper is intentionally not error-polymorphic over an arbitrary user error type because cleanup itself uses `IOError`-typed operations: `close`, `terminate`, `kill`, `wait_timeout`, and `wait`.
+The `use` block has the exact type `SpawnResult -> Prog[e, a]`. The `on_error` handler has the exact type `IOError -> Prog[e, a]` and is used for helper-owned `IOError` values from `spawn`, stdio close, `poll`, `terminate`, `wait_timeout`, `kill`, and final `wait`. This keeps the helper error-polymorphic without hiding where process and stdio `IOError` values enter the caller's program.
 
 ## Cleanup Ordering
 
@@ -116,10 +118,11 @@ Bosatsu's current `IOError` type has no structured suppressed-error or multi-err
 
 Accepted precedence:
 
-- If `spawn` fails, return the `spawn` error and do not run cleanup.
+- If `spawn` fails, call `on_error(spawn_error)` and do not run cleanup.
 - If `use` succeeds and cleanup succeeds, return the value produced by `use`.
-- If `use` succeeds and cleanup observes one or more errors, return the first cleanup error by cleanup phase.
-- If `use` fails, run cleanup and return the original `use` error, even if cleanup also observes errors.
+- If `use` succeeds and cleanup observes one or more `IOError` values, call `on_error(first_cleanup_error)` using the cleanup phase order below.
+- If `use` fails with the caller's error type `e`, run cleanup and preserve the original `use` failure, even if cleanup also observes `IOError` values.
+- If `on_error` itself fails with `e`, that failure is the returned result for the spawn or cleanup error path that invoked it.
 
 Cleanup phase order for choosing the first cleanup error:
 
@@ -136,12 +139,16 @@ Cleanup must continue after recoverable cleanup errors whenever continuing is me
 
 The returned process exit code is not part of `with_process`'s result. Non-zero child exit remains a status observation, not an `IOError`. If a caller needs the final exit code as application data, the `use` block can call `wait`, `poll`, or `wait_timeout`, or the caller can use the low-level APIs directly.
 
+The helper should not call `on_error` for non-zero child exit by itself. `on_error` is only for `IOError` values raised by helper-owned operations.
+
 ## Behavioral Invariants
 
 The following properties must hold after the helper is implemented:
 
 - `use` is invoked exactly once for each successful `spawn`.
-- Cleanup is invoked exactly once after `use` completes, whether `use` succeeds or raises `IOError`.
+- Cleanup is invoked exactly once after `use` completes, whether `use` succeeds or raises the caller's error type `e`.
+- `on_error` is invoked for failed `spawn` and for cleanup `IOError` values after successful `use`; it is not invoked for ordinary non-zero child exit.
+- A failed `use` has precedence over cleanup `IOError` values.
 - Every returned `SpawnResult` pipe handle is closed at most once by the helper.
 - Every returned `SpawnResult` pipe handle is attempted for close before the helper returns.
 - Returned `stdin` is closed before stop/wait escalation.
@@ -159,7 +166,9 @@ The following properties must hold after the helper is implemented:
 
 Property-check style tests should cover the lifecycle invariants that are independent of a single child command:
 
-- Cleanup always runs after generated `use` outcomes: success, raised `IOError`, and early return-like branches.
+- Cleanup always runs after generated `use` outcomes: success, caller-domain failure, and early return-like branches.
+- For generated caller error domains, `use: SpawnResult -> Prog[e, a]` failures are preserved while helper-owned `IOError` values are routed through `on_error`.
+- For generated `on_error` behaviors, spawn and cleanup `IOError` paths return the value or failure produced by `on_error`.
 - For generated `SpawnResult` stdio configurations, the helper attempts close exactly for returned `Some` handles and never for non-returned handles.
 - For generated operation outcomes in a fake or test double model of `poll`, `terminate`, `wait_timeout`, `kill`, and `wait`, cleanup ordering is stable and error precedence is deterministic.
 - For generated grace durations including negative, zero, small positive, and large positive values, cleanup delegates timeout behavior to `wait_timeout` and escalates only when the timeout result is `None`.
@@ -169,12 +178,14 @@ Property-check style tests should cover the lifecycle invariants that are indepe
 Narrow case-based tests remain the right fit for real process behavior and backend-sensitive edges:
 
 - Normal `use` success with a naturally exiting child returns the `use` value and reaps the child.
-- `use` failure returns the original `IOError` while still closing returned handles and reaping/stopping the child.
+- `use` failure returns the original caller-domain error while still closing returned handles and reaping/stopping the child.
+- Spawn failure calls `on_error` and does not run cleanup.
+- Cleanup `IOError` after successful `use` calls `on_error`.
 - Already-exited children are not terminated or killed and still pass through final `wait`.
 - A long-running child is terminated, then force-killed after a short grace duration if it remains running.
 - Returned pipe handles are closed during cleanup; `stdin` is closed before stop/wait escalation, and `stdout`/`stderr` are closed after final wait. Subsequent reads/writes through those handles should fail with the existing closed-handle behavior where the test can observe it.
 - `Stdio.UseHandle` inputs remain open after `with_process` returns.
-- Cleanup close errors after successful `use` become the returned error; cleanup close errors after failed `use` do not replace the original `use` error.
+- Cleanup close errors after successful `use` are routed through `on_error`; cleanup close errors after failed `use` do not replace the original `use` error.
 
 Add Bosatsu-level coverage near the existing process tests in `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu` or a similarly focused process helper test program. Reuse the existing JVM/Python test flow and add C runtime coverage only where it verifies the low-level process behavior that the helper depends on. The helper itself should be tested as Bosatsu library code rather than by adding backend-specific runtime hooks.
 
@@ -189,11 +200,12 @@ Expected verification for implementation workers:
 
 - `Bosatsu/IO/Core` exports `with_process` with the accepted signature.
 - The helper is implemented as Bosatsu library code using public `spawn`, `close`, `poll`, `terminate`, `wait_timeout`, `kill`, and `wait` APIs.
+- The helper supports caller-chosen error type `e` through `on_error: IOError -> Prog[e, a]` and `use: SpawnResult -> Prog[e, a]`.
 - The helper closes returned `stdin`, `stdout`, and `stderr` pipe handles during cleanup, with `stdin` before stop/wait escalation and `stdout`/`stderr` after final wait.
 - The helper does not close `Stdio.UseHandle` resources or any handles not returned in `SpawnResult`.
 - A still-running direct child is terminated, given the configured grace duration, force-killed if still running, and finally waited.
 - Cleanup runs after both successful and failed `use` blocks.
-- Error precedence is deterministic and matches this document.
+- Error precedence and `on_error` routing are deterministic and match this document.
 - The helper does not change the low-level stop/status contract or add process-tree behavior.
 - Focused tests cover normal completion, user-code failure, already-exited children, stdio close behavior, escalation after grace timeout, and error precedence.
 - Property-check style coverage or an equivalent modeled test covers cleanup ordering and invariants across generated lifecycle outcomes.
@@ -206,6 +218,6 @@ Closing output handles before process exit was rejected for this helper. It can 
 
 A second risk is indefinite cleanup if a backend cannot stop a child and final `wait` never completes. The helper's contract intentionally prioritizes not returning before reap. Tests should use bounded child programs and should not depend on process-tree cleanup to make progress.
 
-Error suppression is another explicit tradeoff. Because `IOError` has no multi-error shape, cleanup errors can be hidden when `use` already failed. This should be documented as part of the helper contract rather than solved by adding a new error type in this issue.
+Error suppression is another explicit tradeoff. Because the helper is polymorphic in the caller's error type and `IOError` has no multi-error shape, cleanup `IOError` values can be hidden when `use` already failed. This should be documented as part of the helper contract rather than solved by adding a new error type in this issue.
 
 Roll out the helper after the low-level stop/status API is present on the target branch. Keep the initial implementation small and in `Bosatsu/IO/Core`; do not introduce new runtime externals, public process ids, process-tree controls, signal enums, or shell semantics. Downstream documentation can later describe `with_process` as the recommended default for simple process lifecycles, while preserving the low-level APIs for custom protocols.
