@@ -31,8 +31,8 @@ public dependencies: [`Bosatsu/IO/Bytes`](Bytes.html), [`Bosatsu/IO/Error`](Erro
 [`rename`](#value-rename), [`sleep`](#value-sleep), [`spawn`](#value-spawn), [`stat`](#value-stat),
 [`stderr`](#value-stderr), [`stdin`](#value-stdin), [`stdout`](#value-stdout),
 [`string_to_Path`](#value-string-to-path), [`terminate`](#value-terminate), [`wait`](#value-wait),
-[`wait_timeout`](#value-wait-timeout), [`write_bytes`](#value-write-bytes),
-[`write_utf8`](#value-write-utf8)
+[`wait_timeout`](#value-wait-timeout), [`with_process`](#value-with-process),
+[`write_bytes`](#value-write-bytes), [`write_utf8`](#value-write-utf8)
 
 ## Types
 
@@ -574,6 +574,23 @@ references: [`Bosatsu/IO/Error::IOError`](Error.html#type-ioerror), [`Bosatsu/Pr
 
 ```bosatsu
 def wait_timeout(p: Process, d: Duration) -> Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, Option[Int]]
+```
+
+<a id="value-with-process"></a>
+
+### `with_process`
+
+references: [`Bosatsu/IO/Error::IOError`](Error.html#type-ioerror), [`Bosatsu/Prog::Prog`](../Prog.html#type-prog), [`Duration`](#type-duration), [`List`](../Predef.html#type-list), [`SpawnResult`](#type-spawnresult), [`StdioConfig`](#type-stdioconfig), [`String`](../Predef.html#type-string)
+
+```bosatsu
+def with_process[a, b](
+    cmd: String,
+    args: List[String],
+    stdio: StdioConfig,
+    grace: Duration,
+    on_error: Bosatsu/IO/Error::IOError -> Bosatsu/Prog::Prog[a, b],
+    use: SpawnResult -> Bosatsu/Prog::Prog[a, b]
+) -> Bosatsu/Prog::Prog[a, b]
 ```
 
 <a id="value-write-bytes"></a>
