@@ -8,21 +8,21 @@
 - Flow: `small_job`
 - Issue: `#2376` Add cross-backend process stop and cleanup regression coverage
 - Source design doc: `docs/design/2365-specify-the-portable-process-stop-and-status-contract.md`
-- Pending steps: `2`
-- Completed steps: `1`
+- Pending steps: `1`
+- Completed steps: `2`
 - Total steps: `3`
 
 ## Summary
 
-Add durable regression coverage for the portable process stop/status contract and the managed cleanup helper across the supported runtime paths. The final change should strengthen the shared JVM/Python Bosatsu process test program, mirror low-level contract gaps in the C/libuv runtime tests, and verify the branch with the focused C target plus the configured repository gate `scripts/test_basic.sh` within the 2400 second timeout.
+Add durable regression coverage for the portable process stop/status contract and the managed cleanup helper across the supported runtime paths. The branch now strengthens the shared JVM/Python Bosatsu process test program and mirrors low-level contract gaps in the C/libuv runtime tests; final verification with the repository gate `scripts/test_basic.sh` remains pending within the 2400 second timeout.
 
 ## Current State
 
-The merged dependencies have already added the public low-level process APIs (`StopResult`, `terminate`, `kill`, `poll`, `wait_timeout`) and the higher-level `with_process` helper in `test_workspace/Bosatsu/IO/Core.bosatsu`. This round strengthened shared JVM/Python coverage in `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu`: post-recorded status checks now actively assert stable `wait`, `poll`, `wait_timeout`, and already-exited stop behavior; timeout-before-wait coverage includes negative/zero/tiny durations; terminate/kill cases assert stable post-stop observations; low-level pipe ownership is checked after status operations; and the caller-owned `UseHandle` helper case now actually passes a caller-owned handle. C/libuv coverage remains pending in `c_runtime/test.c`, and final verification remains pending.
+The merged dependencies have already added the public low-level process APIs (`StopResult`, `terminate`, `kill`, `poll`, `wait_timeout`) and the higher-level `with_process` helper in `test_workspace/Bosatsu/IO/Core.bosatsu`. Earlier work strengthened shared JVM/Python coverage in `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu`: post-recorded status checks now actively assert stable `wait`, `poll`, `wait_timeout`, and already-exited stop behavior; timeout-before-wait coverage includes negative/zero/tiny durations; terminate/kill cases assert stable post-stop observations; low-level pipe ownership is checked after status operations; and the caller-owned `UseHandle` helper case now actually passes a caller-owned handle. This round strengthened C/libuv coverage in `c_runtime/test.c` with reusable post-recorded status assertions and a focused low-level stdio ownership regression. Focused C verification passed with `make -C c_runtime test_out`; final repository verification remains pending.
 
 ## Problem
 
-Issue #2361's acceptance criteria are broader than isolated backend implementation tests. The regression suite should make the cross-backend contract explicit and harder to regress: direct terminate and kill, idempotent stop after recorded exit, stable final status across wait/poll/wait_timeout after stop, timeout non-consumption, poll before and after exit, low-level stdio ownership, and `with_process` owned-handle close/reap behavior. Shared JVM/Python coverage now covers those clauses more directly, but the branch still needs mirrored C/libuv coverage and the configured required test gate before PR submission.
+Issue #2361's acceptance criteria are broader than isolated backend implementation tests. The regression suite should make the cross-backend contract explicit and harder to regress: direct terminate and kill, idempotent stop after recorded exit, stable final status across wait/poll/wait_timeout after stop, timeout non-consumption, poll before and after exit, low-level stdio ownership, and `with_process` owned-handle close/reap behavior. Shared JVM/Python coverage and C/libuv coverage now cover these clauses more directly, but the configured required test gate still needs to pass before PR submission.
 
 ## Steps
 
@@ -53,7 +53,7 @@ Update `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu` in place so the share
 
 Edited `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu` only. `git diff --check` passed. Attempted focused JVM verification with `sbt -batch "coreJVM/testOnly dev.bosatsu.EvaluationTest -- -z process wait"`; the command reached project load/compile output but did not return a final test result through the tool session. Attempted `./test_python.sh`; it failed immediately because this checkout has no CLI assembly jar (`bosatsuj: no assembly jar found; run sbt cli/assembly first`). Full verification remains in pending step 3.
 
-2. [ ] `2` Mirror low-level gaps in C/libuv tests
+2. [x] `2` Mirror low-level gaps in C/libuv tests
 
 Extend `c_runtime/test.c` near the existing IO/Core process tests so the C/libuv backend has focused coverage for the same low-level contract clauses that are not covered by the shared JVM/Python test program. Keep platform-sensitive tests inside the existing non-Windows guard or equivalent guards, and avoid widening runtime implementation scope unless a test exposes a correctness bug that is small enough to fix in this PR under the 1000 LoC heuristic.
 
@@ -66,15 +66,19 @@ Extend `c_runtime/test.c` near the existing IO/Core process tests so the C/libuv
 
 #### Property Tests
 
-- Add a small table-driven C test helper for status stability after different first observations (`wait`, post-exit `poll`, post-exit `wait_timeout`) so repeated assertions are generated from one invariant rather than copied as one-off cases.
-- If practical with the existing C harness, add a table-driven timeout/stop sequence helper that runs bounded children through timeout-then-wait, terminate-then-wait, and kill-then-wait sequences and checks final status stability.
+- Added reusable C post-recorded status assertion helpers that check repeated `poll`, zero-duration `wait_timeout`, and repeated `wait` against one cached final status after different first observations.
+- Reused the stable-status helper from natural exit, timeout-before-wait, terminate-before-wait, kill-before-wait, and already-exited stop paths so the invariant is asserted consistently rather than as one-off checks.
 
 #### Assertion Tests
 
-- Add or strengthen concrete C assertions for direct `terminate` and direct `kill` followed by `wait` returning a non-zero stable status.
-- Add or strengthen concrete C assertions for `poll` before exit and after recorded exit, including repeated observations.
-- Add or strengthen concrete C assertions for `wait_timeout` timeout followed by final `wait`, including zero/non-positive timeout behavior.
-- Add a focused C assertion that low-level stop/status operations do not implicitly close returned pipe handles, using existing C runtime handle helpers where available.
+- Strengthened C assertions for direct `terminate` and direct `kill` followed by `wait` returning a non-zero status, then stable `poll`, `wait_timeout`, and repeated `wait` observations.
+- Strengthened C assertions for `poll` before exit and after recorded exit, including repeated post-exit poll observations.
+- Strengthened C assertions for `wait_timeout` timeout followed by final `wait`, including zero/non-positive timeout behavior and stable post-exit timeout observations.
+- Added a focused POSIX-guarded C assertion that low-level `poll`, zero-duration `wait_timeout`, and `terminate` do not implicitly close or drain returned pipe handles by writing through a caller-owned stdin pipe after those operations.
+
+#### Completion Notes
+
+Edited `c_runtime/test.c` only. The first focused run exposed a test wiring bug in the new already-exited closure slot count, which was fixed in the same file. `git diff --check` passed. `make -C c_runtime test_out` passed.
 
 3. [ ] `3` Run focused and required verification
 
@@ -92,6 +96,6 @@ Run the smallest useful verification loop while developing, then finish with bot
 
 #### Assertion Tests
 
-- Run `make -C c_runtime test_out`.
+- Run `make -C c_runtime test_out` as a final focused C check, even though it passed during step 2.
 - Run `./test_python.sh` to exercise Python generation/evaluation of `ProcessWaitMain` after the CLI assembly exists.
 - Run `scripts/test_basic.sh` as the required PR gate.
