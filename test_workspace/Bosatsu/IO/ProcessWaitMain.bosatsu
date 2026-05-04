@@ -12,7 +12,7 @@ from Bosatsu/Prog import (
   set,
   get,
 )
-from Bosatsu/IO/Error import IOError
+from Bosatsu/IO/Error import IOError, InvalidArgument
 from Bosatsu/IO/Std import show_error
 from Bosatsu/IO/Core import (
   Handle,
@@ -169,7 +169,7 @@ def low_level_pipe_ownership_case() -> Prog[IOError, Bool]:
       (
         _ <- (match stdin_h:
           case Some(h): write_utf8(h, "x")
-          case None: raise_error("missing stdin pipe")
+          case None: raise_error(InvalidArgument("missing stdin pipe"))
         ).await()
         pure(True)
       ),
@@ -272,10 +272,10 @@ def with_process_use_failure_case() -> Prog[IOError, Bool]:
       sleep_args,
       StdioConfig(Pipe, Pipe, Pipe),
       duration_from_nanos(0),
-      _ -> raise_error("helper-owned error"),
-      _ -> raise_error("use-failed"),
+      _ -> raise_error(InvalidArgument("helper-owned error")),
+      _ -> raise_error(InvalidArgument("use-failed")),
     ),
-    err -> pure(err matches "use-failed")
+    err -> pure(err matches InvalidArgument("use-failed"))
   )
 
 def with_process_already_exited_case() -> Prog[IOError, Bool]:

@@ -8,21 +8,21 @@
 - Flow: `small_job`
 - Issue: `#2376` Add cross-backend process stop and cleanup regression coverage
 - Source design doc: `docs/design/2365-specify-the-portable-process-stop-and-status-contract.md`
-- Pending steps: `1`
-- Completed steps: `2`
+- Pending steps: `0`
+- Completed steps: `3`
 - Total steps: `3`
 
 ## Summary
 
-Add durable regression coverage for the portable process stop/status contract and the managed cleanup helper across the supported runtime paths. The branch now strengthens the shared JVM/Python Bosatsu process test program and mirrors low-level contract gaps in the C/libuv runtime tests; final verification with the repository gate `scripts/test_basic.sh` remains pending within the 2400 second timeout.
+Add durable regression coverage for the portable process stop/status contract and the managed cleanup helper across the supported runtime paths. The branch strengthens the shared JVM/Python Bosatsu process test program, mirrors low-level contract gaps in the C/libuv runtime tests, and now passes the focused C target, Python generation/evaluation flow, and the required `scripts/test_basic.sh` gate.
 
 ## Current State
 
-The merged dependencies have already added the public low-level process APIs (`StopResult`, `terminate`, `kill`, `poll`, `wait_timeout`) and the higher-level `with_process` helper in `test_workspace/Bosatsu/IO/Core.bosatsu`. Earlier work strengthened shared JVM/Python coverage in `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu`: post-recorded status checks now actively assert stable `wait`, `poll`, `wait_timeout`, and already-exited stop behavior; timeout-before-wait coverage includes negative/zero/tiny durations; terminate/kill cases assert stable post-stop observations; low-level pipe ownership is checked after status operations; and the caller-owned `UseHandle` helper case now actually passes a caller-owned handle. This round strengthened C/libuv coverage in `c_runtime/test.c` with reusable post-recorded status assertions and a focused low-level stdio ownership regression. Focused C verification passed with `make -C c_runtime test_out`; final repository verification remains pending.
+The merged dependencies have already added the public low-level process APIs (`StopResult`, `terminate`, `kill`, `poll`, `wait_timeout`) and the higher-level `with_process` helper in `test_workspace/Bosatsu/IO/Core.bosatsu`. This branch strengthens shared JVM/Python coverage in `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu`: post-recorded status checks actively assert stable `wait`, `poll`, `wait_timeout`, and already-exited stop behavior; timeout-before-wait coverage includes negative/zero/tiny durations; terminate/kill cases assert stable post-stop observations; low-level pipe ownership is checked after status operations; and the caller-owned `UseHandle` helper case actually passes a caller-owned handle. This round fixed directly coupled `IOError` typing mistakes exposed by verification in the new failure-path assertions, rebuilt stale compile-time embedded test workspace content with `sbt clean`, and completed final verification. C/libuv coverage in `c_runtime/test.c` includes reusable post-recorded status assertions and a focused low-level stdio ownership regression. Verification now passes with `make -C c_runtime test_out`, `./test_python.sh`, and `scripts/test_basic.sh`.
 
 ## Problem
 
-Issue #2361's acceptance criteria are broader than isolated backend implementation tests. The regression suite should make the cross-backend contract explicit and harder to regress: direct terminate and kill, idempotent stop after recorded exit, stable final status across wait/poll/wait_timeout after stop, timeout non-consumption, poll before and after exit, low-level stdio ownership, and `with_process` owned-handle close/reap behavior. Shared JVM/Python coverage and C/libuv coverage now cover these clauses more directly, but the configured required test gate still needs to pass before PR submission.
+Issue #2361's acceptance criteria are broader than isolated backend implementation tests. The regression suite should make the cross-backend contract explicit and harder to regress: direct terminate and kill, idempotent stop after recorded exit, stable final status across wait/poll/wait_timeout after stop, timeout non-consumption, poll before and after exit, low-level stdio ownership, and `with_process` owned-handle close/reap behavior. Shared JVM/Python coverage and C/libuv coverage now cover these clauses more directly, and the configured required test gate passes on the final branch state.
 
 ## Steps
 
@@ -51,7 +51,7 @@ Update `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu` in place so the share
 
 #### Completion Notes
 
-Edited `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu` only. `git diff --check` passed. Attempted focused JVM verification with `sbt -batch "coreJVM/testOnly dev.bosatsu.EvaluationTest -- -z process wait"`; the command reached project load/compile output but did not return a final test result through the tool session. Attempted `./test_python.sh`; it failed immediately because this checkout has no CLI assembly jar (`bosatsuj: no assembly jar found; run sbt cli/assembly first`). Full verification remains in pending step 3.
+Edited `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu`. Verification in step 3 exposed that new failure-path assertions were using raw `String` errors inside a `Prog[IOError, Bool]`; this round corrected those branches to use `InvalidArgument`, including the low-level missing-stdin branch and the `with_process_use_failure_case` caller/cleanup error assertions.
 
 2. [x] `2` Mirror low-level gaps in C/libuv tests
 
@@ -80,7 +80,7 @@ Extend `c_runtime/test.c` near the existing IO/Core process tests so the C/libuv
 
 Edited `c_runtime/test.c` only. The first focused run exposed a test wiring bug in the new already-exited closure slot count, which was fixed in the same file. `git diff --check` passed. `make -C c_runtime test_out` passed.
 
-3. [ ] `3` Run focused and required verification
+3. [x] `3` Run focused and required verification
 
 Run the smallest useful verification loop while developing, then finish with both the focused C runtime target and the repository-required test gate. Because the branch changes cross-backend coverage, also run the existing Python flow that executes `ProcessWaitMain` after transpilation. This checkout may need `sbt cli/assembly` or the required gate to produce the `bosatsuj` assembly before `./test_python.sh` can run successfully.
 
@@ -92,10 +92,16 @@ Run the smallest useful verification loop while developing, then finish with bot
 
 #### Property Tests
 
-- The property-style/table-driven coverage added in steps 1 and 2 must run as part of the normal shared JVM/Python and C test entry points, not as ad hoc manual checks.
+- The property-style/table-driven coverage added in steps 1 and 2 runs as part of the normal shared JVM/Python and C test entry points, not as ad hoc manual checks.
 
 #### Assertion Tests
 
-- Run `make -C c_runtime test_out` as a final focused C check, even though it passed during step 2.
-- Run `./test_python.sh` to exercise Python generation/evaluation of `ProcessWaitMain` after the CLI assembly exists.
-- Run `scripts/test_basic.sh` as the required PR gate.
+- Ran `make -C c_runtime test_out`: passed/up-to-date.
+- Ran `sbt -batch cli/assembly` to create the local CLI assembly required by `./test_python.sh`.
+- Ran `./test_python.sh`: passed, including Python generation/evaluation of `ProcessWaitMain`.
+- Ran `scripts/test_basic.sh` after `sbt clean`: passed with CLI tests `74/74` and core JVM tests `2118/2118` with `2` ignored.
+- Ran `git diff --check`: passed.
+
+#### Completion Notes
+
+Focused C verification passed with `make -C c_runtime test_out`. Initial `./test_python.sh` failed because the checkout had no CLI assembly jar. The first required-gate run exposed raw string `raise_error` calls in the new `ProcessWaitMain.bosatsu` coverage; this round fixed those directly coupled type errors by using `InvalidArgument` values. Because `EvaluationTest` embeds Bosatsu workspace files at Scala compile time via `Predef.loadFileInCompile`, stale test output still showed the old source until `sbt clean` was run. Final verification passed: `scripts/test_basic.sh` passed with CLI tests `74/74` and core JVM tests `2118/2118` with `2` ignored; `sbt -batch cli/assembly` passed; `./test_python.sh` passed; `make -C c_runtime test_out` passed/up-to-date; and `git diff --check` passed.
