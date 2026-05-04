@@ -7,8 +7,9 @@
 
 - Flow: `small_job`
 - Issue: `#2376` Add cross-backend process stop and cleanup regression coverage
-- Pending steps: `3`
-- Completed steps: `0`
+- Source design doc: `docs/design/2365-specify-the-portable-process-stop-and-status-contract.md`
+- Pending steps: `2`
+- Completed steps: `1`
 - Total steps: `3`
 
 ## Summary
@@ -17,17 +18,17 @@ Add durable regression coverage for the portable process stop/status contract an
 
 ## Current State
 
-The merged dependencies have already added the public low-level process APIs (`StopResult`, `terminate`, `kill`, `poll`, `wait_timeout`) and the higher-level `with_process` helper in `test_workspace/Bosatsu/IO/Core.bosatsu`. Shared JVM/Python process coverage currently flows through `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu`, which is loaded by `core/src/test/scala/dev/bosatsu/EvaluationTest.scala` for JVM evaluation and by `test_python.sh` for Python transpile/evaluation. The C/libuv runtime has focused process tests in `c_runtime/test.c`, with `make -C c_runtime test_out` as the focused target. The repository-required gate is `scripts/test_basic.sh`, which runs the Scala CLI and core JVM test suites. The interrupted implementation turn produced no repository inspection, edits, diffs, or verification output, so all planned coverage work remains pending.
+The merged dependencies have already added the public low-level process APIs (`StopResult`, `terminate`, `kill`, `poll`, `wait_timeout`) and the higher-level `with_process` helper in `test_workspace/Bosatsu/IO/Core.bosatsu`. This round strengthened shared JVM/Python coverage in `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu`: post-recorded status checks now actively assert stable `wait`, `poll`, `wait_timeout`, and already-exited stop behavior; timeout-before-wait coverage includes negative/zero/tiny durations; terminate/kill cases assert stable post-stop observations; low-level pipe ownership is checked after status operations; and the caller-owned `UseHandle` helper case now actually passes a caller-owned handle. C/libuv coverage remains pending in `c_runtime/test.c`, and final verification remains pending.
 
 ## Problem
 
-Issue #2361's acceptance criteria are broader than isolated backend implementation tests. The current process coverage exercises many individual behaviors, but the regression suite should make the cross-backend contract explicit and harder to regress: direct terminate and kill, idempotent stop after recorded exit, stable final status across wait/poll/wait_timeout after stop, timeout non-consumption, poll before and after exit, low-level stdio ownership, and `with_process` owned-handle close/reap behavior. Without a small, intentionally mirrored set of tests in the shared JVM/Python harness and C runtime harness, a future backend change could preserve one path while breaking another without failing the required gate. The latest execution attempt failed before work began, so the plan does not need a scope change; the next worker should retry the first pending slice after re-reading `coding_style.md`, this canonical plan, and the dependency contract context.
+Issue #2361's acceptance criteria are broader than isolated backend implementation tests. The regression suite should make the cross-backend contract explicit and harder to regress: direct terminate and kill, idempotent stop after recorded exit, stable final status across wait/poll/wait_timeout after stop, timeout non-consumption, poll before and after exit, low-level stdio ownership, and `with_process` owned-handle close/reap behavior. Shared JVM/Python coverage now covers those clauses more directly, but the branch still needs mirrored C/libuv coverage and the configured required test gate before PR submission.
 
 ## Steps
 
-1. [ ] `1` Strengthen shared JVM/Python contract coverage
+1. [x] `1` Strengthen shared JVM/Python contract coverage
 
-Update `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu` in place so the shared process regression program explicitly covers the full low-level and helper contract for both JVM evaluation and Python generation/evaluation. This step remains unexecuted after replanning; the next worker should retry it unchanged except for first re-reading `coding_style.md`, the canonical plan, rendered plan, and the dependency contract/design context. Keep child commands bounded and argv-based; prefer `python3 -c ...` and existing portable commands already used by the test program. Add small local test helpers only when they reduce duplication in the invariant checks, and keep the resulting program readable enough for failures to map back to one contract clause.
+Update `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu` in place so the shared process regression program explicitly covers the full low-level and helper contract for both JVM evaluation and Python generation/evaluation. Keep child commands bounded and argv-based; prefer `python3 -c ...` and existing portable commands already used by the test program. Add small local test helpers only when they reduce duplication in the invariant checks, and keep the resulting program readable enough for failures to map back to one contract clause.
 
 #### Invariants
 
@@ -39,14 +40,18 @@ Update `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu` in place so the share
 
 #### Property Tests
 
-- Add a compact property-style status-sequence check over a table of child specs and operation sequences, covering natural zero exit, natural non-zero exit, timeout-before-wait, terminate-before-wait, and kill-before-wait. Each case should assert that all final observations converge to one stable status.
-- Add a property-style low-level stdio ownership case that performs one or more stop/status operations on a process with `Pipe` stdio and verifies the returned handles remain usable until the test explicitly closes or observes backend-natural EOF/broken-pipe behavior.
+- Added a compact shared helper, `post_recorded_status_is_stable`, that is reused across natural zero exit, natural non-zero exit, timeout-before-wait, terminate-before-wait, and kill-before-wait cases so each case asserts convergence to one stable final status.
+- Added `low_level_pipe_ownership_case`, which performs low-level status operations on a process with `Pipe` stdio and verifies the returned stdin pipe remains usable until the test explicitly closes it.
 
 #### Assertion Tests
 
-- Keep or add concrete assertions for `poll` returning `None` before a bounded child exits and `Some(code)` after status is recorded.
-- Keep or add concrete assertions for zero, negative, tiny positive, and oversized `wait_timeout` durations without consuming the later `wait` result.
-- Keep or add concrete assertions for `with_process` success, non-zero child exit not invoking `on_error`, caller failure precedence, already-exited cleanup, zero-grace kill escalation, returned pipe-handle closure, and caller-owned handle preservation.
+- Strengthened assertions for `poll` returning `None` before a bounded child exits and stable `Some(code)` after status is recorded.
+- Strengthened assertions for negative, zero, tiny positive, and oversized `wait_timeout` durations without consuming the later `wait` result.
+- Kept and corrected helper assertions for `with_process` success, non-zero child exit not invoking `on_error`, caller-domain failure precedence, already-exited cleanup, zero-grace kill escalation, returned pipe-handle closure, and caller-owned handle preservation.
+
+#### Completion Notes
+
+Edited `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu` only. `git diff --check` passed. Attempted focused JVM verification with `sbt -batch "coreJVM/testOnly dev.bosatsu.EvaluationTest -- -z process wait"`; the command reached project load/compile output but did not return a final test result through the tool session. Attempted `./test_python.sh`; it failed immediately because this checkout has no CLI assembly jar (`bosatsuj: no assembly jar found; run sbt cli/assembly first`). Full verification remains in pending step 3.
 
 2. [ ] `2` Mirror low-level gaps in C/libuv tests
 
@@ -73,7 +78,7 @@ Extend `c_runtime/test.c` near the existing IO/Core process tests so the C/libuv
 
 3. [ ] `3` Run focused and required verification
 
-Run the smallest useful verification loop while developing, then finish with both the focused C runtime target and the repository-required test gate. Because the branch changes cross-backend coverage, also run the existing Python flow that executes `ProcessWaitMain` after transpilation.
+Run the smallest useful verification loop while developing, then finish with both the focused C runtime target and the repository-required test gate. Because the branch changes cross-backend coverage, also run the existing Python flow that executes `ProcessWaitMain` after transpilation. This checkout may need `sbt cli/assembly` or the required gate to produce the `bosatsuj` assembly before `./test_python.sh` can run successfully.
 
 #### Invariants
 
@@ -88,5 +93,5 @@ Run the smallest useful verification loop while developing, then finish with bot
 #### Assertion Tests
 
 - Run `make -C c_runtime test_out`.
-- Run `./test_python.sh` to exercise Python generation/evaluation of `ProcessWaitMain`.
+- Run `./test_python.sh` to exercise Python generation/evaluation of `ProcessWaitMain` after the CLI assembly exists.
 - Run `scripts/test_basic.sh` as the required PR gate.
