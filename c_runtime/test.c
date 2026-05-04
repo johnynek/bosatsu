@@ -1430,6 +1430,81 @@ static BValue io_core_spawn_low_level_pipe_owner_test_fn(BValue arg) {
       alloc_boxed_pure_fn1(io_core_spawn_low_level_pipe_owner_fn));
 }
 
+static BValue io_core_spawn_low_level_pipe_owner_kill_done_fn(BValue* slots, BValue status) {
+  (void)slots;
+  assert(
+      bsts_integer_cmp(status, bsts_integer_from_int(0)) != 0,
+      "IO/Core kill before stdio close should be followed by a non-zero stopped status");
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_integer_from_int(0));
+}
+
+static BValue io_core_spawn_low_level_pipe_owner_kill_wait_fn(BValue* slots, BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_wait(slots[0]),
+      alloc_closure1(3, slots, io_core_spawn_low_level_pipe_owner_kill_done_fn));
+}
+
+static BValue io_core_spawn_low_level_pipe_owner_kill_close_stdout_fn(BValue* slots, BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_close(slots[2]),
+      alloc_closure1(3, slots, io_core_spawn_low_level_pipe_owner_kill_wait_fn));
+}
+
+static BValue io_core_spawn_low_level_pipe_owner_kill_close_stdin_fn(BValue* slots, BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_close(slots[1]),
+      alloc_closure1(3, slots, io_core_spawn_low_level_pipe_owner_kill_close_stdout_fn));
+}
+
+static BValue io_core_spawn_low_level_pipe_owner_kill_write_fn(BValue* slots, BValue stop_result) {
+  io_core_assert_stop_result(
+      stop_result,
+      0,
+      "IO/Core kill before stdio close should return StopSent for the running child");
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_write__bytes(slots[1], io_core_bytes_value(NULL, 0)),
+      alloc_closure1(3, slots, io_core_spawn_low_level_pipe_owner_kill_close_stdin_fn));
+}
+
+static BValue io_core_spawn_low_level_pipe_owner_kill_ready_fn(BValue* slots, BValue ready) {
+  static const uint8_t expected[] = {'r', 'e', 'a', 'd', 'y', '\n'};
+  assert_option_bytes_equal(
+      ready,
+      expected,
+      (int)sizeof(expected),
+      "IO/Core low-level pipe ownership kill child should be running before stop");
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_kill(slots[0]),
+      alloc_closure1(3, slots, io_core_spawn_low_level_pipe_owner_kill_write_fn));
+}
+
+static BValue io_core_spawn_low_level_pipe_owner_kill_fn(BValue spawn_result) {
+  BValue stdin_opt = get_struct_index(spawn_result, 1);
+  BValue stdout_opt = get_struct_index(spawn_result, 2);
+  io_core_assert_some_handle(stdin_opt, "IO/Core spawn stdin pipe should return a handle");
+  io_core_assert_some_handle(stdout_opt, "IO/Core spawn stdout pipe should return a handle");
+  BValue slots[3] = {
+      get_struct_index(spawn_result, 0),
+      get_enum_index(stdin_opt, 0),
+      get_enum_index(stdout_opt, 0)};
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_read__bytes(slots[2], bsts_integer_from_int(6)),
+      alloc_closure1(3, slots, io_core_spawn_low_level_pipe_owner_kill_ready_fn));
+}
+
+static BValue io_core_spawn_low_level_pipe_owner_kill_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_spawn(
+          bsts_string_from_utf8_bytes_static(7, "/bin/sh"),
+          io_core_string_list2("-c", "printf 'ready\\n'; sleep 10"),
+          alloc_struct3(io_core_stdio_pipe(), io_core_stdio_pipe(), alloc_enum0(2))),
+      alloc_boxed_pure_fn1(io_core_spawn_low_level_pipe_owner_kill_fn));
+}
+
 static BValue io_core_spawn_existing_handle_invalid_test_fn(BValue arg) {
   (void)arg;
   return ___bsts_g_Bosatsu_l_IO_l_Core_l_spawn(
@@ -3576,6 +3651,10 @@ void test_io_core_libuv_effects() {
       bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_spawn_low_level_pipe_owner_test_fn)),
       "0",
       "IO/Core low-level process operations should leave returned stdio pipes caller-owned");
+  assert_prog_success_int(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_spawn_low_level_pipe_owner_kill_test_fn)),
+      "0",
+      "IO/Core kill should leave returned stdio pipes caller-owned");
   assert_prog_error_variant(
       bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_spawn_existing_handle_invalid_test_fn)),
       14,

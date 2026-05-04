@@ -168,7 +168,52 @@ def low_level_pipe_ownership_case() -> Prog[IOError, Bool]:
     stdin_write_ok <- recover(
       (
         _ <- (match stdin_h:
-          case Some(h): write_utf8(h, "x")
+          case Some(h): write_utf8(h, "")
+          case None: raise_error(InvalidArgument("missing stdin pipe"))
+        ).await()
+        pure(True)
+      ),
+      _ -> pure(False)
+    ).await()
+    stopped <- terminate(proc).await()
+    _ <- (match stdin_h:
+      case Some(h): close(h)
+      case None: pure(())
+    ).await()
+    _ <- (match stdout_h:
+      case Some(h): close(h)
+      case None: pure(())
+    ).await()
+    _ <- (match stderr_h:
+      case Some(h): close(h)
+      case None: pure(())
+    ).await()
+    first <- wait(proc).await()
+    stable <- post_recorded_status_is_stable(proc, first).await()
+    pure(and(
+      option_code_eq(poll_before, None),
+      and(
+        option_code_eq(timeout_before, None),
+        and(
+          stdin_write_ok,
+          and(stop_result_eq(stopped, StopSent), and(is_nonzero(first), stable)),
+        ),
+      ),
+    ))
+  )
+
+def low_level_kill_pipe_ownership_case() -> Prog[IOError, Bool]:
+  (
+    SpawnResult(proc, stdin_h, stdout_h, stderr_h) <- spawn(
+      "python3",
+      sleep_args,
+      StdioConfig(Pipe, Pipe, Pipe),
+    ).await()
+    stopped <- kill(proc).await()
+    stdin_write_ok <- recover(
+      (
+        _ <- (match stdin_h:
+          case Some(h): write_utf8(h, "")
           case None: raise_error(InvalidArgument("missing stdin pipe"))
         ).await()
         pure(True)
@@ -187,18 +232,11 @@ def low_level_pipe_ownership_case() -> Prog[IOError, Bool]:
       case Some(h): close(h)
       case None: pure(())
     ).await()
-    stopped <- terminate(proc).await()
     first <- wait(proc).await()
     stable <- post_recorded_status_is_stable(proc, first).await()
     pure(and(
-      option_code_eq(poll_before, None),
-      and(
-        option_code_eq(timeout_before, None),
-        and(
-          stdin_write_ok,
-          and(stop_result_eq(stopped, StopSent), and(is_nonzero(first), stable)),
-        ),
-      ),
+      stop_result_eq(stopped, StopSent),
+      and(stdin_write_ok, and(is_nonzero(first), stable)),
     ))
   )
 
@@ -364,6 +402,7 @@ run_test: Prog[IOError, Int] =
     terminate_ok <- terminate_case().await()
     kill_ok <- kill_case().await()
     low_level_pipe_ownership_ok <- low_level_pipe_ownership_case().await()
+    low_level_kill_pipe_ownership_ok <- low_level_kill_pipe_ownership_case().await()
     with_process_success_ok <- with_process_success_case().await()
     with_process_nonzero_exit_ok <- with_process_nonzero_exit_case().await()
     with_process_use_failure_ok <- with_process_use_failure_case().await()
@@ -379,7 +418,13 @@ run_test: Prog[IOError, Int] =
           exited_stop_ok,
           and(
             poll_timeout_ok,
-            and(terminate_ok, and(kill_ok, low_level_pipe_ownership_ok)),
+            and(
+              terminate_ok,
+              and(
+                kill_ok,
+                and(low_level_pipe_ownership_ok, low_level_kill_pipe_ownership_ok),
+              ),
+            ),
           ),
         ),
       ),

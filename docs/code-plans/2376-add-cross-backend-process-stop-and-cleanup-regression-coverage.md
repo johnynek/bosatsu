@@ -8,21 +8,21 @@
 - Flow: `small_job`
 - Issue: `#2376` Add cross-backend process stop and cleanup regression coverage
 - Source design doc: `docs/design/2365-specify-the-portable-process-stop-and-status-contract.md`
-- Pending steps: `2`
-- Completed steps: `3`
+- Pending steps: `0`
+- Completed steps: `5`
 - Total steps: `5`
 
 ## Summary
 
-Add durable regression coverage for the portable process stop/status contract and the managed cleanup helper across the supported runtime paths. The branch already strengthens shared JVM/Python status coverage, helper cleanup coverage, and C/libuv stable-status coverage. The remaining pre-PR review blocker is to close the explicit low-level stdio ownership gap by proving that both `terminate` and `kill` leave returned pipe handles caller-owned before the test explicitly closes them, then rerun focused cross-backend verification.
+Add durable regression coverage for the portable process stop/status contract and the managed cleanup helper across the supported runtime paths. This branch now strengthens shared JVM/Python status coverage, helper cleanup coverage, C/libuv stable-status coverage, and the low-level stdio ownership coverage for both `terminate` and `kill`, with focused cross-backend verification and the required repository gate passing.
 
 ## Current State
 
-The merged dependencies have already added the public low-level process APIs (`StopResult`, `terminate`, `kill`, `poll`, `wait_timeout`) and the higher-level `with_process` helper in `test_workspace/Bosatsu/IO/Core.bosatsu`. This branch has completed shared JVM/Python coverage for stable status observations, timeout non-consumption, already-exited stop behavior, terminate/kill stable post-stop status, low-level pipe ownership after non-stop status operations, and helper-owned versus caller-owned handle cleanup. C/libuv coverage includes reusable post-recorded status assertions and a focused low-level ownership regression for `poll`, zero-duration `wait_timeout`, and `terminate`. Pre-PR review finding F1 shows the current coverage still does not fail if shared JVM/Python `terminate` or `kill` closes returned pipe handles, and the C/libuv ownership check does not cover `kill`.
+The merged dependencies have already added the public low-level process APIs (`StopResult`, `terminate`, `kill`, `poll`, `wait_timeout`) and the higher-level `with_process` helper in `test_workspace/Bosatsu/IO/Core.bosatsu`. This branch has completed shared JVM/Python coverage for stable status observations, timeout non-consumption, already-exited stop behavior, terminate/kill stable post-stop status, low-level pipe ownership after non-stop status operations, stop-operation pipe ownership for both `terminate` and `kill`, and helper-owned versus caller-owned handle cleanup. C/libuv coverage includes reusable post-recorded status assertions and focused low-level ownership regressions for `poll`, zero-duration `wait_timeout`, `terminate`, and `kill`.
 
 ## Problem
 
-Issue #2361's acceptance criteria require the cross-backend regression suite to make the low-level stdio ownership contract explicit: low-level stop/status functions must not close returned stdio handles, and callers remain responsible for closing those handles. The current candidate checks that status observations do not close pipes and checks C/libuv `terminate`, but it closes shared JVM/Python pipes before calling `terminate` and has no analogous low-level `kill` ownership assertion. That leaves an approval-blocking gap where regressions in stop-operation handle ownership could pass the suite.
+Issue #2361's acceptance criteria require the cross-backend regression suite to make the low-level stdio ownership contract explicit: low-level stop/status functions must not close returned stdio handles, and callers remain responsible for closing those handles. The pre-repair candidate checked that status observations did not close pipes and checked C/libuv `terminate`, but it closed shared JVM/Python pipes before calling `terminate` and had no analogous low-level `kill` ownership assertion. This branch now closes that regression gap.
 
 ## Steps
 
@@ -51,7 +51,7 @@ Update `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu` in place so the share
 
 #### Completion Notes
 
-Edited `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu`. Verification in step 3 exposed that new failure-path assertions were using raw `String` errors inside a `Prog[IOError, Bool]`; this round corrected those branches to use `InvalidArgument`, including the low-level missing-stdin branch and the `with_process_use_failure_case` caller/cleanup error assertions. Pre-PR review finding F1 later showed this completed step only proves ownership after non-stop status operations, because it closes returned pipes before calling `terminate` and does not exercise `kill` ownership.
+Edited `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu`. Verification in step 3 exposed that new failure-path assertions were using raw `String` errors inside a `Prog[IOError, Bool]`; this round corrected those branches to use `InvalidArgument`, including the low-level missing-stdin branch and the `with_process_use_failure_case` caller/cleanup error assertions. Pre-PR review finding F1 later showed this completed step only proved ownership after non-stop status operations, because it closed returned pipes before calling `terminate` and did not exercise `kill` ownership.
 
 2. [x] `2` Mirror low-level gaps in C/libuv tests
 
@@ -78,7 +78,7 @@ Extend `c_runtime/test.c` near the existing IO/Core process tests so the C/libuv
 
 #### Completion Notes
 
-Edited `c_runtime/test.c` only. The first focused run exposed a test wiring bug in the new already-exited closure slot count, which was fixed in the same file. `git diff --check` passed. `make -C c_runtime test_out` passed. Pre-PR review finding F1 later showed this completed C ownership check still needs an analogous `kill` path.
+Edited `c_runtime/test.c` only. The first focused run exposed a test wiring bug in the new already-exited closure slot count, which was fixed in the same file. `git diff --check` passed. `make -C c_runtime test_out` passed. Pre-PR review finding F1 later showed this completed C ownership check still needed an analogous `kill` path.
 
 3. [x] `3` Run focused and required verification
 
@@ -106,7 +106,7 @@ Run the smallest useful verification loop while developing, then finish with bot
 
 Focused C verification passed with `make -C c_runtime test_out`. Initial `./test_python.sh` failed because the checkout had no CLI assembly jar. The first required-gate run exposed raw string `raise_error` calls in the new `ProcessWaitMain.bosatsu` coverage; this round fixed those directly coupled type errors by using `InvalidArgument` values. Because `EvaluationTest` embeds Bosatsu workspace files at Scala compile time via `Predef.loadFileInCompile`, stale test output still showed the old source until `sbt clean` was run. Final verification passed: `scripts/test_basic.sh` passed with CLI tests `74/74` and core JVM tests `2118/2118` with `2` ignored; `sbt -batch cli/assembly` passed; `./test_python.sh` passed; `make -C c_runtime test_out` passed/up-to-date; and `git diff --check` passed.
 
-4. [ ] `4` Close stop-operation stdio ownership gap
+4. [x] `4` Close stop-operation stdio ownership gap
 
 Address pre-PR review finding F1 by revising the existing low-level ownership coverage instead of adding unrelated cases. In `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu`, make the shared JVM/Python ownership test exercise stop operations before explicit handle close: for both `terminate` and `kill`, spawn a bounded child with `Pipe` stdio, perform the stop operation while the returned pipe handles are still open, then prove the returned handles remain caller-owned by using at least stdin successfully before explicitly closing stdin/stdout/stderr and reaping the child. In `c_runtime/test.c`, extend the focused ownership regression so `kill` has the same caller-owned pipe-handle assertion already added for `terminate`, without weakening the existing stable-status checks.
 
@@ -119,17 +119,22 @@ Address pre-PR review finding F1 by revising the existing low-level ownership co
 
 #### Property Tests
 
-- Add or refactor a shared Bosatsu helper that parameterizes the low-level ownership check over the stop operation (`terminate` and `kill`) and asserts the same ownership contract for both operations.
-- Add or refactor a C/libuv helper so the existing ownership probe is reused for both `terminate` and `kill` instead of leaving `kill` as a one-off uncovered path.
+- Refactored the shared Bosatsu low-level ownership check so `terminate` is performed before the stdin ownership probe and explicit handle close.
+- Added a shared Bosatsu `kill` ownership case that applies the same post-stop stdin usability, explicit handle close, reap, and stable-status assertions.
+- Added a focused C/libuv `kill` ownership regression alongside the existing ownership probe so `kill` is no longer an uncovered stop-operation path.
 
 #### Assertion Tests
 
-- F1 shared path: after `terminate(proc)` and before explicit close, assert the returned stdin pipe can still be written by the caller, then close returned handles and verify final status remains stable.
-- F1 shared path: after `kill(proc)` and before explicit close, assert the returned stdin pipe can still be written by the caller, then close returned handles and verify final status remains stable.
-- F1 C/libuv path: add an ownership assertion for `kill` analogous to the existing `terminate` test, proving a caller-owned pipe remains usable after the stop request and before explicit close.
-- Keep the existing status-operation ownership assertions for `poll` and zero-duration `wait_timeout` so the new stop-operation coverage absorbs the gap without deleting already-useful checks.
+- F1 shared path: after `terminate(proc)` and before explicit close, the returned stdin pipe is still usable by the caller, then stdin/stdout/stderr are explicitly closed and final status remains stable.
+- F1 shared path: after `kill(proc)` and before explicit close, the returned stdin pipe is still usable by the caller, then stdin/stdout/stderr are explicitly closed and final status remains stable.
+- F1 C/libuv path: added an ownership assertion for `kill` analogous to the existing `terminate` test, proving a caller-owned pipe handle remains valid after the stop request and before explicit close.
+- Kept the existing status-operation ownership assertions for `poll` and zero-duration `wait_timeout` so the new stop-operation coverage absorbs the gap without deleting already-useful checks.
 
-5. [ ] `5` Re-run cross-backend verification after ownership repair
+#### Completion Notes
+
+Edited `test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu` and `c_runtime/test.c`. The shared low-level ownership test now calls `terminate` before probing the returned stdin handle and before explicitly closing returned handles. A parallel shared `kill` ownership case now stops the child, verifies the returned stdin handle is still caller-owned, explicitly closes stdin/stdout/stderr, waits, and checks stable post-stop status. C/libuv now has a dedicated `kill` ownership regression that waits until the child is running, calls `kill`, verifies the returned stdin handle is still usable, explicitly closes returned handles, waits, and asserts the stopped status is non-zero.
+
+5. [x] `5` Re-run cross-backend verification after ownership repair
 
 After step 4 changes, rerun the focused and required verification commands that cover the changed files. Use focused checks first to catch Bosatsu typing or C wiring mistakes close to the edited tests, then finish with the repository gate required by the issue configuration.
 
@@ -138,15 +143,19 @@ After step 4 changes, rerun the focused and required verification commands that 
 - `make -C c_runtime test_out` must pass after the C/libuv `kill` ownership assertion is added.
 - The shared JVM/Python `ProcessWaitMain` coverage must pass in both JVM/basic and Python generation/evaluation flows after the stop-operation ownership helper is changed.
 - `scripts/test_basic.sh` remains the final required gate for the branch within the configured timeout.
-- `git diff --check` must pass after the plan and test edits.
+- `git diff --check` must pass after the test edits.
 
 #### Property Tests
 
-- The ownership properties added in step 4 must run through normal test entry points rather than relying on manual inspection.
+- The ownership properties added in step 4 run through normal test entry points rather than relying on manual inspection.
 
 #### Assertion Tests
 
-- Run `make -C c_runtime test_out`.
-- Run `./test_python.sh`, building the CLI assembly first if this checkout lacks the required jar.
-- Run `scripts/test_basic.sh`.
-- Run `git diff --check`.
+- Ran `git diff --check`: passed.
+- Ran `make -C c_runtime test_out`: passed.
+- Ran `./test_python.sh`: passed, including Python generation/evaluation of the updated `ProcessWaitMain`.
+- Ran `scripts/test_basic.sh`: passed with CLI tests `74/74` and core JVM tests `2118/2118` with `2` ignored.
+
+#### Completion Notes
+
+Focused and required verification passed after the ownership repair. `git diff --check` passed. `make -C c_runtime test_out` rebuilt and passed. `./test_python.sh` passed using the existing local CLI assembly. `scripts/test_basic.sh` passed with CLI tests `74/74` and core JVM tests `2118/2118` with `2` ignored. The Python test run left an untracked `test_workspace/__pycache__/` artifact, which was removed so only the intended source changes remain.
