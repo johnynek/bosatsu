@@ -136,7 +136,11 @@ object Kind {
       case _ => false
     }
 
-  final inline def validApply[A](left: Kind, right: Kind, inline onTypeErr: => A)(
+  final inline def validApply[A](
+      left: Kind,
+      right: Kind,
+      inline onTypeErr: => A
+  )(
       inline onSubsumeFail: Cons => A
   ): Either[A, Kind] =
     left match {
@@ -227,7 +231,7 @@ object Kind {
     Ordering.by[Kind, Long](kindSize(_, true)).reverse
   private val supOrder: Ordering[Kind] =
     Ordering.by[Kind, Long](kindSize(_, false)).reverse
-  inline private def kindSizeOrder(sub: Boolean): Ordering[Kind] =
+  private inline def kindSizeOrder(sub: Boolean): Ordering[Kind] =
     if (sub) subOrder else supOrder
 
   private def kinds(

@@ -341,7 +341,9 @@ x""")
     assertEquals(Declaration.substitute(y, zExpr, original), Some(expected))
   }
 
-  test("conditional match branch guards expose inner bindings only in that branch body") {
+  test(
+    "conditional match branch guards expose inner bindings only in that branch body"
+  ) {
     val scrutinee = unsafeParse(Identifier.bindableParser, "scrutinee")
     val guardInput = unsafeParse(Identifier.bindableParser, "guard_input")
     val guardPred = unsafeParse(Identifier.bindableParser, "guard_pred")
@@ -379,7 +381,9 @@ x""")
     }
   }
 
-  test("substitute treats outer and inner match-guard binders as masking the guarded branch") {
+  test(
+    "substitute treats outer and inner match-guard binders as masking the guarded branch"
+  ) {
     val target = unsafeParse(Identifier.bindableParser, "target")
 
     forAll(simpleNameGen, simpleNameGen) { (outer, inner) =>
@@ -395,8 +399,10 @@ x""")
                |    fallback""".stripMargin
           )
 
-          val outerExpr = unsafeParse(Declaration.parser(""), outer).toNonBinding
-          val innerExpr = unsafeParse(Declaration.parser(""), inner).toNonBinding
+          val outerExpr =
+            unsafeParse(Declaration.parser(""), outer).toNonBinding
+          val innerExpr =
+            unsafeParse(Declaration.parser(""), inner).toNonBinding
 
           assertEquals(Declaration.substitute(target, outerExpr, decl), None)
           assertEquals(Declaration.substitute(target, innerExpr, decl), None)
@@ -458,7 +464,10 @@ x""")
       for {
         fn <- Generators.genNonBinding(2)
         args <- Generators.smallNonEmptyList(Generators.genNonBinding(2), 4)
-        kind <- Gen.oneOf(Declaration.ApplyKind.Dot, Declaration.ApplyKind.Parens)
+        kind <- Gen.oneOf(
+          Declaration.ApplyKind.Dot,
+          Declaration.ApplyKind.Parens
+        )
       } yield (
         Declaration.Apply(fn, args, kind)(using regionA),
         Declaration.Apply(fn, args, kind)(using regionB)

@@ -595,7 +595,7 @@ object RingOpt {
           negCnt: Int
       ): OpCounts =
         stack match {
-          case Nil => OpCounts(mulCnt, addCnt, negCnt)
+          case Nil          => OpCounts(mulCnt, addCnt, negCnt)
           case head :: tail =>
             head match {
               case Zero | One | Integer(_) | Symbol(_) =>
@@ -2325,7 +2325,7 @@ object RingOpt {
 
           loop(expr) match {
             case (cnt, term) if cnt > 1 => Some((cnt, term))
-            case _                       => None
+            case _                      => None
           }
         }
 

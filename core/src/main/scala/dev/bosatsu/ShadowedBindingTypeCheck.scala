@@ -35,7 +35,7 @@ object ShadowedBindingTypeCheck {
 
   private type Env = Map[Bindable, BoundInfo]
 
-  private final case class TypeContext(
+  final private case class TypeContext(
       renames: Map[Type.Var, Type.TyVar],
       nextId: Long
   ) {
@@ -77,7 +77,8 @@ object ShadowedBindingTypeCheck {
     if (Identifier.isSynthetic(name)) unitValid
     else
       env.get(name) match {
-        case Some(previous) if !previous.canonicalTpe.sameAs(current.canonicalTpe) =>
+        case Some(previous)
+            if !previous.canonicalTpe.sameAs(current.canonicalTpe) =>
           Validated.invalidNec(Error(name, previous, current))
         case _ =>
           unitValid
@@ -96,16 +97,17 @@ object ShadowedBindingTypeCheck {
       bindRegion: Region,
       tctx: TypeContext
   ): List[(Bindable, BoundInfo)] =
-    patternEnv(pattern).toList.sortBy(_._1.sourceCodeRepr).map { case (name, tpe) =>
-      (
-        name,
-        BoundInfo(
-          tpe = tpe,
-          canonicalTpe = tctx.canonicalize(tpe),
-          region = bindRegion,
-          site = BindingSite.PatternBinding
+    patternEnv(pattern).toList.sortBy(_._1.sourceCodeRepr).map {
+      case (name, tpe) =>
+        (
+          name,
+          BoundInfo(
+            tpe = tpe,
+            canonicalTpe = tctx.canonicalize(tpe),
+            region = bindRegion,
+            site = BindingSite.PatternBinding
+          )
         )
-      )
     }
 
   private def checkExpr[A](
@@ -127,7 +129,9 @@ object ShadowedBindingTypeCheck {
         // non-synthetic arguments are the user-facing lambda parameters even
         // on region-only compiled artifacts.
         val checkableArgs: List[(Bindable, Type)] =
-          args.toList.filterNot { case (name, _) => Identifier.isSynthetic(name) }
+          args.toList.filterNot { case (name, _) =>
+            Identifier.isSynthetic(name)
+          }
         val (argCheck, lambdaEnv) =
           checkableArgs.foldLeft((unitValid, Map.empty[Bindable, BoundInfo])) {
             case ((acc, envAcc), (name, tpe)) =>
@@ -166,7 +170,9 @@ object ShadowedBindingTypeCheck {
         bindCheck *> rhsCheck *> bodyCheck
       case TypedExpr.Loop(args, body, tag) =>
         val argChecks =
-          args.traverse_ { case (_, init) => checkExpr(init, env, tctx, regionOf) }
+          args.traverse_ { case (_, init) =>
+            checkExpr(init, env, tctx, regionOf)
+          }
         val loopBinds = args.toList.map { case (name, init) =>
           val tpe = init.getType
           (
@@ -205,8 +211,9 @@ object ShadowedBindingTypeCheck {
           branch.guardNode match {
             case Some(TypedExpr.MatchGuard(argExpr, pattern, guardOpt)) =>
               val guardBinds = patternBoundInfos(pattern, bindRegion, tctx)
-              val guardBindCheck = guardBinds.traverse_ { case (name, current) =>
-                checkBinding(outerEnv, name, current)
+              val guardBindCheck = guardBinds.traverse_ {
+                case (name, current) =>
+                  checkBinding(outerEnv, name, current)
               }
               val branchEnv =
                 guardBinds.foldLeft(outerEnv) { case (acc, (name, current)) =>

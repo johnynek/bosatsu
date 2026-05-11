@@ -1,19 +1,13 @@
 package dev.bosatsu
 
-import cats.data.{
-  Chain,
-  NonEmptyList,
-  NonEmptyChain,
-  Validated,
-  ValidatedNec
-}
+import cats.data.{Chain, NonEmptyList, NonEmptyChain, Validated, ValidatedNec}
 
 import Expr._
 import Identifier.Bindable
 
 object UnusedLetCheck {
 
-  private final case class LoopState(
+  final private case class LoopState(
       free: Set[Bindable],
       unused: Chain[(Bindable, Region)]
   )
@@ -22,8 +16,8 @@ object UnusedLetCheck {
     val empty: LoopState = LoopState(Set.empty, Chain.empty)
   }
 
-  private sealed trait Work[A]
-  private sealed trait BranchGuardState
+  sealed private trait Work[A]
+  sealed private trait BranchGuardState
   private object BranchGuardState {
     case object NoGuard extends BranchGuardState
     case object BoolGuard extends BranchGuardState
@@ -32,27 +26,27 @@ object UnusedLetCheck {
         hasInnerGuard: Boolean
     ) extends BranchGuardState
   }
-  private final case class VisitExpr[A](expr: Expr[A]) extends Work[A]
-  private final case class FinishLambda[A](
+  final private case class VisitExpr[A](expr: Expr[A]) extends Work[A]
+  final private case class FinishLambda[A](
       args: List[Bindable],
       region: Region
   ) extends Work[A]
-  private final case class FinishLet[A](
+  final private case class FinishLet[A](
       arg: Bindable,
       rec: RecursionKind,
       bindRegion: Region
   ) extends Work[A]
-  private final case class FinishApp[A](argCount: Int) extends Work[A]
-  private final case class VisitBranch[A](
+  final private case class FinishApp[A](argCount: Int) extends Work[A]
+  final private case class VisitBranch[A](
       branch: Branch[A],
       region: Region
   ) extends Work[A]
-  private final case class FinishBranch[A](
+  final private case class FinishBranch[A](
       outerNames: List[Bindable],
       region: Region,
       guardState: BranchGuardState
   ) extends Work[A]
-  private final case class FinishMatch[A](branchCount: Int) extends Work[A]
+  final private case class FinishMatch[A](branchCount: Int) extends Work[A]
 
   private inline def checkArg(
       arg: Bindable,
@@ -95,11 +89,10 @@ object UnusedLetCheck {
               work = VisitExpr(in) :: work
             case Lambda(args, in, _) =>
               val argNames = args.toList.iterator.map(_._1).toList
-              work =
-                VisitExpr(in) :: FinishLambda(
-                  argNames,
-                  HasRegion.region(expr)
-                ) :: work
+              work = VisitExpr(in) :: FinishLambda(
+                argNames,
+                HasRegion.region(expr)
+              ) :: work
             case Let(arg, rhs, in, rec, tag) =>
               // The region of the let binding itself is not directly tracked.
               // Use the let start and rhs end; nested defs keep their rhs body
@@ -113,12 +106,11 @@ object UnusedLetCheck {
                     HasRegion.region(rhs).end
                 }
               val bindRegion = wholeRegion.withEnd(bindEnd)
-              work =
-                VisitExpr(rhs) :: VisitExpr(in) :: FinishLet(
-                  arg,
-                  rec,
-                  bindRegion
-                ) :: work
+              work = VisitExpr(rhs) :: VisitExpr(in) :: FinishLet(
+                arg,
+                rec,
+                bindRegion
+              ) :: work
             case Local(name, _) =>
               pushValue(LoopState(Set(name), Chain.empty))
             case Global(_, _, _) | Literal(_, _) =>
@@ -140,7 +132,9 @@ object UnusedLetCheck {
                         // between the previous expression and the case is the pattern
                         (
                           HasRegion.region(caseExpr),
-                          Some(Region(prev.end, HasRegion.region(caseExpr).start))
+                          Some(
+                            Region(prev.end, HasRegion.region(caseExpr).start)
+                          )
                         )
                     }
                     .collect { case (_, Some(r)) => r }
@@ -151,10 +145,9 @@ object UnusedLetCheck {
                 .map { case (region, branch) =>
                   VisitBranch(branch, region): Work[A]
                 }
-              work =
-                VisitExpr(arg) :: (branchWork ::: FinishMatch(
-                  branches.length
-                ) :: work)
+              work = VisitExpr(arg) :: (branchWork ::: FinishMatch(
+                branches.length
+              ) :: work)
           }
 
         case FinishLambda(args, region) =>
@@ -219,7 +212,9 @@ object UnusedLetCheck {
             case Some(Expr.MatchGuard(argExpr, pattern, guardOpt, _)) =>
               val guardWork =
                 guardOpt.fold(List.empty[Work[A]])(g => VisitExpr(g) :: Nil)
-              VisitExpr(argExpr) :: (guardWork ::: VisitExpr(branch.expr) :: FinishBranch(
+              VisitExpr(argExpr) :: (guardWork ::: VisitExpr(
+                branch.expr
+              ) :: FinishBranch(
                 outerNames,
                 region,
                 BranchGuardState.MatchGuard(pattern.names, guardOpt.nonEmpty)
@@ -300,7 +295,7 @@ object UnusedLetCheck {
 
     values match {
       case res :: Nil => res
-      case _ =>
+      case _          =>
         sys.error(
           s"UnusedLetCheck internal error: expected exactly one value, found ${values.size}"
         )
