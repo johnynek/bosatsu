@@ -75,8 +75,8 @@ object PackageError {
 
     def renameRho(rho: Type.Rho): Type.Rho =
       rho match {
-        case leaf: Type.Leaf        => renameLeaf(leaf)
-        case Type.TyApply(on, a)    =>
+        case leaf: Type.Leaf     => renameLeaf(leaf)
+        case Type.TyApply(on, a) =>
           Type.TyApply(renameLeafApply(on), renameType(a))
         case Type.Exists(vars, in1) =>
           Type.Exists(vars, renameLeafApply(in1))
@@ -108,14 +108,12 @@ object PackageError {
     val metaSubs = metaToBound.toMap
     val ctx = TypeRenderer.Context(pack, localTypeNames)
     val rendered =
-      tpes.iterator
-        .map { tpe =>
-          val shown =
-            if (metaSubs.isEmpty) tpe
-            else renameTypeMetas(tpe, metaSubs)
-          tpe -> TypeRenderer.document(shown, ctx, 80)
-        }
-        .toMap
+      tpes.iterator.map { tpe =>
+        val shown =
+          if (metaSubs.isEmpty) tpe
+          else renameTypeMetas(tpe, metaSubs)
+        tpe -> TypeRenderer.document(shown, ctx, 80)
+      }.toMap
 
     ShownTypes(
       rendered,
@@ -163,7 +161,9 @@ object PackageError {
         Doc.text("()")
       case nonEmpty =>
         val body = Doc.intercalate(Doc.comma + Doc.line, nonEmpty)
-        (Doc.char('(') + (Doc.lineOrEmpty + body).nested(4) + Doc.lineOrEmpty + Doc
+        (Doc.char('(') + (Doc.lineOrEmpty + body).nested(
+          4
+        ) + Doc.lineOrEmpty + Doc
           .char(')')).grouped
     }
 
@@ -173,9 +173,11 @@ object PackageError {
       case nonEmpty => Some(Doc.text("exposes ") + exposesSetDoc(nonEmpty))
     }
 
-  private def canonicalExposesLineDoc(packages: List[PackageName]): Option[Doc] =
+  private def canonicalExposesLineDoc(
+      packages: List[PackageName]
+  ): Option[Doc] =
     packages match {
-      case Nil => None
+      case Nil                   => None
       case nonEmpty @ (_ :: Nil) =>
         Some(Doc.text("exposes ") + exposesSetDoc(nonEmpty))
       case nonEmpty =>
@@ -306,12 +308,12 @@ object PackageError {
   // iteration. Everything else remains a hard correctness error.
   def isPostponable(err: PackageError): Boolean =
     err match {
-      case _: PackageError.UnusedImport           => true
-      case _: PackageError.UnusedLetError         => true
-      case _: PackageError.UnusedLets             => true
-      case _: PackageError.TodoUsage              => true
-      case _: PackageError.RecursionLint          => true
-      case _: PackageError.ExposesMismatch        => true
+      case _: PackageError.UnusedImport             => true
+      case _: PackageError.UnusedLetError           => true
+      case _: PackageError.UnusedLets               => true
+      case _: PackageError.TodoUsage                => true
+      case _: PackageError.RecursionLint            => true
+      case _: PackageError.ExposesMismatch          => true
       case _: PackageError.ShadowedBindingTypeError =>
         true
       case PackageError.TotalityCheckError(
@@ -334,7 +336,9 @@ object PackageError {
     val pyimps = ImportedName.parser.region.itemsMaybeParens.map(_._2)
 
     (
-      (P.string("from") ~ Parser.spaces).backtrack *> PackageName.parser.region <* Parser.spaces,
+      (P.string(
+        "from"
+      ) ~ Parser.spaces).backtrack *> PackageName.parser.region <* Parser.spaces,
       P.string("import") *> Parser.spaces *> pyimps
     ).tupled
   }
@@ -387,10 +391,12 @@ object PackageError {
 
   private def startsLineToken(source: String, idx: Int): Boolean = {
     var cursor = idx - 1
-    while (cursor >= 0 && {
-      val c = source.charAt(cursor)
-      c == ' ' || c == '\t'
-    }) {
+    while (
+      cursor >= 0 && {
+        val c = source.charAt(cursor)
+        c == ' ' || c == '\t'
+      }
+    ) {
       cursor = cursor - 1
     }
 
@@ -460,7 +466,9 @@ object PackageError {
       val header =
         s"in $sourceName unknown export ${ex.name.sourceCodeRepr}"
       val candidateMap: Map[Identifier, Region] =
-        candidatesWithRegions.iterator.map { case (n, r) => (n: Identifier, r) }.toMap
+        candidatesWithRegions.iterator.map { case (n, r) =>
+          (n: Identifier, r)
+        }.toMap
       val candidates =
         nearest(ex.name, candidateMap, 3)
           .map { case (n, r) =>
@@ -899,7 +907,10 @@ object PackageError {
           foundType: Type
       ): Option[Type] =
         (expectedType, foundType) match {
-          case (expected @ Type.TyApply(expectedOn, _), Type.TyApply(foundOn, _))
+          case (
+                expected @ Type.TyApply(expectedOn, _),
+                Type.TyApply(foundOn, _)
+              )
               if Type.rootConst(expectedOn).nonEmpty &&
                 Type.rootConst(foundOn).isEmpty =>
             Some(Type.TyApply(expectedOn, expected))
@@ -914,11 +925,11 @@ object PackageError {
       ): Doc = {
         val distinctEvidence = evidenceRegions.distinct.sortBy(_.start)
         val distinctBaseline = baselineRegions.distinct.sortBy(_.start)
-        val extraEvidence = distinctEvidence.filterNot(distinctBaseline.contains)
+        val extraEvidence =
+          distinctEvidence.filterNot(distinctBaseline.contains)
 
         if (extraEvidence.nonEmpty) {
-          val docs = (distinctBaseline ::: extraEvidence)
-            .distinct
+          val docs = (distinctBaseline ::: extraEvidence).distinct
             .sortBy(_.start)
             .map(contextDoc)
           Doc.text("evidence sites:") + Doc.hardLine +
@@ -994,14 +1005,16 @@ object PackageError {
 
                 (
                   tmap.withUnknownTypes(
-                  Doc.text(
-                    s"type mismatch in call to $fnLabel, argument ${appSite.argIndex + 1} of ${appSite.argCount}:"
-                  ) + Doc.hardLine +
-                    Doc.text("expected: ") + tmap(expected._1) + Doc.hardLine +
-                    Doc.text("found: ") + tmap(found._1) + Doc.hardLine +
-                    Doc.text("function type: ") + tmap(appSite.functionType) +
-                    Doc.hardLine + Doc.text("argument site:") + Doc.hardLine +
-                    contextDoc(appSite.argumentRegion) + fnContext,
+                    Doc.text(
+                      s"type mismatch in call to $fnLabel, argument ${appSite.argIndex + 1} of ${appSite.argCount}:"
+                    ) + Doc.hardLine +
+                      Doc.text("expected: ") + tmap(
+                        expected._1
+                      ) + Doc.hardLine +
+                      Doc.text("found: ") + tmap(found._1) + Doc.hardLine +
+                      Doc.text("function type: ") + tmap(appSite.functionType) +
+                      Doc.hardLine + Doc.text("argument site:") + Doc.hardLine +
+                      contextDoc(appSite.argumentRegion) + fnContext
                   ),
                   Some(appSite.argumentRegion)
                 )
@@ -1044,7 +1057,7 @@ object PackageError {
                 val scrutineeContext =
                   if (
                     (branchSite.scrutineeRegion =!= branchSite.branchRegion) &&
-                      (branchSite.scrutineeRegion =!= branchSite.patternRegion)
+                    (branchSite.scrutineeRegion =!= branchSite.patternRegion)
                   ) {
                     Doc.hardLine + Doc.text("scrutinee site:") +
                       Doc.hardLine +
@@ -1104,18 +1117,18 @@ object PackageError {
 
                 (
                   tmap.withUnknownTypes(
-                  Doc.text("pattern type mismatch:") + Doc.hardLine +
-                    Doc.text("pattern: ") + Doc.text(
-                      patternDoc
-                    ) + Doc.hardLine +
-                    Doc.text("expected scrutinee type: ") + tmap(
-                      patSite.expectedScrutineeType
-                    ) + Doc.hardLine +
-                    Doc.text("found pattern type: ") + tmap(
-                      patSite.foundPatternType
-                    ) + Doc.hardLine +
-                    Doc.text("pattern site:") + Doc.hardLine +
-                    contextDoc(patSite.patternRegion) + scrutineeContext,
+                    Doc.text("pattern type mismatch:") + Doc.hardLine +
+                      Doc.text("pattern: ") + Doc.text(
+                        patternDoc
+                      ) + Doc.hardLine +
+                      Doc.text("expected scrutinee type: ") + tmap(
+                        patSite.expectedScrutineeType
+                      ) + Doc.hardLine +
+                      Doc.text("found pattern type: ") + tmap(
+                        patSite.foundPatternType
+                      ) + Doc.hardLine +
+                      Doc.text("pattern site:") + Doc.hardLine +
+                      contextDoc(patSite.patternRegion) + scrutineeContext
                   ),
                   Some(patSite.patternRegion)
                 )
@@ -1280,11 +1293,11 @@ object PackageError {
               else Doc.hardLine + Doc.intercalate(Doc.hardLine, kindHints)
             val doc = tmap.withUnknownTypes(
               Doc.text("type ") + tmap(foundType) + context0 +
-              Doc.text("does not subsume expected type ") + tmap(
-                expectedType
-              ) + Doc.hardLine +
-              evidenceDoc +
-              kindHintSection
+                Doc.text("does not subsume expected type ") + tmap(
+                  expectedType
+                ) + Doc.hardLine +
+                evidenceDoc +
+                kindHintSection
             )
 
             (doc, Some(foundRegion))
@@ -1318,10 +1331,10 @@ object PackageError {
             val context = contextDoc(region)
             val doc = tmap.withUnknownTypes(
               Doc.text("kind error: for kind of the left of ") +
-              tmap(applied) + Doc.text(
-                " is *. Cannot apply to kind *."
-              ) + Doc.hardLine +
-              context
+                tmap(applied) + Doc.text(
+                  " is *. Cannot apply to kind *."
+                ) + Doc.hardLine +
+                context
             )
 
             (doc, Some(region))
@@ -1331,10 +1344,10 @@ object PackageError {
             val context = contextDoc(region)
             val doc = tmap.withUnknownTypes(
               Doc.text("expected type ") +
-              tmap(tpe) + Doc.text(
-                " to have kind *, which is to say be a valid value, but it is kind "
-              ) + Kind.toDoc(kind) + Doc.hardLine +
-              context
+                tmap(tpe) + Doc.text(
+                  " to have kind *, which is to say be a valid value, but it is kind "
+                ) + Kind.toDoc(kind) + Doc.hardLine +
+                context
             )
 
             (doc, Some(region))
@@ -1350,16 +1363,16 @@ object PackageError {
             val context = contextDoc(region)
             val doc = tmap.withUnknownTypes(
               Doc.text("kind error: ") + Doc.text("the type: ") + tmap(
-              applied
-            ) +
-              Doc.text(" is invalid because the left ") + tmap(leftT) + Doc
-                .text(" has kind ") + Kind.toDoc(leftK) +
-              Doc.text(" and the right ") + tmap(rightT) + Doc.text(
-                " has kind "
-              ) + Kind.toDoc(rightK) +
-              Doc.text(s" but left cannot accept the kind of the right:") +
-              Doc.hardLine +
-              context
+                applied
+              ) +
+                Doc.text(" is invalid because the left ") + tmap(leftT) + Doc
+                  .text(" has kind ") + Kind.toDoc(leftK) +
+                Doc.text(" and the right ") + tmap(rightT) + Doc.text(
+                  " has kind "
+                ) + Kind.toDoc(rightK) +
+                Doc.text(s" but left cannot accept the kind of the right:") +
+                Doc.hardLine +
+                context
             )
 
             (doc, Some(region))
@@ -1431,9 +1444,9 @@ object PackageError {
 
             (
               tmap.withUnknownTypes(
-              Doc.text("the type ") + tmap(tpe) + Doc.text(
-                " is not polymorphic enough"
-              ) + Doc.hardLine + context,
+                Doc.text("the type ") + tmap(tpe) + Doc.text(
+                  " is not polymorphic enough"
+                ) + Doc.hardLine + context
               ),
               Some(region)
             )
@@ -1694,7 +1707,9 @@ object PackageError {
       val region = HasRegion.region(err.matchExpr.tag)
       val context1 =
         lm.showRegion(region, 2, errColor)
-          .getOrElse(Doc.str(region.show)) // we should highlight the whole region
+          .getOrElse(
+            Doc.str(region.show)
+          ) // we should highlight the whole region
       val teMessage = err match {
         case TotalityCheck.NonTotalMatch(_, missing) =>
           val allTypes = missing
@@ -1932,7 +1947,9 @@ object PackageError {
       val (lm, _) = sourceMap.getMapSrc(pack)
       val ctx = lm
         .showRegion(err.region, 2, errColor)
-        .getOrElse(Doc.str(err.region.show)) // we should highlight the whole region
+        .getOrElse(
+          Doc.str(err.region.show)
+        ) // we should highlight the whole region
       val errMessage = err.message
       // TODO use the sourceMap/regions in RecursionError (https://github.com/johnynek/bosatsu/issues/4)
       val packDoc = sourceMap.headLine(pack, Some(err.region))
@@ -2108,9 +2125,8 @@ object PackageError {
               val exportWord =
                 if (exports.tail.isEmpty) "export" else "exports"
               val exportDocs =
-                exports.toList.map(name =>
-                  Doc.char('`') + Doc.text(name) + Doc.char('`')
-                )
+                exports.toList
+                  .map(name => Doc.char('`') + Doc.text(name) + Doc.char('`'))
 
               Doc.text(dep.asString) + Doc.text(" escapes via ") +
                 Doc.text(exportWord) + Doc.space +
@@ -2187,8 +2203,7 @@ object PackageError {
       fixedByConstraint match {
         case Nil =>
           None
-        case (v, c) :: tail
-            if tail.forall { case (v1, _) =>
+        case (v, c) :: tail if tail.forall { case (v1, _) =>
               v1 == v
             } =>
           Some((v, c))
@@ -2210,11 +2225,19 @@ object PackageError {
 
     val candidate = unsat.constraints.iterator
       .flatMap { case (_, constraintsOnView) =>
-        if (constraintsOnView.exists(_.isInstanceOf[KindFormula.Constraint.RecursiveView])) {
+        if (
+          constraintsOnView.exists(
+            _.isInstanceOf[KindFormula.Constraint.RecursiveView]
+          )
+        ) {
           constraintsOnView.toList.iterator.flatMap {
             case KindFormula.Constraint.IsProduct(_, argVariance, tapply)
                 if (tapply.arg: Type) == selfType =>
-              inferredVariance(argVariance.id, unsat.constraints, unsat.existing) match {
+              inferredVariance(
+                argVariance.id,
+                unsat.constraints,
+                unsat.existing
+              ) match {
                 case Some((argVar, _)) if argVar != Variance.co =>
                   Iterator.single((tapply, argVar))
                 case _ =>
@@ -2292,7 +2315,7 @@ object PackageError {
         source match {
           case Shape.Source.ConstructorFn(cons) =>
             Doc.text(s" in the constructor ${cons.name.sourceCodeRepr}")
-          case Shape.Source.AliasBody         =>
+          case Shape.Source.AliasBody =>
             Doc.text(" in the alias body")
         }
       val message = kindError match {

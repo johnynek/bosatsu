@@ -67,8 +67,10 @@ sealed abstract class Expr[T] derives CanEqual {
             case None =>
               ListUtil.filterNot(branch.expr.freeVarsDup)(bodyBinds)
             case Some(BoolGuard(guardExpr)) =>
-              val guardFree = ListUtil.filterNot(guardExpr.freeVarsDup)(outerBinds)
-              val bodyFree = ListUtil.filterNot(branch.expr.freeVarsDup)(bodyBinds)
+              val guardFree =
+                ListUtil.filterNot(guardExpr.freeVarsDup)(outerBinds)
+              val bodyFree =
+                ListUtil.filterNot(branch.expr.freeVarsDup)(bodyBinds)
               guardFree ::: bodyFree
             case Some(MatchGuard(argExpr, pattern, guardOpt, _)) =>
               val innerBinds = pattern.names.toSet
@@ -79,7 +81,8 @@ sealed abstract class Expr[T] derives CanEqual {
                     outerBinds | innerBinds
                   )
                 }
-              val bodyFree = ListUtil.filterNot(branch.expr.freeVarsDup)(bodyBinds)
+              val bodyFree =
+                ListUtil.filterNot(branch.expr.freeVarsDup)(bodyBinds)
               argFree ::: innerGuardFree ::: bodyFree
           }
         }
@@ -109,9 +112,9 @@ sealed abstract class Expr[T] derives CanEqual {
         expr.globals
       case Annotation(t, _, _) =>
         t.globals
-      case Local(_, _)         => Set.empty
-      case g @ Global(_, _, _) => Set.empty + g
-      case Lambda(_, res, _)   => res.globals
+      case Local(_, _)            => Set.empty
+      case g @ Global(_, _, _)    => Set.empty + g
+      case Lambda(_, res, _)      => res.globals
       case app @ App(fn, args, _) =>
         Expr.flattenApp2(app) match {
           case Some((steps, last)) =>
@@ -271,7 +274,9 @@ object Expr {
         case BoolGuard(expr) =>
           Iterator.single(expr)
         case MatchGuard(arg, _, guardOpt, wholeGuardCheckExpr) =>
-          Iterator.single(arg) ++ guardOpt.iterator ++ wholeGuardCheckExpr.iterator
+          Iterator.single(
+            arg
+          ) ++ guardOpt.iterator ++ wholeGuardCheckExpr.iterator
       }
 
     def mapExpr[T, U](
@@ -323,13 +328,13 @@ object Expr {
 
     def bindNames[T](guard: BranchGuard[T]): List[Bindable] =
       guard match {
-        case BoolGuard(_)                => Nil
+        case BoolGuard(_)                 => Nil
         case MatchGuard(_, pattern, _, _) => pattern.names
       }
 
     def isEffectivelyUnguarded[T](guard: BranchGuard[T]): Boolean =
       guard match {
-        case BoolGuard(_) => false
+        case BoolGuard(_)                        => false
         case MatchGuard(_, pattern, guardOpt, _) =>
           pattern.definitelyTotal && guardOpt.isEmpty
       }
@@ -345,8 +350,8 @@ object Expr {
               Branch(pattern, guardOpt, boolConstExpr(true, arg.tag))(using
                 matchGuard.patternRegion
               ),
-              Branch(Pattern.WildCard, None, boolConstExpr(false, arg.tag))(using
-                matchGuard.patternRegion
+              Branch(Pattern.WildCard, None, boolConstExpr(false, arg.tag))(
+                using matchGuard.patternRegion
               )
             ),
             arg.tag
@@ -411,7 +416,12 @@ object Expr {
       guardNode.traverse {
         case BoolGuard(expr) =>
           outerFn(expr).map(BoolGuard(_))
-        case guard @ MatchGuard(argExpr, pattern, guardExpr, wholeGuardCheckExpr) =>
+        case guard @ MatchGuard(
+              argExpr,
+              pattern,
+              guardExpr,
+              wholeGuardCheckExpr
+            ) =>
           (
             patternFn(pattern),
             outerFn(argExpr),
@@ -460,7 +470,9 @@ object Expr {
 
     def unapply[T](
         branch: Branch[T]
-    ): Some[(Pattern[(PackageName, Constructor), Type], Option[Expr[T]], Expr[T])] =
+    ): Some[
+      (Pattern[(PackageName, Constructor), Type], Option[Expr[T]], Expr[T])
+    ] =
       Some((branch.pattern, branch.guard, branch.expr))
   }
   final case class MatchExpr[T](
@@ -487,7 +499,9 @@ object Expr {
     ): MatchExpr[T] =
       MatchExpr(matchKind, arg, branches, tag)
 
-    def unapply[T](m: MatchExpr[T]): Some[(Expr[T], NonEmptyList[Branch[T]], T)] =
+    def unapply[T](
+        m: MatchExpr[T]
+    ): Some[(Expr[T], NonEmptyList[Branch[T]], T)] =
       Some((m.arg, m.branches, m.tag))
   }
 
@@ -552,10 +566,10 @@ object Expr {
     */
   final def allNames[A](expr: Expr[A]): SortedSet[Bindable] =
     expr match {
-      case Annotation(e, _, _) => allNames(e)
-      case Local(name, _)      => SortedSet(name)
-      case Generic(_, in)      => allNames(in)
-      case Global(_, _, _)     => SortedSet.empty
+      case Annotation(e, _, _)    => allNames(e)
+      case Local(name, _)         => SortedSet(name)
+      case Generic(_, in)         => allNames(in)
+      case Global(_, _, _)        => SortedSet.empty
       case app @ App(fn, args, _) =>
         flattenApp2(app) match {
           case Some((steps, last)) =>
@@ -580,7 +594,9 @@ object Expr {
               bodyNames
             case Some(BoolGuard(guardExpr)) =>
               bodyNames | allNames(guardExpr)
-            case Some(MatchGuard(arg, pattern, guardOpt, wholeGuardCheckExpr)) =>
+            case Some(
+                  MatchGuard(arg, pattern, guardOpt, wholeGuardCheckExpr)
+                ) =>
               bodyNames ++ pattern.names |
                 allNames(arg) |
                 guardOpt.fold(SortedSet.empty[Bindable])(allNames) |
@@ -694,7 +710,7 @@ object Expr {
       case Annotation(e, tpe, a) =>
         (traverseType[T, F](e, bound)(fn), fn(tpe, bound))
           .mapN(Annotation(_, _, a))
-      case v: Name[T]      => F.pure(v)
+      case v: Name[T]            => F.pure(v)
       case app @ App(f, args, t) =>
         flattenApp2(app) match {
           case Some((steps, last)) =>
@@ -706,7 +722,9 @@ object Expr {
                 traverseType[T, F](step.fn, bound)(fn),
                 traverseType[T, F](step.arg, bound)(fn),
                 acc
-              ).mapN((fn1, arg1, rhs1) => App(fn1, NonEmptyList.of(arg1, rhs1), step.tag))
+              ).mapN((fn1, arg1, rhs1) =>
+                App(fn1, NonEmptyList.of(arg1, rhs1), step.tag)
+              )
             }
             acc
           case None =>
@@ -731,7 +749,7 @@ object Expr {
       case Let(arg, exp, in, rec, tag) =>
         (traverseType[T, F](exp, bound)(fn), traverseType[T, F](in, bound)(fn))
           .mapN(Let(arg, _, _, rec, tag))
-      case l @ Literal(_, _)         => F.pure(l)
+      case l @ Literal(_, _)             => F.pure(l)
       case m @ Match(arg, branches, tag) =>
         val argB = traverseType[T, F](arg, bound)(fn)
         type B = Branch[T]
@@ -857,7 +875,8 @@ object Expr {
               items.reverseIterator.foreach {
                 case Pattern.ListPart.Item(pat) =>
                   stack = PatternWork(pat, bound) :: stack
-                case Pattern.ListPart.WildList | Pattern.ListPart.NamedList(_) =>
+                case Pattern.ListPart.WildList |
+                    Pattern.ListPart.NamedList(_) =>
                   ()
               }
             case Pattern.Annotation(pat, tpe) =>
@@ -931,7 +950,8 @@ object Expr {
               items.reverseIterator.foreach {
                 case Pattern.ListPart.Item(pat) =>
                   patternStack = pat :: patternStack
-                case Pattern.ListPart.WildList | Pattern.ListPart.NamedList(_) =>
+                case Pattern.ListPart.WildList |
+                    Pattern.ListPart.NamedList(_) =>
                   ()
               }
             case Pattern.Annotation(pat, _) =>
@@ -955,22 +975,22 @@ object Expr {
               next match {
                 case Annotation(inner, _, _) =>
                   exprStack = inner :: exprStack
-                case Local(_, _)             =>
+                case Local(_, _) =>
                   ()
-                case Generic(_, inner)       =>
+                case Generic(_, inner) =>
                   exprStack = inner :: exprStack
-                case Global(pack, name, _)   =>
+                case Global(pack, name, _) =>
                   out += ((pack, name))
-                case App(fn, args, _)        =>
+                case App(fn, args, _) =>
                   args.toList.reverseIterator.foreach { arg =>
                     exprStack = arg :: exprStack
                   }
                   exprStack = fn :: exprStack
-                case Lambda(_, inner, _)     =>
+                case Lambda(_, inner, _) =>
                   exprStack = inner :: exprStack
                 case Let(_, bound, in, _, _) =>
                   exprStack = bound :: in :: exprStack
-                case Literal(_, _)           =>
+                case Literal(_, _) =>
                   ()
                 case Match(arg, branches, _) =>
                   branches.toList.reverseIterator.foreach { branch =>

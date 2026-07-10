@@ -91,15 +91,22 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
 
   private def testEntryValue(
       p: PackageName
-  ): Either[Package.TestDiscoveryError, Option[(Package.TestEntry[T], Eval[
-    Value
-  ])]] =
+  ): Either[Package.TestDiscoveryError, Option[
+    (
+        Package.TestEntry[T],
+        Eval[
+          Value
+        ]
+    )
+  ]] =
     pm.toMap.get(p) match {
-      case None => Right(None)
+      case None       => Right(None)
       case Some(pack) =>
-        Package.testEntry(pack).map(_.flatMap { entry =>
-          evaluate(p).get(entry.bindable).map((entry, _))
-        })
+        Package
+          .testEntry(pack)
+          .map(_.flatMap { entry =>
+            evaluate(p).get(entry.bindable).map((entry, _))
+          })
     }
 
   def evaluateMain(p: PackageName): Option[(Eval[Value], Type)] =
@@ -140,7 +147,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
               PredefImpl.runProgTest(value, Nil) match {
                 case Right(testValue) =>
                   Test.fromValue(testValue)
-                case Left(errValue)   =>
+                case Left(errValue) =>
                   Test.Assertion(
                     false,
                     s"ProgTest ${ps.asString}::${progTest.bindable.sourceCodeRepr} raised an uncaught error: $errValue"

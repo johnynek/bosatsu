@@ -1748,7 +1748,9 @@ x"""
         )
         assert(parsed.allNames(Identifier.Name("a")))
       case other =>
-        fail(s"expected parenthesized conditional matches ternary, found: $other")
+        fail(
+          s"expected parenthesized conditional matches ternary, found: $other"
+        )
     }
 
     roundTrip(
@@ -1912,7 +1914,9 @@ loop(12)"""
     }
   }
 
-  test("match branch guard conditional matches classify only at the whole guard") {
+  test(
+    "match branch guard conditional matches classify only at the whole guard"
+  ) {
     val conditionalForms =
       List(
         """match foo:
@@ -1937,7 +1941,7 @@ loop(12)"""
       val decl = unsafeParse(Declaration.parser(""), src)
       val branch = decl match {
         case Declaration.Match(_, _, cases) => cases.get.head
-        case other                          => fail(s"expected match declaration, got: $other")
+        case other => fail(s"expected match declaration, got: $other")
       }
       assert(
         branch.guard.flatMap(Declaration.ConditionalMatch.unapply(_)).nonEmpty,
@@ -1956,7 +1960,7 @@ loop(12)"""
       )
     val nestedBranch = nested match {
       case Declaration.Match(_, _, cases) => cases.get.head
-      case other                          => fail(s"expected match declaration, got: $other")
+      case other => fail(s"expected match declaration, got: $other")
     }
     assertEquals(
       nestedBranch.guard.flatMap(Declaration.ConditionalMatch.unapply(_)),

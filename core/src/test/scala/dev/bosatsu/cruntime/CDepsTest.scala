@@ -32,10 +32,12 @@ class CDepsTest extends munit.ScalaCheckSuite {
       hash = hash,
       source_subdir = "gc-8.2.8",
       recipe = CDeps.BdwgcCmakeStatic,
-      options = Some(Json.JObject(
-        ("threadsafe" -> Json.JBool(true)) ::
-          Nil
-      ))
+      options = Some(
+        Json.JObject(
+          ("threadsafe" -> Json.JBool(true)) ::
+            Nil
+        )
+      )
     )
 
   private val libuvDependency =
@@ -128,7 +130,9 @@ class CDepsTest extends munit.ScalaCheckSuite {
     )
 
   private val ccPathGen =
-    Gen.nonEmptyListOf(Gen.alphaLowerChar).map(chars => s"/usr/bin/${chars.mkString}")
+    Gen
+      .nonEmptyListOf(Gen.alphaLowerChar)
+      .map(chars => s"/usr/bin/${chars.mkString}")
 
   private val cflagsGen =
     Gen
@@ -137,17 +141,24 @@ class CDepsTest extends munit.ScalaCheckSuite {
       )
       .map(_.distinct.mkString(" "))
 
-  property("build key is stable across env insertion order and changes when options change") {
+  property(
+    "build key is stable across env insertion order and changes when options change"
+  ) {
     forAll(ccPathGen, cflagsGen) { (ccPath, cflags) =>
       val orderedEnv = ListMap("CFLAGS" -> cflags, "CC" -> ccPath)
       val reversedEnv = ListMap("CC" -> ccPath, "CFLAGS" -> cflags)
       val changedOptions =
-        dependency.copy(options = Some(Json.JObject(
-          ("threadsafe" -> Json.JBool(false)) ::
-            Nil
-        )))
+        dependency.copy(options =
+          Some(
+            Json.JObject(
+              ("threadsafe" -> Json.JBool(false)) ::
+                Nil
+            )
+          )
+        )
 
-      val first = CDeps.buildKey(dependency, buildContext(relevantEnv = orderedEnv))
+      val first =
+        CDeps.buildKey(dependency, buildContext(relevantEnv = orderedEnv))
       val second =
         CDeps.buildKey(dependency, buildContext(relevantEnv = reversedEnv))
       val third =
@@ -162,7 +173,9 @@ class CDepsTest extends munit.ScalaCheckSuite {
     val first =
       CDeps.buildKey(
         dependency,
-        buildContext(relevantEnv = Map("CFLAGS" -> "-O2", "CC" -> "/usr/bin/cc"))
+        buildContext(relevantEnv =
+          Map("CFLAGS" -> "-O2", "CC" -> "/usr/bin/cc")
+        )
       )
     val second =
       CDeps.buildKey(
@@ -178,25 +191,33 @@ class CDepsTest extends munit.ScalaCheckSuite {
 
   test("build key normalizes dependency option object order") {
     val left =
-      dependency.copy(options = Some(Json.JObject(
-        ("threadsafe" -> Json.JBool(true)) ::
-          ("extra" -> Json.JObject(
-            ("mode" -> Json.JString("pthread")) ::
-              ("strip" -> Json.JBool(false)) ::
+      dependency.copy(options =
+        Some(
+          Json.JObject(
+            ("threadsafe" -> Json.JBool(true)) ::
+              ("extra" -> Json.JObject(
+                ("mode" -> Json.JString("pthread")) ::
+                  ("strip" -> Json.JBool(false)) ::
+                  Nil
+              )) ::
               Nil
-          )) ::
-          Nil
-      )))
+          )
+        )
+      )
     val right =
-      dependency.copy(options = Some(Json.JObject(
-        ("extra" -> Json.JObject(
-          ("strip" -> Json.JBool(false)) ::
-            ("mode" -> Json.JString("pthread")) ::
-            Nil
-        )) ::
-          ("threadsafe" -> Json.JBool(true)) ::
-          Nil
-      )))
+      dependency.copy(options =
+        Some(
+          Json.JObject(
+            ("extra" -> Json.JObject(
+              ("strip" -> Json.JBool(false)) ::
+                ("mode" -> Json.JString("pthread")) ::
+                Nil
+            )) ::
+              ("threadsafe" -> Json.JBool(true)) ::
+              Nil
+          )
+        )
+      )
 
     assertEquals(
       CDeps.buildKey(left, buildContext()),
@@ -206,7 +227,11 @@ class CDepsTest extends munit.ScalaCheckSuite {
 
   test("build key changes when transitive dependency identities change") {
     val ctx =
-      buildContext().copy(os = "macos", arch = "arm64", toolchain_family = "clang")
+      buildContext().copy(
+        os = "macos",
+        arch = "arm64",
+        toolchain_family = "clang"
+      )
 
     val dep =
       dependency.copy(
@@ -244,7 +269,9 @@ class CDepsTest extends munit.ScalaCheckSuite {
     )
   }
 
-  property("orderedDependencies is stable for independent bdwgc and libuv entries") {
+  property(
+    "orderedDependencies is stable for independent bdwgc and libuv entries"
+  ) {
     forAll(Gen.oneOf(true, false)) { reverse =>
       val deps =
         if (reverse) libuvDependency :: dependency :: Nil
@@ -279,9 +306,12 @@ class CDepsTest extends munit.ScalaCheckSuite {
       Left("bdwgc depends on missing vendored dependency: missing")
     )
     assert(
-      CDeps.orderedDependencies(cycle).left.exists(
-        _.contains("dependency cycle detected")
-      )
+      CDeps
+        .orderedDependencies(cycle)
+        .left
+        .exists(
+          _.contains("dependency cycle detected")
+        )
     )
   }
 

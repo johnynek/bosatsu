@@ -359,7 +359,9 @@ object Statement {
 
     val typeAlias =
       // we use type to be soft here to make type a soft keyword and still allow type = 23 as syntax elsewhere
-      ((((keySpace("type").soft *> Identifier.consParser) ~ typeParams.? <* maybeSpace <* Declaration.eqP <* maybeSpace) ~
+      ((((keySpace(
+        "type"
+      ).soft *> Identifier.consParser) ~ typeParams.? <* maybeSpace <* Declaration.eqP <* maybeSpace) ~
         TypeRef.parser).region <* toEOL)
         .map { case (region, ((name, typeArgs), body)) =>
           TypeAlias(name, typeArgs, body)(region)
@@ -380,17 +382,20 @@ object Statement {
 
         // commas can separate variants either inline or across lines
         val commaSep =
-          (P.char(',') *> maybeSpace *> Indy.toEOLIndentWithComments(indent).?)
-            .void
+          (P.char(',') *> maybeSpace *> Indy
+            .toEOLIndentWithComments(indent)
+            .?).void
         val lineSep = Indy.toEOLIndentWithComments(indent).backtrack
         val sep = commaSep.orElse(lineSep)
         val rest = (sep.soft *> constructor).rep0
         val trailingComment = (maybeSpace *> Parser.lineComment).?.void
 
-        (constructor ~ rest <* (P.char(',') *> maybeSpace).?.void <* trailingComment)
-          .map {
-          case (head, tail) => NonEmptyList(head, tail)
-        }
+        (constructor ~ rest <* (P.char(
+          ','
+        ) *> maybeSpace).?.void <* trailingComment)
+          .map { case (head, tail) =>
+            NonEmptyList(head, tail)
+          }
       }
 
       val nameVars =

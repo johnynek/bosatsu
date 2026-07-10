@@ -400,7 +400,7 @@ object Command {
         .map {
           case Some(d) =>
             (_: P) => d
-          case None    =>
+          case None =>
             (root: P) => platformIO.resolve(root, ".bosatsuc" :: "cas" :: Nil)
         }
 
@@ -417,9 +417,7 @@ object Command {
           help =
             "cache directory for compiled package artifacts (default: .bosatsuc/infer-cache in repo root)"
         )
-        .map { cacheDir =>
-          (_: P) => Some(cacheDir)
-        }
+        .map(cacheDir => (_: P) => Some(cacheDir))
         .orElse(
           Opts
             .flag(
@@ -583,13 +581,11 @@ object Command {
         inputSrcs
           .traverse(path => parsedPackageMetaFor(path).map(path -> _))
           .flatMap { parsedBySource =>
-            parsedBySource
-              .traverse { case (path, parsedMeta) =>
-                parsedMeta.map { case (pack, imports) =>
-                  (path, pack, imports)
-                }
+            parsedBySource.traverse { case (path, parsedMeta) =>
+              parsedMeta.map { case (pack, imports) =>
+                (path, pack, imports)
               }
-              .toEither match {
+            }.toEither match {
               case Right(meta) => moduleIOMonad.pure(meta)
               case Left(errs)  => failHeaderParseErrors(errs)
             }
@@ -653,7 +649,7 @@ object Command {
                           seen: Set[PackageName]
                       ): Set[PackageName] =
                         todo match {
-                          case Nil => seen
+                          case Nil               => seen
                           case h :: t if seen(h) =>
                             transitiveClosure(t, seen)
                           case h :: t =>
@@ -666,11 +662,15 @@ object Command {
                           case (_, pack, _) if keep(pack) => pack
                         }.distinct
 
-                      val selectedPackages = transitiveClosure(rootPackages, Set.empty)
+                      val selectedPackages =
+                        transitiveClosure(rootPackages, Set.empty)
 
-                      selectedPackages.iterator.flatMap { pack =>
-                        packageToPaths.getOrElse(pack, Nil)
-                      }.toSet.toList
+                      selectedPackages.iterator
+                        .flatMap { pack =>
+                          packageToPaths.getOrElse(pack, Nil)
+                        }
+                        .toSet
+                        .toList
                         .sorted(using platformIO.pathOrdering)
                     }
               }
@@ -810,14 +810,17 @@ object Command {
                 // If dependencies provide a Predef interface, typecheck may not include
                 // the internal Predef package in `compiled`; include it explicitly so
                 // `--include_predef` still emits local Bosatsu/Predef docs.
-                PackageMap.predefCompiledForMode(CompileOptions.Default.mode) :: packs0
+                PackageMap.predefCompiledForMode(
+                  CompileOptions.Default.mode
+                ) :: packs0
               } else packs0
 
             packs1.filter { pack =>
               if (pack.name == PackageName.PredefName) includePredef
               else {
                 // We always typecheck all packages above; this only controls emitted docs.
-                val isExported = conf.exportedPackages.exists(_.accepts(pack.name))
+                val isExported =
+                  conf.exportedPackages.exists(_.accepts(pack.name))
                 if (excludePrivatePackages) isExported
                 else true
               }
@@ -996,7 +999,7 @@ object Command {
       ): F[Doc] =
         for {
           decWithLibs <- sourcePackageFilter match {
-            case None         =>
+            case None =>
               decodedWithDeps(
                 colorize,
                 CompileOptions.Default,
@@ -1637,24 +1640,24 @@ object Command {
           compileCacheDirOpt,
           Colorize.optsConsoleDefault
         ).mapN { (fcc, sourceFilter, lintMode, cacheDirFn, colorize) =>
-            for {
-              cc <- fcc
-              cacheDir = cacheDirFn(cc.gitRoot)
-              compileOptions =
-                lintMode match {
-                  case LintMode.Strict          => CompileOptions.NoOptimize
-                  case LintMode.Warn | LintMode.Lax =>
-                    CompileOptions.TypeCheckOnly
-                }
-              _ <- cc.check(
-                colorize,
-                sourceFilter,
-                compileOptions,
-                lintMode,
-                cacheDir
-              )
-              msg = Doc.text("")
-            } yield (Output.Basic(msg, None): Output[P])
+          for {
+            cc <- fcc
+            cacheDir = cacheDirFn(cc.gitRoot)
+            compileOptions =
+              lintMode match {
+                case LintMode.Strict              => CompileOptions.NoOptimize
+                case LintMode.Warn | LintMode.Lax =>
+                  CompileOptions.TypeCheckOnly
+              }
+            _ <- cc.check(
+              colorize,
+              sourceFilter,
+              compileOptions,
+              lintMode,
+              cacheDir
+            )
+            msg = Doc.text("")
+          } yield (Output.Basic(msg, None): Output[P])
         }
       }
 
@@ -1705,7 +1708,8 @@ object Command {
             ) =>
           val validValuesMsg =
             if (validJsonValues.isEmpty) ""
-            else show"\nvalid json values: [${validJsonValues.map(_.show).mkString(", ")}]"
+            else
+              show"\nvalid json values: [${validJsonValues.map(_.show).mkString(", ")}]"
 
           CliException.Basic(
             show"value not found: ${pn.asString}::${name.sourceCodeRepr}${validValuesMsg}"
@@ -1758,76 +1762,78 @@ object Command {
           Opts.arguments[String]("arg").orEmpty,
           compileCacheDirOpt,
           Colorize.optsConsoleDefault
-        ).mapN { (fcc, target, runMain, positionalRunArgs, cacheDirFn, colorize) =>
-          def toCliException(ex: Throwable): Throwable =
-            CliException.Basic(Option(ex.getMessage).getOrElse(ex.toString))
+        ).mapN {
+          (fcc, target, runMain, positionalRunArgs, cacheDirFn, colorize) =>
+            def toCliException(ex: Throwable): Throwable =
+              CliException.Basic(Option(ex.getMessage).getOrElse(ex.toString))
 
-          val effectiveRunArgs = positionalRunArgs ::: evalPassthroughArgs
+            val effectiveRunArgs = positionalRunArgs ::: evalPassthroughArgs
 
-          val sourcePackageFilter: PackageName => Boolean =
-            _ == target._1
+            val sourcePackageFilter: PackageName => Boolean =
+              _ == target._1
 
-          for {
-            cc <- fcc
-            cacheDir = cacheDirFn(cc.gitRoot)
-            out <- platformIO.withEC {
-              for {
-                dec <- cc.decodedWithDepsFiltered(
-                  colorize,
-                  sourcePackageFilter,
-                  CompileOptions.Default,
-                  LintMode.Strict,
-                  compileCacheDirOpt = cacheDir
-                )
-                ev = LibraryEvaluation(dec, BosatsuPredef.evalExternals)
-                (scope, value, tpe) <- moduleIOMonad.fromEither {
-                  (target match {
-                    case (pack, None)        => ev.evaluateMain(pack)
-                    case (pack, Some(ident)) => ev.evaluateName(pack, ident)
-                  }).leftMap(toCliException)
-                }
-                memoE = value.memoize
-                out <- if (runMain) {
-                  if (tpe == progMainType) {
-                    val run =
-                      memoE.map(
-                        PredefImpl.runProgMainWithSystemStdin(
-                          _,
-                          PredefImpl.evalRunArgs(effectiveRunArgs)
-                        )
-                      )
-                    moduleIOMonad.pure(Output.RunMainResult(run): Output[P])
-                  } else {
-                    val actual =
-                      Type.fullyResolvedDocument.document(tpe).render(80)
-                    moduleIOMonad.raiseError(
-                      CliException.Basic(
-                        show"--run requires a Bosatsu/Prog::Main value, found type: $actual"
-                      )
-                    )
-                  }
-                } else if (effectiveRunArgs.nonEmpty) {
-                  moduleIOMonad.raiseError(
-                    CliException.Basic("trailing args require --run")
+            for {
+              cc <- fcc
+              cacheDir = cacheDirFn(cc.gitRoot)
+              out <- platformIO.withEC {
+                for {
+                  dec <- cc.decodedWithDepsFiltered(
+                    colorize,
+                    sourcePackageFilter,
+                    CompileOptions.Default,
+                    LintMode.Strict,
+                    compileCacheDirOpt = cacheDir
                   )
-                } else {
-                  val fn = ev.valueToDocFor(scope).toDoc(tpe)
-                  val edoc = memoE.map { v =>
-                    fn(v) match {
-                      case Right(d) => d
-                      case Left(_)  =>
-                        Doc.text(
-                          "Could not render the value. The value does not appear to be the correct type. This should be impossible. Report this as a bug."
+                  ev = LibraryEvaluation(dec, BosatsuPredef.evalExternals)
+                  (scope, value, tpe) <- moduleIOMonad.fromEither {
+                    (target match {
+                      case (pack, None)        => ev.evaluateMain(pack)
+                      case (pack, Some(ident)) => ev.evaluateName(pack, ident)
+                    }).leftMap(toCliException)
+                  }
+                  memoE = value.memoize
+                  out <-
+                    if (runMain) {
+                      if (tpe == progMainType) {
+                        val run =
+                          memoE.map(
+                            PredefImpl.runProgMainWithSystemStdin(
+                              _,
+                              PredefImpl.evalRunArgs(effectiveRunArgs)
+                            )
+                          )
+                        moduleIOMonad.pure(Output.RunMainResult(run): Output[P])
+                      } else {
+                        val actual =
+                          Type.fullyResolvedDocument.document(tpe).render(80)
+                        moduleIOMonad.raiseError(
+                          CliException.Basic(
+                            show"--run requires a Bosatsu/Prog::Main value, found type: $actual"
+                          )
                         )
+                      }
+                    } else if (effectiveRunArgs.nonEmpty) {
+                      moduleIOMonad.raiseError(
+                        CliException.Basic("trailing args require --run")
+                      )
+                    } else {
+                      val fn = ev.valueToDocFor(scope).toDoc(tpe)
+                      val edoc = memoE.map { v =>
+                        fn(v) match {
+                          case Right(d) => d
+                          case Left(_)  =>
+                            Doc.text(
+                              "Could not render the value. The value does not appear to be the correct type. This should be impossible. Report this as a bug."
+                            )
+                        }
+                      }
+                      moduleIOMonad.pure(
+                        Output.EvaluationResult(memoE, tpe, edoc): Output[P]
+                      )
                     }
-                  }
-                  moduleIOMonad.pure(
-                    Output.EvaluationResult(memoE, tpe, edoc): Output[P]
-                  )
-                }
-              } yield out
-            }
-          } yield out
+                } yield out
+              }
+            } yield out
         }
       }
 
@@ -1837,7 +1843,11 @@ object Command {
         "show fully type-checked packages from this library or dependency tree (EDN by default; JSON with --json)"
       ) {
         import ShowSelection.{typeArgument, valueArgument}
-        import ShowSupport.{matchlessPassArgument, showIrArgument, typedPassArgument}
+        import ShowSupport.{
+          matchlessPassArgument,
+          showIrArgument,
+          typedPassArgument
+        }
 
         val irOpt =
           Opts
@@ -1887,7 +1897,9 @@ object Command {
           if (request.matchlessPassOptions.enableGlobalInlining) {
             val namespace =
               CompilationSource
-                .namespace[DecodedLibraryWithDeps[Algo.Blake3], (Name, Version)](
+                .namespace[DecodedLibraryWithDeps[
+                  Algo.Blake3
+                ], (Name, Version)](
                   dec
                 )
                 .treeShake(ShowSupport.matchlessRoots(selectedPacks))
@@ -1897,15 +1909,19 @@ object Command {
                 enableGlobalInlining = true
               )
 
-            ShowSupport.matchlessShowValue(selectedPacks, request, pack => {
-              val scope = namespace.depFor(namespace.rootKey, pack.name)
-              val lets =
-                compiled
-                  .get(scope)
-                  .flatMap(_.get(pack.name))
-                  .getOrElse(Nil)
-              defsInOriginalOrder(pack, lets)
-            })
+            ShowSupport.matchlessShowValue(
+              selectedPacks,
+              request,
+              pack => {
+                val scope = namespace.depFor(namespace.rootKey, pack.name)
+                val lets =
+                  compiled
+                    .get(scope)
+                    .flatMap(_.get(pack.name))
+                    .getOrElse(Nil)
+                defsInOriginalOrder(pack, lets)
+              }
+            )
           } else {
             val compiled =
               MatchlessFromTypedExpr.compile(
@@ -1914,8 +1930,11 @@ object Command {
                 localPassOptions
               )
 
-            ShowSupport.matchlessShowValue(selectedPacks, request, pack =>
-              defsInOriginalOrder(pack, compiled.getOrElse(pack.name, Nil))
+            ShowSupport.matchlessShowValue(
+              selectedPacks,
+              request,
+              pack =>
+                defsInOriginalOrder(pack, compiled.getOrElse(pack.name, Nil))
             )
           }
         }
@@ -1956,7 +1975,8 @@ object Command {
           Opts
             .flag(
               "no-opt",
-              help = "disable normalization/optimization to inspect typed expressions before optimization"
+              help =
+                "disable normalization/optimization to inspect typed expressions before optimization"
             )
             .orFalse,
           Opts
@@ -1996,107 +2016,105 @@ object Command {
               cacheDirFn,
               colorize
           ) =>
-          val selection =
-            ShowSelection.Request(packages, types, values, externalsOnly)
-          val showRequest =
-            ShowSupport
-              .request(
-                selection,
-                ir,
-                noOpt,
-                disabledTypedPasses,
-                disabledMatchlessPasses,
-                packageNamesOnly = packageNamesOnly,
-                validateTypedExpr = validateTypedExpr
-              )
-              .toEither
-              .leftMap(errs => CliException.Basic(errs.toList.mkString("\n")))
-          val sourceFilterOpt =
-            if (selection.isEmpty) None
-            else {
-              val requestedSet = selection.requestedPackages.toSet
-              Some((pn: PackageName) => requestedSet(pn))
-            }
-          for {
-            cc <- fcc
-            cacheDir = cacheDirFn(cc.gitRoot)
-            out <- platformIO.withEC {
-              for {
-                request <- moduleIOMonad.fromEither(showRequest)
-                dec <- sourceFilterOpt match {
-                  case None =>
-                    cc.decodedWithDeps(
-                      colorize,
-                      request.compileOptions,
-                      LintMode.Strict,
-                      compileCacheDirOpt = cacheDir
-                    )
-                  case Some(sourceFilter) =>
-                    cc.decodedWithDepsFiltered(
-                      colorize,
-                      sourceFilter,
-                      request.compileOptions,
-                      LintMode.Strict,
-                      compileCacheDirOpt = cacheDir
-                    )
-                }
-                ev = LibraryEvaluation(dec, BosatsuPredef.jvmExternals)
-                requestedPackages =
-                  if (request.selection.isEmpty) Nil
-                  else request.selection.requestedPackages
-                packs0Scoped <- moduleIOMonad.fromEither(
-                  ev
-                    .packagesForShowScopedEither(requestedPackages)
-                    .leftMap(evalLookupError)
+            val selection =
+              ShowSelection.Request(packages, types, values, externalsOnly)
+            val showRequest =
+              ShowSupport
+                .request(
+                  selection,
+                  ir,
+                  noOpt,
+                  disabledTypedPasses,
+                  disabledMatchlessPasses,
+                  packageNamesOnly = packageNamesOnly,
+                  validateTypedExpr = validateTypedExpr
                 )
-                packs0 = packs0Scoped.map(_._2)
-                packs <- moduleIOMonad.fromEither(
-                  ShowSelection
-                    .selectPackages(packs0, request.selection)
-                    .leftMap(CliException.Basic(_))
-                )
-                selectedPackNames = packs.iterator.map(_.name).toSet
-                selectedScoped =
-                  packs0Scoped.filter { case (_, pack) =>
-                    selectedPackNames(pack.name)
+                .toEither
+                .leftMap(errs => CliException.Basic(errs.toList.mkString("\n")))
+            val sourceFilterOpt =
+              if (selection.isEmpty) None
+              else {
+                val requestedSet = selection.requestedPackages.toSet
+                Some((pn: PackageName) => requestedSet(pn))
+              }
+            for {
+              cc <- fcc
+              cacheDir = cacheDirFn(cc.gitRoot)
+              out <- platformIO.withEC {
+                for {
+                  request <- moduleIOMonad.fromEither(showRequest)
+                  dec <- sourceFilterOpt match {
+                    case None =>
+                      cc.decodedWithDeps(
+                        colorize,
+                        request.compileOptions,
+                        LintMode.Strict,
+                        compileCacheDirOpt = cacheDir
+                      )
+                    case Some(sourceFilter) =>
+                      cc.decodedWithDepsFiltered(
+                        colorize,
+                        sourceFilter,
+                        request.compileOptions,
+                        LintMode.Strict,
+                        compileCacheDirOpt = cacheDir
+                      )
                   }
-                _ <-
-                  if (request.validateTypedExpr)
-                    moduleIOMonad.fromEither(
-                      TypeValidator
-                        .validationFailureMessage(
-                          "show typedexpr",
-                          selectedScoped
-                            .map { case (scope, pack) =>
+                  ev = LibraryEvaluation(dec, BosatsuPredef.jvmExternals)
+                  requestedPackages =
+                    if (request.selection.isEmpty) Nil
+                    else request.selection.requestedPackages
+                  packs0Scoped <- moduleIOMonad.fromEither(
+                    ev
+                      .packagesForShowScopedEither(requestedPackages)
+                      .leftMap(evalLookupError)
+                  )
+                  packs0 = packs0Scoped.map(_._2)
+                  packs <- moduleIOMonad.fromEither(
+                    ShowSelection
+                      .selectPackages(packs0, request.selection)
+                      .leftMap(CliException.Basic(_))
+                  )
+                  selectedPackNames = packs.iterator.map(_.name).toSet
+                  selectedScoped =
+                    packs0Scoped.filter { case (_, pack) =>
+                      selectedPackNames(pack.name)
+                    }
+                  _ <-
+                    if (request.validateTypedExpr)
+                      moduleIOMonad.fromEither(
+                        TypeValidator
+                          .validationFailureMessage(
+                            "show typedexpr",
+                            selectedScoped.map { case (scope, pack) =>
                               TypeValidator.validatePackagesInEnv(
                                 pack :: Nil,
                                 ev.packagesForValidationOf(scope, pack),
                                 "show typedexpr"
                               )
-                            }
-                            .sequence_
-                        )
-                        .toLeft(())
-                        .leftMap(CliException.Basic(_))
+                            }.sequence_
+                          )
+                          .toLeft(())
+                          .leftMap(CliException.Basic(_))
+                      )
+                    else moduleIOMonad.unit
+                  showValue =
+                    request.ir match {
+                      case Output.ShowIr.TypedExpr =>
+                        ShowSupport.typedShowValue(packs, Nil, request)
+                      case Output.ShowIr.Matchless =>
+                        matchlessShowValue(request, dec, packs)
+                    }
+                } yield (
+                  if (jsonOut)
+                    Output.JsonOutput(
+                      ShowEdn.showJson(showValue),
+                      output
                     )
-                  else moduleIOMonad.unit
-                showValue =
-                  request.ir match {
-                    case Output.ShowIr.TypedExpr =>
-                      ShowSupport.typedShowValue(packs, Nil, request)
-                    case Output.ShowIr.Matchless =>
-                      matchlessShowValue(request, dec, packs)
-                  }
-              } yield (
-                if (jsonOut)
-                  Output.JsonOutput(
-                    ShowEdn.showJson(showValue),
-                    output
-                  )
-                else Output.ShowOutput(showValue, output): Output[P]
-              )
-            }
-          } yield out
+                  else Output.ShowOutput(showValue, output): Output[P]
+                )
+              }
+            } yield out
         }
       }
 
@@ -2147,18 +2165,18 @@ object Command {
               cacheDirFn,
               colorize
           ) =>
-          for {
-            cc <- fcc
-            docs <- cc.docPackages(
-              colorize,
-              outdir,
-              includePredef,
-              excludePrivatePackages,
-              sourceRepoUrlOpt,
-              remoteDocLinksHtml,
-              cacheDirFn(cc.gitRoot)
-            )
-          } yield (Output.TranspileOut(docs): Output[P])
+            for {
+              cc <- fcc
+              docs <- cc.docPackages(
+                colorize,
+                outdir,
+                includePredef,
+                excludePrivatePackages,
+                sourceRepoUrlOpt,
+                remoteDocLinksHtml,
+                cacheDirFn(cc.gitRoot)
+              )
+            } yield (Output.TranspileOut(docs): Output[P])
         }
       }
 
@@ -2195,14 +2213,16 @@ object Command {
         Opts
           .option[P](
             "json_input",
-            help = "json input path (JSON only; --yaml changes output format only)"
+            help =
+              "json input path (JSON only; --yaml changes output format only)"
           )
           .map(JsonInput.FromPath(_))
           .orElse(
             Opts
               .option[String](
                 "json_string",
-                help = "json string argument (JSON only; --yaml changes output format only)"
+                help =
+                  "json string argument (JSON only; --yaml changes output format only)"
               )
               .map(JsonInput.FromString(_))
           )
@@ -2210,7 +2230,11 @@ object Command {
       val applyInput = input.map(JsonMode.Apply(_))
       val traverseInput = input.map(JsonMode.Traverse(_))
 
-      def outputFor(json: Json, yamlOut: Boolean, output: Option[P]): Output[P] =
+      def outputFor(
+          json: Json,
+          yamlOut: Boolean,
+          output: Option[P]
+      ): Output[P] =
         if (yamlOut) Output.Basic(Json.toYamlDoc(json), output)
         else Output.JsonOutput(json, output)
 
@@ -2221,7 +2245,8 @@ object Command {
           Opts
             .flag(
               "yaml",
-              help = "emit YAML output; --json_input and --json_string remain JSON-only"
+              help =
+                "emit YAML output; --json_input and --json_string remain JSON-only"
             )
             .orFalse,
           mainOpt,
@@ -2265,7 +2290,9 @@ object Command {
                   issues.zipWithIndex.map { case ((path, reason), idx) =>
                     val badType = path.toList.last
                     val pathStr =
-                      path.toList.map(t => typeDoc(t).render(80)).mkString(" -> ")
+                      path.toList
+                        .map(t => typeDoc(t).render(80))
+                        .mkString(" -> ")
                     show"${idx + 1}. ${typeDoc(badType).render(80)}\n   reason: $reason\n   path: $pathStr"
                   }
                 show"cannot convert type to Json:\n\n${details.mkString("\n\n")}"
@@ -2314,10 +2341,11 @@ object Command {
                 ev = LibraryEvaluation(dec, BosatsuPredef.jvmExternals)
                 evaluated <- moduleIOMonad.fromEither {
                   target match {
-                    case (pack, None)        =>
+                    case (pack, None) =>
                       ev.evaluateMainEither(pack).leftMap(evalLookupError)
                     case (pack, Some(ident)) =>
-                      ev.evaluateNameEither(pack, ident).leftMap(evalLookupError)
+                      ev.evaluateNameEither(pack, ident)
+                        .leftMap(evalLookupError)
                   }
                 }
                 (scope, value, tpe) = evaluated
@@ -2378,7 +2406,9 @@ object Command {
                                     )
                                   )
                               }
-                              .map(j => outputFor(j, yamlOut, output): Output[P])
+                              .map(j =>
+                                outputFor(j, yamlOut, output): Output[P]
+                              )
                         }
                     }
 
@@ -2516,32 +2546,32 @@ object Command {
             ccLibsOpt
           ).tupled.mapValidated {
             case (outDirOpt, outOpt, defaultOut, exeOut, ccFlags, ccLibs) =>
-            if (outDirOpt.isDefined || outOpt.isDefined || exeOut.isDefined) {
-              val (cOut, cOutRelativeToOutDir) =
-                outOpt match {
-                  case Some(out) => (out, false)
-                  case None      => (defaultOut, true)
-                }
+              if (outDirOpt.isDefined || outOpt.isDefined || exeOut.isDefined) {
+                val (cOut, cOutRelativeToOutDir) =
+                  outOpt match {
+                    case Some(out) => (out, false)
+                    case None      => (defaultOut, true)
+                  }
 
-              Validated.validNel(
-                (
-                  outDirOpt,
-                  ClangTranspiler.Output(
-                    cOut = cOut,
-                    cOutRelativeToOutDir = cOutRelativeToOutDir,
-                    exeOut = exeOut,
-                    // If --outdir is omitted, we compile in a temp dir but keep -e relative to cwd.
-                    exeOutRelativeToOutDir = outDirOpt.isDefined,
-                    ccFlags = ccFlags,
-                    ccLibs = ccLibs
+                Validated.validNel(
+                  (
+                    outDirOpt,
+                    ClangTranspiler.Output(
+                      cOut = cOut,
+                      cOutRelativeToOutDir = cOutRelativeToOutDir,
+                      exeOut = exeOut,
+                      // If --outdir is omitted, we compile in a temp dir but keep -e relative to cwd.
+                      exeOutRelativeToOutDir = outDirOpt.isDefined,
+                      ccFlags = ccFlags,
+                      ccLibs = ccLibs
+                    )
                   )
                 )
-              )
-            } else {
-              Validated.invalidNel(
-                "expected one of --outdir, -o/--output, -e/--exe_out"
-              )
-            }
+              } else {
+                Validated.invalidNel(
+                  "expected one of --outdir, -o/--output, -e/--exe_out"
+                )
+              }
           }
 
         val buildArgs =
@@ -2676,12 +2706,15 @@ object Command {
           ).tupled
 
         (testArgs, Colorize.optsConsoleDefault).mapN {
-          case ((fcc, test, lintMode, out, emit, gen, cacheDirFn, outDirOpt), colorize) =>
+          case (
+                (fcc, test, lintMode, out, emit, gen, cacheDirFn, outDirOpt),
+                colorize
+              ) =>
             def runtimePreflight(
                 output: ClangTranspiler.Output[F, P]
             ): F[ClangTranspiler.Output[F, P]] =
               output.exeOut match {
-                case None => moduleIOMonad.pure(output)
+                case None                    => moduleIOMonad.pure(output)
                 case Some((exeOut, ccConfF)) =>
                   ccConfF.attempt.flatMap {
                     case Right(ccConf) =>
@@ -2691,7 +2724,8 @@ object Command {
                         )
                       )
                     case Left(err) =>
-                      val detail = Option(err.getMessage).getOrElse(err.toString)
+                      val detail =
+                        Option(err.getMessage).getOrElse(err.toString)
                       moduleIOMonad.raiseError(
                         CliException.Basic(
                           show"runtime readiness preflight failed before running `test`.\n\n$detail"
@@ -2700,7 +2734,7 @@ object Command {
                   }
               }
 
-            def useOutDir(outDir: P): F[Output[P]] = {
+            def useOutDir(outDir: P): F[Output[P]] =
               for {
                 preflightOut <- runtimePreflight(out)
                 cc <- fcc
@@ -2709,7 +2743,10 @@ object Command {
                         filterRegexes,
                         Some(sourcePackageFilter)
                       ) =>
-                    cc.validateTestFilterMatches(filterRegexes, sourcePackageFilter)
+                    cc.validateTestFilterMatches(
+                      filterRegexes,
+                      sourcePackageFilter
+                    )
                   case _ =>
                     moduleIOMonad.unit
                 }
@@ -2732,7 +2769,6 @@ object Command {
                   cacheDirFn(cc.gitRoot)
                 )
               } yield (Output.Basic(msg, None): Output[P])
-            }
 
             outDirOpt match {
               case Some(outDir) => useOutDir(outDir)
@@ -2792,80 +2828,85 @@ object Command {
               uriBaseOpt,
               dryRun
           ) =>
-          for {
-            gitRootlibs <- readGitLibs
-            gitSha <- gitShaF
-            (gitRoot, libs) = gitRootlibs
-            casDir = casDirFn(gitRoot)
-            cas = new Cas(casDir, platformIO)
-            cacheDirOpt = cacheDirFn(gitRoot)
-            out <- {
-              def publishAll(
-                  compileCacheDirOpt: Option[P]
-              ): F[Output[P]] =
-                libs.transform { case (name, (conf, path)) =>
-                  val cc = ConfigConf(conf, cas, path, gitRoot)
-                  val libOut: P = libraryPath(outDir, name, conf.nextVersion)
-                  for {
-                    protoLib <- cc.buildLibrary(
-                      vcsIdent = gitSha,
-                      colorize = colorize,
-                      compileCacheDirOpt = compileCacheDirOpt
-                    )
-                    hashedLib = Hashed(
-                      Algo[Algo.Blake3].hashBytes(protoLib.toByteArray),
-                      protoLib
-                    )
-                    _ <-
-                      if (dryRun) moduleIOMonad.unit
-                      else cas.putIfAbsent(hashedLib)
-                  } yield (hashedLib, libOut, cc)
-                }.parSequence.map { allLibs =>
-                  val libOuts = allLibs.iterator.map { case (_, (lib, path, _)) =>
-                    (Output.Library(lib.arg, path): Output[P])
-                  }
-                  val allOutputs =
-                    if (dryRun) libOuts
-                    else {
-                      // if we get here, we have successfully built all the libraries, now update the libconfig
-                      // and mutate those
-                      val confOuts = allLibs.values.iterator.map {
-                        case (hashedLib, _, cc) =>
-                          val uris = uriBaseOpt match {
-                            case None          => Nil
-                            case Some(uriBase) =>
-                              val uriBase1 =
-                                if (uriBase.endsWith("/")) uriBase
-                                else s"${uriBase}/"
-                              val uri = uriBase1 + Library.defaultFileName(
-                                cc.conf.name,
-                                cc.conf.nextVersion
+            for {
+              gitRootlibs <- readGitLibs
+              gitSha <- gitShaF
+              (gitRoot, libs) = gitRootlibs
+              casDir = casDirFn(gitRoot)
+              cas = new Cas(casDir, platformIO)
+              cacheDirOpt = cacheDirFn(gitRoot)
+              out <- {
+                def publishAll(
+                    compileCacheDirOpt: Option[P]
+                ): F[Output[P]] =
+                  libs
+                    .transform { case (name, (conf, path)) =>
+                      val cc = ConfigConf(conf, cas, path, gitRoot)
+                      val libOut: P =
+                        libraryPath(outDir, name, conf.nextVersion)
+                      for {
+                        protoLib <- cc.buildLibrary(
+                          vcsIdent = gitSha,
+                          colorize = colorize,
+                          compileCacheDirOpt = compileCacheDirOpt
+                        )
+                        hashedLib = Hashed(
+                          Algo[Algo.Blake3].hashBytes(protoLib.toByteArray),
+                          protoLib
+                        )
+                        _ <-
+                          if (dryRun) moduleIOMonad.unit
+                          else cas.putIfAbsent(hashedLib)
+                      } yield (hashedLib, libOut, cc)
+                    }
+                    .parSequence
+                    .map { allLibs =>
+                      val libOuts = allLibs.iterator.map {
+                        case (_, (lib, path, _)) =>
+                          (Output.Library(lib.arg, path): Output[P])
+                      }
+                      val allOutputs =
+                        if (dryRun) libOuts
+                        else {
+                          // if we get here, we have successfully built all the libraries, now update the libconfig
+                          // and mutate those
+                          val confOuts = allLibs.values.iterator.map {
+                            case (hashedLib, _, cc) =>
+                              val uris = uriBaseOpt match {
+                                case None          => Nil
+                                case Some(uriBase) =>
+                                  val uriBase1 =
+                                    if (uriBase.endsWith("/")) uriBase
+                                    else s"${uriBase}/"
+                                  val uri = uriBase1 + Library.defaultFileName(
+                                    cc.conf.name,
+                                    cc.conf.nextVersion
+                                  )
+
+                                  uri :: Nil
+                              }
+                              val conf1 = cc.conf.copy(
+                                previous = Some(toDesc(hashedLib, uris)),
+                                next_version = cc.conf.nextVersion.nextPatch
                               )
 
-                              uri :: Nil
+                              confOutput(cc.confDir, conf1)
                           }
-                          val conf1 = cc.conf.copy(
-                            previous = Some(toDesc(hashedLib, uris)),
-                            next_version = cc.conf.nextVersion.nextPatch
-                          )
+                          libOuts ++ confOuts
+                        }
 
-                          confOutput(cc.confDir, conf1)
-                      }
-                      libOuts ++ confOuts
+                      Output.Many(Chain.fromIterableOnce(allOutputs))
                     }
 
-                  Output.Many(Chain.fromIterableOnce(allOutputs))
+                if (dryRun && cacheDirOpt.isDefined) {
+                  platformIO.withTempPrefix("publish_infer_cache") { tempCache =>
+                    publishAll(Some(tempCache))
+                  }
+                } else {
+                  publishAll(cacheDirOpt)
                 }
-
-              if (dryRun && cacheDirOpt.isDefined) {
-                platformIO.withTempPrefix("publish_infer_cache") { tempCache =>
-                  publishAll(Some(tempCache))
-                }
-              } else {
-                publishAll(cacheDirOpt)
               }
-            }
-          } yield (out: Output[P])
+            } yield (out: Output[P])
         }
       }
 
@@ -2965,7 +3006,7 @@ object Command {
 
       val versionCheck =
         requestedVersion match {
-          case None => Validated.validNec(())
+          case None                                 => Validated.validNec(())
           case Some(v) if cachedVersion.contains(v) =>
             Validated.validNec(())
           case Some(v) =>
@@ -3006,7 +3047,7 @@ object Command {
       ).parTupled
         .flatMap { case (pubLibs, privLibs) =>
           val cacheValidation = (pubLibs ::: privLibs).traverse_ {
-            case (_, None) => Validated.validNec(())
+            case (_, None)        => Validated.validNec(())
             case (dep, Some(lib)) =>
               validateCachedDependency(dep, lib).leftMap { mismatches =>
                 NonEmptyChain.one(cachedMismatchDoc(dep, lib, mismatches))
@@ -3026,7 +3067,7 @@ object Command {
                   )
                 )
               )
-            case Validated.Valid(_)     =>
+            case Validated.Valid(_) =>
               if (missingPubs.isEmpty && missingPrivs.isEmpty) {
                 moduleIOMonad.pure(
                   (
@@ -3090,13 +3131,14 @@ object Command {
     private def renderFetchError(err: Throwable): Doc =
       err match {
         case ce: CliException =>
-          val summary = Option(ce.getMessage).filter(_.nonEmpty).map(Doc.text(_))
+          val summary =
+            Option(ce.getMessage).filter(_.nonEmpty).map(Doc.text(_))
           summary match {
             case Some(summaryDoc) =>
               summaryDoc + (Doc.line + ce.errDoc).nested(2)
-            case None             => ce.errDoc
+            case None => ce.errDoc
           }
-        case other            =>
+        case other =>
           Doc.text(Option(other.getMessage).getOrElse(other.getClass.getName))
       }
 
@@ -3111,9 +3153,9 @@ object Command {
         platformIO
           .fileExists(path)
           .flatMap {
-            case true  =>
+            case true =>
               platformIO.readLibrary(path).attempt.map[DownloadRes] {
-                case Left(err) => Left(err)
+                case Left(err)  => Left(err)
                 case Right(lib) =>
                   validateCachedDependency(dep, lib)
                     .leftMap { mismatches =>
@@ -3138,9 +3180,13 @@ object Command {
                           case Left(e)  => ((e :: fails, false))
                         }
                         .handleError { e =>
-                          val message = Option(e.getMessage).getOrElse(e.toString)
+                          val message =
+                            Option(e.getMessage).getOrElse(e.toString)
                           (
-                            PlatformIO.FetchHashFailure.Network(uri, message) :: fails,
+                            PlatformIO.FetchHashFailure.Network(
+                              uri,
+                              message
+                            ) :: fails,
                             false
                           )
                         }
@@ -3218,13 +3264,11 @@ object Command {
       requireSuccessfulFetch(fs).as {
         if (quiet) Doc.text("")
         else {
-          val fetchedObjects = fs.toList
-            .flatMap { case (_, hashes) =>
-              hashes.toList.collect { case (wh, Right(true)) =>
-                wh.toIdent
-              }
+          val fetchedObjects = fs.toList.flatMap { case (_, hashes) =>
+            hashes.toList.collect { case (wh, Right(true)) =>
+              wh.toIdent
             }
-            .sorted
+          }.sorted
           val fetchCount = fetchedObjects.size
           val objectStr = if (fetchCount == 1) "object" else "objects"
           val summary = Doc.text(show"fetched $fetchCount $objectStr.")
@@ -3232,7 +3276,8 @@ object Command {
           else
             Doc.intercalate(
               Doc.hardLine,
-              fetchedObjects.map(ident => Doc.text(show"fetched $ident")) :+ summary
+              fetchedObjects
+                .map(ident => Doc.text(show"fetched $ident")) :+ summary
             )
         }
       }
