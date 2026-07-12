@@ -39,7 +39,7 @@ object Type {
       fullyResolvedDocument.document(t).render(80)
   }
 
-  private final case class ExitBound(vars: List[Type.Var.Bound])
+  final private case class ExitBound(vars: List[Type.Var.Bound])
 
   /** A type with no top level universal quantification.
     *
@@ -345,7 +345,8 @@ object Type {
       case Some(existsNel) =>
         // Callers may handle returned existentials independently from the
         // residual type, so keep binder names disjoint from retained universals.
-        val ex1 = Exists(existsNel, rho1).unshadow(foralls.iterator.map(_._1).toSet)
+        val ex1 =
+          Exists(existsNel, rho1).unshadow(foralls.iterator.map(_._1).toSet)
         (ex1.vars.toList, forAll(foralls, ex1.in))
     }
   }
@@ -425,8 +426,8 @@ object Type {
 
   /** Hoist forall binders out of unique covariant arguments.
     *
-    * This is the opposite direction of [[pushDownForAllCovariant]].
-    * We only hoist binders that appear in exactly one covariant argument.
+    * This is the opposite direction of [[pushDownForAllCovariant]]. We only
+    * hoist binders that appear in exactly one covariant argument.
     */
   def hoistForAllCovariant(
       tpe: Type,
@@ -446,32 +447,31 @@ object Type {
         val (hoistedRev, argsRev) =
           cargs.iterator.zipWithIndex.foldLeft(
             (List.empty[(Type.Var.Bound, Kind)], List.empty[Type])
-          ) {
-            case ((hoistedAccRev, argsAccRev), (arg, idx)) =>
-              val isCovariant =
-                kindArgs.lift(idx).exists(_.variance == Variance.co)
+          ) { case ((hoistedAccRev, argsAccRev), (arg, idx)) =>
+            val isCovariant =
+              kindArgs.lift(idx).exists(_.variance == Variance.co)
 
-              if (!isCovariant) (hoistedAccRev, arg :: argsAccRev)
-              else
-                arg match {
-                  case fa: ForAll =>
-                    val avoid =
-                      outerBoundSet ++
-                        hoistedAccRev.iterator.map(_._1).toSet ++
-                        freeByArg.iterator.zipWithIndex.collect {
-                          case (freeSet, i) if i != idx => freeSet
-                        }.flatten
-                    val fa1 = fa.unshadow(avoid)
-                    val (movable, blocked) =
-                      fa1.vars.toList.partition { case (b, _) => !avoid(b) }
-                    val arg1 = forAll(blocked, fa1.in)
-                    (
-                      movable.reverse_:::(hoistedAccRev),
-                      arg1 :: argsAccRev
-                    )
-                  case notForAll =>
-                    (hoistedAccRev, notForAll :: argsAccRev)
-                }
+            if (!isCovariant) (hoistedAccRev, arg :: argsAccRev)
+            else
+              arg match {
+                case fa: ForAll =>
+                  val avoid =
+                    outerBoundSet ++
+                      hoistedAccRev.iterator.map(_._1).toSet ++
+                      freeByArg.iterator.zipWithIndex.collect {
+                        case (freeSet, i) if i != idx => freeSet
+                      }.flatten
+                  val fa1 = fa.unshadow(avoid)
+                  val (movable, blocked) =
+                    fa1.vars.toList.partition { case (b, _) => !avoid(b) }
+                  val arg1 = forAll(blocked, fa1.in)
+                  (
+                    movable.reverse_:::(hoistedAccRev),
+                    arg1 :: argsAccRev
+                  )
+                case notForAll =>
+                  (hoistedAccRev, notForAll :: argsAccRev)
+              }
           }
 
         val hoisted = hoistedRev.reverse
@@ -491,7 +491,7 @@ object Type {
       case rho: (Leaf | TyApply) => TyApply(rho, arg)
       case ex: Exists            =>
         applyAll(ex, arg :: Nil) match {
-          case rho: Rho   => rho
+          case rho: Rho  => rho
           case _: ForAll =>
             sys.error(s"internal error: applyAll on Rho produced ForAll: $fn")
         }
@@ -684,11 +684,11 @@ object Type {
       in match {
         case TyApply(on, arg) =>
           containsType(on, target) || containsType(arg, target)
-        case ForAll(_, in1)   =>
+        case ForAll(_, in1) =>
           containsType(in1, target)
-        case Exists(_, in1)   =>
+        case Exists(_, in1) =>
           containsType(in1, target)
-        case _                =>
+        case _ =>
           false
       }
 
@@ -798,7 +798,9 @@ object Type {
   def packageNamesIn(t: Type): List[PackageName] =
     allConsts(t :: Nil).map(_.tpe.toDefined.packageName).distinct
 
-  private inline def exists[A](as: Iterable[A])(inline fn: A => Boolean): Boolean = {
+  private inline def exists[A](
+      as: Iterable[A]
+  )(inline fn: A => Boolean): Boolean = {
     var ex = false
     val iter = as.iterator
     while (!ex && iter.hasNext) {
@@ -807,7 +809,9 @@ object Type {
     ex
   }
 
-  private inline def forall[A](as: Iterable[A])(inline fn: A => Boolean): Boolean = {
+  private inline def forall[A](
+      as: Iterable[A]
+  )(inline fn: A => Boolean): Boolean = {
     var all = true
     val iter = as.iterator
     while (all && iter.hasNext) {
@@ -892,8 +896,8 @@ object Type {
 
     def renameRho(rho: Type.Rho): Type.Rho =
       rho match {
-        case leaf: Type.Leaf        => renameLeaf(leaf)
-        case Type.TyApply(on, a)    =>
+        case leaf: Type.Leaf     => renameLeaf(leaf)
+        case Type.TyApply(on, a) =>
           Type.TyApply(renameLeafApply(on), renameType(a))
         case Type.Exists(vars, in1) =>
           Type.Exists(vars, renameLeafApply(in1))
@@ -910,7 +914,7 @@ object Type {
   }
 
   /** A successful instantiation result from [[instantiate]].
-   *
+    *
     * `frees` are variables from the left side that remain universally
     * quantified. The mapped bound variable is the name that must appear on the
     * right side after alpha-renaming.
@@ -972,7 +976,9 @@ object Type {
       def removeFromFixed(keys: IterableOnce[Var.Bound]): State =
         copy(fromFixed = fromFixed -- keys)
 
-      def addFromFixed(keys: IterableOnce[(Var.Bound, (Kind, BoundState))]): State =
+      def addFromFixed(
+          keys: IterableOnce[(Var.Bound, (Kind, BoundState))]
+      ): State =
         copy(fromFixed = fromFixed ++ keys)
     }
 
@@ -1005,7 +1011,12 @@ object Type {
                   state.getFrom(fromB) match {
                     case Some((fromBKind, _))
                         if Kind.leftSubsumesRight(kind, fromBKind) =>
-                      Some(state.updatedTo(toB, (fromBKind, BoundState.Free(fromB))))
+                      Some(
+                        state.updatedTo(
+                          toB,
+                          (fromBKind, BoundState.Free(fromB))
+                        )
+                      )
                     case _ => None
                   }
                 case _ if freeVarsInScopeForToSolve(from, state) =>
@@ -1043,171 +1054,188 @@ object Type {
               }) =>
           loopSolveTo(from, toB, state)
         case _ =>
-        from match {
-          case TyVar(b: Var.Bound) =>
-          state.getFrom(b) match {
-            case Some((kind, opt)) =>
-              opt match {
-                case BoundState.Unknown =>
-                  to match {
-                    case tv @ TyVar(toB: Var.Bound) =>
-                      // `rightFrees` are RHS forall-bound names currently in scope.
-                      // If we bind `b` to one of these names, we must remember the
-                      // exact name so later occurrences of `b` are forced to the same
-                      // RHS binder (not just any same-kinded binder).
-                      state.rightFrees.get(toB) match {
-                        case Some(toBKind) =>
-                          if (Kind.leftSubsumesRight(kind, toBKind)) {
-                            Some(state.updatedFrom(b, (toBKind, BoundState.Free(toB))))
-                          } else None
-                        case None =>
-                          // `env` vars are fixed names already in scope on the RHS.
-                          // Matching against them is a concrete substitution, not a
-                          // free RHS-forall witness, so store as Fixed(TyVar(toB)).
-                          env.get(toB) match {
-                            case Some(toBKind)
-                                if (Kind.leftSubsumesRight(kind, toBKind)) =>
-                              Some(
-                                state.updatedFrom(b, (toBKind, BoundState.Fixed(tv)))
-                              )
-                            case _ =>
-                              state.getTo(toB) match {
-                                case Some((toBKind, _))
-                                    if (Kind.leftSubsumesRight(kind, toBKind)) =>
-                                  // RHS existential var: keep a symbolic link from
-                                  // the left var to this right var. If the right var
-                                  // later solves, we compose that into fromSubs at
-                                  // result extraction.
-                                  Some(
-                                    state.updatedFrom(b, (toBKind, BoundState.Free(toB)))
+          from match {
+            case TyVar(b: Var.Bound) =>
+              state.getFrom(b) match {
+                case Some((kind, opt)) =>
+                  opt match {
+                    case BoundState.Unknown =>
+                      to match {
+                        case tv @ TyVar(toB: Var.Bound) =>
+                          // `rightFrees` are RHS forall-bound names currently in scope.
+                          // If we bind `b` to one of these names, we must remember the
+                          // exact name so later occurrences of `b` are forced to the same
+                          // RHS binder (not just any same-kinded binder).
+                          state.rightFrees.get(toB) match {
+                            case Some(toBKind) =>
+                              if (Kind.leftSubsumesRight(kind, toBKind)) {
+                                Some(
+                                  state.updatedFrom(
+                                    b,
+                                    (toBKind, BoundState.Free(toB))
                                   )
-                                case _ => None
+                                )
+                              } else None
+                            case None =>
+                              // `env` vars are fixed names already in scope on the RHS.
+                              // Matching against them is a concrete substitution, not a
+                              // free RHS-forall witness, so store as Fixed(TyVar(toB)).
+                              env.get(toB) match {
+                                case Some(toBKind)
+                                    if (Kind
+                                      .leftSubsumesRight(kind, toBKind)) =>
+                                  Some(
+                                    state.updatedFrom(
+                                      b,
+                                      (toBKind, BoundState.Fixed(tv))
+                                    )
+                                  )
+                                case _ =>
+                                  state.getTo(toB) match {
+                                    case Some((toBKind, _))
+                                        if (Kind
+                                          .leftSubsumesRight(kind, toBKind)) =>
+                                      // RHS existential var: keep a symbolic link from
+                                      // the left var to this right var. If the right var
+                                      // later solves, we compose that into fromSubs at
+                                      // result extraction.
+                                      Some(
+                                        state.updatedFrom(
+                                          b,
+                                          (toBKind, BoundState.Free(toB))
+                                        )
+                                      )
+                                    case _ => None
+                                  }
                               }
+                            // don't set to vars to non-free bound variables
+                            // this shouldn't happen in real inference
                           }
-                        // don't set to vars to non-free bound variables
-                        // this shouldn't happen in real inference
+                        case _ if freeVarsInScopeForFromSolve(to, state) =>
+                          // We only allow non-variable substitutions that are closed with
+                          // respect to out-of-scope binders. RHS foralls currently in
+                          // scope (`rightFrees`) and RHS solver vars (`toFixed`) are
+                          // safe to reference.
+                          Some(
+                            state.updatedFrom(b, (kind, BoundState.Fixed(to)))
+                          )
+                        case _ => None
                       }
-                    case _ if freeVarsInScopeForFromSolve(to, state) =>
-                      // We only allow non-variable substitutions that are closed with
-                      // respect to out-of-scope binders. RHS foralls currently in
-                      // scope (`rightFrees`) and RHS solver vars (`toFixed`) are
-                      // safe to reference.
-                      Some(state.updatedFrom(b, (kind, BoundState.Fixed(to))))
-                    case _ => None
+                    case BoundState.Fixed(set) =>
+                      if (set.sameAs(to)) Some(state)
+                      else None
+                    case BoundState.Free(rightName) =>
+                      // `b` was previously matched to a specific RHS forall binder.
+                      // Keep that identity stable across repeated uses of `b`
+                      // (e.g. `a -> a` cannot match `x -> y`).
+                      to match {
+                        case TyVar(toB: Var.Bound) if rightName === toB =>
+                          Some(state)
+                        case _ => None
+                      }
                   }
-                case BoundState.Fixed(set) =>
-                  if (set.sameAs(to)) Some(state)
-                  else None
-                case BoundState.Free(rightName) =>
-                  // `b` was previously matched to a specific RHS forall binder.
-                  // Keep that identity stable across repeated uses of `b`
-                  // (e.g. `a -> a` cannot match `x -> y`).
-                  to match {
-                    case TyVar(toB: Var.Bound) if rightName === toB =>
-                      Some(state)
-                    case _ => None
+                case None =>
+                  // not a variable, we can use, but also not the same as the right
+                  None
+              }
+            case TyApply(a, b) =>
+              to match {
+                case TyApply(ta, tb) =>
+                  // Descend structurally on both sides of application. This is sound
+                  // because nested left-side quantifiers do not become instantiation
+                  // variables: the ForAll branch below removes those binders from the
+                  // `fixed` map while recursing and restores any outer solutions after.
+                  // So argument-position recursion cannot "lift" inner left binders
+                  // into top-level frees/substitutions.
+                  loop(a, ta, state).flatMap { s1 =>
+                    loop(b, tb, s1)
                   }
-              }
-            case None =>
-              // not a variable, we can use, but also not the same as the right
-              None
-          }
-        case TyApply(a, b) =>
-          to match {
-            case TyApply(ta, tb) =>
-              // Descend structurally on both sides of application. This is sound
-              // because nested left-side quantifiers do not become instantiation
-              // variables: the ForAll branch below removes those binders from the
-              // `fixed` map while recursing and restores any outer solutions after.
-              // So argument-position recursion cannot "lift" inner left binders
-              // into top-level frees/substitutions.
-              loop(a, ta, state).flatMap { s1 =>
-                loop(b, tb, s1)
-              }
-            case fa: ForAll =>
-              val fa1 = fa.unshadow(state.rightFrees.keySet ++ env.keySet)
+                case fa: ForAll =>
+                  val fa1 = fa.unshadow(state.rightFrees.keySet ++ env.keySet)
 
-              loop(
-                from,
-                fa1.in,
-                state.copy(rightFrees =
-                  state.rightFrees ++ fa1.vars.iterator
-                )
-              )
-                .map { s1 =>
-                  s1.copy(rightFrees = state.rightFrees)
+                  loop(
+                    from,
+                    fa1.in,
+                    state.copy(rightFrees =
+                      state.rightFrees ++ fa1.vars.iterator
+                    )
+                  )
+                    .map { s1 =>
+                      s1.copy(rightFrees = state.rightFrees)
+                    }
+                case _ => None
+              }
+            case ForAll(shadows, from1) =>
+              // These binders are local to `from1`; they are rigid and cannot be solved
+              // as top-level instantiation variables. Remove any colliding entries while
+              // descending, then restore only the previous outer state on return.
+              val noShadow = state.removeFromFixed(shadows.iterator.map(_._1))
+              loop(from1, to, noShadow).map { s1 =>
+                s1.addFromFixed(shadows.iterator.flatMap { case (v, _) =>
+                  state.getFrom(v).map(v -> _)
+                })
+              }
+            case _ =>
+              // We can't use sameAt to compare Var.Bound since we know the variances
+              // there.
+              // If we only matched via sameAs, unresolved Unknown vars that are free
+              // in `from` would be unsound (they later round-trip as quantified frees).
+              if (from.sameAs(to)) {
+                val hasUnknown = exists(state.fromFixed) {
+                  case (_, (_, BoundState.Unknown)) => true
+                  case _                            => false
                 }
-            case _ => None
-          }
-        case ForAll(shadows, from1) =>
-          // These binders are local to `from1`; they are rigid and cannot be solved
-          // as top-level instantiation variables. Remove any colliding entries while
-          // descending, then restore only the previous outer state on return.
-          val noShadow = state.removeFromFixed(shadows.iterator.map(_._1))
-          loop(from1, to, noShadow).map { s1 =>
-            s1.addFromFixed(shadows.iterator.flatMap { case (v, _) =>
-              state.getFrom(v).map(v -> _)
-            })
-          }
-        case _ =>
-          // We can't use sameAt to compare Var.Bound since we know the variances
-          // there.
-          // If we only matched via sameAs, unresolved Unknown vars that are free
-          // in `from` would be unsound (they later round-trip as quantified frees).
-          if (from.sameAs(to)) {
-            val hasUnknown = exists(state.fromFixed) {
-              case (_, (_, BoundState.Unknown)) => true
-              case _                            => false
-            }
 
-            if (!hasUnknown) Some(state)
-            else {
-              val free = freeBoundTyVars(from :: Nil).toSet
-              val bad = exists(state.fromFixed) {
-                case (b, (_, BoundState.Unknown)) => free(b)
-                case _                            => false
-              }
-              if (bad) None else Some(state)
-            }
-          } else None
-      }
+                if (!hasUnknown) Some(state)
+                else {
+                  val free = freeBoundTyVars(from :: Nil).toSet
+                  val bad = exists(state.fromFixed) {
+                    case (b, (_, BoundState.Unknown)) => free(b)
+                    case _                            => false
+                  }
+                  if (bad) None else Some(state)
+                }
+              } else None
+          }
       }
 
     val initState = State(
       fromFixed =
         vars.iterator.map { case (v, a) => (v, (a, BoundState.Unknown)) }.toMap,
-      toFixed =
-        toVars.iterator.map { case (v, a) => (v, (a, BoundState.Unknown)) }.toMap,
+      toFixed = toVars.iterator.map { case (v, a) =>
+        (v, (a, BoundState.Unknown))
+      }.toMap,
       rightFrees = Map.empty
     )
 
     loop(from, to, initState)
       .map { state =>
-        val toSubMap: Map[Type.Var, Type] = state.toFixed.iterator
-          .collect { case (t, (_, BoundState.Fixed(f))) =>
+        val toSubMap: Map[Type.Var, Type] = state.toFixed.iterator.collect {
+          case (t, (_, BoundState.Fixed(f))) =>
             (t: Type.Var) -> f
-          }
-          .toMap
+        }.toMap
 
         // Compose left substitutions through solved right existentials so callers
         // see fully-materialized from-side substitutions when possible.
-        val fromSubs = state.fromFixed.iterator.flatMap {
-          case (t, (k, BoundState.Fixed(f))) =>
-            Some((t, (k, substituteVar(f, toSubMap))))
-          case (t, (k, BoundState.Free(t1))) =>
-            toSubMap.get(t1).map { solved =>
-              (t, (k, substituteVar(solved, toSubMap)))
-            }
-          case (_, (_, BoundState.Unknown)) =>
-            None
-        }.to(SortedMap)
+        val fromSubs = state.fromFixed.iterator
+          .flatMap {
+            case (t, (k, BoundState.Fixed(f))) =>
+              Some((t, (k, substituteVar(f, toSubMap))))
+            case (t, (k, BoundState.Free(t1))) =>
+              toSubMap.get(t1).map { solved =>
+                (t, (k, substituteVar(solved, toSubMap)))
+              }
+            case (_, (_, BoundState.Unknown)) =>
+              None
+          }
+          .to(SortedMap)
 
         Instantiation(
           frees = state.fromFixed.iterator
             .collect {
               case (t, (k, BoundState.Free(t1))) if !toSubMap.contains(t1) =>
                 (t, (k, t1))
-              case (t, (k, BoundState.Unknown))  => (t, (k, t))
+              case (t, (k, BoundState.Unknown)) => (t, (k, t))
             }
             .to(SortedMap),
           subs = fromSubs,
@@ -1235,11 +1263,10 @@ object Type {
     val check = scala.collection.mutable.ArrayDeque.empty[Type | ExitBound]
     val boundCount = scala.collection.mutable.HashMap.empty[Type.Var.Bound, Int]
 
-    inline def foreach[A](iter: Iterator[A])(inline fn: A => Unit): Unit = {
+    inline def foreach[A](iter: Iterator[A])(inline fn: A => Unit): Unit =
       while (iter.hasNext) {
         fn(iter.next())
       }
-    }
 
     inline def record(tv: Type.Var): Unit =
       if (seen.add(tv)) acc += tv
@@ -1957,7 +1984,7 @@ object Type {
       t: Type
   )(m: Meta => F[Option[Type.Tau]]): F[Type] =
     t match {
-      case rho: Rho         => zonkRhoMeta(rho)(m).widen
+      case rho: Rho              => zonkRhoMeta(rho)(m).widen
       case fa @ ForAll(vars, in) =>
         zonkRhoMeta(in)(m).map { tpe =>
           if (tpe eq in) fa
@@ -1982,7 +2009,7 @@ object Type {
           case (la: (Leaf | TyApply), arg1) =>
             if ((la eq on) && (arg1 eq arg)) ta
             else TyApply(la, arg1)
-          case (e: Exists, arg1)            =>
+          case (e: Exists, arg1) =>
             // zonking replaced an inner Leaf | TyApply with an exists, but
             // it may shadow values in arg. We need to lift it out
             // but without pulling arg into the exists.

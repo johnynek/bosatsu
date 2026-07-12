@@ -1,6 +1,15 @@
 package dev.bosatsu.rankn
 
-import dev.bosatsu.{Expr, HasRegion, Identifier, Lit, PackageName, Platform, RecursionKind, Region}
+import dev.bosatsu.{
+  Expr,
+  HasRegion,
+  Identifier,
+  Lit,
+  PackageName,
+  Platform,
+  RecursionKind,
+  Region
+}
 
 class NameCheckStackSafetyTest extends munit.FunSuite {
   private val pack = PackageName.parts("NameCheck", "Stack")
@@ -9,7 +18,11 @@ class NameCheckStackSafetyTest extends munit.FunSuite {
 
   private def deepListExpr(depth: Int): Expr[Unit] = {
     val empty =
-      Expr.Global(PackageName.PredefName, Identifier.Constructor("EmptyList"), ())
+      Expr.Global(
+        PackageName.PredefName,
+        Identifier.Constructor("EmptyList"),
+        ()
+      )
     val cons =
       Expr.Global(
         PackageName.PredefName,

@@ -10,8 +10,8 @@ class SExprParserTest extends munit.ScalaCheckSuite {
     (('a' to 'z') ++
       ('A' to 'Z') ++
       ('0' to '9') ++
-      Seq('_', '-', '+', '*', '/', '=', '<', '>', '?', '!', '~', '$', '%', '&', '^', ':', '.'))
-      .toVector
+      Seq('_', '-', '+', '*', '/', '=', '<', '>', '?', '!', '~', '$', '%', '&',
+        '^', ':', '.')).toVector
 
   private val atomCharGen: Gen[Char] =
     Gen.oneOf(atomChars)

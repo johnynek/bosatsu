@@ -55,10 +55,12 @@ class ExternalNamespaceTest extends munit.FunSuite {
           bindable: Identifier.Bindable
       ): Option[Package.TestEntry[Any]] =
         None
-      def testEntries
-          : Map[PackageName, Either[Package.TestDiscoveryError, Package.TestEntry[
-            Any
-          ]]] =
+      def testEntries: Map[
+        PackageName,
+        Either[Package.TestDiscoveryError, Package.TestEntry[
+          Any
+        ]]
+      ] =
         Map.empty
       def mainValues(
           mainTypeFn: Type => Boolean
