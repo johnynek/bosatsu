@@ -64,9 +64,9 @@ class TypeTest extends munit.ScalaCheckSuite {
     }
 
   private def oneOfGenerators[A](values: Vector[Gen[A]]): Option[Gen[A]] =
-    NonEmptyList.fromList(values.toList).map(nel =>
-      Gen.oneOf(nel.toList).flatMap(identity)
-    )
+    NonEmptyList
+      .fromList(values.toList)
+      .map(nel => Gen.oneOf(nel.toList).flatMap(identity))
 
   private val genKindArgForTypeEnv: Gen[Kind.Arg] =
     Gen.oneOf(Kind.Type.co, Kind.Type.in, Kind.Type.contra, Kind.Type.phantom)
@@ -195,8 +195,9 @@ class TypeTest extends munit.ScalaCheckSuite {
     val kindOf = Type.kindOfOption(tc => kinds.get(tc.tpe.toDefined))
     instantiation.subs.iterator.exists { case (_, (expectedKind, tpe)) =>
       kindOf(tpe) match {
-        case Some(actualKind) => !Kind.leftSubsumesRight(expectedKind, actualKind)
-        case None             => true
+        case Some(actualKind) =>
+          !Kind.leftSubsumesRight(expectedKind, actualKind)
+        case None => true
       }
     }
   }
@@ -244,7 +245,7 @@ class TypeTest extends munit.ScalaCheckSuite {
     @annotation.tailrec
     def go(check: List[Type], acc: SortedSet[Type.Meta]): SortedSet[Type.Meta] =
       check match {
-        case Nil                         => acc
+        case Nil                        => acc
         case Type.ForAll(_, r) :: tail  => go(r :: tail, acc)
         case Type.Exists(_, r) :: tail  => go(r :: tail, acc)
         case Type.TyApply(a, r) :: tail => go(a :: r :: tail, acc)
@@ -350,7 +351,9 @@ class TypeTest extends munit.ScalaCheckSuite {
       id <- Gen.chooseNum(0L, 10000L)
       kind <- NTypeGen.genKind
       ex <- Gen.oneOf(true, false)
-    } yield Type.TyMeta(Type.Meta(kind, id, ex, RefSpace.constRef(Option.empty)))
+    } yield Type.TyMeta(
+      Type.Meta(kind, id, ex, RefSpace.constRef(Option.empty))
+    )
 
   private def genLeafWithMeta: Gen[Type.Leaf] =
     Gen.frequency(
@@ -358,7 +361,9 @@ class TypeTest extends munit.ScalaCheckSuite {
       (2, genMetaLeaf)
     )
 
-  private def genLeafOrApplyWithMeta(depth: Int): Gen[Type.Leaf | Type.TyApply] =
+  private def genLeafOrApplyWithMeta(
+      depth: Int
+  ): Gen[Type.Leaf | Type.TyApply] =
     if (depth <= 0) genLeafWithMeta
     else {
       val recurLA = Gen.lzy(genLeafOrApplyWithMeta(depth - 1))
@@ -402,15 +407,18 @@ class TypeTest extends munit.ScalaCheckSuite {
   private def genMetaLookup(
       t: Type
   ): Gen[Map[(Long, Boolean, Kind), Option[Type.Tau]]] =
-    Type.metaTvs(t :: Nil).toList.foldLeft(
-      Gen.const(Map.empty[(Long, Boolean, Kind), Option[Type.Tau]])
-    ) { (accG, m) =>
-      accG.flatMap { acc =>
-        Gen.option(genTauWithMeta).map { opt =>
-          acc.updated(metaKey(m), opt)
+    Type
+      .metaTvs(t :: Nil)
+      .toList
+      .foldLeft(
+        Gen.const(Map.empty[(Long, Boolean, Kind), Option[Type.Tau]])
+      ) { (accG, m) =>
+        accG.flatMap { acc =>
+          Gen.option(genTauWithMeta).map { opt =>
+            acc.updated(metaKey(m), opt)
+          }
         }
       }
-    }
 
   private def zonkMetaReference(
       t: Type
@@ -418,7 +426,7 @@ class TypeTest extends munit.ScalaCheckSuite {
       m: Type.Meta => Option[Option[Type.Tau]]
   ): Option[Type] =
     t match {
-      case rho: Type.Rho => zonkRhoMetaReference(rho)(m)
+      case rho: Type.Rho         => zonkRhoMetaReference(rho)(m)
       case Type.ForAll(vars, in) =>
         zonkRhoMetaReference(in)(m).map(Type.forAll(vars, _))
     }
@@ -435,7 +443,7 @@ class TypeTest extends munit.ScalaCheckSuite {
         (zonkRhoMetaReference(on)(mfn), zonkMetaReference(arg)(mfn)).mapN {
           case (la: (Type.Leaf | Type.TyApply), arg1) =>
             Type.TyApply(la, arg1)
-          case (e: Type.Exists, arg1)                 =>
+          case (e: Type.Exists, arg1) =>
             val e1 = e.unshadow(Type.freeTyVars(arg1 :: Nil).toSet)
             Type.existsRho(e1.vars, Type.TyApply(e1.in, arg1))
         }
@@ -464,7 +472,9 @@ class TypeTest extends munit.ScalaCheckSuite {
 
   test("Type.apply1Rho agrees with Type.apply1 on rho inputs") {
     val genRho =
-      Gen.choose(0, 3).flatMap(d => NTypeGen.genTypeRho(d, Some(NTypeGen.genConst)))
+      Gen
+        .choose(0, 3)
+        .flatMap(d => NTypeGen.genTypeRho(d, Some(NTypeGen.genConst)))
 
     forAll(genRho, NTypeGen.genDepth03) { (fn, arg) =>
       assertEquals(Type.apply1Rho(fn, arg), Type.apply1(fn, arg))
@@ -1207,11 +1217,19 @@ class TypeTest extends munit.ScalaCheckSuite {
     forAll(NTypeGen.genDepth03, NTypeGen.genDepth03) { (t1, t2) =>
       t1 match {
         case Type.ForAll(fas, t) =>
-          Type.instantiate(fas.iterator.toMap, t, Map.empty, t2, Map.empty) match {
+          Type.instantiate(
+            fas.iterator.toMap,
+            t,
+            Map.empty,
+            t2,
+            Map.empty
+          ) match {
             case Some(instantiation) =>
               val t3 = Type.substituteVar(
                 t,
-                instantiation.subs.iterator.map { case (k, (_, v)) => (k, v) }.toMap
+                instantiation.subs.iterator.map { case (k, (_, v)) =>
+                  (k, v)
+                }.toMap
               )
 
               val t4 = Type.substituteVar(
@@ -1238,7 +1256,9 @@ class TypeTest extends munit.ScalaCheckSuite {
     }
   }
 
-  test("instantiate regression: forall/exists sameAs round-trip from seed AdQaLIO...") {
+  test(
+    "instantiate regression: forall/exists sameAs round-trip from seed AdQaLIO..."
+  ) {
     val w = Type.Var.Bound("w")
     val dvhi = Type.Var.Bound("dvhi")
     val qhkmPwusm = Type.Var.Bound("qhkmPwusm")
@@ -1300,13 +1320,14 @@ class TypeTest extends munit.ScalaCheckSuite {
         )
         val t4 = Type.substituteVar(
           t3,
-          instantiation.frees.iterator
-            .map { case (v1, (_, v2)) => (v1, Type.TyVar(v2)) }
-            .toMap
+          instantiation.frees.iterator.map { case (v1, (_, v2)) =>
+            (v1, Type.TyVar(v2))
+          }.toMap
         )
         val t5 = Type.quantify(
-          forallList =
-            instantiation.frees.iterator.map { case (_, tup) => tup.swap }.toList,
+          forallList = instantiation.frees.iterator.map { case (_, tup) =>
+            tup.swap
+          }.toList,
           existList = Nil,
           t4
         )
@@ -1325,7 +1346,13 @@ class TypeTest extends munit.ScalaCheckSuite {
     ) = {
       val Type.ForAll(fas, t) = parse(forall).runtimeChecked
       val targ = parse(matches)
-      Type.instantiate(fas.iterator.toMap, t, Map.empty, targ, Map.empty) match {
+      Type.instantiate(
+        fas.iterator.toMap,
+        t,
+        Map.empty,
+        targ,
+        Map.empty
+      ) match {
         case Some(instantiation) =>
           assertEquals(instantiation.frees.size, frees.size)
           frees.foreach { case (k, v) =>
@@ -1348,7 +1375,8 @@ class TypeTest extends munit.ScalaCheckSuite {
     def noSub(forall: String, matches: String) = {
       val Type.ForAll(fas, t) = parse(forall).runtimeChecked
       val targ = parse(matches)
-      val res = Type.instantiate(fas.iterator.toMap, t, Map.empty, targ, Map.empty)
+      val res =
+        Type.instantiate(fas.iterator.toMap, t, Map.empty, targ, Map.empty)
       assertEquals(res, None)
     }
 
@@ -1401,12 +1429,18 @@ class TypeTest extends munit.ScalaCheckSuite {
       List("a" -> "T::Opt[a]")
     )
 
-    check("forall a. T::Foo[a, a]", "forall b. T::Foo[b, b]", List("a" -> "b"), Nil)
+    check(
+      "forall a. T::Foo[a, a]",
+      "forall b. T::Foo[b, b]",
+      List("a" -> "b"),
+      Nil
+    )
   }
 
   test("instantiate/subsumption depends on having kind information") {
     val fromStr = "forall a, b. (a, b)"
-    val toStr = "(Bosatsu/Predef::Bool, Bosatsu/Predef::Option[Bosatsu/Predef::Int])"
+    val toStr =
+      "(Bosatsu/Predef::Bool, Bosatsu/Predef::Option[Bosatsu/Predef::Int])"
 
     val Type.ForAll(fas, in) = parse(fromStr).runtimeChecked
     val from = Type.ForAll(fas, in)
@@ -1448,7 +1482,8 @@ class TypeTest extends munit.ScalaCheckSuite {
     def ok(from: String, matches: String) = {
       val Type.ForAll(fas, t) = parse(from).runtimeChecked
       val targ = parse(matches)
-      val res = Type.instantiate(fas.iterator.toMap, t, Map.empty, targ, Map.empty)
+      val res =
+        Type.instantiate(fas.iterator.toMap, t, Map.empty, targ, Map.empty)
       assert(res.nonEmpty, s"could not instantiate: $from to $matches")
     }
 
@@ -1467,7 +1502,8 @@ class TypeTest extends munit.ScalaCheckSuite {
     // Regression guard: shadowing inside nested forall in tuple position.
     val Type.ForAll(fas, t) = parse("forall b, c. (b, c)").runtimeChecked
     val targ = parse("forall a. (a, forall a. a)")
-    val res = Type.instantiate(fas.iterator.toMap, t, Map.empty, targ, Map.empty)
+    val res =
+      Type.instantiate(fas.iterator.toMap, t, Map.empty, targ, Map.empty)
     assert(res.nonEmpty, s"could not instantiate: $t to $targ")
   }
 
@@ -1708,7 +1744,9 @@ class TypeTest extends munit.ScalaCheckSuite {
     )
   }
 
-  test("instantiate law: rhs exists a. a is always solvable for well-kinded types") {
+  test(
+    "instantiate law: rhs exists a. a is always solvable for well-kinded types"
+  ) {
     val a = Type.Var.Bound("_inst_rhs_top")
 
     forAll(genValidTypeAndEnv) { case (t, typeEnv) =>
@@ -1725,7 +1763,9 @@ class TypeTest extends munit.ScalaCheckSuite {
     }
   }
 
-  test("instantiate law: lhs forall a. a is always solvable for well-kinded types") {
+  test(
+    "instantiate law: lhs forall a. a is always solvable for well-kinded types"
+  ) {
     val a = Type.Var.Bound("_inst_lhs_bot")
 
     forAll(genValidTypeAndEnv) { case (t, typeEnv) =>
@@ -1788,7 +1828,9 @@ class TypeTest extends munit.ScalaCheckSuite {
 
   test("ForAll.unshadow is a no-op without collisions") {
     val genForAll =
-      Gen.choose(1, 3).flatMap(d => NTypeGen.genForAll(d, Some(NTypeGen.genConst)))
+      Gen
+        .choose(1, 3)
+        .flatMap(d => NTypeGen.genForAll(d, Some(NTypeGen.genConst)))
     val genOtherVars: Gen[Set[Type.Var.Bound]] =
       Gen.listOf(NTypeGen.genBound).map(_.toSet)
 
@@ -1817,7 +1859,9 @@ class TypeTest extends munit.ScalaCheckSuite {
 
   test("ForAll.unshadow avoids capturing free vars in the body") {
     val genForAll =
-      Gen.choose(1, 3).flatMap(d => NTypeGen.genForAll(d, Some(NTypeGen.genConst)))
+      Gen
+        .choose(1, 3)
+        .flatMap(d => NTypeGen.genForAll(d, Some(NTypeGen.genConst)))
 
     forAll(genForAll) { fa =>
       val bound0 = fa.vars.iterator.map(_._1).toSet
@@ -1853,9 +1897,13 @@ class TypeTest extends munit.ScalaCheckSuite {
     }
   }
 
-  test("ForAll.unshadow always returns a type that is sameAs the original type") {
+  test(
+    "ForAll.unshadow always returns a type that is sameAs the original type"
+  ) {
     val genForAll =
-      Gen.choose(1, 3).flatMap(d => NTypeGen.genForAll(d, Some(NTypeGen.genConst)))
+      Gen
+        .choose(1, 3)
+        .flatMap(d => NTypeGen.genForAll(d, Some(NTypeGen.genConst)))
     val genOtherVars: Gen[Set[Type.Var.Bound]] =
       Gen.listOf(NTypeGen.genBound).map(_.toSet)
 
@@ -1866,7 +1914,9 @@ class TypeTest extends munit.ScalaCheckSuite {
 
   test("Exists.unshadow is a no-op without collisions") {
     val genExists =
-      Gen.choose(1, 3).flatMap(d => NTypeGen.genExists(d, Some(NTypeGen.genConst)))
+      Gen
+        .choose(1, 3)
+        .flatMap(d => NTypeGen.genExists(d, Some(NTypeGen.genConst)))
     val genOtherVars: Gen[Set[Type.Var.Bound]] =
       Gen.listOf(NTypeGen.genBound).map(_.toSet)
 
@@ -1881,7 +1931,9 @@ class TypeTest extends munit.ScalaCheckSuite {
 
   test("Exists.unshadow avoids capturing free vars in the body") {
     val genExists =
-      Gen.choose(1, 3).flatMap(d => NTypeGen.genExists(d, Some(NTypeGen.genConst)))
+      Gen
+        .choose(1, 3)
+        .flatMap(d => NTypeGen.genExists(d, Some(NTypeGen.genConst)))
 
     forAll(genExists) { ex =>
       val bound0 = ex.vars.iterator.map(_._1).toSet
@@ -1897,9 +1949,13 @@ class TypeTest extends munit.ScalaCheckSuite {
     }
   }
 
-  test("Exists.unshadow always returns a type that is sameAs the original type") {
+  test(
+    "Exists.unshadow always returns a type that is sameAs the original type"
+  ) {
     val genExists =
-      Gen.choose(1, 3).flatMap(d => NTypeGen.genExists(d, Some(NTypeGen.genConst)))
+      Gen
+        .choose(1, 3)
+        .flatMap(d => NTypeGen.genExists(d, Some(NTypeGen.genConst)))
     val genOtherVars: Gen[Set[Type.Var.Bound]] =
       Gen.listOf(NTypeGen.genBound).map(_.toSet)
 
@@ -1934,9 +1990,13 @@ class TypeTest extends munit.ScalaCheckSuite {
 
   test("genForAll and genExists always use generated binders") {
     val genForAll =
-      Gen.choose(1, 3).flatMap(d => NTypeGen.genForAll(d, Some(NTypeGen.genConst)))
+      Gen
+        .choose(1, 3)
+        .flatMap(d => NTypeGen.genForAll(d, Some(NTypeGen.genConst)))
     val genExists =
-      Gen.choose(1, 3).flatMap(d => NTypeGen.genExists(d, Some(NTypeGen.genConst)))
+      Gen
+        .choose(1, 3)
+        .flatMap(d => NTypeGen.genExists(d, Some(NTypeGen.genConst)))
 
     val genForAllProp = forAll(genForAll) { fa =>
       val free = Type.freeBoundTyVars(fa.in :: Nil).toSet
@@ -1985,7 +2045,9 @@ class TypeTest extends munit.ScalaCheckSuite {
     }
   }
 
-  test("Type.forAll and Type.exists can be no-ops with independent quantifiers") {
+  test(
+    "Type.forAll and Type.exists can be no-ops with independent quantifiers"
+  ) {
     val unused = Type.Var.Bound("_unused_quantifier")
     val genUnused = NTypeGen.genQuantifiers(Gen.const(unused))
 

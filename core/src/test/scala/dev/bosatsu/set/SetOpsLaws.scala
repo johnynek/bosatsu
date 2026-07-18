@@ -556,14 +556,14 @@ class SetOpsTests extends munit.ScalaCheckSuite {
 
     def applyOne(state: Int, diff: Diff): Int =
       (state, diff) match {
-        case (0, _)    => 0
-        case (1, 'a')  => 0
-        case (1, 'b')  => 0
-        case (1, 'c')  => 2
-        case (2, 'a')  => 2
-        case (2, 'b')  => 1
-        case (2, 'c')  => 0
-        case _         => fail("invalid test state")
+        case (0, _)   => 0
+        case (1, 'a') => 0
+        case (1, 'b') => 0
+        case (1, 'c') => 2
+        case (2, 'a') => 2
+        case (2, 'b') => 1
+        case (2, 'c') => 0
+        case _        => fail("invalid test state")
       }
 
     def applyMany(state: Int, ds: List[Diff]): Int =
@@ -584,7 +584,9 @@ class SetOpsTests extends munit.ScalaCheckSuite {
           }
           val smallest = trials.iterator.minBy(_._1)
           val best = trials
-            .collect { case (u1, p) if Ordering[Int].equiv(u1, smallest._1) => p }
+            .collect {
+              case (u1, p) if Ordering[Int].equiv(u1, smallest._1) => p
+            }
             .groupBy(identity)
             .map { case (k, v) => (k, v.size) }
             .maxBy(_._2)
@@ -597,9 +599,8 @@ class SetOpsTests extends munit.ScalaCheckSuite {
     val expected = referenceGreedySearch(2, start, diffs)
     assertEquals(expected, 0)
 
-    val actual = SetOps.greedySearch(2, start, diffs)((state, ds) =>
-      applyMany(state, ds)
-    )
+    val actual =
+      SetOps.greedySearch(2, start, diffs)((state, ds) => applyMany(state, ds))
     assertEquals(actual, expected)
   }
 

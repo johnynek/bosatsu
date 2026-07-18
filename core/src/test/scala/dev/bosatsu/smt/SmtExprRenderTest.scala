@@ -9,14 +9,15 @@ class SmtExprRenderTest extends munit.ScalaCheckSuite {
   private val firstSymbolChars: Vector[Char] =
     (('a' to 'z') ++
       ('A' to 'Z') ++
-      Seq('_', '~', '!', '@', '$', '%', '^', '&', '*', '+', '=', '<', '>', '.', '?', '/', '-'))
-      .toVector
+      Seq('_', '~', '!', '@', '$', '%', '^', '&', '*', '+', '=', '<', '>', '.',
+        '?', '/', '-')).toVector
 
   private val restSymbolChars: Vector[Char] =
     (firstSymbolChars ++ ('0' to '9')).toVector
 
   private val escapedSymbolChars: Vector[Char] =
-    (('a' to 'z') ++ ('0' to '9') ++ Seq(' ', ':', '#', ',', '[', ']', '(', ')', '|')).toVector
+    (('a' to 'z') ++ ('0' to '9') ++ Seq(' ', ':', '#', ',', '[', ']', '(', ')',
+      '|')).toVector
 
   private val bareSymbolGen: Gen[String] =
     for {

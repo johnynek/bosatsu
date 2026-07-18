@@ -6,7 +6,15 @@ import java.math.BigInteger
 import java.nio.charset.StandardCharsets
 import dev.bosatsu.codegen.{CompilationNamespace, CompilationSource, Idents}
 import dev.bosatsu.rankn.{DataRepr, Type}
-import dev.bosatsu.{Identifier, InSetCompiler, Lit, Matchless, Package, Predef, PackageName}
+import dev.bosatsu.{
+  Identifier,
+  InSetCompiler,
+  Lit,
+  Matchless,
+  Package,
+  Predef,
+  PackageName
+}
 import dev.bosatsu.Matchless.Expr
 import dev.bosatsu.Identifier.Bindable
 import org.typelevel.paiges.Doc
@@ -442,8 +450,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                 NonEmptyList(left, right :: Nil)
               )(newLocalName)
               .map {
-                case expr: Code.Expression
-                    if rel == Matchless.CompareRel.Ne =>
+                case expr: Code.Expression if rel == Matchless.CompareRel.Ne =>
                   !expr
                 case other =>
                   other
@@ -454,7 +461,9 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                 Code.Ident("bsts_integer_cmp"),
                 NonEmptyList(left, right :: Nil)
               )(newLocalName)
-              .flatMap(_.onExpr(cmp => pv(compareCmpResult(cmp, rel)))(newLocalName))
+              .flatMap(
+                _.onExpr(cmp => pv(compareCmpResult(cmp, rel)))(newLocalName)
+              )
         }
 
       def compareIntZeroExpr(
@@ -466,7 +475,9 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
             Code.Ident("bsts_integer_cmp_zero"),
             NonEmptyList.one(left)
           )(newLocalName)
-          .flatMap(_.onExpr(cmp => pv(compareCmpResult(cmp, rel)))(newLocalName))
+          .flatMap(
+            _.onExpr(cmp => pv(compareCmpResult(cmp, rel)))(newLocalName)
+          )
 
       def compareInt64Expr(
           left: Code.Expression,
@@ -491,8 +502,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                 NonEmptyList(left, right :: Nil)
               )(newLocalName)
               .map {
-                case expr: Code.Expression
-                    if rel == Matchless.CompareRel.Ne =>
+                case expr: Code.Expression if rel == Matchless.CompareRel.Ne =>
                   !expr
                 case other =>
                   other
@@ -503,7 +513,9 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                 Code.Ident("bsts_float64_cmp_total"),
                 NonEmptyList(left, right :: Nil)
               )(newLocalName)
-              .flatMap(_.onExpr(cmp => pv(compareCmpResult(cmp, rel)))(newLocalName))
+              .flatMap(
+                _.onExpr(cmp => pv(compareCmpResult(cmp, rel)))(newLocalName)
+              )
         }
 
       def boolToValue(boolExpr: BoolExpr[K]): T[Code.ValueLike] =
@@ -513,13 +525,19 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
               lit match {
                 case c: Lit.Chr =>
                   vl.onExpr { e =>
-                    pv(charCodePoint(e).bin(compareRelBinOp(rel), Code.IntLiteral(c.toCodePoint)))
+                    pv(
+                      charCodePoint(e).bin(
+                        compareRelBinOp(rel),
+                        Code.IntLiteral(c.toCodePoint)
+                      )
+                    )
                   }(newLocalName)
                 case Lit.Str(_) =>
                   vl.onExpr { e =>
                     literal(lit).flatMap { litStr =>
                       rel match {
-                        case Matchless.CompareRel.Eq | Matchless.CompareRel.Ne =>
+                        case Matchless.CompareRel.Eq |
+                            Matchless.CompareRel.Ne =>
                           Code.ValueLike
                             .applyArgs(
                               Code.Ident("bsts_string_equals"),
@@ -539,7 +557,9 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                               NonEmptyList(e, litStr :: Nil)
                             )(newLocalName)
                             .flatMap(
-                              _.onExpr(cmp => pv(compareCmpResult(cmp, rel)))(newLocalName)
+                              _.onExpr(cmp => pv(compareCmpResult(cmp, rel)))(
+                                newLocalName
+                              )
                             )
                       }
                     }
@@ -574,13 +594,17 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
             }
           case CompareInt64(left, rel, right) =>
             (innerToValue(left), innerToValue(right)).flatMapN { (lv, rv) =>
-              lv.onExpr(leftExpr => rv.onExpr(compareInt64Expr(leftExpr, rel, _))(newLocalName))(
+              lv.onExpr(leftExpr =>
+                rv.onExpr(compareInt64Expr(leftExpr, rel, _))(newLocalName)
+              )(
                 newLocalName
               )
             }
           case CompareFloat64(left, rel, right) =>
             (innerToValue(left), innerToValue(right)).flatMapN { (lv, rv) =>
-              lv.onExpr(leftExpr => rv.onExpr(compareFloat64Expr(leftExpr, rel, _))(newLocalName))(
+              lv.onExpr(leftExpr =>
+                rv.onExpr(compareFloat64Expr(leftExpr, rel, _))(newLocalName)
+              )(
                 newLocalName
               )
             }
@@ -670,7 +694,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
               name <- getAnon(idx)
               vl <- innerToValue(expr)
             } yield (name := vl) +: Code.TrueLit
-          case TrueConst               => pv(Code.TrueLit)
+          case TrueConst => pv(Code.TrueLit)
           case LetBool(name @ Left(LocalAnon(_)), argV, in)
               if !Matchless.BoolExpr.usesBinding(in, name) =>
             (innerToValue(argV), boolToValue(in)).mapN { (value, result) =>
@@ -692,9 +716,8 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
         }
 
       object StringApi {
-        def fromString(s: String): T[Code.ValueLike] = {
+        def fromString(s: String): T[Code.ValueLike] =
           staticStringLiteral(s)
-        }
 
       }
 
@@ -803,7 +826,9 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
 
           case Lit.Str(toStr) => StringApi.fromString(toStr)
           case f: Lit.Float64 =>
-            val rawBits = BigInt(java.lang.Long.toUnsignedString(f.toRawLongBits))
+            val rawBits = BigInt(
+              java.lang.Long.toUnsignedString(f.toRawLongBits)
+            )
             pv(
               Code.Ident("bsts_float64_from_bits")(
                 Code.Ident("UINT64_C")(Code.IntLiteral(rawBits))
@@ -950,7 +975,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                 case None         => result
               }
             }
-          case Let(name, argV, in)     =>
+          case Let(name, argV, in) =>
             handleLet(name, argV, innerToValue(in))
           case app @ App(_, _)       => innerApp(app)
           case Global(k, pack, name) =>
@@ -1019,7 +1044,9 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                     Code.Switch(
                       variantName,
                       caseBlocks,
-                      defaultVL.map(v => Code.block(resultName := v, Code.Break))
+                      defaultVL.map(v =>
+                        Code.block(resultName := v, Code.Break)
+                      )
                     )
 
                   Code.WithValue(
@@ -1562,7 +1589,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                   state: State,
                   key: (K, PackageName, Bindable),
                   seen: Set[(K, PackageName, Bindable)]
-              ): EitherT[Eval, Error, (State, Option[(Code.Ident, Int)])] = {
+              ): EitherT[Eval, Error, (State, Option[(Code.Ident, Int)])] =
                 if (seen(key)) result(state, None)
                 else
                   state.allValues.get(key) match {
@@ -1570,7 +1597,8 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                         if fn.captures.isEmpty =>
                       result(state, Some((ident, fn.arity)))
                     case Some((Matchless.Global(nextK, nextPack, nextB), _)) =>
-                      val nextKey = (ns.depFor(nextK, nextPack), nextPack, nextB)
+                      val nextKey =
+                        (ns.depFor(nextK, nextPack), nextPack, nextB)
                       loop(state, nextKey, seen + key)
                     case None =>
                       // this is external
@@ -1584,7 +1612,6 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                     case _ =>
                       result(state, None)
                   }
-              }
 
               loop(s, (ns.depFor(k, pack), pack, b), Set.empty)
             }
@@ -1675,7 +1702,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                 cached <- read(_.staticStringCache.get(key))
                 ident <- cached match {
                   case Some(i) => monadImpl.pure(i)
-                  case None =>
+                  case None    =>
                     for {
                       ident <- newTopName("strlit")
                       _ <- declareStaticStringObject(ident)
@@ -1761,7 +1788,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                   val runFn = entry match {
                     case Package.TestEntry.PlainTest(_, _, _) =>
                       Code.Ident("bsts_test_run")
-                    case Package.TestEntry.ProgTest(_, _, _)  =>
+                    case Package.TestEntry.ProgTest(_, _, _) =>
                       Code.Ident("bsts_test_run_prog")
                   }
                   (Code.StrLiteral(p.asString), i, runFn)

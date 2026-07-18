@@ -38,7 +38,7 @@ object Command {
               case _ =>
                 moduleIOMonad.pure(value)
             }
-          case None        =>
+          case None =>
             platformIO.gitTopLevel
               .flatMap {
                 case Some(value) => moduleIOMonad.pure(value)
@@ -291,7 +291,7 @@ object Command {
                   )
 
                 vendoredInputsOpt match {
-                  case None => base
+                  case None                 => base
                   case Some(vendoredInputs) =>
                     val cppFlags =
                       (
