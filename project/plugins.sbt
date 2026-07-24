@@ -6,12 +6,12 @@ addSbtPlugin("com.thesamet" % "sbt-protoc" % "1.0.8")
 addSbtPlugin("com.github.sbt" % "sbt-git" % "2.1.0")
 addSbtPlugin("org.portable-scala" % "sbt-scalajs-crossproject" % "1.3.2")
 addSbtPlugin("ch.epfl.scala" % "sbt-scalajs-bundler" % "0.21.1")
-addSbtPlugin("org.scala-js" % "sbt-scalajs" % "1.21.0")
-addSbtPlugin("org.scalameta" % "sbt-native-image" % "0.4.0")
+addSbtPlugin("org.scala-js" % "sbt-scalajs" % "1.22.0")
+addSbtPlugin("org.scalameta" % "sbt-native-image" % "0.5.0")
 addSbtPlugin("org.scalameta" % "sbt-scalafmt" % "2.6.0")
 addSbtPlugin("org.scoverage" % "sbt-scoverage" % "2.4.4")
 addSbtPlugin("pl.project13.scala" % "sbt-jmh" % "0.4.8")
-addSbtPlugin("com.github.sbt" % "sbt-ci-release" % "1.11.2")
+addSbtPlugin("com.github.sbt" % "sbt-ci-release" % "1.12.0")
 
 // This is adding this compiler plugin as a dependency for the build, not the code itself
 libraryDependencies += "com.thesamet.scalapb" %% "compilerplugin" % "0.11.20"
