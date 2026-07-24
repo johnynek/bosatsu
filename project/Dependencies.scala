@@ -13,8 +13,8 @@ object Dependencies {
   lazy val ff4s = Def.setting("io.github.buntec" %%% "ff4s" % "0.26.1")
   lazy val fs2core = Def.setting("co.fs2" %%% "fs2-core" % "3.13.0")
   lazy val fs2io = Def.setting("co.fs2" %%% "fs2-io" % "3.13.0")
-  lazy val jawnParser = Def.setting("org.typelevel" %%% "jawn-parser" % "1.6.0")
-  lazy val jawnAst = Def.setting("org.typelevel" %%% "jawn-ast" % "1.6.0")
+  lazy val jawnParser = Def.setting("org.typelevel" %%% "jawn-parser" % "1.7.0")
+  lazy val jawnAst = Def.setting("org.typelevel" %%% "jawn-ast" % "1.7.0")
   lazy val jacksonYaml = Def.setting(
     "com.fasterxml.jackson.dataformat" % "jackson-dataformat-yaml" % "2.21.3"
   )
