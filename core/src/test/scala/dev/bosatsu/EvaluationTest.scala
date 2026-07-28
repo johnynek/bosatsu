@@ -590,7 +590,9 @@ test = TestSuite("int64-eval", [
     )
   }
 
-  test("comparison observations preserve semantics across Int, Float64, and Int64") {
+  test(
+    "comparison observations preserve semantics across Int, Float64, and Int64"
+  ) {
     val float64Pack = Predef.loadFileInCompile("test_workspace/Float64.bosatsu")
     val int64Pack = Predef.loadFileInCompile("test_workspace/Int64.bosatsu")
 
@@ -3253,7 +3255,9 @@ test = Assertion(fn(False), "")
     )
   }
 
-  test("conditional matches in if/elif and ternary evaluate like explicit matches") {
+  test(
+    "conditional matches in if/elif and ternary evaluate like explicit matches"
+  ) {
     runBosatsuTest(
       List("""
 package Foo
@@ -3389,7 +3393,9 @@ test = TestSuite("MatchGuard shadowing", [
     )
   }
 
-  test("MatchGuard shadowing keeps explicit loop/recur slots through normalization") {
+  test(
+    "MatchGuard shadowing keeps explicit loop/recur slots through normalization"
+  ) {
     runBosatsuTest(
       List("""
 package Foo
@@ -3441,7 +3447,9 @@ test = TestSuite("MatchGuard loop/recur shadowing", [
     )
   }
 
-  test("explicit boolean recursive guards keep guard binders local to the guard") {
+  test(
+    "explicit boolean recursive guards keep guard binders local to the guard"
+  ) {
     runBosatsuTest(
       List("""
 package Foo
@@ -3901,7 +3909,10 @@ tests = TestSuite("lazy eval", [
     }
 
     assertNotEquals(firstCell.asExternal.toAny, secondCell.asExternal.toAny)
-    assertEquals(PredefImpl.runProg(PredefImpl.prog_var_get(firstCell)).result, Right(VInt(1)))
+    assertEquals(
+      PredefImpl.runProg(PredefImpl.prog_var_get(firstCell)).result,
+      Right(VInt(1))
+    )
     assertEquals(
       PredefImpl.runProg(PredefImpl.prog_var_set(firstCell, VInt(2))).result,
       Right(UnitValue)
@@ -3915,10 +3926,15 @@ tests = TestSuite("lazy eval", [
       Tuple(PredefImpl.add(current, VInt(1)), PredefImpl.mul(current, VInt(10)))
     }
     assertEquals(
-      PredefImpl.runProg(PredefImpl.prog_var_update(firstCell, updateFn)).result,
+      PredefImpl
+        .runProg(PredefImpl.prog_var_update(firstCell, updateFn))
+        .result,
       Right(VInt(50))
     )
-    assertEquals(PredefImpl.runProg(PredefImpl.prog_var_get(firstCell)).result, Right(VInt(6)))
+    assertEquals(
+      PredefImpl.runProg(PredefImpl.prog_var_get(firstCell)).result,
+      Right(VInt(6))
+    )
   }
 
   test("prog var helper functions compose in Bosatsu code") {
@@ -4073,7 +4089,9 @@ external struct Bytes
       val ioStdPack =
         Predef.loadFileInCompile("test_workspace/Bosatsu/IO/Std.bosatsu")
       val processWaitPack =
-        Predef.loadFileInCompile("test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu")
+        Predef.loadFileInCompile(
+          "test_workspace/Bosatsu/IO/ProcessWaitMain.bosatsu"
+        )
 
       testInferred(
         List(
@@ -4099,7 +4117,7 @@ external struct Bytes
           run.result match {
             case Right(VInt(i)) =>
               assertEquals(i.intValue, 0, s"stderr: ${run.stderr}")
-            case other          =>
+            case other =>
               fail(s"unexpected prog result: $other; stderr: ${run.stderr}")
           }
         }
@@ -4107,17 +4125,22 @@ external struct Bytes
     }
 
   if (Platform.isScalaJvm)
-    test("mkdir_with_mode and stat externals are registered for JVM evaluation") {
+    test(
+      "mkdir_with_mode and stat externals are registered for JVM evaluation"
+    ) {
       val progPack = Predef.loadFileInCompile("test_workspace/Prog.bosatsu")
       val charPack = Predef.loadFileInCompile("test_workspace/Char.bosatsu")
       // Keep this call site recompiling when the Bosatsu Array test workspace changes test helpers.
       val arrayPack =
-        Predef.loadFileInCompile("test_workspace/Bosatsu/Collection/Array.bosatsu")
+        Predef.loadFileInCompile(
+          "test_workspace/Bosatsu/Collection/Array.bosatsu"
+        )
       val listPack = Predef.loadFileInCompile("test_workspace/List.bosatsu")
       val optionPack = Predef.loadFileInCompile("test_workspace/Option.bosatsu")
       val propertiesPack =
         Predef.loadFileInCompile("test_workspace/Properties.bosatsu")
-      val float64Pack = Predef.loadFileInCompile("test_workspace/Float64.bosatsu")
+      val float64Pack =
+        Predef.loadFileInCompile("test_workspace/Float64.bosatsu")
       val int64Pack = Predef.loadFileInCompile("test_workspace/Int64.bosatsu")
       val randPack = Predef.loadFileInCompile("test_workspace/Rand.bosatsu")
       val natPack = Predef.loadFileInCompile("test_workspace/Nat.bosatsu")

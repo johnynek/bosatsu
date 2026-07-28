@@ -12,13 +12,13 @@ import scala.jdk.CollectionConverters._
 
 object TreeSitterDifferential {
 
-  private sealed trait BuiltInParse derives CanEqual
+  sealed private trait BuiltInParse derives CanEqual
   private object BuiltInParse {
     case object Success extends BuiltInParse
     final case class Failure(offset: Int) extends BuiltInParse
   }
 
-  private final case class ParseResult(
+  final private case class ParseResult(
       exitCode: Int,
       output: String,
       firstErrorOffset: Option[Int]
@@ -131,8 +131,12 @@ object TreeSitterDifferential {
     val root = repoRoot.resolve("test_workspace")
     val walk = Files.walk(root)
     try {
-      walk.iterator().asScala
-        .filter(path => Files.isRegularFile(path) && path.toString.endsWith(".bosatsu"))
+      walk
+        .iterator()
+        .asScala
+        .filter(path =>
+          Files.isRegularFile(path) && path.toString.endsWith(".bosatsu")
+        )
         .toList
         .sortBy(_.toString)
         .map { path =>
@@ -150,10 +154,16 @@ object TreeSitterDifferential {
       for {
         width <- Gen.choose(60, 200)
         statementCount <- Gen.choose(12, 40)
-        statements <- Gen.listOfN(statementCount, Generators.genStatement(depth = 0))
+        statements <- Gen.listOfN(
+          statementCount,
+          Generators.genStatement(depth = 0)
+        )
       } yield {
         val parsedPack =
-          Package.fromStatements(PackageName.parts("Diff", "Generated"), statements)
+          Package.fromStatements(
+            PackageName.parts("Diff", "Generated"),
+            statements
+          )
         val source = Document[Package.Parsed].document(parsedPack).render(width)
         (width, statementCount, source)
       }
@@ -257,7 +267,10 @@ object TreeSitterDifferential {
     (offsetDiff <= 800) || (rowDiff <= 20)
   }
 
-  private def failFrom(label: String, failures: List[(String, String)]): Unit = {
+  private def failFrom(
+      label: String,
+      failures: List[(String, String)]
+  ): Unit = {
     val rendered =
       failures
         .take(5)
@@ -325,14 +338,15 @@ object TreeSitterDifferential {
     }
 
     val generatedEvaluations =
-      generatedCandidates.flatMap {
-        case (name, source) =>
-          builtInParse(source) match {
-            case BuiltInParse.Success =>
-              Some((name, source, treeSitterParse(source, treeSitterBin, repoRoot)))
-            case BuiltInParse.Failure(_) =>
-              None
-          }
+      generatedCandidates.flatMap { case (name, source) =>
+        builtInParse(source) match {
+          case BuiltInParse.Success =>
+            Some(
+              (name, source, treeSitterParse(source, treeSitterBin, repoRoot))
+            )
+          case BuiltInParse.Failure(_) =>
+            None
+        }
       }
 
     val generatedBuiltInValidAndTreeSitterValid =
@@ -354,7 +368,8 @@ object TreeSitterDifferential {
       )
     }
 
-    val generatedSourcesList = generatedBuiltInValidAndTreeSitterValid.take(1000)
+    val generatedSourcesList =
+      generatedBuiltInValidAndTreeSitterValid.take(1000)
 
     val randomMalformed =
       malformedFromRandomCuts(
@@ -363,16 +378,14 @@ object TreeSitterDifferential {
       )
     val malformed = malformedInputs ++ randomMalformed
 
-    val malformedRejectedByBuiltIn = malformed.collect {
-      case (name, source) =>
-        builtInParse(source) match {
-          case BuiltInParse.Success =>
-            None
-          case BuiltInParse.Failure(offset) =>
-            Some((name, source, offset))
-        }
-    }
-    .flatten
+    val malformedRejectedByBuiltIn = malformed.collect { case (name, source) =>
+      builtInParse(source) match {
+        case BuiltInParse.Success =>
+          None
+        case BuiltInParse.Failure(offset) =>
+          Some((name, source, offset))
+      }
+    }.flatten
 
     if (malformedRejectedByBuiltIn.isEmpty) {
       sys.error(
@@ -388,7 +401,8 @@ object TreeSitterDifferential {
 
     val sharedFailures =
       malformedEvaluations.collect {
-        case (name, source, builtInOffset, parsed) if parsed.hasErrorOrMissing =>
+        case (name, source, builtInOffset, parsed)
+            if parsed.hasErrorOrMissing =>
           (name, source, builtInOffset, parsed)
       }
 
@@ -399,23 +413,22 @@ object TreeSitterDifferential {
     }
 
     val negativeLocationFailures =
-      sharedFailures.collect {
-        case (name, source, builtInOffset, parsed) =>
-          parsed.firstErrorOffset match {
-            case Some(treeSitterOffset) =>
-              if (failuresNear(source, builtInOffset, treeSitterOffset)) None
-              else {
-                Some(
-                  name ->
-                    s"built-in failed at $builtInOffset, tree-sitter first ERROR/MISSING at $treeSitterOffset"
-                )
-              }
-            case None =>
+      sharedFailures.collect { case (name, source, builtInOffset, parsed) =>
+        parsed.firstErrorOffset match {
+          case Some(treeSitterOffset) =>
+            if (failuresNear(source, builtInOffset, treeSitterOffset)) None
+            else {
               Some(
                 name ->
-                  s"tree-sitter reported syntax failure but no ERROR/MISSING location was found in output: ${parsed.output.take(240).replace('\n', ' ')}"
+                  s"built-in failed at $builtInOffset, tree-sitter first ERROR/MISSING at $treeSitterOffset"
               )
-          }
+            }
+          case None =>
+            Some(
+              name ->
+                s"tree-sitter reported syntax failure but no ERROR/MISSING location was found in output: ${parsed.output.take(240).replace('\n', ' ')}"
+            )
+        }
       }.flatten
 
     val maxAllowedNearMismatches =
