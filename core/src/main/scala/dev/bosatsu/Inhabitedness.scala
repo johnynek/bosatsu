@@ -1,6 +1,6 @@
 package dev.bosatsu
 
-import cats.{Eq}
+import cats.Eq
 import cats.data.{NonEmptyList, ValidatedNec}
 import cats.syntax.all._
 import dev.bosatsu.rankn.Type
@@ -58,7 +58,8 @@ object Inhabitedness {
 
   def check(t: Type, env: TypeEnv[Kind.Arg]): Result[State] = {
     val an = Analyzer(env)
-    an.validateType(t).andThen(_ => an.checkType(t, Map.empty, Set.empty).validNec)
+    an.validateType(t)
+      .andThen(_ => an.checkType(t, Map.empty, Set.empty).validNec)
   }
 
   def checkMatch(
@@ -68,12 +69,13 @@ object Inhabitedness {
   ): Result[State] = {
     val an = Analyzer(env)
     an.validateType(scrutinee) *>
-      an.validatePattern(pattern).as(
-        an.checkPattern(scrutinee, pattern, Map.empty, Set.empty)
-      )
+      an.validatePattern(pattern)
+        .as(
+          an.checkPattern(scrutinee, pattern, Map.empty, Set.empty)
+        )
   }
 
-  private final case class Analyzer(env: TypeEnv[Kind.Arg]) {
+  final private case class Analyzer(env: TypeEnv[Kind.Arg]) {
     import Error._
     import State._
 
@@ -102,7 +104,8 @@ object Inhabitedness {
         invalidApply = IllKindedTypeApply(_),
         kindSubsumeError = (apply, expected, found) =>
           KindSubsumptionError(apply, expected.arg.kind, found),
-        cons = tc => kinds.get(tc.tpe.toDefined).toRight(UnknownTypeConstructor(tc))
+        cons =
+          tc => kinds.get(tc.tpe.toDefined).toRight(UnknownTypeConstructor(tc))
       )(t)
 
     def validatePattern(
@@ -112,9 +115,9 @@ object Inhabitedness {
         case Pattern.WildCard | Pattern.Var(_) | Pattern.Literal(_) |
             Pattern.StrPat(_) =>
           ().validNec
-        case Pattern.Named(_, pat)      =>
+        case Pattern.Named(_, pat) =>
           validatePattern(pat)
-        case Pattern.ListPat(items)     =>
+        case Pattern.ListPat(items) =>
           items
             .collect { case Pattern.ListPart.Item(item) => item }
             .traverse_(validatePattern)
@@ -123,7 +126,7 @@ object Inhabitedness {
         case Pattern.PositionalStruct(cons, params) =>
           val consCheck =
             env.getConstructor(cons._1, cons._2) match {
-              case None => UnknownConstructor(cons).invalidNec
+              case None           => UnknownConstructor(cons).invalidNec
               case Some((_, cfn)) =>
                 val expected = cfn.args.size
                 val found = params.size
@@ -147,7 +150,7 @@ object Inhabitedness {
             acc: NonEmptyList[Map[Type.Var.Bound, State]]
         ): NonEmptyList[Map[Type.Var.Bound, State]] =
           rem match {
-            case Nil => acc
+            case Nil    => acc
             case h :: t =>
               val next = acc.flatMap { m =>
                 NonEmptyList.of(
@@ -171,9 +174,10 @@ object Inhabitedness {
       if (!kindsOk) Unknown
       else {
         varAssignments(vars.map(_._1)) match {
-          case None => Unknown
+          case None              => Unknown
           case Some(assignments) =>
-            val states = assignments.map(assignment => bodyEval(outerState ++ assignment))
+            val states =
+              assignments.map(assignment => bodyEval(outerState ++ assignment))
             if (isForAll) {
               if (states.contains_(Uninhabited)) Uninhabited
               else if (states.forall(_ == Inhabited)) Inhabited
@@ -214,7 +218,9 @@ object Inhabitedness {
           val argStates = args.map(checkType(_, varState, seen))
           if ((resultState == Uninhabited) && argStates.forall(_ == Inhabited))
             Uninhabited
-          else if ((resultState == Inhabited) || argStates.contains_(Uninhabited))
+          else if (
+            (resultState == Inhabited) || argStates.contains_(Uninhabited)
+          )
             Inhabited
           else Unknown
         case Type.TyVar(b: Type.Var.Bound) =>
@@ -229,7 +235,7 @@ object Inhabitedness {
               if (alwaysInhabited(cons)) Inhabited
               else {
                 env.getType(tc) match {
-                  case None => Unknown
+                  case None     => Unknown
                   case Some(dt) =>
                     // `norm` is already the fully-applied normalized type for this branch;
                     // use it as the cycle-detection key directly.
@@ -249,7 +255,9 @@ object Inhabitedness {
                         val constructorStates =
                           dt.constructors.map { cfn =>
                             val argTypes =
-                              cfn.args.map(arg => Type.substituteVar(arg.tpe, paramSub))
+                              cfn.args.map(arg =>
+                                Type.substituteVar(arg.tpe, paramSub)
+                              )
                             evaluateQuantifier(
                               cfn.exists.map { case (b, ka) => (b, ka.kind) },
                               vs => {
@@ -344,22 +352,31 @@ object Inhabitedness {
                 ) Uninhabited
                 else if (
                   (scrState == Inhabited) && (annState == Inhabited) &&
-                    (patState == Inhabited) && definitelySameHead(scrutineeNorm, tpe)
+                  (patState == Inhabited) && definitelySameHead(
+                    scrutineeNorm,
+                    tpe
+                  )
                 ) Inhabited
                 else Unknown
               }
             case Pattern.Union(head, rest) =>
               State.orStates(
-                (head :: rest.toList).map(checkPattern(scrutineeNorm, _, varState, seen))
+                (head :: rest.toList).map(
+                  checkPattern(scrutineeNorm, _, varState, seen)
+                )
               )
-            case Pattern.Literal(lit)      =>
+            case Pattern.Literal(lit) =>
               if (scrutineeNorm.sameAs(Type.getTypeOf(lit))) Inhabited
               else Uninhabited
             case _: Pattern.StrPat =>
               if (scrutineeNorm.sameAs(Type.StrType)) Inhabited
               else Uninhabited
             case lp @ Pattern.ListPat(_) =>
-              Pattern.ListPat.toPositionalStruct(lp, EmptyListCons, NonEmptyListCons) match {
+              Pattern.ListPat.toPositionalStruct(
+                lp,
+                EmptyListCons,
+                NonEmptyListCons
+              ) match {
                 case Right(asStruct) =>
                   checkPattern(scrutineeNorm, asStruct, varState, seen)
                 case Left((_, suffix)) =>
@@ -370,16 +387,21 @@ object Inhabitedness {
                   // `Uninhabited` cases; otherwise we stay conservative with `Unknown`.
                   checkType(scrutineeNorm, varState, seen) match {
                     case Uninhabited => Uninhabited
-                    case scrState =>
+                    case scrState    =>
                       listElementType(scrutineeNorm) match {
-                        case None => Unknown
+                        case None           => Unknown
                         case Some(itemType) =>
                           val itemStates =
-                            suffix.toList.collect { case Pattern.ListPart.Item(itemPat) =>
-                              checkPattern(itemType, itemPat, varState, seen)
+                            suffix.toList.collect {
+                              case Pattern.ListPart.Item(itemPat) =>
+                                checkPattern(itemType, itemPat, varState, seen)
                             }
                           if (itemStates.contains(Uninhabited)) Uninhabited
-                          else if ((scrState == Inhabited) && itemStates.forall(_ == Inhabited))
+                          else if (
+                            (scrState == Inhabited) && itemStates.forall(
+                              _ == Inhabited
+                            )
+                          )
                             // We only conclude Inhabited when the scrutinee is known inhabited.
                             Inhabited
                           else Unknown
@@ -405,7 +427,9 @@ object Inhabitedness {
                             .toMap
 
                         val fieldTypes =
-                          cfn.args.map(arg => Type.substituteVar(arg.tpe, paramSub))
+                          cfn.args.map(arg =>
+                            Type.substituteVar(arg.tpe, paramSub)
+                          )
                         evaluateQuantifier(
                           cfn.exists.map { case (b, ka) => (b, ka.kind) },
                           vs => {

@@ -31,7 +31,8 @@ class TypeEnvReprTest extends munit.FunSuite {
     )
 
     val env = TypeEnv.fromDefinitions(List(dt))
-    val rendered = normalizeWhitespace(env.reprDocForPackage(localPack).render(200))
+    val rendered =
+      normalizeWhitespace(env.reprDocForPackage(localPack).render(200))
 
     assert(rendered.contains("(type Pair"), rendered)
     assert(rendered.contains("(params [a])"), rendered)
@@ -54,13 +55,16 @@ class TypeEnvReprTest extends munit.FunSuite {
         ConstructorFn[Kind.Arg](name = Identifier.Constructor("N"), args = Nil),
         ConstructorFn[Kind.Arg](
           name = Identifier.Constructor("S"),
-          args = List(ConstructorParam(Identifier.Name("value"), Type.TyVar(a), None))
+          args = List(
+            ConstructorParam(Identifier.Name("value"), Type.TyVar(a), None)
+          )
         )
       )
     )
 
     val env = TypeEnv.fromDefinitions(List(dt))
-    val rendered = normalizeWhitespace(env.reprDocForPackage(localPack).render(200))
+    val rendered =
+      normalizeWhitespace(env.reprDocForPackage(localPack).render(200))
 
     assert(rendered.contains("(constructor N)"), rendered)
     assert(rendered.contains("(constructor S (fields [[value a]]))"), rendered)
@@ -85,7 +89,8 @@ class TypeEnvReprTest extends munit.FunSuite {
       )
 
     val env = TypeEnv.fromDefinitions(List(remote, local))
-    val rendered = normalizeWhitespace(env.reprDocForPackage(localPack).render(120))
+    val rendered =
+      normalizeWhitespace(env.reprDocForPackage(localPack).render(120))
 
     assert(rendered.contains("Local"), rendered)
     assert(!rendered.contains("Remote"), rendered)

@@ -13,7 +13,8 @@ class ProtocPluginMainTest extends munit.FunSuite {
       name: String,
       number: Int,
       fieldType: FieldDescriptorProto.Type,
-      label: FieldDescriptorProto.Label = FieldDescriptorProto.Label.LABEL_OPTIONAL
+      label: FieldDescriptorProto.Label =
+        FieldDescriptorProto.Label.LABEL_OPTIONAL
   ): FieldDescriptorProto =
     FieldDescriptorProto.defaultInstance
       .withName(name)
@@ -156,7 +157,11 @@ class ProtocPluginMainTest extends munit.FunSuite {
               .withName("Grouped")
               .withField(
                 Vector(
-                  scalarField("old_group", 1, FieldDescriptorProto.Type.TYPE_GROUP)
+                  scalarField(
+                    "old_group",
+                    1,
+                    FieldDescriptorProto.Type.TYPE_GROUP
+                  )
                 )
               )
           )
@@ -173,7 +178,10 @@ class ProtocPluginMainTest extends munit.FunSuite {
     assert(response.error.nonEmpty)
     val error = response.error.getOrElse("")
     assert(error.contains("legacy.proto: only proto3 is supported"), error)
-    assert(error.contains("extension.proto: extensions are not supported"), error)
+    assert(
+      error.contains("extension.proto: extensions are not supported"),
+      error
+    )
     assert(error.contains("group.proto: groups are not supported"), error)
   }
 }

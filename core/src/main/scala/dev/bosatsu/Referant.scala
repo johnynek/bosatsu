@@ -75,7 +75,7 @@ object Referant {
       imps: List[Import[A, NonEmptyList[Referant[B]]]]
   ): Map[Identifier, (PackageName, TypeName)] =
     imported(imps) {
-      case Referant.DefinedT(dt)   =>
+      case Referant.DefinedT(dt) =>
         (dt.packageName, dt.name)
       case Referant.TypeAliasT(ta) =>
         (ta.packageName, ta.name)
@@ -110,11 +110,10 @@ object Referant {
               (for {
                 param <- fn.args.iterator
                 defaultName <- param.defaultBinding
-              } yield
-                (
-                  (pn, defaultName: Identifier),
-                  param.defaultType.getOrElse(param.tpe)
-                ))
+              } yield (
+                (pn, defaultName: Identifier),
+                param.defaultType.getOrElse(param.tpe)
+              ))
           case Referant.DefinedT(_) =>
             Iterator.empty
           case Referant.TypeAliasT(_) =>
@@ -163,18 +162,18 @@ object Referant {
             te1.addExternalValue(pack, nm, t)
           case (te1, Referant.Constructor(dt, cf)) =>
             val te2 = te1.addConstructor(pack, dt, cf)
-              cf.args.foldLeft(te2) { (te3, param) =>
-                param.defaultBinding match {
-                  case Some(defaultName) =>
-                    te3.addExternalValue(
-                      pack,
-                      defaultName,
-                      param.defaultType.getOrElse(param.tpe)
-                    )
-                  case None =>
+            cf.args.foldLeft(te2) { (te3, param) =>
+              param.defaultBinding match {
+                case Some(defaultName) =>
+                  te3.addExternalValue(
+                    pack,
+                    defaultName,
+                    param.defaultType.getOrElse(param.tpe)
+                  )
+                case None =>
                   te3
-                }
               }
+            }
           case (te1, Referant.DefinedT(dt)) =>
             te1.addDefinedType(dt)
           case (te1, Referant.TypeAliasT(ta)) =>

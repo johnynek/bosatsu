@@ -56,11 +56,11 @@ class TotalityTest
         case Pattern.WildCard | Pattern.Var(_) => Set.empty
         case Pattern.Named(_, p)               => rootShapes(p)
         case Pattern.Annotation(p, _)          => rootShapes(p)
-        case Pattern.Union(h, t) =>
+        case Pattern.Union(h, t)               =>
           (h :: t.toList).iterator.flatMap(rootShapes(_)).toSet
-        case Pattern.Literal(lit) => Set(literalShape(lit))
-        case Pattern.StrPat(_)    => Set(RootShape.Str)
-        case Pattern.ListPat(_)   => Set(RootShape.List)
+        case Pattern.Literal(lit)              => Set(literalShape(lit))
+        case Pattern.StrPat(_)                 => Set(RootShape.Str)
+        case Pattern.ListPat(_)                => Set(RootShape.List)
         case Pattern.PositionalStruct(cons, _) =>
           if (listLikeConstructor(cons)) Set(RootShape.List)
           else Set(RootShape.Struct)
@@ -777,7 +777,10 @@ enum Either: Left(l), Right(r)
               Item(StrPat(NonEmptyList.of(WildChar))),
               Item(
                 PositionalStruct(
-                  (PackageName(NonEmptyList.one("Tdaeo")), Constructor("Mkbvflxqji")),
+                  (
+                    PackageName(NonEmptyList.one("Tdaeo")),
+                    Constructor("Mkbvflxqji")
+                  ),
                   List(StrPat(NonEmptyList.of(NamedChar(Name("ym")))), WildCard)
                 )
               ),

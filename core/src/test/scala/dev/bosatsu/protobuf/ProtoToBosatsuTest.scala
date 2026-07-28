@@ -402,7 +402,10 @@ class ProtoToBosatsuTest extends munit.FunSuite {
       )
 
     val rendered = ProtoToBosatsu.renderAll(Vector(sharedFile, appFile))
-    assertEquals(rendered.map(_.outputFilePath), Vector("Proto/App.bosatsu", "Proto/Shared.bosatsu"))
+    assertEquals(
+      rendered.map(_.outputFilePath),
+      Vector("Proto/App.bosatsu", "Proto/Shared.bosatsu")
+    )
 
     val appContent = rendered.head.content
     assert(appContent.contains("from Proto/Shared import "), appContent)
