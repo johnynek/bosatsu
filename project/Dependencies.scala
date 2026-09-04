@@ -24,7 +24,7 @@ object Dependencies {
     Def.setting("org.http4s" %%% "http4s-ember-client" % "0.23.36")
   lazy val munit = Def.setting("org.scalameta" %%% "munit" % "1.3.0")
   lazy val munitScalaCheck =
-    Def.setting("org.scalameta" %%% "munit-scalacheck" % "1.3.0")
+    Def.setting("org.scalameta" %%% "munit-scalacheck" % "1.3.1")
   lazy val paiges = Def.setting("org.typelevel" %%% "paiges-core" % "0.4.4")
   lazy val protobufJava =
     Def.setting("com.google.protobuf" % "protobuf-java" % "3.25.9")
