@@ -1,7 +1,7 @@
 {
   "name": "core_alpha",
   "repo_uri": "https://github.com/johnynek/bosatsu.git",
-  "next_version": "8.1.0",
+  "next_version": "9.0.0",
   "previous": {
     "version": "8.0.2",
     "hashes": [
