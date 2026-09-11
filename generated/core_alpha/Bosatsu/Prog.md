@@ -59,7 +59,7 @@ type ProgTest
 Var is an effectful mutable cell. The type parameter is invariant.
 
 ```bosatsu
-type Var[a: 👻*]
+type Var[a: *]
 ```
 
 ## Values
