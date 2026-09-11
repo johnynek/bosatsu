@@ -107,6 +107,21 @@ struct Phantom[a]
     )
   }
 
+  test("external struct parameters default to invariant") {
+    testKind(
+      """#
+external struct Box[a]
+external struct Mixed[a, b: +*, c: -*, d: 👻*, f: +* -> *]
+struct Wrapper[a](value: Box[a])
+""",
+      Map(
+        "Box" -> "* -> *",
+        "Mixed" -> "* -> +* -> -* -> 👻* -> (+* -> *) -> *",
+        "Wrapper" -> "* -> *"
+      )
+    )
+  }
+
   test("test contravariance") {
     testKind(
       """#

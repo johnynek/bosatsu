@@ -13,7 +13,7 @@ import Identifier.Constructor
 
 import cats.syntax.all._
 
-class RankNInferTest extends munit.FunSuite {
+class RankNInferTest extends munit.FunSuite with ParTest {
 
   val emptyRegion: Region = Region(0, 0)
 
@@ -2724,6 +2724,43 @@ def useRet(fn: Ret -> Ret) -> Ret:
 main = useRet(branch(None))
 """,
       "Ret"
+    )
+  }
+
+  test("issue 2424: external Box cannot coerce unrelated types") {
+    val source = """package Unsound
+
+export (unsafe_coerce, int_is_string)
+
+external struct Box[a]
+
+external def box[a](x: a) -> Box[a]
+external def unbox[a](b: Box[a]) -> a
+
+def unsafe_coerce[a, b](x: a) -> b:
+  unbox(box(x))
+
+def int_is_string(n: Int) -> String:
+  unsafe_coerce(n)
+"""
+    TestUtils.evalFail(source :: Nil) {
+      case _: PackageError.TypeErrorIn => ()
+    }
+  }
+
+  test("external Box round trips preserve the input type") {
+    parseProgram(
+      """#
+external struct Box[a]
+external def box[a](x: a) -> Box[a]
+external def unbox[a](b: Box[a]) -> a
+
+def round_trip(x):
+  unbox(box(x))
+
+main = round_trip
+""",
+      "forall a. a -> a"
     )
   }
 

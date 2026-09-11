@@ -1585,13 +1585,15 @@ final class SourceConverter(
       case Enum(nm, typeArgs, items) =>
         toEnumDefinition(pname, tds, nm, typeArgs, items)
       case ExternalStruct(nm, targs) =>
-        // TODO make a real check here of allowed kinds
+        // An external representation may use a parameter even though no fields
+        // are visible here. Default to invariance instead of inferring phantom
+        // variance from the empty constructor list.
         success(
           rankn.DefinedType(
             pname,
             TypeName(nm),
             targs.map { case (TypeRef.TypeVar(v), optK) =>
-              (Type.Var.Bound(v), optK)
+              (Type.Var.Bound(v), Some(optK.getOrElse(Kind.Type.in)))
             },
             Nil
           )
