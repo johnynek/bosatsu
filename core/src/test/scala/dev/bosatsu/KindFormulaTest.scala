@@ -10,10 +10,10 @@ class KindFormulaTest extends munit.FunSuite {
     KindFormula
       .solveShapesAndKinds(
         predefTypeEnv,
-        te.allDefinedTypes.reverse
+        te
       )
       .fold(Left(_), Right(_), (a, _) => Left(a))
-      .map(TypeEnv.fromDefinitions(_))
+      .map(TypeEnv.fromParsed(_))
   }
 
   def testPredef(shapes: Map[String, String]) = {
@@ -39,16 +39,19 @@ class KindFormulaTest extends munit.FunSuite {
     te match {
       case Right(te) =>
         shapes.foreach { case (n, vs) =>
-          val dt =
+          val name = TypeName(Identifier.Constructor(n))
+          val leftK =
             te.getType(
               PackageName.PredefName,
-              TypeName(Identifier.Constructor(n))
+              name
             )
+              .map(_.kindOf)
+              .orElse(te.getTypeAlias(PackageName.PredefName, name).map(_.kindOf))
+              .getOrElse(fail(s"missing type or alias: $n"))
           val kind = Kind.parser.parseAll(vs) match {
             case Right(k) => k
             case Left(e)  => fail(s"parse error: $e")
           }
-          val leftK = dt.get.kindOf
           assertEquals(
             leftK,
             kind,
@@ -120,6 +123,71 @@ struct Wrapper[a](value: Box[a])
         "Wrapper" -> "* -> *"
       )
     )
+  }
+
+  test("type aliases infer variance through prior types and aliases") {
+    testKind(
+      """#
+struct U
+struct Bar[a](value: a)
+struct Consumer[a](consume: a -> U)
+external struct Cell[a]
+struct Tag[a]
+
+type Foo[a] = Bar[a]
+type Chain[a] = Foo[a]
+type Input[a] = Consumer[a]
+type Invariant[a] = Cell[a]
+type Phantom[a] = Tag[a]
+""",
+      Map(
+        "Foo" -> "+* -> *",
+        "Chain" -> "+* -> *",
+        "Input" -> "-* -> *",
+        "Invariant" -> "* -> *",
+        "Phantom" -> "👻* -> *"
+      )
+    )
+  }
+
+  test("type aliases infer higher kinds from their bodies") {
+    testKind(
+      """#
+struct U
+struct Bar[f](value: f[U])
+struct CovariantOnly[f: +* -> *](value: f[U])
+
+type Foo[a] = Bar[a]
+type Chain[a] = Foo[a]
+type NeedsCovariant[f] = CovariantOnly[f]
+type Apply[f, a] = f[a]
+""",
+      Map(
+        "Foo" -> "+(* -> *) -> *",
+        "Chain" -> "+(* -> *) -> *",
+        "NeedsCovariant" -> "(+* -> *) -> *",
+        "Apply" -> "+(* -> *) -> * -> *"
+      )
+    )
+  }
+
+  test("type aliases reject annotations incompatible with their bodies") {
+    testIllKinded("""#
+struct U
+struct Bar[f](value: f[U])
+type Bad[a: *] = Bar[a]
+""")
+
+    testIllKinded("""#
+external struct Cell[a]
+type Bad[a: +*] = Cell[a]
+""")
+
+    testIllKinded("""#
+struct U
+struct CovariantOnly[f: +* -> *](value: f[U])
+type Bad[f: -* -> *] = CovariantOnly[f]
+""")
   }
 
   test("test contravariance") {
