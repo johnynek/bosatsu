@@ -38,11 +38,11 @@ _Issue: #2239 (https://github.com/johnynek/bosatsu/issues/2239)_
 Introduce transparent top-level type aliases with alias-aware kind/variance solving, cross-package/interface metadata, and `Infer.scala` support for saturated expansion plus higher-kinded extensional comparison so aliases like `Baz[a] = Quux[a, Int]` work without requiring user-visible type lambdas.
 
 ## Context
-Bosatsu currently has only three top-level type statements: `struct`, `enum`, and `external struct`. `Statement.scala` parses them, `SourceConverter.scala` lowers them into `ParsedTypeEnv`, and `Package.scala` runs `Shape.solveAll` plus `KindFormula.solveShapesAndKinds` over `ParsedTypeEnv.allDefinedTypes` before building a `TypeEnv` and invoking `Infer.runFully`.
+Bosatsu currently has only three top-level type statements: `struct`, `enum`, and `external type`. `Statement.scala` parses them, `SourceConverter.scala` lowers them into `ParsedTypeEnv`, and `Package.scala` runs `Shape.solveAll` plus `KindFormula.solveShapesAndKinds` over `ParsedTypeEnv.allDefinedTypes` before building a `TypeEnv` and invoking `Infer.runFully`.
 
 Several current implementation details matter for aliases:
 1. `SourceConverter` and `TypeEnv` only model `DefinedType` values plus external value signatures.
-2. `external struct` is already represented as a `DefinedType` with no constructors, and `Package.exportedTypeEnv` treats constructorless exported types as opaque.
+2. `external type` is already represented as a `DefinedType` with no constructors, and `Package.exportedTypeEnv` treats constructorless exported types as opaque.
 3. `Infer.Env` knows about constructor functions and a `Type.Const.Defined -> Kind` map, but it has no alias table and no way to compare higher-kinded synonyms extensionally.
 4. Interface/library serialization and API diffing only know about `DefinedType` today.
 
@@ -144,7 +144,7 @@ Rules:
 3. Self-reference, mutual recursion, forward references, and recursive definitions such as `Foo = List[Foo]` are all rejected. There are no recursive type aliases and no recursive type definitions of any kind added by this feature.
 
 Implementation:
-1. `SourceConverter.scala` should lower type statements in source order, extending the local type environment as each `struct`, `enum`, `external struct`, or alias is accepted.
+1. `SourceConverter.scala` should lower type statements in source order, extending the local type environment as each `struct`, `enum`, `external type`, or alias is accepted.
 2. Alias right-hand sides are resolved against imports plus the already-built local type environment.
 3. There is no separate alias-cycle recovery pass or topo-sort for aliases. A local alias that mentions itself or a later local type name fails during ordinary type-name resolution, ideally with a direct "type aliases must refer only to prior type definitions" diagnostic.
 
@@ -191,7 +191,7 @@ This keeps alias support localized to the front end, type environment, and inter
    - infer and validate explicit type parameters for aliases
    - detect duplicate alias and type-name collisions
    - enforce that aliases refer only to imported names or prior local type definitions
-4. Generalize `Shape.scala` and `KindFormula.scala` so alias bodies participate in shape, kind, and variance solving alongside structs, enums, and external structs.
+4. Generalize `Shape.scala` and `KindFormula.scala` so alias bodies participate in shape, kind, and variance solving alongside structs, enums, and external types.
 5. Update `Package.scala`, `ExportedName.scala`, `Referant.scala`, `PackageCustoms.scala`, and `PackageError.scala` for alias-aware export, import, customs, and diagnostics handling.
 6. Extend `Infer.scala` with:
    - alias environment input

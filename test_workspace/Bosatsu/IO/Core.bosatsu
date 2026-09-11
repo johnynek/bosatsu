@@ -74,8 +74,8 @@ external path_sep: String
 # Opaque outside this package because constructor is not exported.
 struct Path(to_String: String)
 
-external struct Handle
-external struct Process
+external type Handle
+external type Process
 
 # Opaque outside this package because constructors are not exported.
 struct Instant(epoch_nanos: Int)

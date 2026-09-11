@@ -301,10 +301,11 @@ object Statement {
       TypeRef.typeParams(kindAnnot.?)
     }
     val external = {
+      val externalTypeKey = keySpace("type") | structKey
       val externalStruct =
-        (structKey *> (Identifier.consParser ~ Parser.nonEmptyListToList(
-          typeParams
-        )).region <* toEOL)
+        // Keep type soft so external type : Foo remains a value declaration.
+        (externalTypeKey.soft *> (Identifier.consParser ~
+          Parser.nonEmptyListToList(typeParams)).region <* toEOL)
           .map { case (region, (name, tva)) =>
             ExternalStruct(name, tva)(region)
           }
@@ -544,7 +545,7 @@ object Statement {
             case None     => Doc.empty
             case Some(ka) => Doc.text(": ") + Kind.argDoc(ka)
           }
-        Doc.text("external struct ") + Document[Constructor].document(
+        Doc.text("external type ") + Document[Constructor].document(
           nm
         ) + taDoc + Doc.line
       case TypeAlias(nm, typeArgs, body) =>

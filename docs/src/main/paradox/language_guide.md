@@ -1157,9 +1157,22 @@ write with either `set` or `swap`. The return values differ:
 1. `set(v, next)` stores `next` and returns `()`.
 1. `swap(v, next)` stores `next` and returns the previous value.
 
-## External functions and values
-There is syntax for declaring external values and functions, but regular Bosatsu
-library code cannot define new externals today.
+## External types, functions, and values
+There is syntax for declaring external types, values, and functions, but regular
+Bosatsu library code cannot define new externals today.
+
+An opaque type whose representation is owned by the runtime is declared with
+`external type`:
+
+```bosatsu
+external type Bytes
+external type Array[a: +*]
+```
+
+External types have no Bosatsu constructors or fields. Unannotated type
+parameters are invariant; explicit variance and kind annotations use the same
+syntax as other type declarations. Unlike a transparent alias such as
+`type IntList = List[Int]`, an external type defines a distinct opaque type.
 
 At the moment, external defs are only allowed in trusted libraries implemented
 inside the bosatsu compiler repository. This is intentional: Bosatsu is designed

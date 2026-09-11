@@ -2732,7 +2732,7 @@ main = useRet(branch(None))
 
 export (unsafe_coerce, int_is_string)
 
-external struct Box[a]
+external type Box[a]
 
 external def box[a](x: a) -> Box[a]
 external def unbox[a](b: Box[a]) -> a
@@ -2751,7 +2751,7 @@ def int_is_string(n: Int) -> String:
   test("external Box round trips preserve the input type") {
     parseProgram(
       """#
-external struct Box[a]
+external type Box[a]
 external def box[a](x: a) -> Box[a]
 external def unbox[a](b: Box[a]) -> a
 
@@ -2767,7 +2767,7 @@ main = round_trip
   test("recover/ignore_err keeps env and error vars distinct under await") {
     parseProgram(
       """#
-external struct Prog[env: -*, err: +*, res: +*]
+external type Prog[env: -*, err: +*, res: +*]
 external def pure[env, err, res](a: res) -> Prog[env, err, res]
 external def flat_map(prog: Prog[env, err, res], fn: res -> Prog[env, err, res1]) -> Prog[env, err, res1]
 external def recover(prog: Prog[env, err, res], fn: err -> Prog[env, err1, res]) -> Prog[env, err1, res]
@@ -2794,7 +2794,7 @@ main = show_error
   test("recover/ignore_err keeps env and error vars distinct without await") {
     parseProgram(
       """#
-external struct Prog[env: -*, err: +*, res: +*]
+external type Prog[env: -*, err: +*, res: +*]
 external def pure[env, err, res](a: res) -> Prog[env, err, res]
 external def recover(prog: Prog[env, err, res], fn: err -> Prog[env, err1, res]) -> Prog[env, err1, res]
 
@@ -2815,7 +2815,7 @@ main = show_error
   test("direct ignore_err application preserves env and abstracts error") {
     parseProgram(
       """#
-external struct Prog[env: -*, err: +*, res: +*]
+external type Prog[env: -*, err: +*, res: +*]
 external def pure[env, err, res](a: res) -> Prog[env, err, res]
 external def recover(prog: Prog[env, err, res], fn: err -> Prog[env, err1, res]) -> Prog[env, err1, res]
 
@@ -2836,7 +2836,7 @@ main = foo
   test("ignore_err declaration keeps env separate from quantified error") {
     parseProgram(
       """#
-external struct Prog[env: -*, err: +*, res: +*]
+external type Prog[env: -*, err: +*, res: +*]
 external def pure[env, err, res](a: res) -> Prog[env, err, res]
 external def recover(prog: Prog[env, err, res], fn: err -> Prog[env, err1, res]) -> Prog[env, err1, res]
 
@@ -2852,7 +2852,7 @@ main = ignore_err
   test("ignore_err explicit lambda keeps env separate from quantified error") {
     parseProgram(
       """#
-external struct Prog[env: -*, err: +*, res: +*]
+external type Prog[env: -*, err: +*, res: +*]
 external def pure[env, err, res](a: res) -> Prog[env, err, res]
 external def recover(prog: Prog[env, err, res], fn: err -> Prog[env, err1, res]) -> Prog[env, err1, res]
 external def keep_default[err, res](e: err, r: res) -> res
@@ -2869,7 +2869,7 @@ main = ignore_err
   test("recover declaration without nested forall keeps env separate") {
     parseProgram(
       """#
-external struct Prog[env: -*, err: +*, res: +*]
+external type Prog[env: -*, err: +*, res: +*]
 external def pure[env, err, res](a: res) -> Prog[env, err, res]
 external def recover(prog: Prog[env, err, res], fn: err -> Prog[env, err1, res]) -> Prog[env, err1, res]
 
@@ -2885,7 +2885,7 @@ main = ignore_err_plain
   test("recover declaration with concrete env still abstracts error") {
     parseProgram(
       """#
-external struct Prog[env: -*, err: +*, res: +*]
+external type Prog[env: -*, err: +*, res: +*]
 external def pure[env, err, res](a: res) -> Prog[env, err, res]
 external def recover(prog: Prog[env, err, res], fn: err -> Prog[env, err1, res]) -> Prog[env, err1, res]
 
