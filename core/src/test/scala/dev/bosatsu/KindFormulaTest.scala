@@ -110,11 +110,11 @@ struct Phantom[a]
     )
   }
 
-  test("external struct parameters default to invariant") {
+  test("external type parameters default to invariant") {
     testKind(
       """#
-external struct Box[a]
-external struct Mixed[a, b: +*, c: -*, d: 👻*, f: +* -> *]
+external type Box[a]
+external type Mixed[a, b: +*, c: -*, d: 👻*, f: +* -> *]
 struct Wrapper[a](value: Box[a])
 """,
       Map(
@@ -131,7 +131,7 @@ struct Wrapper[a](value: Box[a])
 struct U
 struct Bar[a](value: a)
 struct Consumer[a](consume: a -> U)
-external struct Cell[a]
+external type Cell[a]
 struct Tag[a]
 
 type Foo[a] = Bar[a]
@@ -179,7 +179,7 @@ type Bad[a: *] = Bar[a]
 """)
 
     testIllKinded("""#
-external struct Cell[a]
+external type Cell[a]
 type Bad[a: +*] = Cell[a]
 """)
 

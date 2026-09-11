@@ -68,7 +68,7 @@ export (
 )
 exposes Bosatsu/Num/Int64
 
-external struct Array[a: +*]
+external type Array[a: +*]
 
 external empty_Array: forall a. Array[a]
 

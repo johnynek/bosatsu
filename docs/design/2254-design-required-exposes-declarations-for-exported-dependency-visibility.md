@@ -100,7 +100,7 @@ The resulting rules are:
 - Exported transparent type aliases count packages that appear in the alias right-hand side.
 - Exporting only a local type name keeps that type opaque; foreign packages used only inside hidden constructor fields do not count.
 - Exporting constructors, or `Foo()`, counts packages that appear in constructor field types.
-- `external` values count through their types. `external struct` exported as a type name behaves like any other opaque exported type.
+- `external` values count through their types. `external type` exported as a type name behaves like any other opaque exported type.
 - Renamed imported identifiers do not affect the declaration; `exposes` always names canonical package paths.
 - The package does not count as exposing itself.
 - `Bosatsu/Predef` does not count.

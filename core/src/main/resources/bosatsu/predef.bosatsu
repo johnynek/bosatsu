@@ -265,8 +265,8 @@ enum Option:
 #############
 # Int functions
 #############
-external struct Int
-external struct Float64
+external type Int
+external type Float64
 
 # Integer addition.
 external def add(a: Int, b: Int) -> Int
@@ -339,8 +339,8 @@ def range(exclusiveUpper: Int) -> List[Int]:
 #############
 # String functions
 #############
-external struct String
-external struct Char
+external type String
+external type Char
 
 # Convert a character to a one-character string.
 external def char_to_String(c: Char) -> String

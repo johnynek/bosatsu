@@ -399,7 +399,7 @@ main = mk
         |
         |export Int64
         |
-        |external struct Int64
+        |external type Int64
         |""".stripMargin
     )
     val int64Iface =
@@ -413,7 +413,7 @@ main = mk
         |export Array, dotf_Array, foldl_with_index_Array, get_or_Array, map_with_index_Array, size_Array, sumf_Array, tabulate_Array, zip_sumf_Array
         |exposes Bosatsu/Num/Int64
         |
-        |external struct Array[a: +*]
+        |external type Array[a: +*]
         |external def dotf_Array(left: Array[Float64], right: Array[Float64]) -> Float64
         |external def foldl_with_index_Array[a, b](ary: Array[a], init: b, fn: (b, a, Int64) -> b) -> b
         |external def get_or_Array[a](ary: Array[a], idx: Int64, default: Int64 -> a) -> a

@@ -2350,6 +2350,87 @@ def foo(
     }
   }
 
+  test("external type spellings round trip to the same canonical statement") {
+    forAll(Generators.genExternalStruct) { stmt =>
+      val canonical = Document[Statement].document(stmt).render(80)
+      assert(canonical.startsWith("external type "))
+      val legacy = "external struct " + canonical.stripPrefix("external type ")
+      val parser = Statement.parser1.map(_.replaceRegions(emptyRegion))
+      val preferred = unsafeParse(parser, canonical)
+      val compatible = unsafeParse(parser, legacy)
+
+      assertEquals(preferred, stmt.replaceRegions(emptyRegion))
+      assertEquals(compatible, preferred)
+      assertEquals(Document[Statement].document(preferred).render(80), canonical)
+      assertEquals(Document[Statement].document(compatible).render(80), canonical)
+    }
+  }
+
+  test("parse opaque external types with parameters and kinds") {
+    val name = Identifier.Constructor("Foo")
+    val parser = Statement.parser1.map(_.replaceRegions(emptyRegion))
+    val parameterless = Statement.ExternalStruct(name, Nil)(emptyRegion)
+    parseTestAll(parser, "external type Foo", parameterless)
+    parseTestAll(parser, "external struct Foo", parameterless)
+    assertEquals(parameterless.constructors, Nil)
+
+    val a = TypeRef.TypeVar("a")
+    parseTestAll(
+      parser,
+      "external type Foo[a]",
+      Statement.ExternalStruct(name, List((a, None)))(emptyRegion)
+    )
+    parseTestAll(
+      parser,
+      "external type Foo[a: *, b: +*, c: -*, d: 👻*, f: +* -> *]",
+      Statement.ExternalStruct(
+        name,
+        List(
+          (a, Some(Kind.Type.in)),
+          (TypeRef.TypeVar("b"), Some(Kind.Type.co)),
+          (TypeRef.TypeVar("c"), Some(Kind.Type.contra)),
+          (TypeRef.TypeVar("d"), Some(Kind.Type.phantom)),
+          (TypeRef.TypeVar("f"), Some(Kind(Kind.Type.co).in))
+        )
+      )(emptyRegion)
+    )
+  }
+
+  test("external type leaves values named type and transparent aliases distinct") {
+    val parser = Statement.parser1.map(_.replaceRegions(emptyRegion))
+    val value = Statement.ExternalDef(
+      Identifier.Name("type"),
+      None,
+      Nil,
+      TypeRef.TypeName(TypeName(Identifier.Constructor("Foo")))
+    )(emptyRegion)
+    parseTestAll(parser, "external type: Foo", value)
+    parseTestAll(parser, "external type : Foo", value)
+    parseTestAll(parser, "external type\t: Foo", value)
+    parseTestAll(
+      parser,
+      "type Foo = Bar",
+      Statement.TypeAlias(
+        Identifier.Constructor("Foo"),
+        None,
+        TypeRef.TypeName(TypeName(Identifier.Constructor("Bar")))
+      )(emptyRegion)
+    )
+  }
+
+  test("malformed external type declarations fail at the declaration") {
+    List(
+      ("external type", 13),
+      ("external type foo", 13),
+      ("external type Foo[", 18),
+      ("external type Foo[a: ]", 21),
+      ("external type Foo = Bar", 18),
+      ("external type Foo(value: Bar)", 17)
+    ).foreach { case (source, offset) =>
+      expectFail(Statement.parser1, source, offset)
+    }
+  }
+
   test("parse external defs") {
     roundTrip(
       Statement.parser,
