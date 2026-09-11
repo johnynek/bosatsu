@@ -914,10 +914,13 @@ object Type {
     * `frees` are variables from the left side that remain universally
     * quantified. The mapped bound variable is the name that must appear on the
     * right side after alpha-renaming.
+    * This is not a complete list of right-side universal binders: a binder can
+    * occur only inside a solved substitution in `subs`.
     *
     * `subs` are variables from the left side that were solved to concrete
     * types. These substitutions are structural candidates only; callers still
-    * need to validate kinds in the full type environment.
+    * need to validate kinds in the full type environment and retain the scope
+    * of any right-side universal binders referenced by these types.
     *
     * `toFrees` are right-side existentials that remain unsolved.
     *
