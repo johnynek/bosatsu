@@ -44,9 +44,10 @@ class KindFormulaTest extends munit.FunSuite {
             te.getType(
               PackageName.PredefName,
               name
-            )
-              .map(_.kindOf)
-              .orElse(te.getTypeAlias(PackageName.PredefName, name).map(_.kindOf))
+            ).map(_.kindOf)
+              .orElse(
+                te.getTypeAlias(PackageName.PredefName, name).map(_.kindOf)
+              )
               .getOrElse(fail(s"missing type or alias: $n"))
           val kind = Kind.parser.parseAll(vs) match {
             case Right(k) => k
@@ -391,7 +392,9 @@ enum Free[a: +*]:
 """)
   }
 
-  test("regression: Eval-like variance failure reports kind failure, not invariant") {
+  test(
+    "regression: Eval-like variance failure reports kind failure, not invariant"
+  ) {
     val res = makeTE("""#
 enum Leaf[a: +*]:
   Done(done: a)

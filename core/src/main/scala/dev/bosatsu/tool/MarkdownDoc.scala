@@ -28,7 +28,7 @@ object MarkdownDoc {
     case Private
   }
 
-  private final case class LinkContext(
+  final private case class LinkContext(
       packageBaseUrls: Map[PackageName, String],
       localPackages: Set[PackageName],
       remoteDocLinksHtml: Boolean
@@ -351,7 +351,10 @@ object MarkdownDoc {
     parts.init ::: ((parts.last + extension) :: Nil)
   }
 
-  private def relativePath(fromDir: List[String], toPath: List[String]): String = {
+  private def relativePath(
+      fromDir: List[String],
+      toPath: List[String]
+  ): String = {
     val commonPrefix = fromDir
       .zip(toPath)
       .takeWhile { case (from, to) => from == to }
@@ -377,7 +380,7 @@ object MarkdownDoc {
             linkContext.remoteDocLinksHtml
           ).mkString("/")
         show"$baseUrl/$docPath"
-      case None          =>
+      case None =>
         relativePath(fromPackage.parts.toList.init, packageDocParts(toPackage))
     }
 
@@ -389,7 +392,8 @@ object MarkdownDoc {
   ): String = {
     val anchor = typeAnchorId(typeName)
     if (typePackage == currentPackage) show"#$anchor"
-    else show"${packageDocHref(currentPackage, typePackage, linkContext)}#$anchor"
+    else
+      show"${packageDocHref(currentPackage, typePackage, linkContext)}#$anchor"
   }
 
   private def fenced(language: String, content: Doc): Doc =
@@ -417,7 +421,8 @@ object MarkdownDoc {
           case Type.Const.Defined(typePackage, typeName)
               if !fnTypeRegex.matches(typeName.asString) =>
             val label =
-              TypeRenderer.typeNamePrefix(typePackage, typeName, ctx) + typeName.asString
+              TypeRenderer
+                .typeNamePrefix(typePackage, typeName, ctx) + typeName.asString
             val href =
               typeHref(
                 currentPackage,
@@ -946,7 +951,8 @@ object MarkdownDoc {
       sourcePaths: List[(Path, PackageName)],
       outdir: Path,
       color: dev.bosatsu.LocationMap.Colorize,
-      sourceLinksByPackage: Map[PackageName, List[(String, String)]] = Map.empty,
+      sourceLinksByPackage: Map[PackageName, List[(String, String)]] =
+        Map.empty,
       packageBaseUrls: Map[PackageName, String] = Map.empty,
       packageVisibility: Map[PackageName, PackageVisibility] = Map.empty,
       remoteDocLinksHtml: Boolean = false

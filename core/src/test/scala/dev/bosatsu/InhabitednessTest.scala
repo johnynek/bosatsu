@@ -235,14 +235,24 @@ class InhabitednessTest extends munit.ScalaCheckSuite {
   }
 
   private val edgeOpaqueType: Type.TyConst = localType("EdgeOpaque")
-  private val edgeMissingBuiltinType: Type.TyConst = localType("EdgeMissingBuiltin")
+  private val edgeMissingBuiltinType: Type.TyConst = localType(
+    "EdgeMissingBuiltin"
+  )
   private val edgeFreeVarType: Type.TyConst = localType("EdgeFreeVar")
   private val edgeBadApplyType: Type.TyConst = localType("EdgeBadApply")
-  private val edgeNonConstApplyType: Type.TyConst = localType("EdgeNonConstApply")
-  private val edgeExistsNonTypeType: Type.TyConst = localType("EdgeExistsNonType")
+  private val edgeNonConstApplyType: Type.TyConst = localType(
+    "EdgeNonConstApply"
+  )
+  private val edgeExistsNonTypeType: Type.TyConst = localType(
+    "EdgeExistsNonType"
+  )
   private val edgeExistsManyType: Type.TyConst = localType("EdgeExistsMany")
-  private val edgeExistsUnknownType: Type.TyConst = localType("EdgeExistsUnknown")
-  private val edgeUnknownOrNeverType: Type.TyConst = localType("EdgeUnknownOrNever")
+  private val edgeExistsUnknownType: Type.TyConst = localType(
+    "EdgeExistsUnknown"
+  )
+  private val edgeUnknownOrNeverType: Type.TyConst = localType(
+    "EdgeUnknownOrNever"
+  )
   private val edgeFnUnknownType: Type.TyConst = localType("EdgeFnUnknown")
 
   private def typeIfPresent(
@@ -373,13 +383,16 @@ class InhabitednessTest extends munit.ScalaCheckSuite {
       case _                               => false
     }
 
-    expectInvalid(Inhabitedness.check(Type.TyVar(Type.Var.Bound("u")), nonTrivialEnv)) {
+    expectInvalid(
+      Inhabitedness.check(Type.TyVar(Type.Var.Bound("u")), nonTrivialEnv)
+    ) {
       case Error.UnknownTypeVariable(_) => true
       case _                            => false
     }
 
     expectInvalid(
-      Inhabitedness.check(Type.TyApply(Type.IntType, Type.IntType), nonTrivialEnv)
+      Inhabitedness
+        .check(Type.TyApply(Type.IntType, Type.IntType), nonTrivialEnv)
     ) {
       case Error.IllKindedTypeApply(_) => true
       case _                           => false
@@ -397,8 +410,10 @@ class InhabitednessTest extends munit.ScalaCheckSuite {
   }
 
   test("checkMatch reports pattern validation errors and accumulates them") {
-    val unknown1 = Pattern.PositionalStruct((localPackage, Constructor("Nope1")), Nil)
-    val unknown2 = Pattern.PositionalStruct((localPackage, Constructor("Nope2")), Nil)
+    val unknown1 =
+      Pattern.PositionalStruct((localPackage, Constructor("Nope1")), Nil)
+    val unknown2 =
+      Pattern.PositionalStruct((localPackage, Constructor("Nope2")), Nil)
     val badAnn = Pattern.Annotation(Pattern.WildCard, Type.OptionType)
 
     val pattern =
@@ -412,8 +427,12 @@ class InhabitednessTest extends munit.ScalaCheckSuite {
       case Validated.Valid(state) =>
         fail(s"expected accumulated validation errors, got state: $state")
       case Validated.Invalid(errs) =>
-        assert(errs.exists { case Error.UnknownConstructor(_) => true; case _ => false })
-        assert(errs.exists { case Error.TypeNotValueKind(_, _) => true; case _ => false })
+        assert(errs.exists {
+          case Error.UnknownConstructor(_) => true; case _ => false
+        })
+        assert(errs.exists {
+          case Error.TypeNotValueKind(_, _) => true; case _ => false
+        })
         assert(errs.size >= 3, errs.toList.toString)
     }
   }
@@ -460,11 +479,13 @@ class InhabitednessTest extends munit.ScalaCheckSuite {
       State.Inhabited
     )
     assertState(
-      Inhabitedness.checkMatch(Type.IntType, prefixedListOnNonList, nonTrivialEnv),
+      Inhabitedness
+        .checkMatch(Type.IntType, prefixedListOnNonList, nonTrivialEnv),
       State.Unknown
     )
     assertState(
-      Inhabitedness.checkMatch(listType, prefixedListWithBadItem, nonTrivialEnv),
+      Inhabitedness
+        .checkMatch(listType, prefixedListWithBadItem, nonTrivialEnv),
       State.Uninhabited
     )
     assertState(
@@ -478,13 +499,22 @@ class InhabitednessTest extends munit.ScalaCheckSuite {
   }
 
   test("check covers unknown-state and malformed environment fallbacks") {
-    assertState(Inhabitedness.check(edgeOpaqueType, edgeNoPredefEnv), State.Unknown)
+    assertState(
+      Inhabitedness.check(edgeOpaqueType, edgeNoPredefEnv),
+      State.Unknown
+    )
     assertState(
       Inhabitedness.check(edgeMissingBuiltinType, edgeNoPredefEnv),
       State.Unknown
     )
-    assertState(Inhabitedness.check(edgeFreeVarType, edgeNoPredefEnv), State.Unknown)
-    assertState(Inhabitedness.check(edgeBadApplyType, edgeNoPredefEnv), State.Unknown)
+    assertState(
+      Inhabitedness.check(edgeFreeVarType, edgeNoPredefEnv),
+      State.Unknown
+    )
+    assertState(
+      Inhabitedness.check(edgeBadApplyType, edgeNoPredefEnv),
+      State.Unknown
+    )
     assertState(
       Inhabitedness.check(edgeNonConstApplyType, edgeNoPredefEnv),
       State.Unknown
@@ -505,7 +535,10 @@ class InhabitednessTest extends munit.ScalaCheckSuite {
       Inhabitedness.check(edgeUnknownOrNeverType, edgeNoPredefEnv),
       State.Unknown
     )
-    assertState(Inhabitedness.check(edgeFnUnknownType, edgeNoPredefEnv), State.Unknown)
+    assertState(
+      Inhabitedness.check(edgeFnUnknownType, edgeNoPredefEnv),
+      State.Unknown
+    )
   }
 
   test("check handles existential and quantifier edge cases") {
@@ -519,18 +552,32 @@ class InhabitednessTest extends munit.ScalaCheckSuite {
     assertState(Inhabitedness.check(hugeForAll, nonTrivialEnv), State.Unknown)
 
     val listUnknownForAll =
-      Type.forAll(List((a, Kind.Type)), Type.apply1(Type.ListType, Type.TyVar(a)))
+      Type.forAll(
+        List((a, Kind.Type)),
+        Type.apply1(Type.ListType, Type.TyVar(a))
+      )
     val listUnknownExists =
-      Type.exists(List((a, Kind.Type)), Type.apply1(Type.ListType, Type.TyVar(a)))
-    assertState(Inhabitedness.check(listUnknownForAll, predefTypeEnv), State.Inhabited)
-    assertState(Inhabitedness.check(listUnknownExists, predefTypeEnv), State.Inhabited)
+      Type.exists(
+        List((a, Kind.Type)),
+        Type.apply1(Type.ListType, Type.TyVar(a))
+      )
+    assertState(
+      Inhabitedness.check(listUnknownForAll, predefTypeEnv),
+      State.Inhabited
+    )
+    assertState(
+      Inhabitedness.check(listUnknownExists, predefTypeEnv),
+      State.Inhabited
+    )
 
     val skolem =
       Type.TyVar(Type.Var.Skolem("s", Kind.Type, existential = false, id = 7L))
     assertState(Inhabitedness.check(skolem, nonTrivialEnv), State.Unknown)
   }
 
-  test("checkMatch covers named, annotation, union and positional unknown paths") {
+  test(
+    "checkMatch covers named, annotation, union and positional unknown paths"
+  ) {
     val namedPat = Pattern.Named(Identifier.Name("x"), Pattern.WildCard)
     assertState(
       Inhabitedness.checkMatch(Type.IntType, namedPat, nonTrivialEnv),
@@ -658,17 +705,24 @@ class InhabitednessTest extends munit.ScalaCheckSuite {
     val badApplyPattern =
       Pattern.PositionalStruct(
         (localPackage, Constructor("EdgeBadApply")),
-        Pattern.PositionalStruct((localPackage, Constructor("Good")), Nil) :: Nil
+        Pattern.PositionalStruct(
+          (localPackage, Constructor("Good")),
+          Nil
+        ) :: Nil
       )
     assertState(
-      Inhabitedness.checkMatch(edgeBadApplyType, badApplyPattern, edgeNoPredefEnv),
+      Inhabitedness
+        .checkMatch(edgeBadApplyType, badApplyPattern, edgeNoPredefEnv),
       State.Unknown
     )
 
     val nonConstApplyPattern =
       Pattern.PositionalStruct(
         (localPackage, Constructor("EdgeNonConstApply")),
-        Pattern.PositionalStruct((localPackage, Constructor("Good")), Nil) :: Nil
+        Pattern.PositionalStruct(
+          (localPackage, Constructor("Good")),
+          Nil
+        ) :: Nil
       )
     assertState(
       Inhabitedness.checkMatch(

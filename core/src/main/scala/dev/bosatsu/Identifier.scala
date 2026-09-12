@@ -82,7 +82,7 @@ object Identifier {
       right: Identifier
   ): Boolean =
     (left, right) match {
-      case (Synthetic(sl), Synthetic(sr)) => sl == sr
+      case (Synthetic(sl), Synthetic(sr))        => sl == sr
       case (Synthetic(_), _) | (_, Synthetic(_)) =>
         false
       case (nsL: Syntax, nsR: Syntax) =>
@@ -177,7 +177,6 @@ object Identifier {
     ): Iterator[Bindable] =
       freshPrefixedSyntheticIterator(prefix, avoid.apply)
   }
-
 
   implicit def document[A <: Identifier]: Document[A] =
     Document.instance[A](i => Doc.text(i.sourceCodeRepr))

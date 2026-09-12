@@ -344,7 +344,8 @@ object TypedExprNormalization {
                   )
                   val expr1 =
                     replace(branch.expr, blockedBody, blockedTy, inSuspension)
-                  if (guard1.eq(branch.guardNode) && (expr1 eq branch.expr)) branch
+                  if (guard1.eq(branch.guardNode) && (expr1 eq branch.expr))
+                    branch
                   else
                     branch.copyNode(
                       branch.pattern,
@@ -483,7 +484,9 @@ object TypedExprNormalization {
           if (innerClashes.isEmpty) branch1
           else {
             val renamedFree =
-              TypedExpr.freeVarsSet(branch1.expr :: branch1.guardExprIterator.toList)
+              TypedExpr.freeVarsSet(
+                branch1.expr :: branch1.guardExprIterator.toList
+              )
             val argRenames =
               freshRenames(
                 innerClashes,
@@ -491,9 +494,13 @@ object TypedExprNormalization {
               )
             val resSub = replacementSubstitution(argRenames)
             val expr1 =
-              TypedExpr.substituteAll(resSub, branch1.expr, enterLambda = true).get
+              TypedExpr
+                .substituteAll(resSub, branch1.expr, enterLambda = true)
+                .get
             val guardOpt1 =
-              guardOpt.map(TypedExpr.substituteAll(resSub, _, enterLambda = true).get)
+              guardOpt.map(
+                TypedExpr.substituteAll(resSub, _, enterLambda = true).get
+              )
             val pattern1 = pattern.substitute(argRenames)
             val guard1 =
               TypedExpr.MatchGuard(argExpr, pattern1, guardOpt1)(using
@@ -519,7 +526,10 @@ object TypedExprNormalization {
       (guard1 eq branch.guardNode) &&
       (expr1 eq branch.expr)
     ) branch
-    else branch2.copyNode(branch2.pattern, guard1, expr1)(using branch2.patternRegion)
+    else
+      branch2.copyNode(branch2.pattern, guard1, expr1)(using
+        branch2.patternRegion
+      )
   }
 
   // After inlining we can splice a whole subtree under a lexical scope that
@@ -545,7 +555,8 @@ object TypedExprNormalization {
         else AnnotatedLambda(lam1.args, body1, tag)
       case app @ App(fn, args, tpe, tag) =>
         val fn1 = unshadowInlineBinders(fn, avoid)
-        val args1 = ListUtil.mapConserveNel(args)(unshadowInlineBinders(_, avoid))
+        val args1 =
+          ListUtil.mapConserveNel(args)(unshadowInlineBinders(_, avoid))
         if ((fn1 eq fn) && (args1 eq args)) app
         else App(fn1, args1, tpe, tag)
       case let @ Let(_, _, _, RecursionKind.NonRecursive, tag) =>
@@ -572,7 +583,8 @@ object TypedExprNormalization {
         if ((args1 eq lp1.args) && (body1 eq lp1.body)) lp1
         else Loop(args1, body1, tag)
       case recur @ Recur(args, tpe, tag) =>
-        val args1 = ListUtil.mapConserveNel(args)(unshadowInlineBinders(_, avoid))
+        val args1 =
+          ListUtil.mapConserveNel(args)(unshadowInlineBinders(_, avoid))
         if (args1 eq args) recur else Recur(args1, tpe, tag)
       case m @ Match(arg, branches, tag) =>
         val arg1 = unshadowInlineBinders(arg, avoid)
@@ -597,7 +609,9 @@ object TypedExprNormalization {
         case AnnotatedLambda(args1, expr1, _) =>
           (args1, expr1)
         case _ =>
-          sys.error(s"expected lambda after inline unshadowing, found: ${unshadowed.reprString}")
+          sys.error(
+            s"expected lambda after inline unshadowing, found: ${unshadowed.reprString}"
+          )
       }
     // Now that we certainly don't shadow we can convert this:
     // ((y1, y2, ..., yn) -> z)(x1, x2, ..., xn) = let y1 = x1 in let y2 = x2 in ... z
@@ -635,7 +649,10 @@ object TypedExprNormalization {
   private val TruePattern: Pattern[(PackageName, Constructor), Type] =
     Pattern.PositionalStruct((PackageName.PredefName, Constructor("True")), Nil)
   private val FalsePattern: Pattern[(PackageName, Constructor), Type] =
-    Pattern.PositionalStruct((PackageName.PredefName, Constructor("False")), Nil)
+    Pattern.PositionalStruct(
+      (PackageName.PredefName, Constructor("False")),
+      Nil
+    )
 
   private def ifThenElse[A](
       cond: TypedExpr[A],
@@ -645,7 +662,7 @@ object TypedExprNormalization {
     (boolConst(thenCase), boolConst(elseCase)) match {
       case (Some(true), Some(false)) =>
         cond
-      case _                         =>
+      case _ =>
         Match(
           cond,
           NonEmptyList.of(
@@ -672,14 +689,16 @@ object TypedExprNormalization {
         case NonEmptyList(
               Branch(TruePattern, None, ifTrue),
               Branch(falseOrTop, None, ifFalse) :: Nil
-            ) if (falseOrTop == FalsePattern) || totalityCheck.isWildLike(
+            )
+            if (falseOrTop == FalsePattern) || totalityCheck.isWildLike(
               falseOrTop
             ) =>
           Some((ifTrue, ifFalse))
         case NonEmptyList(
               Branch(FalsePattern, None, ifFalse),
               Branch(trueOrTop, None, ifTrue) :: Nil
-            ) if (trueOrTop == TruePattern) || totalityCheck.isWildLike(
+            )
+            if (trueOrTop == TruePattern) || totalityCheck.isWildLike(
               trueOrTop
             ) =>
           Some((ifTrue, ifFalse))
@@ -688,18 +707,24 @@ object TypedExprNormalization {
       }
 
     (stripTypeWrappers(arg), asBoolSelector(branches)) match {
-      case (inner @ Match(innerArg, innerBranches, _), Some((ifTrue, ifFalse))) =>
-        innerBranches.traverse { inner =>
-          boolConst(inner.expr).map { cond =>
-            val selected = if (cond) ifTrue else ifFalse
-            if (selected eq inner.expr) inner
-            else inner.copyNode(inner.pattern, inner.guardNode, selected)(using
-              inner.patternRegion
-            )
+      case (
+            inner @ Match(innerArg, innerBranches, _),
+            Some((ifTrue, ifFalse))
+          ) =>
+        innerBranches
+          .traverse { inner =>
+            boolConst(inner.expr).map { cond =>
+              val selected = if (cond) ifTrue else ifFalse
+              if (selected eq inner.expr) inner
+              else
+                inner.copyNode(inner.pattern, inner.guardNode, selected)(using
+                  inner.patternRegion
+                )
+            }
           }
-        }.map { mapped =>
-          Match(inner.matchKind, innerArg, mapped, tag)
-        }
+          .map { mapped =>
+            Match(inner.matchKind, innerArg, mapped, tag)
+          }
       case _ =>
         None
     }
@@ -708,9 +733,9 @@ object TypedExprNormalization {
   @annotation.tailrec
   private def stripTypeWrappers[A](te: TypedExpr[A]): TypedExpr[A] =
     te match {
-      case Generic(_, in)    => stripTypeWrappers(in)
+      case Generic(_, in)       => stripTypeWrappers(in)
       case Annotation(in, _, _) => stripTypeWrappers(in)
-      case _                 => te
+      case _                    => te
     }
 
   private def isSameLocalRef[A](expected: Bindable, te: TypedExpr[A]): Boolean =
@@ -920,28 +945,29 @@ object TypedExprNormalization {
                 addShadowed(shadowedLoopNames, branch.pattern.names)
               val innerShadowed =
                 addShadowed(outerShadowed, branch.guardBindings)
-              val guardFlags = branch.foldGuardExprScoped(Option.empty[Vector[Boolean]])(
-                (guardAcc, guardExpr) =>
-                  combineInvariantFlags(
-                    guardAcc,
-                    outerRecurInvariantFlags(
-                      guardExpr,
-                      loopNames,
-                      inNestedLoop,
-                      outerShadowed
+              val guardFlags =
+                branch.foldGuardExprScoped(Option.empty[Vector[Boolean]])(
+                  (guardAcc, guardExpr) =>
+                    combineInvariantFlags(
+                      guardAcc,
+                      outerRecurInvariantFlags(
+                        guardExpr,
+                        loopNames,
+                        inNestedLoop,
+                        outerShadowed
+                      )
+                    ),
+                  (guardAcc, guardExpr) =>
+                    combineInvariantFlags(
+                      guardAcc,
+                      outerRecurInvariantFlags(
+                        guardExpr,
+                        loopNames,
+                        inNestedLoop,
+                        innerShadowed
+                      )
                     )
-                  ),
-                (guardAcc, guardExpr) =>
-                  combineInvariantFlags(
-                    guardAcc,
-                    outerRecurInvariantFlags(
-                      guardExpr,
-                      loopNames,
-                      inNestedLoop,
-                      innerShadowed
-                    )
-                  )
-              )
+                )
               val bodyFlags =
                 outerRecurInvariantFlags(
                   branch.expr,
@@ -1039,7 +1065,8 @@ object TypedExprNormalization {
           )
           val branchExpr1 =
             dropOuterRecurArgs(branch.expr, dropPositions, inNestedLoop)
-          if (guard1.eq(branch.guardNode) && (branchExpr1 eq branch.expr)) branch
+          if (guard1.eq(branch.guardNode) && (branchExpr1 eq branch.expr))
+            branch
           else
             branch.copyNode(
               branch.pattern,
@@ -1342,7 +1369,8 @@ object TypedExprNormalization {
               extraArgs,
               fnVisibleInner
             )
-          if (guard1.eq(branch.guardNode) && (branchExpr1 eq branch.expr)) branch
+          if (guard1.eq(branch.guardNode) && (branchExpr1 eq branch.expr))
+            branch
           else
             branch.copyNode(
               branch.pattern,
@@ -1470,7 +1498,8 @@ object TypedExprNormalization {
                 outerShadowed ||
                 (branch.foldGuardExprScoped(true)(
                   (acc, guardExpr) => acc && guardExpr.notFree(arg),
-                  (acc, guardExpr) => acc && (bodyShadowed || guardExpr.notFree(arg))
+                  (acc, guardExpr) =>
+                    acc && (bodyShadowed || guardExpr.notFree(arg))
                 ) && (bodyShadowed || branch.expr.notFree(arg)))
               } =>
           // x = y
@@ -1494,7 +1523,8 @@ object TypedExprNormalization {
             if (
               outerShadowed || (branch.foldGuardExprScoped(true)(
                 (acc, guardExpr) => acc && guardExpr.notFree(arg),
-                (acc, guardExpr) => acc && (bodyShadowed || guardExpr.notFree(arg))
+                (acc, guardExpr) =>
+                  acc && (bodyShadowed || guardExpr.notFree(arg))
               ) && (bodyShadowed || r.notFree(arg)))
             )
               branch
@@ -1510,7 +1540,9 @@ object TypedExprNormalization {
               val r1 =
                 if (bodyShadowed || r.notFree(arg)) r
                 else Let(arg, expr, r, rec, tag)
-              branch.copyNode(branch.pattern, guard1, r1)(using branch.patternRegion)
+              branch.copyNode(branch.pattern, guard1, r1)(using
+                branch.patternRegion
+              )
             }
           }
           Some(Match(m.matchKind, marg, b1, mtag))
@@ -1806,7 +1838,7 @@ object TypedExprNormalization {
                   sinkLetIntoBranchingBody(arg, ex2, in1, rec1, tag) match {
                     case Some(branchSunk) =>
                       normalize1(namerec, branchSunk, scope, typeEnv)
-                    case None             =>
+                    case None =>
                       val cnt = in1.freeVarsDup.count(_ == arg)
                       if (cnt > 0) {
                         // the arg is needed
@@ -2015,7 +2047,8 @@ object TypedExprNormalization {
                       // Keep metadata for safety fallback, but mark as dropped.
                       (1, Some(TypedExpr.BoolGuard(g1)), true)
                     case None =>
-                      val changed = if (guardNorm0.eq(branch.guardNode)) 0 else 1
+                      val changed =
+                        if (guardNorm0.eq(branch.guardNode)) 0 else 1
                       (changed, guardNorm0, false)
                   }
                 case Some(_: TypedExpr.MatchGuard[?]) =>
@@ -2034,11 +2067,15 @@ object TypedExprNormalization {
                 true
               )
             else {
-              val (exprChanged, expr1) = ncount(outerShadowed | innerShadowed, branch.expr)
+              val (exprChanged, expr1) =
+                ncount(outerShadowed | innerShadowed, branch.expr)
               val freeGuard =
                 guard1.fold(Set.empty[Bindable]) { guardNode =>
-                  TypedExpr.BranchGuard.foldExpr(guardNode, Set.empty[Bindable]) {
-                    case (acc, guardExpr) => acc ++ guardExpr.freeVarsDup.toSet
+                  TypedExpr.BranchGuard.foldExpr(
+                    guardNode,
+                    Set.empty[Bindable]
+                  ) { case (acc, guardExpr) =>
+                    acc ++ guardExpr.freeVarsDup.toSet
                   }
                 }
               val freeT1 =
@@ -2050,7 +2087,9 @@ object TypedExprNormalization {
               val patChanged = if (p1 == p) 0 else 1
               BranchNorm(
                 guardChanged + exprChanged + patChanged,
-                Branch.fromGuardNode(p1, guard1, expr1)(using branch.patternRegion),
+                Branch.fromGuardNode(p1, guard1, expr1)(using
+                  branch.patternRegion
+                ),
                 false
               )
             }
@@ -2110,8 +2149,8 @@ object TypedExprNormalization {
                       .intersect(g.freeVarsDup.toSet)
                       .isEmpty =>
                   val rewrittenHead =
-                    Branch(head.pattern, None, ifThenElse(g, head.expr, e2))(using
-                      head.patternRegion
+                    Branch(head.pattern, None, ifThenElse(g, head.expr, e2))(
+                      using head.patternRegion
                     )
                   val rewritten =
                     if (totalityCheck.difference(p2, head.pattern).isEmpty)
@@ -2161,7 +2200,12 @@ object TypedExprNormalization {
             } else {
               // there has been some change, so
               // see if that unlocked any new changes
-              normalize1(namerec, Match(m.matchKind, a1, branches1a, tag), scope, typeEnv)
+              normalize1(
+                namerec,
+                Match(m.matchKind, a1, branches1a, tag),
+                scope,
+                typeEnv
+              )
             }
         }
     }
@@ -2384,7 +2428,13 @@ object TypedExprNormalization {
                   ) :: tail =>
                 node match {
                   case Local(name, _, _) if !shadowed(name) =>
-                    record(name, branchOnly, directCallee, insideLambda, cheapContext)
+                    record(
+                      name,
+                      branchOnly,
+                      directCallee,
+                      insideLambda,
+                      cheapContext
+                    )
                     loop(tail)
                   case Local(_, _, _) | Global(_, _, _, _) | Literal(_, _, _) =>
                     loop(tail)
@@ -2468,15 +2518,16 @@ object TypedExprNormalization {
                     )
                   case Loop(args0, loopBody, _) =>
                     val initStates =
-                      args0.toList.foldRight(tail) { case ((_, initExpr), acc) =>
-                        LoopState(
-                          initExpr,
-                          branchOnly,
-                          directCallee = false,
-                          insideLambda,
-                          cheapContext = false,
-                          shadowed
-                        ) :: acc
+                      args0.toList.foldRight(tail) {
+                        case ((_, initExpr), acc) =>
+                          LoopState(
+                            initExpr,
+                            branchOnly,
+                            directCallee = false,
+                            insideLambda,
+                            cheapContext = false,
+                            shadowed
+                          ) :: acc
                       }
                     loop(
                       LoopState(
@@ -2503,27 +2554,28 @@ object TypedExprNormalization {
                     )
                   case Match(matchArg, branches, _) =>
                     val branchStates =
-                      branches.toList.foldRight(tail) { case (Branch(p, guard, expr), acc) =>
-                        val shadowed1 = shadowed ++ p.names
-                        val acc1 =
-                          LoopState(
-                            expr,
-                            branchOnly = true,
-                            directCallee = false,
-                            insideLambda,
-                            cheapContext = false,
-                            shadowed1
-                          ) :: acc
-                        guard.fold(acc1) { g =>
-                          LoopState(
-                            g,
-                            branchOnly = false,
-                            directCallee = false,
-                            insideLambda,
-                            cheapContext = false,
-                            shadowed1
-                          ) :: acc1
-                        }
+                      branches.toList.foldRight(tail) {
+                        case (Branch(p, guard, expr), acc) =>
+                          val shadowed1 = shadowed ++ p.names
+                          val acc1 =
+                            LoopState(
+                              expr,
+                              branchOnly = true,
+                              directCallee = false,
+                              insideLambda,
+                              cheapContext = false,
+                              shadowed1
+                            ) :: acc
+                          guard.fold(acc1) { g =>
+                            LoopState(
+                              g,
+                              branchOnly = false,
+                              directCallee = false,
+                              insideLambda,
+                              cheapContext = false,
+                              shadowed1
+                            ) :: acc1
+                          }
                       }
                     loop(
                       LoopState(
@@ -2606,8 +2658,7 @@ object TypedExprNormalization {
                 if args.forall(isDirectForwardedValue) &&
                   (stripTypeWrappers(fn) match {
                     case Global(_, _: Bindable, _, _) |
-                        Global(_, _: Constructor, _, _) |
-                        Local(_, _, _) =>
+                        Global(_, _: Constructor, _, _) | Local(_, _, _) =>
                       true
                     case _ =>
                       false
@@ -2644,14 +2695,14 @@ object TypedExprNormalization {
               containsLoopLike = containsLoopOrRecur(body),
               exposesBranching = exposesBranching(body),
               exposesFollowOnReduction = exposesFollowOnReduction(body),
-              args = parameterDemandSummary(lamArgs, body)
-                .iterator
+              args = parameterDemandSummary(lamArgs, body).iterator
                 .zip(callArgs.iterator)
                 .map { case (demand, argExpr) =>
                   InlineBenefitModel.ArgSummary(
                     demand = demand,
                     isCheap = isCheapArgument(argExpr),
-                    resolvesToLambda = ResolveToLambda.unapply(argExpr).nonEmpty,
+                    resolvesToLambda =
+                      ResolveToLambda.unapply(argExpr).nonEmpty,
                     isKnownDirectCallee = isKnownDirectCallee(argExpr),
                     isKnownValue = isKnownArgumentValue(argExpr)
                   )
@@ -2672,7 +2723,12 @@ object TypedExprNormalization {
                 case s1.ResolveToLambda(Nil, args, body, ltag)
                     if args.length == callArgs.length &&
                       isScopeSafeGlobalInline(args, body, scope1) &&
-                      shouldInlineResolvedCall(args, body, callArgs, body.size) =>
+                      shouldInlineResolvedCall(
+                        args,
+                        body,
+                        callArgs,
+                        body.size
+                      ) =>
                   Some((args, body, ltag))
                 case _ =>
                   None
@@ -2699,9 +2755,11 @@ object TypedExprNormalization {
           resolveInstantiatedCalleeWithBenefit(callee, callArgs).orElse {
             stripTypeWrappers(callee) match {
               case Global(pack, name: Bindable, _, _) =>
-                scope.getGlobal(pack, name).flatMap(
-                  resolveReferencedCallWithBenefit(_, callArgs)
-                )
+                scope
+                  .getGlobal(pack, name)
+                  .flatMap(
+                    resolveReferencedCallWithBenefit(_, callArgs)
+                  )
               case _ =>
                 None
             }
@@ -2803,18 +2861,23 @@ object TypedExprNormalization {
           if (asType.sameAs(Type.getTypeOf(value))) Some(lit)
           else None
         case EvalResult.Cons(pack, cons, args) =>
-          totalityCheck.inEnv.getConstructor(pack, cons).flatMap { case (dt, ctor) =>
-            dt.extractTypeArgs(asType).flatMap { typeArgs =>
-              dt.instantiateConstructorFieldTypes(ctor, typeArgs).flatMap { fieldTypes =>
-                if (fieldTypes.lengthCompare(args.length) == 0) {
-                  val typedArgs =
-                    args.iterator.zip(fieldTypes.iterator).map { case (arg, tpe) =>
-                      setType(arg, tpe)
-                    }.toList
-                  Some(EvalResult.Cons(pack, cons, typedArgs))
-                } else None
+          totalityCheck.inEnv.getConstructor(pack, cons).flatMap {
+            case (dt, ctor) =>
+              dt.extractTypeArgs(asType).flatMap { typeArgs =>
+                dt.instantiateConstructorFieldTypes(ctor, typeArgs).flatMap {
+                  fieldTypes =>
+                    if (fieldTypes.lengthCompare(args.length) == 0) {
+                      val typedArgs =
+                        args.iterator
+                          .zip(fieldTypes.iterator)
+                          .map { case (arg, tpe) =>
+                            setType(arg, tpe)
+                          }
+                          .toList
+                      Some(EvalResult.Cons(pack, cons, typedArgs))
+                    } else None
+                }
               }
-            }
           }
       }
 
@@ -2846,7 +2909,9 @@ object TypedExprNormalization {
           evaluate(fn, scope, totalityCheck).map {
             case EvalResult.Cons(p, c, ahead) =>
               val cons = EvalResult.Cons(p, c, ahead ::: args.toList)
-              retypeEvaluatedValue(cons, resultTpe, totalityCheck).getOrElse(cons)
+              retypeEvaluatedValue(cons, resultTpe, totalityCheck).getOrElse(
+                cons
+              )
             // $COVERAGE-OFF$
             case EvalResult.Constant(c) =>
               // this really shouldn't happen,
@@ -2935,19 +3000,24 @@ object TypedExprNormalization {
               case ps @ Pattern.PositionalStruct((p0, c0), args0) =>
                 evaluated match {
                   case EvalResult.Cons(p1, c1, args1) =>
-                    if ((p0 == p1) && (c0 == c1) && (args0.length == args1.length))
+                    if (
+                      (p0 == p1) && (c0 == c1) && (args0.length == args1.length)
+                    )
                       // Matching the outer constructor is not sufficient when the
                       // pattern has nested structure: we must verify the child
                       // patterns against the already-evaluated constructor args or
                       // normalization can commit to the wrong branch.
-                      args0.iterator.zip(args1.iterator).toList
+                      args0.iterator
+                        .zip(args1.iterator)
+                        .toList
                         .traverse { case (pat1, arg1) =>
                           evaluate(arg1, scope, totalityCheck).flatMap {
                             filterPatAgainst(pat1, _)
                           }
                         }
                         .map {
-                          case filteredArgs if filteredArgs.forall(_.nonEmpty) =>
+                          case filteredArgs
+                              if filteredArgs.forall(_.nonEmpty) =>
                             Some(ps)
                           case _ =>
                             None
@@ -2961,7 +3031,9 @@ object TypedExprNormalization {
                   p1.map(bp => Pattern.Named(n, bp))
                 }
               case Pattern.Annotation(p, tpe) =>
-                filterPatAgainst(p, evaluated).map(_.map(Pattern.Annotation(_, tpe)))
+                filterPatAgainst(p, evaluated).map(
+                  _.map(Pattern.Annotation(_, tpe))
+                )
               case Pattern.Union(h, t) =>
                 (
                   filterPatAgainst(h, evaluated),
@@ -3041,7 +3113,9 @@ object TypedExprNormalization {
                           Match(
                             m.matchKind,
                             a,
-                            NonEmptyList.one(Branch(p, None, tr)(using Region.empty)),
+                            NonEmptyList.one(
+                              Branch(p, None, tr)(using Region.empty)
+                            ),
                             m.tag
                           )
                       }
@@ -3082,7 +3156,9 @@ object TypedExprNormalization {
                           case None =>
                             bodyExpr
                           case Some(guard) =>
-                            bindConsPattern(pat, guard).flatMap(evalBool) match {
+                            bindConsPattern(pat, guard).flatMap(
+                              evalBool
+                            ) match {
                               case Some(true) =>
                                 bodyExpr
                               case Some(false) =>

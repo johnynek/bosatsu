@@ -37,7 +37,7 @@ object Matchless {
       ordered.find(_.cliName == name)
   }
 
-  private[bosatsu] final case class LocalPassOptions(enabled: Set[LocalPass]) {
+  final private[bosatsu] case class LocalPassOptions(enabled: Set[LocalPass]) {
     def enables(pass: LocalPass): Boolean =
       enabled(pass)
 
@@ -51,7 +51,7 @@ object Matchless {
       LocalPassOptions(Set.empty)
   }
 
-  private[bosatsu] final case class PassOptions(enabled: Set[Pass]) {
+  final private[bosatsu] case class PassOptions(enabled: Set[Pass]) {
     def enables(pass: Pass): Boolean =
       enabled(pass)
 
@@ -63,7 +63,7 @@ object Matchless {
         enabled.collect {
           case Pass.HoistInvariantLoopLets =>
             LocalPass.HoistInvariantLoopLets
-          case Pass.ReuseConstructors      =>
+          case Pass.ReuseConstructors =>
             LocalPass.ReuseConstructors
         }
       )
@@ -310,8 +310,8 @@ object Matchless {
           case gs: GetStructElement[?] =>
             loopExpr(gs.arg)
           case Local(_) | Global(_, _, _) | ClosureSlot(_) | LocalAnon(_) |
-              LocalAnonMut(_) | Literal(_) | LitInt64(_) | MakeEnum(_, _, _) | MakeStruct(_) |
-              SuccNat | ZeroNat =>
+              LocalAnonMut(_) | Literal(_) | LitInt64(_) | MakeEnum(_, _, _) |
+              MakeStruct(_) | SuccNat | ZeroNat =>
             false
         }
 
@@ -376,8 +376,8 @@ object Matchless {
           case gs: GetStructElement[?] =>
             loopExpr(gs.arg)
           case Local(_) | Global(_, _, _) | ClosureSlot(_) | LocalAnon(_) |
-              Literal(_) | LitInt64(_) | MakeEnum(_, _, _) | MakeStruct(_) | SuccNat |
-              ZeroNat =>
+              Literal(_) | LitInt64(_) | MakeEnum(_, _, _) | MakeStruct(_) |
+              SuccNat | ZeroNat =>
             false
         }
 
@@ -422,7 +422,7 @@ object Matchless {
           case head :: tail =>
             if (checkExpr(head)) true
             else loopExprList(tail)
-          case Nil          =>
+          case Nil =>
             false
         }
 
@@ -432,7 +432,7 @@ object Matchless {
           case (_, branch) :: tail =>
             if (checkExpr(branch)) true
             else loopBranches(tail)
-          case Nil                 =>
+          case Nil =>
             false
         }
 
@@ -500,7 +500,7 @@ object Matchless {
           case head :: tail =>
             if (checkExpr(head)) true
             else loopExprList(tail)
-          case Nil          =>
+          case Nil =>
             false
         }
 
@@ -510,7 +510,7 @@ object Matchless {
           case (_, branch) :: tail =>
             if (checkExpr(branch)) true
             else loopBranches(tail)
-          case Nil                 =>
+          case Nil =>
             false
         }
 
@@ -559,15 +559,18 @@ object Matchless {
           case gs: GetStructElement[?] =>
             loopExpr(gs.arg)
           case Local(_) | ClosureSlot(_) | LocalAnonMut(_) | Global(_, _, _) |
-              Literal(_) | LitInt64(_) | MakeEnum(_, _, _) | MakeStruct(_) | SuccNat |
-              ZeroNat =>
+              Literal(_) | LitInt64(_) | MakeEnum(_, _, _) | MakeStruct(_) |
+              SuccNat | ZeroNat =>
             false
         }
 
       loopExpr(expr)
     }
 
-    def usesBinding[A](expr: Expr[A], arg: Either[LocalAnon, Bindable]): Boolean =
+    def usesBinding[A](
+        expr: Expr[A],
+        arg: Either[LocalAnon, Bindable]
+    ): Boolean =
       arg match {
         case Right(name) =>
           referencesBindable(expr, name)
@@ -671,7 +674,7 @@ object Matchless {
 
   private type ExprOrBool[A] = Expr[A] | BoolExpr[A]
 
-  private final case class AnonRenameEnv(
+  final private case class AnonRenameEnv(
       // Original anonymous binder id -> fresh binder id in the rewritten tree.
       anons: Map[Long, Long],
       // Original mutable-anon binder id -> fresh binder id in the rewritten tree.
@@ -703,7 +706,10 @@ object Matchless {
             case If(cond, thenExpr, elseExpr) =>
               loop(cond :: thenExpr :: elseExpr :: tail, acc)
             case SwitchVariant(on, _, cases, default) =>
-              loop(on :: default.toList ::: cases.toList.map(_._2) ::: tail, acc)
+              loop(
+                on :: default.toList ::: cases.toList.map(_._2) ::: tail,
+                acc
+              )
             case Always(cond, thenExpr) =>
               loop(cond :: thenExpr :: tail, acc)
             case PrevNat(of) =>
@@ -741,8 +747,8 @@ object Matchless {
             case LetMutBool(_, in) =>
               loop(in :: tail, acc)
             case Local(_) | Global(_, _, _) | ClosureSlot(_) | LocalAnonMut(_) |
-                Literal(_) | LitInt64(_) | MakeEnum(_, _, _) | MakeStruct(_) | _: SuccNat.type |
-                _: ZeroNat.type | _: TrueConst.type =>
+                Literal(_) | LitInt64(_) | MakeEnum(_, _, _) | MakeStruct(_) |
+                _: SuccNat.type | _: ZeroNat.type | _: TrueConst.type =>
               loop(tail, acc)
           }
         case _ =>
@@ -771,7 +777,10 @@ object Matchless {
             case If(cond, thenExpr, elseExpr) =>
               loop(cond :: thenExpr :: elseExpr :: tail, acc)
             case SwitchVariant(on, _, cases, default) =>
-              loop(on :: default.toList ::: cases.toList.map(_._2) ::: tail, acc)
+              loop(
+                on :: default.toList ::: cases.toList.map(_._2) ::: tail,
+                acc
+              )
             case Always(cond, thenExpr) =>
               loop(cond :: thenExpr :: tail, acc)
             case PrevNat(of) =>
@@ -805,8 +814,8 @@ object Matchless {
             case LetMutBool(name, in) =>
               loop(in :: tail, acc + name.ident)
             case Local(_) | Global(_, _, _) | ClosureSlot(_) | LocalAnon(_) |
-                Literal(_) | LitInt64(_) | MakeEnum(_, _, _) | MakeStruct(_) | _: SuccNat.type |
-                _: ZeroNat.type | _: TrueConst.type =>
+                Literal(_) | LitInt64(_) | MakeEnum(_, _, _) | MakeStruct(_) |
+                _: SuccNat.type | _: ZeroNat.type | _: TrueConst.type =>
               loop(tail, acc)
           }
         case _ =>
@@ -849,9 +858,10 @@ object Matchless {
           (env.muts.get(id).fold(ex: Expr[A])(LocalAnonMut(_)), st)
         case Lambda(captures, recName, args, body) =>
           val (captures1Rev, st1) =
-            captures.foldLeft((List.empty[Expr[A]], st)) { case ((acc, stN), capture) =>
-              val (capture1, stN1) = loopExpr(capture, env, stN)
-              (capture1 :: acc, stN1)
+            captures.foldLeft((List.empty[Expr[A]], st)) {
+              case ((acc, stN), capture) =>
+                val (capture1, stN1) = loopExpr(capture, env, stN)
+                (capture1 :: acc, stN1)
             }
           val (body1, st2) = loopExpr(body, env, st1)
           (Lambda(captures1Rev.reverse, recName, args, body1), st2)
@@ -864,9 +874,10 @@ object Matchless {
         case App(fn, args) =>
           val (fn1, st1) = loopExpr(fn, env, st)
           val (args1Rev, st2) =
-            args.toList.foldLeft((List.empty[Expr[A]], st1)) { case ((acc, stN), arg) =>
-              val (arg1, stN1) = loopExpr(arg, env, stN)
-              (arg1 :: acc, stN1)
+            args.toList.foldLeft((List.empty[Expr[A]], st1)) {
+              case ((acc, stN), arg) =>
+                val (arg1, stN1) = loopExpr(arg, env, stN)
+                (arg1 :: acc, stN1)
             }
           (App(fn1, NonEmptyList.fromListUnsafe(args1Rev.reverse)), st2)
         case Let(arg, value, in) =>
@@ -877,7 +888,8 @@ object Matchless {
               (Let(arg, value1, in1), st2)
             case Left(anon) =>
               val (anon1, st2) = st1.freshAnon
-              val env1 = env.copy(anons = env.anons.updated(anon.ident, anon1.ident))
+              val env1 =
+                env.copy(anons = env.anons.updated(anon.ident, anon1.ident))
               val (in1, st3) = loopExpr(in, env1, st2)
               (Let(Left(anon1), value1, in1), st3)
           }
@@ -930,7 +942,8 @@ object Matchless {
           val (arg1, st1) = loopCheap(gs.arg, env, st)
           (gs.copy(arg = arg1), st1)
         case Global(_, _, _) | Local(_) | ClosureSlot(_) | Literal(_) |
-            LitInt64(_) | MakeEnum(_, _, _) | MakeStruct(_) | SuccNat | ZeroNat =>
+            LitInt64(_) | MakeEnum(_, _, _) | MakeStruct(_) | SuccNat |
+            ZeroNat =>
           (ex, st)
       }
 
@@ -941,7 +954,7 @@ object Matchless {
     ): (CheapExpr[A], RenameState) =
       loopExpr(ex, env, st) match {
         case (cheap: CheapExpr[A], st1) => (cheap, st1)
-        case (notCheap, _) =>
+        case (notCheap, _)              =>
           // $COVERAGE-OFF$
           sys.error(
             s"invariant violation: expected cheap expression while refreshing anon binders, got: $notCheap"
@@ -996,7 +1009,8 @@ object Matchless {
               (LetBool(arg, value1, in1), st2)
             case Left(anon) =>
               val (anon1, st2) = st1.freshAnon
-              val env1 = env.copy(anons = env.anons.updated(anon.ident, anon1.ident))
+              val env1 =
+                env.copy(anons = env.anons.updated(anon.ident, anon1.ident))
               val (in1, st3) = loopBool(in, env1, st2)
               (LetBool(Left(anon1), value1, in1), st3)
           }
@@ -1065,8 +1079,8 @@ object Matchless {
         case gs: GetStructElement[?] =>
           gs.copy(arg = loopCheap(gs.arg))
         case Local(_) | Global(_, _, _) | LocalAnon(_) | LocalAnonMut(_) |
-            Literal(_) | LitInt64(_) | MakeEnum(_, _, _) | MakeStruct(_) | SuccNat |
-            ZeroNat =>
+            Literal(_) | LitInt64(_) | MakeEnum(_, _, _) | MakeStruct(_) |
+            SuccNat | ZeroNat =>
           ex
       }
 
@@ -1133,7 +1147,7 @@ object Matchless {
   ): Expr[A] =
     if (subst.isEmpty) expr
     else {
-      def loopExpr(ex: Expr[A], env: Map[Bindable, Expr[A]]): Expr[A] = {
+      def loopExpr(ex: Expr[A], env: Map[Bindable, Expr[A]]): Expr[A] =
         ex match {
           case Local(name) =>
             env.getOrElse(name, ex)
@@ -1187,14 +1201,17 @@ object Matchless {
             ge.copy(arg = loopCheap(ge.arg, env))
           case gs: GetStructElement[?] =>
             gs.copy(arg = loopCheap(gs.arg, env))
-          case Global(_, _, _) | ClosureSlot(_) | LocalAnon(_) | LocalAnonMut(_) |
-              Literal(_) | LitInt64(_) | MakeEnum(_, _, _) | MakeStruct(_) | SuccNat |
-              ZeroNat =>
+          case Global(_, _, _) | ClosureSlot(_) | LocalAnon(_) | LocalAnonMut(
+                _
+              ) | Literal(_) | LitInt64(_) | MakeEnum(_, _, _) | MakeStruct(_) |
+              SuccNat | ZeroNat =>
             ex
         }
-      }
 
-      def loopCheap(ex: CheapExpr[A], env: Map[Bindable, Expr[A]]): CheapExpr[A] =
+      def loopCheap(
+          ex: CheapExpr[A],
+          env: Map[Bindable, Expr[A]]
+      ): CheapExpr[A] =
         loopExpr(ex, env) match {
           case ch: CheapExpr[A] => ch
           case notCheap         =>
@@ -1205,7 +1222,7 @@ object Matchless {
           // $COVERAGE-ON$
         }
 
-      def loopBool(ex: BoolExpr[A], env: Map[Bindable, Expr[A]]): BoolExpr[A] = {
+      def loopBool(ex: BoolExpr[A], env: Map[Bindable, Expr[A]]): BoolExpr[A] =
         ex match {
           case CompareLit(arg, rel, lit) =>
             CompareLit(loopCheap(arg, env), rel, lit)
@@ -1241,7 +1258,6 @@ object Matchless {
           case TrueConst =>
             TrueConst
         }
-      }
 
       loopExpr(expr, subst)
     }
@@ -1262,11 +1278,9 @@ object Matchless {
         case If(cond, thenExpr, elseExpr) =>
           1 + loopBool(cond) + loopExpr(thenExpr) + loopExpr(elseExpr)
         case SwitchVariant(on, _, cases, default) =>
-          1 + loopExpr(on) + cases.iterator
-            .map { case (_, branch) =>
-              loopExpr(branch)
-            }
-            .sum + default.fold(0)(loopExpr)
+          1 + loopExpr(on) + cases.iterator.map { case (_, branch) =>
+            loopExpr(branch)
+          }.sum + default.fold(0)(loopExpr)
         case Always(cond, thenExpr) =>
           1 + loopBool(cond) + loopExpr(thenExpr)
         case PrevNat(of) =>
@@ -1477,15 +1491,20 @@ object Matchless {
             (env.ids.muts.get(id).fold(ex: Expr[A])(LocalAnonMut(_)), st)
           case Lambda(captures, recName, lamArgs, body) =>
             val (captures1Rev, st1) =
-              captures.foldLeft((List.empty[Expr[A]], st)) { case ((acc, stN), cap) =>
-                val (cap1, stN1) = loopExpr(cap, env, stN)
-                (cap1 :: acc, stN1)
+              captures.foldLeft((List.empty[Expr[A]], st)) {
+                case ((acc, stN), cap) =>
+                  val (cap1, stN1) = loopExpr(cap, env, stN)
+                  (cap1 :: acc, stN1)
               }
             val (recName1, st2, env1) =
               recName match {
                 case Some(name) =>
                   val (name1, stN) = st1.freshName("bsts_inline_rec")
-                  (Some(name1), stN, env.copy(bindables = env.bindables.updated(name, name1)))
+                  (
+                    Some(name1),
+                    stN,
+                    env.copy(bindables = env.bindables.updated(name, name1))
+                  )
                 case None =>
                   (None, st1, env)
               }
@@ -1529,20 +1548,29 @@ object Matchless {
             arg match {
               case Right(name) =>
                 val (name1, st2) = st1.freshName("bsts_inline_let")
-                val env1 = env.copy(bindables = env.bindables.updated(name, name1))
+                val env1 =
+                  env.copy(bindables = env.bindables.updated(name, name1))
                 val (in1, st3) = loopExpr(in, env1, st2)
                 (Let(name1, value1, in1), st3)
               case Left(anon) =>
                 val (anon1, st2) = st1.freshAnon
                 val env1 =
-                  env.copy(ids = env.ids.copy(anons = env.ids.anons.updated(anon.ident, anon1.ident)))
+                  env.copy(ids =
+                    env.ids.copy(anons =
+                      env.ids.anons.updated(anon.ident, anon1.ident)
+                    )
+                  )
                 val (in1, st3) = loopExpr(in, env1, st2)
                 (Let(anon1, value1, in1), st3)
             }
           case LetMut(name, in) =>
             val (name1, st1) = st.freshMut
             val env1 =
-              env.copy(ids = env.ids.copy(muts = env.ids.muts.updated(name.ident, name1.ident)))
+              env.copy(ids =
+                env.ids.copy(muts =
+                  env.ids.muts.updated(name.ident, name1.ident)
+                )
+              )
             val (in1, st2) = loopExpr(in, env1, st1)
             (LetMut(name1, in1), st2)
           case If(cond, thenExpr, elseExpr) =>
@@ -1588,8 +1616,8 @@ object Matchless {
           case gs: GetStructElement[?] =>
             val (arg1, st1) = loopCheap(gs.arg, env, st)
             (gs.copy(arg = arg1), st1)
-          case Global(_, _, _) | ClosureSlot(_) | Literal(_) | LitInt64(_) | MakeEnum(_, _, _) |
-              MakeStruct(_) | SuccNat | ZeroNat =>
+          case Global(_, _, _) | ClosureSlot(_) | Literal(_) | LitInt64(_) |
+              MakeEnum(_, _, _) | MakeStruct(_) | SuccNat | ZeroNat =>
             (ex, st)
         }
 
@@ -1652,20 +1680,29 @@ object Matchless {
             arg match {
               case Right(name) =>
                 val (name1, st2) = st1.freshName("bsts_inline_bool")
-                val env1 = env.copy(bindables = env.bindables.updated(name, name1))
+                val env1 =
+                  env.copy(bindables = env.bindables.updated(name, name1))
                 val (in1, st3) = loopBool(in, env1, st2)
                 (LetBool(Right(name1), value1, in1), st3)
               case Left(anon) =>
                 val (anon1, st2) = st1.freshAnon
                 val env1 =
-                  env.copy(ids = env.ids.copy(anons = env.ids.anons.updated(anon.ident, anon1.ident)))
+                  env.copy(ids =
+                    env.ids.copy(anons =
+                      env.ids.anons.updated(anon.ident, anon1.ident)
+                    )
+                  )
                 val (in1, st3) = loopBool(in, env1, st2)
                 (LetBool(Left(anon1), value1, in1), st3)
             }
           case LetMutBool(name, in) =>
             val (name1, st1) = st.freshMut
             val env1 =
-              env.copy(ids = env.ids.copy(muts = env.ids.muts.updated(name.ident, name1.ident)))
+              env.copy(ids =
+                env.ids.copy(muts =
+                  env.ids.muts.updated(name.ident, name1.ident)
+                )
+              )
             val (in1, st2) = loopBool(in, env1, st1)
             (LetMutBool(name1, in1), st2)
           case TrueConst =>
@@ -1728,11 +1765,11 @@ object Matchless {
                   // call site preserves that behavior while avoiding duplication.
                   ((demand.eagerUses > 0) &&
                     ((demand.totalUses > 1) || (demand.cheapPositionUses > 0))) ||
-                  // CheapExpr positions such as EqualsNat/GetStructElement cannot
-                  // directly hold arbitrary constructor applications. Memoizing
-                  // any non-cheap selector input preserves eager call semantics
-                  // while giving substitution a cheap local to reference.
-                  (demand.cheapPositionUses > 0)
+                    // CheapExpr positions such as EqualsNat/GetStructElement cannot
+                    // directly hold arbitrary constructor applications. Memoizing
+                    // any non-cheap selector input preserves eager call semantics
+                    // while giving substitution a cheap local to reference.
+                    (demand.cheapPositionUses > 0)
                 ) =>
             (argName, argExpr)
         }
@@ -1804,7 +1841,7 @@ object Matchless {
             arg match {
               case Right(name) =>
                 !argNames(name)
-              case Left(anon)  =>
+              case Left(anon) =>
                 !argAnonIds(anon.ident)
             }
           if (canPushPastLet) {
@@ -1888,7 +1925,14 @@ object Matchless {
     @annotation.tailrec
     def loop(todo: List[LoopState]): Unit =
       todo match {
-        case LoopState(node, branchOnly, directCallee, insideLambda, cheapContext, shadowed) :: tail =>
+        case LoopState(
+              node,
+              branchOnly,
+              directCallee,
+              insideLambda,
+              cheapContext,
+              shadowed
+            ) :: tail =>
           node match {
             case Local(name) if !shadowed(name) =>
               record(name, branchOnly, directCallee, insideLambda, cheapContext)
@@ -1898,7 +1942,14 @@ object Matchless {
             case Lambda(captures, recName, lamArgs, body) =>
               val captureStates =
                 captures.foldRight(tail) { (capture, acc) =>
-                  LoopState(capture, branchOnly, false, insideLambda, cheapContext, shadowed) :: acc
+                  LoopState(
+                    capture,
+                    branchOnly,
+                    false,
+                    insideLambda,
+                    cheapContext,
+                    shadowed
+                  ) :: acc
                 }
               loop(
                 LoopState(
@@ -1912,17 +1963,45 @@ object Matchless {
               )
             case WhileExpr(cond, effectExpr, _) =>
               loop(
-                LoopState(cond, branchOnly, false, insideLambda, false, shadowed) ::
-                  LoopState(effectExpr, branchOnly, false, insideLambda, false, shadowed) ::
+                LoopState(
+                  cond,
+                  branchOnly,
+                  false,
+                  insideLambda,
+                  false,
+                  shadowed
+                ) ::
+                  LoopState(
+                    effectExpr,
+                    branchOnly,
+                    false,
+                    insideLambda,
+                    false,
+                    shadowed
+                  ) ::
                   tail
               )
             case App(appFn, appArgs) =>
               val argStates =
                 appArgs.toList.foldRight(tail) { (arg, acc) =>
-                  LoopState(arg, branchOnly, false, insideLambda, false, shadowed) :: acc
+                  LoopState(
+                    arg,
+                    branchOnly,
+                    false,
+                    insideLambda,
+                    false,
+                    shadowed
+                  ) :: acc
                 }
               loop(
-                LoopState(appFn, branchOnly, true, insideLambda, false, shadowed) :: argStates
+                LoopState(
+                  appFn,
+                  branchOnly,
+                  true,
+                  insideLambda,
+                  false,
+                  shadowed
+                ) :: argStates
               )
             case Let(arg, value, in) =>
               val shadowed1 =
@@ -1931,84 +2010,281 @@ object Matchless {
                   case Left(_)     => shadowed
                 }
               loop(
-                LoopState(value, branchOnly, false, insideLambda, false, shadowed) ::
-                  LoopState(in, branchOnly, false, insideLambda, cheapContext, shadowed1) ::
+                LoopState(
+                  value,
+                  branchOnly,
+                  false,
+                  insideLambda,
+                  false,
+                  shadowed
+                ) ::
+                  LoopState(
+                    in,
+                    branchOnly,
+                    false,
+                    insideLambda,
+                    cheapContext,
+                    shadowed1
+                  ) ::
                   tail
               )
             case LetMut(_, in) =>
               loop(
-                LoopState(in, branchOnly, false, insideLambda, cheapContext, shadowed) :: tail
+                LoopState(
+                  in,
+                  branchOnly,
+                  false,
+                  insideLambda,
+                  cheapContext,
+                  shadowed
+                ) :: tail
               )
             case If(cond, thenExpr, elseExpr) =>
               loop(
-                LoopState(cond, branchOnly, false, insideLambda, true, shadowed) ::
-                  LoopState(thenExpr, true, false, insideLambda, false, shadowed) ::
-                  LoopState(elseExpr, true, false, insideLambda, false, shadowed) ::
+                LoopState(
+                  cond,
+                  branchOnly,
+                  false,
+                  insideLambda,
+                  true,
+                  shadowed
+                ) ::
+                  LoopState(
+                    thenExpr,
+                    true,
+                    false,
+                    insideLambda,
+                    false,
+                    shadowed
+                  ) ::
+                  LoopState(
+                    elseExpr,
+                    true,
+                    false,
+                    insideLambda,
+                    false,
+                    shadowed
+                  ) ::
                   tail
               )
             case SwitchVariant(on, _, cases, default) =>
               val branchStates =
                 cases.toList.foldRight(default.fold(tail) { branch =>
-                  LoopState(branch, true, false, insideLambda, false, shadowed) :: tail
+                  LoopState(
+                    branch,
+                    true,
+                    false,
+                    insideLambda,
+                    false,
+                    shadowed
+                  ) :: tail
                 }) { case ((_, branch), acc) =>
-                  LoopState(branch, true, false, insideLambda, false, shadowed) :: acc
+                  LoopState(
+                    branch,
+                    true,
+                    false,
+                    insideLambda,
+                    false,
+                    shadowed
+                  ) :: acc
                 }
               loop(
-                LoopState(on, branchOnly, false, insideLambda, true, shadowed) :: branchStates
+                LoopState(
+                  on,
+                  branchOnly,
+                  false,
+                  insideLambda,
+                  true,
+                  shadowed
+                ) :: branchStates
               )
             case Always(cond, thenExpr) =>
               loop(
-                LoopState(cond, branchOnly, false, insideLambda, false, shadowed) ::
-                  LoopState(thenExpr, branchOnly, false, insideLambda, false, shadowed) ::
+                LoopState(
+                  cond,
+                  branchOnly,
+                  false,
+                  insideLambda,
+                  false,
+                  shadowed
+                ) ::
+                  LoopState(
+                    thenExpr,
+                    branchOnly,
+                    false,
+                    insideLambda,
+                    false,
+                    shadowed
+                  ) ::
                   tail
               )
             case PrevNat(of) =>
               loop(
-                LoopState(of, branchOnly, false, insideLambda, false, shadowed) :: tail
+                LoopState(
+                  of,
+                  branchOnly,
+                  false,
+                  insideLambda,
+                  false,
+                  shadowed
+                ) :: tail
               )
             case ge: GetEnumElement[?] =>
               loop(
-                LoopState(ge.arg, branchOnly, false, insideLambda, true, shadowed) :: tail
+                LoopState(
+                  ge.arg,
+                  branchOnly,
+                  false,
+                  insideLambda,
+                  true,
+                  shadowed
+                ) :: tail
               )
             case gs: GetStructElement[?] =>
               loop(
-                LoopState(gs.arg, branchOnly, false, insideLambda, true, shadowed) :: tail
+                LoopState(
+                  gs.arg,
+                  branchOnly,
+                  false,
+                  insideLambda,
+                  true,
+                  shadowed
+                ) :: tail
               )
             case CompareLit(arg, _, _) =>
-              loop(LoopState(arg, branchOnly, false, insideLambda, true, shadowed) :: tail)
+              loop(
+                LoopState(
+                  arg,
+                  branchOnly,
+                  false,
+                  insideLambda,
+                  true,
+                  shadowed
+                ) :: tail
+              )
             case CompareInt(left, _, right) =>
               loop(
-                LoopState(left, branchOnly, false, insideLambda, true, shadowed) ::
-                  LoopState(right, branchOnly, false, insideLambda, true, shadowed) ::
+                LoopState(
+                  left,
+                  branchOnly,
+                  false,
+                  insideLambda,
+                  true,
+                  shadowed
+                ) ::
+                  LoopState(
+                    right,
+                    branchOnly,
+                    false,
+                    insideLambda,
+                    true,
+                    shadowed
+                  ) ::
                   tail
               )
             case CompareInt64(left, _, right) =>
               loop(
-                LoopState(left, branchOnly, false, insideLambda, true, shadowed) ::
-                  LoopState(right, branchOnly, false, insideLambda, true, shadowed) ::
+                LoopState(
+                  left,
+                  branchOnly,
+                  false,
+                  insideLambda,
+                  true,
+                  shadowed
+                ) ::
+                  LoopState(
+                    right,
+                    branchOnly,
+                    false,
+                    insideLambda,
+                    true,
+                    shadowed
+                  ) ::
                   tail
               )
             case CompareFloat64(left, _, right) =>
               loop(
-                LoopState(left, branchOnly, false, insideLambda, true, shadowed) ::
-                  LoopState(right, branchOnly, false, insideLambda, true, shadowed) ::
+                LoopState(
+                  left,
+                  branchOnly,
+                  false,
+                  insideLambda,
+                  true,
+                  shadowed
+                ) ::
+                  LoopState(
+                    right,
+                    branchOnly,
+                    false,
+                    insideLambda,
+                    true,
+                    shadowed
+                  ) ::
                   tail
               )
             case EqualsNat(arg, _) =>
-              loop(LoopState(arg, branchOnly, false, insideLambda, true, shadowed) :: tail)
+              loop(
+                LoopState(
+                  arg,
+                  branchOnly,
+                  false,
+                  insideLambda,
+                  true,
+                  shadowed
+                ) :: tail
+              )
             case And(left, right) =>
               loop(
-                LoopState(left, branchOnly, false, insideLambda, cheapContext, shadowed) ::
-                  LoopState(right, branchOnly, false, insideLambda, cheapContext, shadowed) ::
+                LoopState(
+                  left,
+                  branchOnly,
+                  false,
+                  insideLambda,
+                  cheapContext,
+                  shadowed
+                ) ::
+                  LoopState(
+                    right,
+                    branchOnly,
+                    false,
+                    insideLambda,
+                    cheapContext,
+                    shadowed
+                  ) ::
                   tail
               )
             case CheckVariant(arg, _, _, _) =>
-              loop(LoopState(arg, branchOnly, false, insideLambda, true, shadowed) :: tail)
+              loop(
+                LoopState(
+                  arg,
+                  branchOnly,
+                  false,
+                  insideLambda,
+                  true,
+                  shadowed
+                ) :: tail
+              )
             case CheckVariantSet(arg, _, _, _) =>
-              loop(LoopState(arg, branchOnly, false, insideLambda, true, shadowed) :: tail)
+              loop(
+                LoopState(
+                  arg,
+                  branchOnly,
+                  false,
+                  insideLambda,
+                  true,
+                  shadowed
+                ) :: tail
+              )
             case SetMut(_, value) =>
               loop(
-                LoopState(value, branchOnly, false, insideLambda, false, shadowed) :: tail
+                LoopState(
+                  value,
+                  branchOnly,
+                  false,
+                  insideLambda,
+                  false,
+                  shadowed
+                ) :: tail
               )
             case LetBool(arg, value, in) =>
               val shadowed1 =
@@ -2017,17 +2293,40 @@ object Matchless {
                   case Left(_)     => shadowed
                 }
               loop(
-                LoopState(value, branchOnly, false, insideLambda, cheapContext, shadowed) ::
-                  LoopState(in, branchOnly, false, insideLambda, cheapContext, shadowed1) ::
+                LoopState(
+                  value,
+                  branchOnly,
+                  false,
+                  insideLambda,
+                  cheapContext,
+                  shadowed
+                ) ::
+                  LoopState(
+                    in,
+                    branchOnly,
+                    false,
+                    insideLambda,
+                    cheapContext,
+                    shadowed1
+                  ) ::
                   tail
               )
             case LetMutBool(_, in) =>
               loop(
-                LoopState(in, branchOnly, false, insideLambda, cheapContext, shadowed) :: tail
+                LoopState(
+                  in,
+                  branchOnly,
+                  false,
+                  insideLambda,
+                  cheapContext,
+                  shadowed
+                ) :: tail
               )
-            case Global(_, _, _) | ClosureSlot(_) | LocalAnon(_) | LocalAnonMut(_) |
-                Literal(_) | LitInt64(_) | MakeEnum(_, _, _) | MakeStruct(_) | _: SuccNat.type |
-                _: ZeroNat.type | _: TrueConst.type =>
+            case Global(_, _, _) | ClosureSlot(_) | LocalAnon(_) | LocalAnonMut(
+                  _
+                ) | Literal(_) | LitInt64(_) | MakeEnum(_, _, _) | MakeStruct(
+                  _
+                ) | _: SuccNat.type | _: ZeroNat.type | _: TrueConst.type =>
               loop(tail)
           }
         case _ =>
@@ -2088,9 +2387,8 @@ object Matchless {
         case SwitchVariant(on, _, cases, default) =>
           val acc0 = loopCheap(on, acc)
           val acc1 = default.fold(acc0)(loopExpr(_, acc0))
-          cases.foldLeft(acc1) {
-            case (accN, (_, branch)) =>
-              loopExpr(branch, accN)
+          cases.foldLeft(acc1) { case (accN, (_, branch)) =>
+            loopExpr(branch, accN)
           }
         case Always(cond, thenExpr) =>
           loopExpr(thenExpr, loopBool(cond, acc))
@@ -2105,8 +2403,8 @@ object Matchless {
         case gs: GetStructElement[?] =>
           loopCheap(gs.arg, acc)
         case ClosureSlot(_) | LocalAnon(_) | LocalAnonMut(_) | Literal(_) |
-            LitInt64(_) |
-            MakeEnum(_, _, _) | MakeStruct(_) | SuccNat | ZeroNat =>
+            LitInt64(_) | MakeEnum(_, _, _) | MakeStruct(_) | SuccNat |
+            ZeroNat =>
           acc
       }
 
@@ -2195,10 +2493,10 @@ object Matchless {
             loop(els, bindableArities, anonArities)
           )
         case SwitchVariant(_, _, cases, default) =>
-          val defaultArity = default.flatMap(loop(_, bindableArities, anonArities))
-          cases.foldLeft(defaultArity) {
-            case (acc, (_, branch)) =>
-              sameArity(acc, loop(branch, bindableArities, anonArities))
+          val defaultArity =
+            default.flatMap(loop(_, bindableArities, anonArities))
+          cases.foldLeft(defaultArity) { case (acc, (_, branch)) =>
+            sameArity(acc, loop(branch, bindableArities, anonArities))
           }
         case _ =>
           None
@@ -2286,9 +2584,8 @@ object Matchless {
           case SwitchVariant(on, _, cases, default) =>
             val curr1 = loopExpr(on, curr)
             val curr2 = default.fold(curr1)(loopExpr(_, curr1))
-            cases.foldLeft(curr2) {
-              case (acc, (_, branch)) =>
-                loopExpr(branch, acc)
+            cases.foldLeft(curr2) { case (acc, (_, branch)) =>
+              loopExpr(branch, acc)
             }
           case Always(cond, thenExpr) =>
             loopExpr(thenExpr, loopBool(cond, curr))
@@ -2303,7 +2600,8 @@ object Matchless {
           case gs: GetStructElement[?] =>
             loopExpr(gs.arg, curr)
           case Local(_) | ClosureSlot(_) | Global(_, _, _) | Literal(_) |
-              LitInt64(_) | MakeEnum(_, _, _) | MakeStruct(_) | SuccNat | ZeroNat =>
+              LitInt64(_) | MakeEnum(_, _, _) | MakeStruct(_) | SuccNat |
+              ZeroNat =>
             curr
         }
 
@@ -2722,7 +3020,7 @@ object Matchless {
                 case Some(defaultExpr) =>
                   val (defaultExpr1, st1) = recurExpr(defaultExpr, stCases)
                   (Some(defaultExpr1), st1)
-                case None              =>
+                case None =>
                   (None, stCases)
               }
             (
@@ -2742,8 +3040,8 @@ object Matchless {
             val (of1, st1) = recurExpr(of, st)
             (PrevNat(of1), st1)
           case Local(_) | ClosureSlot(_) | LocalAnon(_) | LocalAnonMut(_) |
-              Global(_, _, _) | Literal(_) | LitInt64(_) | MakeEnum(_, _, _) | MakeStruct(_) |
-              SuccNat | ZeroNat | GetEnumElement(_, _, _, _) |
+              Global(_, _, _) | Literal(_) | LitInt64(_) | MakeEnum(_, _, _) |
+              MakeStruct(_) | SuccNat | ZeroNat | GetEnumElement(_, _, _, _) |
               GetStructElement(_, _, _) =>
             (ex, st)
         }
@@ -2887,8 +3185,8 @@ object Matchless {
         case PrevNat(of) =>
           PrevNat(recurExpr(of))
         case Local(_) | ClosureSlot(_) | LocalAnon(_) | LocalAnonMut(_) |
-            Global(_, _, _) | Literal(_) | LitInt64(_) | MakeEnum(_, _, _) | MakeStruct(_) |
-            SuccNat | ZeroNat | GetEnumElement(_, _, _, _) |
+            Global(_, _, _) | Literal(_) | LitInt64(_) | MakeEnum(_, _, _) |
+            MakeStruct(_) | SuccNat | ZeroNat | GetEnumElement(_, _, _, _) |
             GetStructElement(_, _, _) =>
           ex
       }
@@ -3039,8 +3337,8 @@ object Matchless {
         case PrevNat(of) =>
           PrevNat(loopExpr(of))
         case Local(_) | ClosureSlot(_) | LocalAnon(_) | LocalAnonMut(_) |
-            Global(_, _, _) | Literal(_) | LitInt64(_) | MakeEnum(_, _, _) | MakeStruct(_) |
-            SuccNat | ZeroNat | GetEnumElement(_, _, _, _) |
+            Global(_, _, _) | Literal(_) | LitInt64(_) | MakeEnum(_, _, _) |
+            MakeStruct(_) | SuccNat | ZeroNat | GetEnumElement(_, _, _, _) |
             GetStructElement(_, _, _) =>
           ex
       }
@@ -3132,7 +3430,10 @@ object Matchless {
           None
       }
 
-    def knownEnumTag(ex: Expr[A], env: KnownEnv): Option[(Int, Int, List[Int])] =
+    def knownEnumTag(
+        ex: Expr[A],
+        env: KnownEnv
+    ): Option[(Int, Int, List[Int])] =
       knownValue(ex, env, Set.empty, Set.empty).flatMap {
         case MakeEnum(variant, 0, famArities) =>
           Some((variant, 0, famArities))
@@ -3201,7 +3502,9 @@ object Matchless {
     def boolValue(ex: BoolExpr[A], env: KnownEnv): Option[Boolean] =
       ex match {
         case CompareLit(expr, rel, lit) =>
-          knownValue(expr, env, Set.empty, Set.empty).flatMap(compareLitBoolValue(_, rel, lit))
+          knownValue(expr, env, Set.empty, Set.empty).flatMap(
+            compareLitBoolValue(_, rel, lit)
+          )
         case CompareInt(left, rel, right) =>
           (
             knownValue(left, env, Set.empty, Set.empty),
@@ -3270,8 +3573,8 @@ object Matchless {
     def canDiscardBinding(value: Expr[A], env: KnownEnv): Boolean =
       knownValue(value, env, Set.empty, Set.empty).isDefined || (value match {
         case Local(_) | ClosureSlot(_) | LocalAnon(_) | Global(_, _, _) |
-            Literal(_) | LitInt64(_) | MakeEnum(_, _, _) | MakeStruct(_) | SuccNat |
-            ZeroNat | Lambda(_, _, _, _) =>
+            Literal(_) | LitInt64(_) | MakeEnum(_, _, _) | MakeStruct(_) |
+            SuccNat | ZeroNat | Lambda(_, _, _, _) =>
           true
         case _ =>
           false
@@ -3295,9 +3598,17 @@ object Matchless {
         case CompareInt(left, rel, right) =>
           CompareInt(recurExprCheap(left, env), rel, recurExprCheap(right, env))
         case CompareInt64(left, rel, right) =>
-          CompareInt64(recurExprCheap(left, env), rel, recurExprCheap(right, env))
+          CompareInt64(
+            recurExprCheap(left, env),
+            rel,
+            recurExprCheap(right, env)
+          )
         case CompareFloat64(left, rel, right) =>
-          CompareFloat64(recurExprCheap(left, env), rel, recurExprCheap(right, env))
+          CompareFloat64(
+            recurExprCheap(left, env),
+            rel,
+            recurExprCheap(right, env)
+          )
         case EqualsNat(expr, nat) =>
           EqualsNat(recurExprCheap(expr, env), nat)
         case And(left, right) =>
@@ -3334,7 +3645,9 @@ object Matchless {
       ex match {
         case Lambda(captures, recursiveName, args, body) =>
           val bodyEnv =
-            env.copy(bindables = env.bindables -- recursiveName.toSet -- args.toList)
+            env.copy(bindables =
+              env.bindables -- recursiveName.toSet -- args.toList
+            )
           Lambda(
             captures.map(recurExpr(_, env)),
             recursiveName,
@@ -3389,7 +3702,8 @@ object Matchless {
           knownEnumTag(on1, env) match {
             case Some((variant, _, famArities1)) if famArities1 == famArities =>
               val branch =
-                cases.collectFirst { case (`variant`, value) => value }
+                cases
+                  .collectFirst { case (`variant`, value) => value }
                   .orElse(default)
               branch match {
                 case Some(expr1) => recurExpr(expr1, env)
@@ -3422,14 +3736,20 @@ object Matchless {
         case PrevNat(of) =>
           PrevNat(recurExpr(of, env))
         case GetEnumElement(arg, variant, index, size) =>
-          val rewritten = GetEnumElement(recurExprCheap(arg, env), variant, index, size)
-          knownValue(rewritten, env, Set.empty, Set.empty).fold(rewritten: Expr[A])(recurExpr(_, env))
+          val rewritten =
+            GetEnumElement(recurExprCheap(arg, env), variant, index, size)
+          knownValue(rewritten, env, Set.empty, Set.empty).fold(
+            rewritten: Expr[A]
+          )(recurExpr(_, env))
         case GetStructElement(arg, index, size) =>
-          val rewritten = GetStructElement(recurExprCheap(arg, env), index, size)
-          knownValue(rewritten, env, Set.empty, Set.empty).fold(rewritten: Expr[A])(recurExpr(_, env))
+          val rewritten =
+            GetStructElement(recurExprCheap(arg, env), index, size)
+          knownValue(rewritten, env, Set.empty, Set.empty).fold(
+            rewritten: Expr[A]
+          )(recurExpr(_, env))
         case Local(_) | ClosureSlot(_) | LocalAnon(_) | LocalAnonMut(_) |
-            Global(_, _, _) | Literal(_) | LitInt64(_) | MakeEnum(_, _, _) | MakeStruct(_) |
-            SuccNat | ZeroNat =>
+            Global(_, _, _) | Literal(_) | LitInt64(_) | MakeEnum(_, _, _) |
+            MakeStruct(_) | SuccNat | ZeroNat =>
           ex
       }
 
@@ -3532,9 +3852,19 @@ object Matchless {
       case (Lit.Integer(lhs), Lit.Integer(rhs)) =>
         Some(compareRelHolds(rel, lhs.compareTo(rhs)))
       case (lhs: Lit.Chr, rhs: Lit.Chr) =>
-        Some(compareRelHolds(rel, Integer.compare(lhs.toCodePoint, rhs.toCodePoint)))
+        Some(
+          compareRelHolds(
+            rel,
+            Integer.compare(lhs.toCodePoint, rhs.toCodePoint)
+          )
+        )
       case (lhs: Lit.StringMatchResult, rhs: Lit.StringMatchResult) =>
-        Some(compareRelHolds(rel, StringUtil.codePointCompare(lhs.asStr, rhs.asStr)))
+        Some(
+          compareRelHolds(
+            rel,
+            StringUtil.codePointCompare(lhs.asStr, rhs.asStr)
+          )
+        )
       case (lhs: Lit.Float64, rhs: Lit.Float64) =>
         Some(compareFloat64Values(lhs.toDouble, rel, rhs.toDouble))
       case _ =>
@@ -3543,13 +3873,13 @@ object Matchless {
   object BoolExpr {
     private def boolTag[A](boolExpr: BoolExpr[A]): Int =
       boolExpr match {
-        case _: CompareLit[?]     => 0
-        case _: CompareInt[?]     => 1
-        case _: CompareInt64[?]   => 2
-        case _: CompareFloat64[?] => 3
-        case _: EqualsNat[?]      => 4
-        case _: And[?]            => 5
-        case _: CheckVariant[?]   => 6
+        case _: CompareLit[?]      => 0
+        case _: CompareInt[?]      => 1
+        case _: CompareInt64[?]    => 2
+        case _: CompareFloat64[?]  => 3
+        case _: EqualsNat[?]       => 4
+        case _: And[?]             => 5
+        case _: CheckVariant[?]    => 6
         case _: CheckVariantSet[?] => 7
         case _: SetMut[?]          => 8
         case TrueConst             => 9
@@ -3604,7 +3934,10 @@ object Matchless {
               else Order[Lit].compare(litL, litR)
             }
 
-          case (CompareInt(leftL, relL, rightL), CompareInt(leftR, relR, rightR)) =>
+          case (
+                CompareInt(leftL, relL, rightL),
+                CompareInt(leftR, relR, rightR)
+              ) =>
             compareExprRelExpr(leftL, relL, rightL, leftR, relR, rightR)
 
           case (
@@ -3688,7 +4021,10 @@ object Matchless {
         }
     }
 
-    def referencesBindable[A](boolExpr: BoolExpr[A], target: Bindable): Boolean = {
+    def referencesBindable[A](
+        boolExpr: BoolExpr[A],
+        target: Bindable
+    ): Boolean = {
       def checkBool(boolExpr: BoolExpr[A]): Boolean =
         loopBool(boolExpr)
 
@@ -3699,13 +4035,13 @@ object Matchless {
             Expr.referencesBindable(expr, target)
           case CompareInt(left, _, right) =>
             Expr.referencesBindable(left, target) ||
-              Expr.referencesBindable(right, target)
+            Expr.referencesBindable(right, target)
           case CompareInt64(left, _, right) =>
             Expr.referencesBindable(left, target) ||
-              Expr.referencesBindable(right, target)
+            Expr.referencesBindable(right, target)
           case CompareFloat64(left, _, right) =>
             Expr.referencesBindable(left, target) ||
-              Expr.referencesBindable(right, target)
+            Expr.referencesBindable(right, target)
           case EqualsNat(expr, _) =>
             Expr.referencesBindable(expr, target)
           case And(left, right) =>
@@ -3744,13 +4080,13 @@ object Matchless {
             Expr.referencesLocalAnon(expr, target)
           case CompareInt(left, _, right) =>
             Expr.referencesLocalAnon(left, target) ||
-              Expr.referencesLocalAnon(right, target)
+            Expr.referencesLocalAnon(right, target)
           case CompareInt64(left, _, right) =>
             Expr.referencesLocalAnon(left, target) ||
-              Expr.referencesLocalAnon(right, target)
+            Expr.referencesLocalAnon(right, target)
           case CompareFloat64(left, _, right) =>
             Expr.referencesLocalAnon(left, target) ||
-              Expr.referencesLocalAnon(right, target)
+            Expr.referencesLocalAnon(right, target)
           case EqualsNat(expr, _) =>
             Expr.referencesLocalAnon(expr, target)
           case And(left, right) =>
@@ -3880,11 +4216,8 @@ object Matchless {
     bx match {
       case SetMut(_, _) => true
       case TrueConst | CheckVariant(_, _, _, _) | CheckVariantSet(_, _, _, _) |
-          CompareLit(_, _, _) |
-          CompareInt(_, _, _) |
-          CompareInt64(_, _, _) |
-          CompareFloat64(_, _, _) |
-          EqualsNat(_, _) =>
+          CompareLit(_, _, _) | CompareInt(_, _, _) | CompareInt64(_, _, _) |
+          CompareFloat64(_, _, _) | EqualsNat(_, _) =>
         false
       case And(b1, b2)      => hasSideEffect(b1) || hasSideEffect(b2)
       case LetBool(_, x, b) =>
@@ -3902,8 +4235,8 @@ object Matchless {
         hasSideEffect(c) || hasSideEffect(t) || hasSideEffect(f)
       case SwitchVariant(on, _, cases, default) =>
         hasSideEffect(on) ||
-          cases.exists { case (_, branch) => hasSideEffect(branch) } ||
-          default.exists(hasSideEffect)
+        cases.exists { case (_, branch) => hasSideEffect(branch) } ||
+        default.exists(hasSideEffect)
       case Let(_, x, b) =>
         hasSideEffect(b) || hasSideEffect(x)
       case LetMut(_, in) => hasSideEffect(in)
@@ -3979,7 +4312,7 @@ object Matchless {
         sameExpr(from, until) match {
           case Some(single) =>
             single
-          case None         =>
+          case None =>
             val split = from + ((until - from) / 2)
             val left = build(from, split)
             val right = build(split, until)
@@ -4322,7 +4655,7 @@ object Matchless {
     private def buildStringSearchPlan(
         parts: List[StrPart]
     ): Option[StringSearchPlan] =
-        parts match {
+      parts match {
         case (glob: StrPart.Glob) :: tail =>
           var currentGlob: StrPart.Glob = glob
           var currentItemsRev: List[ExactStrPart] = Nil
@@ -4336,7 +4669,8 @@ object Matchless {
                     s"expected exact string items before trailing glob in string search pattern: $parts"
                   )
                 }
-              segmentsRev = StringSearchSegment(currentGlob, currentItems) :: segmentsRev
+              segmentsRev =
+                StringSearchSegment(currentGlob, currentItems) :: segmentsRev
               currentGlob = nextGlob
               currentItemsRev = Nil
             case part: StrPart.CharPart =>
@@ -4348,9 +4682,10 @@ object Matchless {
           val trailingGlob =
             NonEmptyList.fromList(currentItemsRev.reverse) match {
               case Some(lastItems) =>
-                segmentsRev = StringSearchSegment(currentGlob, lastItems) :: segmentsRev
+                segmentsRev =
+                  StringSearchSegment(currentGlob, lastItems) :: segmentsRev
                 None
-              case None            =>
+              case None =>
                 Some(currentGlob)
             }
 
@@ -4383,11 +4718,21 @@ object Matchless {
             (left, right) =>
               for {
                 missExpr <- onMiss
-                matchedExpr <- ifExactStringParts(right, tail, bindTargets, nextBind, ctx)(
+                matchedExpr <- ifExactStringParts(
+                  right,
+                  tail,
+                  bindTargets,
+                  nextBind,
+                  ctx
+                )(
                   onMatch,
                   onMiss
                 )
-              } yield If(CompareLit(left, CompareRel.Eq, emptyStringLit), matchedExpr, missExpr),
+              } yield If(
+                CompareLit(left, CompareRel.Eq, emptyStringLit),
+                matchedExpr,
+                missExpr
+              ),
             onMiss
           )
         case (charPart: StrPart.CharPart) :: tail =>
@@ -4399,7 +4744,11 @@ object Matchless {
                 onMatch,
                 onMiss
               ).map { matchedExpr =>
-                if (charPart.capture) Always(SetMut(bindAt(bindTargets, nextBind), head), matchedExpr)
+                if (charPart.capture)
+                  Always(
+                    SetMut(bindAt(bindTargets, nextBind), head),
+                    matchedExpr
+                  )
                 else matchedExpr
               }
             },
@@ -4480,7 +4829,9 @@ object Matchless {
         ctx
       )
 
-    private def compileLeadingStringSearchSegmentWithChars[F[_]: Monad: Defer, A](
+    private def compileLeadingStringSearchSegmentWithChars[F[
+        _
+    ]: Monad: Defer, A](
         arg: CheapExpr[A],
         segment: StringSearchSegment,
         restPlan: StringSearchPlan,
@@ -4597,7 +4948,12 @@ object Matchless {
         loopRes <- ctx.newConst
         state = StringSearchLoopState(runMut, resMut)
         effect <- withSomeTuple2Expr(
-          call2(ctx.from, partitionStringName, currentMut, Literal(Lit.Str(expect))),
+          call2(
+            ctx.from,
+            partitionStringName,
+            currentMut,
+            Literal(Lit.Str(expect))
+          ),
           ctx
         )(
           (left, right) => {
@@ -4605,7 +4961,7 @@ object Matchless {
               expectTailExprOpt match {
                 case Some(tailExpr) =>
                   concatString(ctx.from, tailExpr :: right :: Nil)
-                case None           =>
+                case None =>
                   right
               }
             val onCandidateMiss =
@@ -4613,13 +4969,22 @@ object Matchless {
                 (currentMut, currentAdvance) ::
                   consumedMutOpt.toList.map { consumed =>
                     val consumed1 =
-                      concatString(ctx.from, consumed :: left :: expectHeadExpr :: Nil)
+                      concatString(
+                        ctx.from,
+                        consumed :: left :: expectHeadExpr :: Nil
+                      )
                     (consumed, consumed1)
                   },
                 UnitExpr
               )
 
-            ifExactStringParts(right, exactTail, bindTargets, segmentBindStart, ctx)(
+            ifExactStringParts(
+              right,
+              exactTail,
+              bindTargets,
+              segmentBindStart,
+              ctx
+            )(
               remainder =>
                 for {
                   pureCheck <- compilePureStringSearchPlan(
@@ -4633,7 +4998,8 @@ object Matchless {
                 } yield {
                   val prefixUpdates =
                     consumedMutOpt.toList.map { consumed =>
-                      val prefix = concatString(ctx.from, consumed :: left :: Nil)
+                      val prefix =
+                        concatString(ctx.from, consumed :: left :: Nil)
                       (bindAt(bindTargets, nextBind), prefix)
                     }
                   val matched =
@@ -4687,7 +5053,7 @@ object Matchless {
             onPureMatch,
             ctx
           )
-        case StrPart.LitStr(_)   =>
+        case StrPart.LitStr(_) =>
           compileLeadingStringSearchSegmentWithLiteral(
             arg,
             segment,
@@ -4742,7 +5108,7 @@ object Matchless {
               trailingGlob match {
                 case Some(_) =>
                   If(successCheck, matched, advance)
-                case None    =>
+                case None =>
                   If(
                     CompareLit(remainder, CompareRel.Eq, emptyStringLit),
                     If(successCheck, matched, advance),
@@ -4815,7 +5181,12 @@ object Matchless {
         loopRes <- ctx.newConst
         state = StringSearchLoopState(runMut, resMut)
         effect <- withSomeTuple2Expr(
-          call2(ctx.from, partitionStringName, currentMut, Literal(Lit.Str(expect))),
+          call2(
+            ctx.from,
+            partitionStringName,
+            currentMut,
+            Literal(Lit.Str(expect))
+          ),
           ctx
         )(
           (left, right) => {
@@ -4823,7 +5194,7 @@ object Matchless {
               expectTailExprOpt match {
                 case Some(tailExpr) =>
                   concatString(ctx.from, tailExpr :: right :: Nil)
-                case None           =>
+                case None =>
                   right
               }
             val onCandidateMiss =
@@ -4831,18 +5202,28 @@ object Matchless {
                 (currentMut, currentAdvance) ::
                   consumedMutOpt.toList.map { consumed =>
                     val consumed1 =
-                      concatString(ctx.from, consumed :: left :: expectHeadExpr :: Nil)
+                      concatString(
+                        ctx.from,
+                        consumed :: left :: expectHeadExpr :: Nil
+                      )
                     (consumed, consumed1)
                   },
                 UnitExpr
               )
 
-            ifExactStringParts(right, exactTail, bindTargets, segmentBindStart, ctx)(
+            ifExactStringParts(
+              right,
+              exactTail,
+              bindTargets,
+              segmentBindStart,
+              ctx
+            )(
               remainder =>
                 onPureMatch.map { successCheck =>
                   val prefixUpdates =
                     consumedMutOpt.toList.map { consumed =>
-                      val prefix = concatString(ctx.from, consumed :: left :: Nil)
+                      val prefix =
+                        concatString(ctx.from, consumed :: left :: Nil)
                       (bindAt(bindTargets, nextBind), prefix)
                     }
                   val trailingUpdates =
@@ -4850,12 +5231,15 @@ object Matchless {
                       bindGlob(glob, bindTargets, afterSegmentBinds, remainder)
                     }
                   val matched =
-                    matchedStringSearchExpr(state, prefixUpdates ::: trailingUpdates)
+                    matchedStringSearchExpr(
+                      state,
+                      prefixUpdates ::: trailingUpdates
+                    )
 
                   trailingGlob match {
                     case Some(_) =>
                       If(successCheck, matched, onCandidateMiss)
-                    case None    =>
+                    case None =>
                       If(
                         CompareLit(remainder, CompareRel.Eq, emptyStringLit),
                         If(successCheck, matched, onCandidateMiss),
@@ -4906,7 +5290,7 @@ object Matchless {
             onPureMatch,
             ctx
           )
-        case StrPart.LitStr(_)   =>
+        case StrPart.LitStr(_) =>
           compileFinalStringSearchSegmentWithLiteral(
             arg,
             segment,
@@ -5019,99 +5403,99 @@ object Matchless {
           Monad[F].pure(ctx.optionIsSome(part))
         }
       } else {
-      val splitIdx = expect.offsetByCodePoints(0, 1)
-      val expectHead = expect.substring(0, splitIdx)
-      val expectTail = expect.substring(splitIdx)
-      val expectLit = Literal(Lit.Str(expect))
-      val expectHeadExpr = Literal(Lit.Str(expectHead))
-      val expectTailExprOpt =
-        if (expectTail.isEmpty) None
-        else Some(Literal(Lit.Str(expectTail)))
+        val splitIdx = expect.offsetByCodePoints(0, 1)
+        val expectHead = expect.substring(0, splitIdx)
+        val expectTail = expect.substring(splitIdx)
+        val expectLit = Literal(Lit.Str(expect))
+        val expectHeadExpr = Literal(Lit.Str(expectHead))
+        val expectTailExprOpt =
+          if (expectTail.isEmpty) None
+          else Some(Literal(Lit.Str(expectTail)))
 
-      val restBind = if (capture) nextBind + 1 else nextBind
+        val restBind = if (capture) nextBind + 1 else nextBind
 
-      for {
-        runMut <- ctx.newMut
-        resMut <- ctx.newMut
-        currentMut <- ctx.newMut
-        consumedMutOpt <- ctx.newMutOpt(capture)
-        loopRes <- ctx.newConst
-        partTmp <- ctx.newConst
-        tupleTmp <- ctx.newConst
-        check <- matchStringParts(
-          ctx.getFromTuple2(tupleTmp, 1),
-          tail2,
-          bindTargets,
-          restBind,
-          ctx
-        )
-      } yield {
-        val left = ctx.getFromTuple2(tupleTmp, 0)
-        val right = ctx.getFromTuple2(tupleTmp, 1)
-        val onNoCandidate = setAll((runMut, FalseExpr) :: Nil, UnitExpr)
-        val currentAdvance: Expr[A] =
-          expectTailExprOpt match {
-            case None           => right
-            case Some(tailExpr) =>
-              concatString(ctx.from, tailExpr :: right :: Nil)
-          }
-        val onCandidateMiss = {
-          val updates =
-            (currentMut, currentAdvance) ::
-              consumedMutOpt.toList.map { consumed =>
-                val consumed1 =
-                  concatString(
-                    ctx.from,
-                    consumed :: left :: expectHeadExpr :: Nil
-                  )
-                (consumed, consumed1)
-              }
-          setAll(updates, UnitExpr)
-        }
-        val onCandidateHit = {
-          val updates =
-            (runMut, FalseExpr) ::
-              (resMut, TrueExpr) ::
-              consumedMutOpt.toList.map { consumed =>
-                val prefix = concatString(ctx.from, consumed :: left :: Nil)
-                (bindAt(bindTargets, nextBind), prefix)
-              }
-          setAll(updates, UnitExpr)
-        }
-        val onSome = {
-          val body = If(check, onCandidateHit, onCandidateMiss)
-          Let(Left(tupleTmp), ctx.optionGetSome(partTmp), body)
-        }
-        val partCall =
-          call2(ctx.from, partitionStringName, currentMut, expectLit)
-        val stepExpr =
-          Let(
-            Left(partTmp),
-            partCall,
-            If(ctx.optionIsSome(partTmp), onSome, onNoCandidate)
+        for {
+          runMut <- ctx.newMut
+          resMut <- ctx.newMut
+          currentMut <- ctx.newMut
+          consumedMutOpt <- ctx.newMutOpt(capture)
+          loopRes <- ctx.newConst
+          partTmp <- ctx.newConst
+          tupleTmp <- ctx.newConst
+          check <- matchStringParts(
+            ctx.getFromTuple2(tupleTmp, 1),
+            tail2,
+            bindTargets,
+            restBind,
+            ctx
           )
-        val onEmpty = setAll((runMut, FalseExpr) :: Nil, UnitExpr)
-        val effect =
-          If(
-            CompareLit(currentMut, CompareRel.Eq, emptyStringLit),
-            onEmpty,
-            stepExpr
-          )
-        val initSets =
-          (runMut, TrueExpr) ::
-            (resMut, FalseExpr) ::
-            (currentMut, arg) ::
-            consumedMutOpt.toList.map { consumed =>
-              (consumed, emptyStringExpr)
+        } yield {
+          val left = ctx.getFromTuple2(tupleTmp, 0)
+          val right = ctx.getFromTuple2(tupleTmp, 1)
+          val onNoCandidate = setAll((runMut, FalseExpr) :: Nil, UnitExpr)
+          val currentAdvance: Expr[A] =
+            expectTailExprOpt match {
+              case None           => right
+              case Some(tailExpr) =>
+                concatString(ctx.from, tailExpr :: right :: Nil)
             }
-        val searchLoop =
-          setAll(initSets, WhileExpr(isTrueExpr(runMut), effect, resMut))
+          val onCandidateMiss = {
+            val updates =
+              (currentMut, currentAdvance) ::
+                consumedMutOpt.toList.map { consumed =>
+                  val consumed1 =
+                    concatString(
+                      ctx.from,
+                      consumed :: left :: expectHeadExpr :: Nil
+                    )
+                  (consumed, consumed1)
+                }
+            setAll(updates, UnitExpr)
+          }
+          val onCandidateHit = {
+            val updates =
+              (runMut, FalseExpr) ::
+                (resMut, TrueExpr) ::
+                consumedMutOpt.toList.map { consumed =>
+                  val prefix = concatString(ctx.from, consumed :: left :: Nil)
+                  (bindAt(bindTargets, nextBind), prefix)
+                }
+            setAll(updates, UnitExpr)
+          }
+          val onSome = {
+            val body = If(check, onCandidateHit, onCandidateMiss)
+            Let(Left(tupleTmp), ctx.optionGetSome(partTmp), body)
+          }
+          val partCall =
+            call2(ctx.from, partitionStringName, currentMut, expectLit)
+          val stepExpr =
+            Let(
+              Left(partTmp),
+              partCall,
+              If(ctx.optionIsSome(partTmp), onSome, onNoCandidate)
+            )
+          val onEmpty = setAll((runMut, FalseExpr) :: Nil, UnitExpr)
+          val effect =
+            If(
+              CompareLit(currentMut, CompareRel.Eq, emptyStringLit),
+              onEmpty,
+              stepExpr
+            )
+          val initSets =
+            (runMut, TrueExpr) ::
+              (resMut, FalseExpr) ::
+              (currentMut, arg) ::
+              consumedMutOpt.toList.map { consumed =>
+                (consumed, emptyStringExpr)
+              }
+          val searchLoop =
+            setAll(initSets, WhileExpr(isTrueExpr(runMut), effect, resMut))
 
-        LetMutBool(
-          runMut :: resMut :: currentMut :: consumedMutOpt.toList,
-          LetBool(Left(loopRes), searchLoop, isTrueExpr(resMut))
-        )
-      }
+          LetMutBool(
+            runMut :: resMut :: currentMut :: consumedMutOpt.toList,
+            LetBool(Left(loopRes), searchLoop, isTrueExpr(resMut))
+          )
+        }
       }
     }
 
@@ -5234,9 +5618,15 @@ object Matchless {
             onPureMatch,
             ctx
           )
-        case None       =>
+        case None =>
           for {
-            pureCheck <- matchStringParts(arg, compactPat, bindTargets, nextBind, ctx)
+            pureCheck <- matchStringParts(
+              arg,
+              compactPat,
+              bindTargets,
+              nextBind,
+              ctx
+            )
             successCheck <- onPureMatch
           } yield pureCheck && successCheck
       }
@@ -5306,7 +5696,9 @@ object Matchless {
     ): Expr[A] =
       if (roundsLeft <= 0) current
       else {
-        val next = canonical(postLoweringCleanupRound(current, localPassOptions))
+        val next = canonical(
+          postLoweringCleanupRound(current, localPassOptions)
+        )
         if (structurallyEqual(next, current)) current
         else {
           if (seen.exists(prev => structurallyEqual(prev, next)))
@@ -5346,10 +5738,13 @@ object Matchless {
   )(
       variantOf: (PackageName, Constructor) => Option[DataRepr]
   ): Expr[B] =
-    postLoweringCleanup((for {
-      c <- RefSpace.allocCounter
-      expr <- fromLetRaw(from, name, rec, te, variantOf, c)
-    } yield expr).run.value, localPassOptions)
+    postLoweringCleanup(
+      (for {
+        c <- RefSpace.allocCounter
+        expr <- fromLetRaw(from, name, rec, te, variantOf, c)
+      } yield expr).run.value,
+      localPassOptions
+    )
 
   def fromLetRaw[A, B: Order](
       from: B,
@@ -5440,7 +5835,7 @@ object Matchless {
       candidateGuard match {
         case Some(guardFn) =>
           applyCandidateGuard(cond, binds, guardFn)
-        case None          =>
+        case None =>
           Monad[F].pure(cond)
       }
 
@@ -5584,7 +5979,11 @@ object Matchless {
         right: Expr[B]
     ): F[Expr[B]] =
       memoizeBinaryExpr(left, right) { (leftCheap, rightCheap) =>
-        If(comparePredicate(domain, leftCheap, rel, rightCheap), TrueExpr, FalseExpr)
+        If(
+          comparePredicate(domain, leftCheap, rel, rightCheap),
+          TrueExpr,
+          FalseExpr
+        )
       }
 
     def lowerConstantBool(value: Boolean): F[Expr[B]] =
@@ -5630,7 +6029,7 @@ object Matchless {
         observation match {
           case Left(boolValue) =>
             lowerConstantBool(boolValue)
-          case Right(rel)      =>
+          case Right(rel) =>
             lowerBooleanCompare(domain, left, rel, right)
         }
       }
@@ -5652,8 +6051,11 @@ object Matchless {
         case (
               TypedExpr.Global(pack, fnName, _, _),
               literalArg :: Nil
-            ) if (pack == int64PackageName) && (fnName == intLowBitsToInt64Name) =>
-          maybeLiteralIntValue(literalArg).map(value => LitInt64(value.longValue))
+            )
+            if (pack == int64PackageName) && (fnName == intLowBitsToInt64Name) =>
+          maybeLiteralIntValue(literalArg).map(value =>
+            LitInt64(value.longValue)
+          )
 
         case (
               TypedExpr.Global(pack, fnName, _, _),
@@ -5807,8 +6209,8 @@ object Matchless {
         case WhileExpr(c, ef, r) =>
           WhileExpr(substituteLocalsBool(m, c), substituteLocals(m, ef), r)
         case ClosureSlot(_) | Global(_, _, _) | LocalAnon(_) | LocalAnonMut(_) |
-            MakeEnum(_, _, _) | MakeStruct(_) | SuccNat | Literal(_) | LitInt64(_) |
-            ZeroNat =>
+            MakeEnum(_, _, _) | MakeStruct(_) | SuccNat | Literal(_) |
+            LitInt64(_) | ZeroNat =>
           e
       }
     def substituteLocalsCheap(
@@ -5890,14 +6292,15 @@ object Matchless {
               case (None, None) => None
             }
           case SwitchVariant(on, famArities, cases, default) =>
-            val rewrittenCases = cases.map {
-              case (variant, branch) =>
-                (variant, loop(branch).getOrElse(returnValue(branch)))
+            val rewrittenCases = cases.map { case (variant, branch) =>
+              (variant, loop(branch).getOrElse(returnValue(branch)))
             }
             val rewrittenDefault = default.map { defaultExpr =>
               loop(defaultExpr).getOrElse(returnValue(defaultExpr))
             }
-            Some(SwitchVariant(on, famArities, rewrittenCases, rewrittenDefault))
+            Some(
+              SwitchVariant(on, famArities, rewrittenCases, rewrittenDefault)
+            )
           case Always(c, e) =>
             loop(e).map(Always(c, _))
           case LetMut(m, e) =>
@@ -5908,8 +6311,9 @@ object Matchless {
           // the rest cannot have a call in tail position
           case App(_, _) | ClosureSlot(_) | GetEnumElement(_, _, _, _) |
               GetStructElement(_, _, _) | Global(_, _, _) | Lambda(_, _, _, _) |
-              Literal(_) | LitInt64(_) | Local(_) | LocalAnon(_) | LocalAnonMut(_) |
-              MakeEnum(_, _, _) | MakeStruct(_) | PrevNat(_) | SuccNat |
+              Literal(_) | LitInt64(_) | Local(_) | LocalAnon(_) | LocalAnonMut(
+                _
+              ) | MakeEnum(_, _, _) | MakeStruct(_) | PrevNat(_) | SuccNat |
               WhileExpr(_, _, _) | ZeroNat =>
             None
         }
@@ -5980,7 +6384,7 @@ object Matchless {
     ): F[Expr[B]] =
       buildLoopExpr(name, args, initArgs, body, onlyIfTailCall = false).map {
         case Some(loopExpr) => loopExpr
-        case None =>
+        case None           =>
           // unreachable: onlyIfTailCall = false always returns Some(...)
           sys.error(
             s"internal error: missing loop body for $name with onlyIfTailCall=false"
@@ -6006,42 +6410,41 @@ object Matchless {
                 (acc.reverse, other)
             }
 
-          loop(e, slots.inLet(name)).flatMap {
-            case compiled =>
-              val (lets, tail) = peelLeadingLets(compiled, Nil)
-              tail match {
-                case fn @ Lambda(captures, Some(fnName), args, body)
-                    if fnName == name =>
-                  // TypedExpr lowering keeps polymorphic recursion in lambda form to
-                  // preserve typed AST invariants. Matchless is type-erased, so we
-                  // can lower tail self-calls here when available.
-                  val initArgs = args.map(Local(_))
-                  buildLoopExpr(
-                    fnName,
-                    args,
-                    initArgs,
-                    body,
-                    onlyIfTailCall = true
-                  ).map { maybeLoopBody =>
-                    val loweredFn =
-                      maybeLoopBody match {
-                        case Some(loopBody) =>
-                          Lambda(captures, Some(fnName), args, loopBody)
-                        case None =>
-                          fn
-                      }
-                    Let.bindAll(lets, loweredFn)
-                  }
-                case fn: Lambda[?] =>
-                  // loops always have a function name
-                  sys.error(
-                    s"expected ${fn.recursiveName} == Some($name) in ${e.repr.render(80)} which compiled to $compiled"
-                  )
-                case _ =>
-                  sys.error(
-                    s"expected ${e.repr.render(80)} to compile to a function, but got: $compiled"
-                  )
-              }
+          loop(e, slots.inLet(name)).flatMap { case compiled =>
+            val (lets, tail) = peelLeadingLets(compiled, Nil)
+            tail match {
+              case fn @ Lambda(captures, Some(fnName), args, body)
+                  if fnName == name =>
+                // TypedExpr lowering keeps polymorphic recursion in lambda form to
+                // preserve typed AST invariants. Matchless is type-erased, so we
+                // can lower tail self-calls here when available.
+                val initArgs = args.map(Local(_))
+                buildLoopExpr(
+                  fnName,
+                  args,
+                  initArgs,
+                  body,
+                  onlyIfTailCall = true
+                ).map { maybeLoopBody =>
+                  val loweredFn =
+                    maybeLoopBody match {
+                      case Some(loopBody) =>
+                        Lambda(captures, Some(fnName), args, loopBody)
+                      case None =>
+                        fn
+                    }
+                  Let.bindAll(lets, loweredFn)
+                }
+              case fn: Lambda[?] =>
+                // loops always have a function name
+                sys.error(
+                  s"expected ${fn.recursiveName} == Some($name) in ${e.repr.render(80)} which compiled to $compiled"
+                )
+              case _ =>
+                sys.error(
+                  s"expected ${e.repr.render(80)} to compile to a function, but got: $compiled"
+                )
+            }
           }
         case RecursionKind.NonRecursive => loop(e, slots)
       }
@@ -6078,16 +6481,15 @@ object Matchless {
               val rev = steps.toList.reverseIterator
               while (rev.hasNext) {
                 val step = rev.next()
-                acc =
-                  TypedExpr.App(
-                    recurToSelfCall(loopName, loopType, step.fn, inNestedLoop),
-                    NonEmptyList.of(
-                      recurToSelfCall(loopName, loopType, step.arg, inNestedLoop),
-                      acc
-                    ),
-                    step.result,
-                    step.tag
-                  )
+                acc = TypedExpr.App(
+                  recurToSelfCall(loopName, loopType, step.fn, inNestedLoop),
+                  NonEmptyList.of(
+                    recurToSelfCall(loopName, loopType, step.arg, inNestedLoop),
+                    acc
+                  ),
+                  step.result,
+                  step.tag
+                )
               }
               acc
             case None =>
@@ -6125,14 +6527,16 @@ object Matchless {
           while (it.hasNext) {
             val (n, rhs, letTag) = it.next()
             val rhs1 =
-              if (rewriteIn) recurToSelfCall(loopName, loopType, rhs, inNestedLoop)
+              if (rewriteIn)
+                recurToSelfCall(loopName, loopType, rhs, inNestedLoop)
               else rhs
             if (!(rhs1 eq rhs)) changed = true
             rebuilt += ((n, rhs1, letTag))
             if (rewriteIn && (n == loopName)) rewriteIn = false
           }
           val tail1 =
-            if (rewriteIn) recurToSelfCall(loopName, loopType, tail, inNestedLoop)
+            if (rewriteIn)
+              recurToSelfCall(loopName, loopType, tail, inNestedLoop)
             else tail
           if (!(tail1 eq tail)) changed = true
           if (!changed) let
@@ -6227,8 +6631,9 @@ object Matchless {
                   }
                 (compiledStepsF, loop(last, unnameSlots)).mapN {
                   (compiledRev, lastExpr) =>
-                    compiledRev.foldLeft(lastExpr) { case (rhsExpr, (fnExpr, argExpr)) =>
-                      applyArgs(fnExpr, NonEmptyList.of(argExpr, rhsExpr))
+                    compiledRev.foldLeft(lastExpr) {
+                      case (rhsExpr, (fnExpr, argExpr)) =>
+                        applyArgs(fnExpr, NonEmptyList.of(argExpr, rhsExpr))
                     }
                 }
               case None =>
@@ -6331,14 +6736,20 @@ object Matchless {
                           .map {
                             case Some(guardExpr) =>
                               Some(BoolMatchBranchGuard(guardExpr))
-                            case None            =>
+                            case None =>
                               Some(
-                                ScopedMatchBranchGuard(argExpr1, pattern, guardOpt1)
+                                ScopedMatchBranchGuard(
+                                  argExpr1,
+                                  pattern,
+                                  guardOpt1
+                                )
                               )
                           }
                       else
                         Monad[F].pure(
-                          Some(ScopedMatchBranchGuard(argExpr1, pattern, guardOpt1))
+                          Some(
+                            ScopedMatchBranchGuard(argExpr1, pattern, guardOpt1)
+                          )
                         )
                     }
                 }
@@ -6348,7 +6759,7 @@ object Matchless {
                   MatchBranch(branch.pattern, guard, te)
               }
             }
-          ).flatMapN { (a, b) => matchExpr(a, makeAnon, b) }
+          ).flatMapN((a, b) => matchExpr(a, makeAnon, b))
       })
 
     /*
@@ -6429,7 +6840,9 @@ object Matchless {
     // always has at least two exact segments.
     def buildListSearchPlan(
         glob: Pattern.ListPart.Glob,
-        right: NonEmptyList[Pattern.ListPart[Pattern[(PackageName, Constructor), Type]]]
+        right: NonEmptyList[
+          Pattern.ListPart[Pattern[(PackageName, Constructor), Type]]
+        ]
     ): ListSearchPlan = {
       var currentGlob: Pattern.ListPart.Glob = glob
       var currentItemsRev: List[Pattern[(PackageName, Constructor), Type]] = Nil
@@ -6445,7 +6858,8 @@ object Matchless {
                 s"expected exact items before trailing glob in list search pattern: $right"
               )
             }
-          segmentsRev = ListSearchSegment(currentGlob, currentItems) :: segmentsRev
+          segmentsRev =
+            ListSearchSegment(currentGlob, currentItems) :: segmentsRev
           currentGlob = nextGlob
           currentItemsRev = Nil
       }
@@ -6453,9 +6867,10 @@ object Matchless {
       val trailingGlob =
         NonEmptyList.fromList(currentItemsRev.reverse) match {
           case Some(lastItems) =>
-            segmentsRev = ListSearchSegment(currentGlob, lastItems) :: segmentsRev
+            segmentsRev =
+              ListSearchSegment(currentGlob, lastItems) :: segmentsRev
             None
-          case None            =>
+          case None =>
             Some(currentGlob)
         }
 
@@ -6466,7 +6881,9 @@ object Matchless {
     }
 
     def exactTrailingItems(
-        right: NonEmptyList[Pattern.ListPart[Pattern[(PackageName, Constructor), Type]]]
+        right: NonEmptyList[
+          Pattern.ListPart[Pattern[(PackageName, Constructor), Type]]
+        ]
     ): Option[NonEmptyList[Pattern[(PackageName, Constructor), Type]]] =
       right.traverse {
         case Pattern.ListPart.Item(p) => Some(p)
@@ -6474,7 +6891,9 @@ object Matchless {
       }
 
     def exactMiddleItems(
-        right: NonEmptyList[Pattern.ListPart[Pattern[(PackageName, Constructor), Type]]]
+        right: NonEmptyList[
+          Pattern.ListPart[Pattern[(PackageName, Constructor), Type]]
+        ]
     ): Option[
       (
           NonEmptyList[Pattern[(PackageName, Constructor), Type]],
@@ -6567,13 +6986,16 @@ object Matchless {
         itemMuts: NonEmptyList[LocalAnonMut],
         exactItems: NonEmptyList[Pattern[(PackageName, Constructor), Type]]
     ): F[UnionMatch] =
-      itemMuts.zip(exactItems).traverse { case (itemMut, pat) =>
-        doesMatch(ListExpr.head(itemMut), pat, false, None, None)
-      }.map { matchLists =>
-        product(matchLists) { case ((l1, o1, b1), (l2, o2, b2)) =>
-          (l1 ::: l2, o1 && o2, b1 ::: b2)
+      itemMuts
+        .zip(exactItems)
+        .traverse { case (itemMut, pat) =>
+          doesMatch(ListExpr.head(itemMut), pat, false, None, None)
         }
-      }
+        .map { matchLists =>
+          product(matchLists) { case ((l1, o1, b1), (l2, o2, b2)) =>
+            (l1 ::: l2, o1 && o2, b1 ::: b2)
+          }
+        }
 
     def initializeFixedListWindow(
         init: CheapExpr[B],
@@ -6594,7 +7016,10 @@ object Matchless {
           case itemMut :: tail =>
             If(
               ListExpr.notNil(current),
-              setAll((itemMut, current) :: Nil, assignWindow(ListExpr.tail(current), tail)),
+              setAll(
+                (itemMut, current) :: Nil,
+                assignWindow(ListExpr.tail(current), tail)
+              ),
               setAll((runMut, FalseExpr) :: Nil, onFailure)
             )
         }
@@ -6696,7 +7121,11 @@ object Matchless {
 
         LetMutBool(
           runMut :: resMut :: Nil,
-          LetBool(Left(loopRes), setAll(initSets, searchLoop), isTrueExpr(loopRes))
+          LetBool(
+            Left(loopRes),
+            setAll(initSets, searchLoop),
+            isTrueExpr(loopRes)
+          )
         )
       }
 
@@ -6744,7 +7173,11 @@ object Matchless {
 
         LetMutBool(
           runMut :: resMut :: Nil,
-          LetBool(Left(loopRes), setAll(initSets, searchLoop), isTrueExpr(loopRes))
+          LetBool(
+            Left(loopRes),
+            setAll(initSets, searchLoop),
+            isTrueExpr(loopRes)
+          )
         )
       }
 
@@ -6765,7 +7198,9 @@ object Matchless {
           .flatMap { cases =>
             cases.traverse { case (preLet, expr, binds) =>
               val letTail =
-                optAnonLeft.map(_._1).toList ::: (leadMut :: itemMuts.toList) ::: preLet
+                optAnonLeft
+                  .map(_._1)
+                  .toList ::: (leadMut :: itemMuts.toList) ::: preLet
               val leftBind =
                 optAnonLeft.map { case (anonLeft, ln) =>
                   (
@@ -6789,17 +7224,16 @@ object Matchless {
                 expr,
                 allBinds,
                 candidateGuard
-              ).flatMap {
-                searchCheck =>
-                  searchFixedListWindow(
-                    arg,
-                    itemMuts,
-                    leadMut,
-                    searchCheck,
-                    optAnonLeft.map(_._1)
-                  ).map { search =>
-                    (letTail, search, allBinds)
-                  }
+              ).flatMap { searchCheck =>
+                searchFixedListWindow(
+                  arg,
+                  itemMuts,
+                  leadMut,
+                  searchCheck,
+                  optAnonLeft.map(_._1)
+                ).map { search =>
+                  (letTail, search, allBinds)
+                }
               }
             }
           }
@@ -6811,7 +7245,8 @@ object Matchless {
         glob: Pattern.ListPart.Glob,
         exactItems: NonEmptyList[Pattern[(PackageName, Constructor), Type]]
     ): F[UnionMatch] = {
-      val exactPat = Pattern.ListPat(exactItems.toList.map(Pattern.ListPart.Item(_)))
+      val exactPat =
+        Pattern.ListPat(exactItems.toList.map(Pattern.ListPart.Item(_)))
       val leftF = prepareLeftGlob(glob)
       val anon = makeAnon.map(LocalAnonMut(_))
 
@@ -6849,8 +7284,8 @@ object Matchless {
 
           (letTail, positioned && expr, resBind)
         }
-        }
       }
+    }
 
     def compileLastListSearchSegment(
         arg: CheapExpr[B],
@@ -6866,7 +7301,7 @@ object Matchless {
             rightGlob,
             None
           )
-        case None            =>
+        case None =>
           exactTrailingListSearch(arg, segment.glob, segment.items)
       }
 
@@ -6897,7 +7332,9 @@ object Matchless {
                       (restPreLet, restExpr, restBinds)
                     ) =>
                   val letTail =
-                    optAnonLeft.map(_._1).toList ::: (leadMut :: itemMuts.toList) ::: exactPreLet ::: restPreLet
+                    optAnonLeft
+                      .map(_._1)
+                      .toList ::: (leadMut :: itemMuts.toList) ::: exactPreLet ::: restPreLet
                   val leftBind =
                     optAnonLeft.map { case (anonLeft, ln) =>
                       (
@@ -7064,12 +7501,18 @@ object Matchless {
             else CompareLit(arg, CompareRel.Eq, lit)
           finish(Monad[F].pure(NonEmptyList((Nil, cond, Nil), Nil)))
         case Pattern.Var(v) =>
-          finish(Monad[F].pure(
-            NonEmptyList(
-              (Nil, TrueConst, (v, bindOccurrenceValue(arg, rootInlined)) :: Nil),
-              Nil
+          finish(
+            Monad[F].pure(
+              NonEmptyList(
+                (
+                  Nil,
+                  TrueConst,
+                  (v, bindOccurrenceValue(arg, rootInlined)) :: Nil
+                ),
+                Nil
+              )
             )
-          ))
+          )
         case Pattern.Named(v, p) =>
           finish(doesMatch(arg, p, mustMatch, rootInlined, None).map(_.map {
             case (l0, cond, bs) =>
@@ -7079,7 +7522,7 @@ object Matchless {
           strPat.simplify match {
             case Some(simpler) =>
               doesMatch(arg, simpler, mustMatch, rootInlined, candidateGuard)
-            case None          =>
+            case None =>
               val sbinds: List[Bindable] =
                 items.toList
                   .collect {
@@ -7138,7 +7581,7 @@ object Matchless {
                   exactTrailingItems(right) match {
                     case Some(exactItems) =>
                       finish(exactTrailingListSearch(arg, glob, exactItems))
-                    case None             =>
+                    case None =>
                       compileListSearchPlan(
                         arg,
                         buildListSearchPlan(glob, right),
@@ -7175,9 +7618,9 @@ object Matchless {
                       None
                     )
                       .map { nel =>
-                      nel.map { case (preLet, expr, binds) =>
-                        (preLet, expr, (ln, emptyExpr) :: binds)
-                      }
+                        nel.map { case (preLet, expr, binds) =>
+                          (preLet, expr, (ln, emptyExpr) :: binds)
+                        }
                       }
                   )
               }
@@ -7316,7 +7759,13 @@ object Matchless {
                             loc = LocalAnonMut(nm)
                             prev = PrevNat(arg)
                             // rootInlined = None: we match the predecessor occurrence, not the root.
-                            rest <- doesMatch(loc, single, mustMatch, None, None)
+                            rest <- doesMatch(
+                              loc,
+                              single,
+                              mustMatch,
+                              None,
+                              None
+                            )
                           } yield rest.map { case (preLets, cond, res) =>
                             (
                               loc :: preLets,
@@ -7397,7 +7846,8 @@ object Matchless {
       }
 
     sealed trait MatchBranchGuard
-    final case class BoolMatchBranchGuard(expr: Expr[B]) extends MatchBranchGuard
+    final case class BoolMatchBranchGuard(expr: Expr[B])
+        extends MatchBranchGuard
     final case class ScopedMatchBranchGuard(
         arg: Expr[B],
         pattern: Pattern[(PackageName, Constructor), Type],
@@ -7706,10 +8156,13 @@ object Matchless {
       // $COVERAGE-ON$
       else {
         def scoreCol(colIdx: Int): ColumnScore = {
-          val sigs = distinctInOrder(rows.mapFilter(r => headSig(r.pats(colIdx))))
+          val sigs = distinctInOrder(
+            rows.mapFilter(r => headSig(r.pats(colIdx)))
+          )
           // normalizeRow + peelPattern remove Var/Named/Annotation, so at this
           // stage non-refutable patterns are exactly WildCard.
-          val refutableRows = rows.count(r => r.pats(colIdx) != Pattern.WildCard)
+          val refutableRows =
+            rows.count(r => r.pats(colIdx) != Pattern.WildCard)
           // We split once per distinct signature, so sum those arities as a
           // cheap proxy for added projection pressure in this column.
           val arityPenalty = sigs.iterator.map(_.projectionArity).sum
@@ -7955,8 +8408,7 @@ object Matchless {
               val explicitVariants = cases.map(_._1).toList.toSet
               val explicitTrue =
                 cases.toList.foldLeft(Option(Set.empty[Int])) {
-                  case (accOpt, (variant, branch))
-                      if possible(variant) =>
+                  case (accOpt, (variant, branch)) if possible(variant) =>
                     (
                       accOpt,
                       collectTrueVariants(branch, Set(variant), selector)
@@ -7967,7 +8419,10 @@ object Matchless {
               val defaultPossible = possible diff explicitVariants
               val defaultTrue =
                 if (defaultPossible.isEmpty) Some(Set.empty[Int])
-                else default.flatMap(collectTrueVariants(_, defaultPossible, selector))
+                else
+                  default.flatMap(
+                    collectTrueVariants(_, defaultPossible, selector)
+                  )
               (explicitTrue, defaultTrue).mapN(_ union _)
             case _ =>
               None
@@ -8034,12 +8489,20 @@ object Matchless {
             case CheckVariant(arg, _, size, famArities)
                 if famArities.forall(_ == 0) =>
               val selector: VariantSelector = (arg, size, famArities)
-              collectTrueVariants(selectorExpr, famArities.indices.toSet, selector)
+              collectTrueVariants(
+                selectorExpr,
+                famArities.indices.toSet,
+                selector
+              )
                 .flatMap(buildVariantSelectorBool(selector, _))
             case CheckVariantSet(arg, _, size, famArities)
                 if famArities.forall(_ == 0) =>
               val selector: VariantSelector = (arg, size, famArities)
-              collectTrueVariants(selectorExpr, famArities.indices.toSet, selector)
+              collectTrueVariants(
+                selectorExpr,
+                famArities.indices.toSet,
+                selector
+              )
                 .flatMap(buildVariantSelectorBool(selector, _))
             case _ =>
               None
@@ -8059,7 +8522,7 @@ object Matchless {
         .orElse(selectorGuardToBoolExpr(guardExpr)) match {
         case Some(fastPath) =>
           Monad[F].pure(fastPath)
-        case None           =>
+        case None =>
           guardExpr match {
             case cheap: CheapExpr[B] =>
               Monad[F].pure(isTrueExpr(cheap))
@@ -8122,7 +8585,7 @@ object Matchless {
               Pattern.ListPat.toPositionalStruct(lp, empty, cons) match {
                 case Right(p) =>
                   bindingFreePatternBoolCheap(arg, p, mustMatch)
-                case Left(_)  =>
+                case Left(_) =>
                   OptionT.none
               }
             case Pattern.PositionalStruct((pack, cname), params) =>
@@ -8157,10 +8620,13 @@ object Matchless {
                         mustMatch
                       )
                     }
-                    .map(_.foldLeft(
-                      if (mustMatch) TrueConst
-                      else CheckVariant(arg, vidx, size, famArities): BoolExpr[B]
-                    )(_ && _))
+                    .map(
+                      _.foldLeft(
+                        if (mustMatch) TrueConst
+                        else
+                          CheckVariant(arg, vidx, size, famArities): BoolExpr[B]
+                      )(_ && _)
+                    )
                 case Some(DataRepr.ZeroNat) if params.isEmpty =>
                   OptionT.some(
                     if (mustMatch) TrueConst
@@ -8192,7 +8658,7 @@ object Matchless {
           guardExpr match {
             case Some(innerGuardExpr) =>
               If(patternBool, innerGuardExpr, FalseExpr)
-            case None                 =>
+            case None =>
               boolExprToExpr(patternBool)
           }
         }
@@ -8212,20 +8678,25 @@ object Matchless {
           innerGuardBool match {
             case Some(guardCond) =>
               If(guardCond, TrueExpr, FalseExpr)
-            case None            =>
+            case None =>
               TrueExpr
           }
         setAll(bindUpdates, successExpr)
       }
 
       def loopMatches(
-          items: List[(List[LocalAnonMut], BoolExpr[B], List[(Bindable, Expr[B])])]
+          items: List[
+            (List[LocalAnonMut], BoolExpr[B], List[(Bindable, Expr[B])])
+          ]
       ): Expr[B] =
         items match {
           case Nil =>
             FalseExpr
           case (preLets, cond, innerBinds) :: tail =>
-            letMutAll(preLets, If(cond, onSuccess(innerBinds), loopMatches(tail)))
+            letMutAll(
+              preLets,
+              If(cond, onSuccess(innerBinds), loopMatches(tail))
+            )
         }
 
       loopMatches(matches.toList)
@@ -8239,7 +8710,9 @@ object Matchless {
       val binderNames = pattern.names
       (
         makeAnon.map(LocalAnonMut(_)),
-        binderNames.traverse(name => makeAnon.map(LocalAnonMut(_)).map(name -> _))
+        binderNames.traverse(name =>
+          makeAnon.map(LocalAnonMut(_)).map(name -> _)
+        )
       ).tupled.map { case (argMut, binderMuts) =>
         val binderMutByName = binderMuts.toMap
         val extraPreLets = argMut :: binderMuts.map(_._2)
@@ -8264,17 +8737,18 @@ object Matchless {
               }
 
             innerGuardBoolF.flatMap { innerGuardBool =>
-              doesMatch(argMut, pattern, false, None, None).flatMap { innerMatches =>
-                val guardExpr =
-                  setAll(
-                    (argMut, scopedArg) :: Nil,
-                    scopedGuardUnionMatchToExpr(
-                      innerMatches,
-                      binderMutByName,
-                      innerGuardBool
+              doesMatch(argMut, pattern, false, None, None).flatMap {
+                innerMatches =>
+                  val guardExpr =
+                    setAll(
+                      (argMut, scopedArg) :: Nil,
+                      scopedGuardUnionMatchToExpr(
+                        innerMatches,
+                        binderMutByName,
+                        innerGuardBool
+                      )
                     )
-                  )
-                guardToBoolExpr(guardExpr)
+                  guardToBoolExpr(guardExpr)
               }
             }
           }
@@ -8301,7 +8775,9 @@ object Matchless {
         val guardSetupF =
           head1.guard match {
             case None =>
-              Monad[F].pure((Option.empty[CandidateGuard], identity[UnionMatch]))
+              Monad[F].pure(
+                (Option.empty[CandidateGuard], identity[UnionMatch])
+              )
             case Some(BoolMatchBranchGuard(guardExpr)) =>
               Monad[F].pure(
                 (
@@ -8459,376 +8935,400 @@ object Matchless {
           occsIn: List[CheapExpr[B]],
           mustMatch: Boolean
       ): F[Expr[B]] =
-        Defer[F].defer(materializeOccs(occsIn).flatMap { case (occLets, occsMemoed) =>
-          val norm = rowsIn.map(normalizeRow(_, occsMemoed, arg, inlinedRoot))
-          val expanded = expandRows(norm)
-          val (rows, occs) = dropWildColumns(expanded, occsMemoed)
+        Defer[F].defer(materializeOccs(occsIn).flatMap {
+          case (occLets, occsMemoed) =>
+            val norm = rowsIn.map(normalizeRow(_, occsMemoed, arg, inlinedRoot))
+            val expanded = expandRows(norm)
+            val (rows, occs) = dropWildColumns(expanded, occsMemoed)
 
-          val compiled: F[Expr[B]] =
-            rows match {
-              case MatchRow(p0, g0, r0, b0) :: tail
-                  if p0.forall(_ == Pattern.WildCard) =>
-                val rhsExpr = lets(b0, r0)
-                g0 match {
-                  case None =>
-                    Monad[F].pure(rhsExpr)
-                  case Some(guard) =>
-                    val guardExpr = lets(b0, guard)
-                    guardToBoolExpr(guardExpr).flatMap { guardCond =>
-                      if (tail.nonEmpty) {
-                        // A guarded wildcard row does not constrain the scrutinee shape;
-                        // if this matrix must match, then when the guard is false the tail
-                        // must still be total.
-                        compileRows(tail, occs, mustMatch).map {
-                          fallback =>
+            val compiled: F[Expr[B]] =
+              rows match {
+                case MatchRow(p0, g0, r0, b0) :: tail
+                    if p0.forall(_ == Pattern.WildCard) =>
+                  val rhsExpr = lets(b0, r0)
+                  g0 match {
+                    case None =>
+                      Monad[F].pure(rhsExpr)
+                    case Some(guard) =>
+                      val guardExpr = lets(b0, guard)
+                      guardToBoolExpr(guardExpr).flatMap { guardCond =>
+                        if (tail.nonEmpty) {
+                          // A guarded wildcard row does not constrain the scrutinee shape;
+                          // if this matrix must match, then when the guard is false the tail
+                          // must still be total.
+                          compileRows(tail, occs, mustMatch).map { fallback =>
                             If(guardCond, rhsExpr, fallback)
+                          }
+                        } else {
+                          // totality checking rejects this shape; keep defensive
+                          // fallback behavior in case malformed TypedExpr reaches here.
+                          Monad[F].pure(If(guardCond, rhsExpr, UnitExpr))
                         }
-                      } else {
-                        // totality checking rejects this shape; keep defensive
-                        // fallback behavior in case malformed TypedExpr reaches here.
-                        Monad[F].pure(If(guardCond, rhsExpr, UnitExpr))
                       }
-                    }
-                }
-              case Nil =>
-                // this should be impossible in well-typed code
-                Monad[F].pure(UnitExpr)
-              case _ =>
-                val (colIdx, sigs) = chooseColumnByScore(rows)
+                  }
+                case Nil =>
+                  // this should be impossible in well-typed code
+                  Monad[F].pure(UnitExpr)
+                case _ =>
+                  val (colIdx, sigs) = chooseColumnByScore(rows)
 
-                val occ = occs(colIdx)
+                  val occ = occs(colIdx)
 
-                val defaultRows =
-                  rows
-                    .mapFilter(r =>
-                      if r.pats(colIdx) == Pattern.WildCard then
-                        Some(r.patchPats(colIdx, Nil))
-                      else None
+                  val defaultRows =
+                    rows
+                      .mapFilter(r =>
+                        if r.pats(colIdx) == Pattern.WildCard then
+                          Some(r.patchPats(colIdx, Nil))
+                        else None
+                      )
+
+                  val defaultOccs = occs.patch(colIdx, Nil, 1)
+
+                  // Build the Matchless condition + specialized submatrix for one case.
+                  def buildCase(
+                      sig: HeadSig,
+                      caseMustMatch: Boolean
+                  ): F[
+                    (
+                        BoolExpr[B],
+                        List[LocalAnonMut],
+                        List[MatchRow],
+                        List[CheapExpr[B]]
                     )
-
-                val defaultOccs = occs.patch(colIdx, Nil, 1)
-
-                // Build the Matchless condition + specialized submatrix for one case.
-                def buildCase(
-                    sig: HeadSig,
-                    caseMustMatch: Boolean
-                ): F[
-                  (
-                      BoolExpr[B],
-                      List[LocalAnonMut],
-                      List[MatchRow],
-                      List[CheapExpr[B]]
-                  )
-                ] =
-                  sig match {
-                    case EnumSig(_, v, s, f) =>
-                      val (newRows, keepOffsets) =
-                        minimizeSpecializedRows(sig, rows, colIdx, s)
-                      val fields = keepOffsets.map(i =>
-                        GetEnumElement(occ, v, i, s)
-                      )
-                      val newOccs = occs.patch(colIdx, fields, 1)
-                      val cond =
-                        if (caseMustMatch) TrueConst
-                        else CheckVariant(occ, v, s, f)
-                      Monad[F].pure(
-                        (
-                          cond,
-                          Nil,
-                          newRows,
-                          newOccs
-                        )
-                      )
-                    case StructSig(_, s) =>
-                      val (newRows, keepOffsets) =
-                        minimizeSpecializedRows(sig, rows, colIdx, s)
-                      val occInline =
-                        rootInlinedForOcc(occ, arg, inlinedRoot)
-                      val fields = keepOffsets.map(i =>
-                        projectStructOccurrence(occ, i, s, occInline)
-                      )
-                      val newOccs = occs.patch(colIdx, fields, 1)
-                      Monad[F].pure((TrueConst, Nil, newRows, newOccs))
-                    case LitSig(lit) =>
-                      val (newRows, _) =
-                        minimizeSpecializedRows(sig, rows, colIdx, 0)
-                      val newOccs = occs.patch(colIdx, Nil, 1)
-                      val cond =
-                        if (caseMustMatch) TrueConst else CompareLit(occ, CompareRel.Eq, lit)
-                      Monad[F].pure((cond, Nil, newRows, newOccs))
-                    case ZeroSig =>
-                      val (newRows, _) =
-                        minimizeSpecializedRows(sig, rows, colIdx, 0)
-                      val newOccs = occs.patch(colIdx, Nil, 1)
-                      val cond =
-                        if (caseMustMatch) TrueConst
-                        else EqualsNat(occ, DataRepr.ZeroNat)
-                      Monad[F].pure(
-                        (cond, Nil, newRows, newOccs)
-                      )
-                    case SuccSig =>
-                      val (newRows, keepOffsets) =
-                        minimizeSpecializedRows(sig, rows, colIdx, 1)
-                      if (keepOffsets.nonEmpty)
-                        makeAnon.map { nm =>
-                          val mut = LocalAnonMut(nm)
-                          val setPrev = SetMut(mut, PrevNat(occ))
-                          val cond =
-                            if (caseMustMatch) setPrev
-                            else EqualsNat(occ, DataRepr.SuccNat) && setPrev
-                          val newOccs = occs.patch(colIdx, mut :: Nil, 1)
-                          (cond, mut :: Nil, newRows, newOccs)
-                        }
-                      else {
+                  ] =
+                    sig match {
+                      case EnumSig(_, v, s, f) =>
+                        val (newRows, keepOffsets) =
+                          minimizeSpecializedRows(sig, rows, colIdx, s)
+                        val fields =
+                          keepOffsets.map(i => GetEnumElement(occ, v, i, s))
+                        val newOccs = occs.patch(colIdx, fields, 1)
                         val cond =
                           if (caseMustMatch) TrueConst
-                          else EqualsNat(occ, DataRepr.SuccNat)
-                        Monad[F].pure((cond, Nil, newRows, occs.patch(colIdx, Nil, 1)))
-                      }
-                  }
-
-                enum OrderedLiteralKind derives CanEqual {
-                  case IntKind, CharKind
-                }
-
-                def orderedLiteralKind(lit: Lit): Option[OrderedLiteralKind] =
-                  lit match {
-                    case Lit.Integer(_) => Some(OrderedLiteralKind.IntKind)
-                    case Lit.Chr(_)     => Some(OrderedLiteralKind.CharKind)
-                    case _              => None
-                  }
-
-                def orderedLiteralCompare(
-                    kind: OrderedLiteralKind,
-                    left: Lit,
-                    right: Lit
-                ): Int =
-                  kind match {
-                    case OrderedLiteralKind.IntKind =>
-                      (left, right) match {
-                        case (Lit.Integer(l), Lit.Integer(r)) =>
-                          l.compareTo(r)
-                        case _ =>
-                          // $COVERAGE-OFF$
-                          throw new IllegalStateException(
-                            s"unexpected Int literal comparison: left=$left, right=$right"
+                          else CheckVariant(occ, v, s, f)
+                        Monad[F].pure(
+                          (
+                            cond,
+                            Nil,
+                            newRows,
+                            newOccs
                           )
-                        // $COVERAGE-ON$
-                      }
-                    case OrderedLiteralKind.CharKind =>
-                      (left, right) match {
-                        case (l: Lit.Chr, r: Lit.Chr) =>
-                          java.lang.Integer.compare(l.toCodePoint, r.toCodePoint)
-                        case _ =>
-                          // $COVERAGE-OFF$
-                          throw new IllegalStateException(
-                            s"unexpected Char literal comparison: left=$left, right=$right"
+                        )
+                      case StructSig(_, s) =>
+                        val (newRows, keepOffsets) =
+                          minimizeSpecializedRows(sig, rows, colIdx, s)
+                        val occInline =
+                          rootInlinedForOcc(occ, arg, inlinedRoot)
+                        val fields = keepOffsets.map(i =>
+                          projectStructOccurrence(occ, i, s, occInline)
+                        )
+                        val newOccs = occs.patch(colIdx, fields, 1)
+                        Monad[F].pure((TrueConst, Nil, newRows, newOccs))
+                      case LitSig(lit) =>
+                        val (newRows, _) =
+                          minimizeSpecializedRows(sig, rows, colIdx, 0)
+                        val newOccs = occs.patch(colIdx, Nil, 1)
+                        val cond =
+                          if (caseMustMatch) TrueConst
+                          else CompareLit(occ, CompareRel.Eq, lit)
+                        Monad[F].pure((cond, Nil, newRows, newOccs))
+                      case ZeroSig =>
+                        val (newRows, _) =
+                          minimizeSpecializedRows(sig, rows, colIdx, 0)
+                        val newOccs = occs.patch(colIdx, Nil, 1)
+                        val cond =
+                          if (caseMustMatch) TrueConst
+                          else EqualsNat(occ, DataRepr.ZeroNat)
+                        Monad[F].pure(
+                          (cond, Nil, newRows, newOccs)
+                        )
+                      case SuccSig =>
+                        val (newRows, keepOffsets) =
+                          minimizeSpecializedRows(sig, rows, colIdx, 1)
+                        if (keepOffsets.nonEmpty)
+                          makeAnon.map { nm =>
+                            val mut = LocalAnonMut(nm)
+                            val setPrev = SetMut(mut, PrevNat(occ))
+                            val cond =
+                              if (caseMustMatch) setPrev
+                              else EqualsNat(occ, DataRepr.SuccNat) && setPrev
+                            val newOccs = occs.patch(colIdx, mut :: Nil, 1)
+                            (cond, mut :: Nil, newRows, newOccs)
+                          }
+                        else {
+                          val cond =
+                            if (caseMustMatch) TrueConst
+                            else EqualsNat(occ, DataRepr.SuccNat)
+                          Monad[F].pure(
+                            (cond, Nil, newRows, occs.patch(colIdx, Nil, 1))
                           )
-                        // $COVERAGE-ON$
-                      }
-                  }
-
-                def literalTreeLits(
-                    sigs: List[HeadSig]
-                ): Option[NonEmptyList[Lit]] =
-                  if (sigs.length < LiteralTreeMinCases) None
-                  else {
-                    for {
-                      literals <- sigs.traverse {
-                        case LitSig(lit) => Some(lit)
-                        case _           => None
-                      }
-                      nel <- NonEmptyList.fromList(literals)
-                      kind <- orderedLiteralKind(nel.head)
-                      if nel.forall(lit => orderedLiteralKind(lit).contains(kind))
-                    } yield {
-                      val sorted = nel.toList.sortWith { (left, right) =>
-                        orderedLiteralCompare(kind, left, right) < 0
-                      }
-                      NonEmptyList.fromListUnsafe(sorted)
+                        }
                     }
+
+                  enum OrderedLiteralKind derives CanEqual {
+                    case IntKind, CharKind
                   }
 
-                // Compile cases in order, with a default branch for wildcards.
-                def compileCases(
-                    sigs: List[HeadSig],
-                    mustMatch: Boolean
-                ): F[Expr[B]] =
-                  Defer[F].defer(sigs match {
-                    case Nil =>
+                  def orderedLiteralKind(lit: Lit): Option[OrderedLiteralKind] =
+                    lit match {
+                      case Lit.Integer(_) => Some(OrderedLiteralKind.IntKind)
+                      case Lit.Chr(_)     => Some(OrderedLiteralKind.CharKind)
+                      case _              => None
+                    }
+
+                  def orderedLiteralCompare(
+                      kind: OrderedLiteralKind,
+                      left: Lit,
+                      right: Lit
+                  ): Int =
+                    kind match {
+                      case OrderedLiteralKind.IntKind =>
+                        (left, right) match {
+                          case (Lit.Integer(l), Lit.Integer(r)) =>
+                            l.compareTo(r)
+                          case _ =>
+                            // $COVERAGE-OFF$
+                            throw new IllegalStateException(
+                              s"unexpected Int literal comparison: left=$left, right=$right"
+                            )
+                          // $COVERAGE-ON$
+                        }
+                      case OrderedLiteralKind.CharKind =>
+                        (left, right) match {
+                          case (l: Lit.Chr, r: Lit.Chr) =>
+                            java.lang.Integer
+                              .compare(l.toCodePoint, r.toCodePoint)
+                          case _ =>
+                            // $COVERAGE-OFF$
+                            throw new IllegalStateException(
+                              s"unexpected Char literal comparison: left=$left, right=$right"
+                            )
+                          // $COVERAGE-ON$
+                        }
+                    }
+
+                  def literalTreeLits(
+                      sigs: List[HeadSig]
+                  ): Option[NonEmptyList[Lit]] =
+                    if (sigs.length < LiteralTreeMinCases) None
+                    else {
+                      for {
+                        literals <- sigs.traverse {
+                          case LitSig(lit) => Some(lit)
+                          case _           => None
+                        }
+                        nel <- NonEmptyList.fromList(literals)
+                        kind <- orderedLiteralKind(nel.head)
+                        if nel.forall(lit =>
+                          orderedLiteralKind(lit).contains(kind)
+                        )
+                      } yield {
+                        val sorted = nel.toList.sortWith { (left, right) =>
+                          orderedLiteralCompare(kind, left, right) < 0
+                        }
+                        NonEmptyList.fromListUnsafe(sorted)
+                      }
+                    }
+
+                  // Compile cases in order, with a default branch for wildcards.
+                  def compileCases(
+                      sigs: List[HeadSig],
+                      mustMatch: Boolean
+                  ): F[Expr[B]] =
+                    Defer[F].defer(sigs match {
+                      case Nil =>
+                        if (defaultRows.nonEmpty)
+                          compileRows(defaultRows, defaultOccs, mustMatch)
+                        else Monad[F].pure(UnitExpr)
+                      case sig :: rest =>
+                        val caseMustMatch =
+                          mustMatch &&
+                            rest.isEmpty &&
+                            defaultRows.isEmpty
+                        buildCase(sig, caseMustMatch).flatMap {
+                          case (cond, preLets, newRows, newOccs) =>
+                            if (newRows.isEmpty) compileCases(rest, mustMatch)
+                            else {
+                              val subMustMatch =
+                                mustMatch
+                              compileRows(newRows, newOccs, subMustMatch)
+                                .flatMap { thenExpr =>
+                                  cond match {
+                                    case TrueConst =>
+                                      Monad[F].pure(
+                                        letMutAll(preLets, thenExpr)
+                                      )
+                                    case _ =>
+                                      val hasElse =
+                                        rest.nonEmpty || defaultRows.nonEmpty
+
+                                      val branchF: F[Expr[B]] =
+                                        if (!hasElse)
+                                          if (mustMatch)
+                                            Monad[F]
+                                              .pure(always(cond, thenExpr))
+                                          else
+                                            Monad[F].pure(
+                                              If(cond, thenExpr, UnitExpr)
+                                            )
+                                        else
+                                          compileCases(rest, mustMatch).map {
+                                            elseExpr =>
+                                              If(cond, thenExpr, elseExpr)
+                                          }
+
+                                      branchF.map(letMutAll(preLets, _))
+                                  }
+                                }
+                            }
+                        }
+                    })
+
+                  def compileLiteralTreeCases(
+                      sortedLits: NonEmptyList[Lit],
+                      mustMatch: Boolean
+                  ): F[Expr[B]] = {
+                    def compileLiteralCase(lit: Lit): F[(Lit, Expr[B])] = {
+                      val (newRows, _) =
+                        minimizeSpecializedRows(LitSig(lit), rows, colIdx, 0)
+                      val newOccs = occs.patch(colIdx, Nil, 1)
+                      // Sorting only changes test order; specialization by `lit`
+                      // still selects the exact original rows/rhs for that literal.
+                      if (newRows.isEmpty) {
+                        // $COVERAGE-OFF$
+                        throw new IllegalStateException(
+                          s"expected literal specialization rows for $lit in $sigs"
+                        )
+                        // $COVERAGE-ON$
+                      } else
+                        compileRows(newRows, newOccs, mustMatch).map((lit, _))
+                    }
+
+                    def fallbackExpr: F[Expr[B]] =
+                      // Wildcard rows become `defaultRows` and represent `_`.
+                      // We compile those once here as the shared fallback path.
                       if (defaultRows.nonEmpty)
                         compileRows(defaultRows, defaultOccs, mustMatch)
                       else Monad[F].pure(UnitExpr)
-                    case sig :: rest =>
-                      val caseMustMatch =
-                        mustMatch &&
-                          rest.isEmpty &&
-                          defaultRows.isEmpty
-                      buildCase(sig, caseMustMatch).flatMap {
-                        case (cond, preLets, newRows, newOccs) =>
-                          if (newRows.isEmpty) compileCases(rest, mustMatch)
-                          else {
-                            val subMustMatch =
-                              mustMatch
-                            compileRows(newRows, newOccs, subMustMatch).flatMap {
-                              thenExpr =>
-                                cond match {
-                                  case TrueConst =>
-                                    Monad[F].pure(letMutAll(preLets, thenExpr))
-                                  case _ =>
-                                    val hasElse =
-                                      rest.nonEmpty || defaultRows.nonEmpty
 
-                                    val branchF: F[Expr[B]] =
-                                      if (!hasElse)
-                                        if (mustMatch)
-                                          Monad[F].pure(always(cond, thenExpr))
-                                        else
-                                          Monad[F].pure(
-                                            If(cond, thenExpr, UnitExpr)
-                                          )
-                                      else
-                                        compileCases(rest, mustMatch).map {
-                                          elseExpr =>
-                                            If(cond, thenExpr, elseExpr)
-                                        }
-
-                                    branchF.map(letMutAll(preLets, _))
-                                }
-                            }
-                          }
-                      }
-                  })
-
-                def compileLiteralTreeCases(
-                    sortedLits: NonEmptyList[Lit],
-                    mustMatch: Boolean
-                ): F[Expr[B]] = {
-                  def compileLiteralCase(lit: Lit): F[(Lit, Expr[B])] = {
-                    val (newRows, _) =
-                      minimizeSpecializedRows(LitSig(lit), rows, colIdx, 0)
-                    val newOccs = occs.patch(colIdx, Nil, 1)
-                    // Sorting only changes test order; specialization by `lit`
-                    // still selects the exact original rows/rhs for that literal.
-                    if (newRows.isEmpty) {
-                      // $COVERAGE-OFF$
-                      throw new IllegalStateException(
-                        s"expected literal specialization rows for $lit in $sigs"
-                      )
-                    // $COVERAGE-ON$
-                    } else compileRows(newRows, newOccs, mustMatch).map((lit, _))
-                  }
-
-                  def fallbackExpr: F[Expr[B]] =
-                    // Wildcard rows become `defaultRows` and represent `_`.
-                    // We compile those once here as the shared fallback path.
-                    if (defaultRows.nonEmpty)
-                      compileRows(defaultRows, defaultOccs, mustMatch)
-                    else Monad[F].pure(UnitExpr)
-
-                  def buildTree(
-                      lits: Vector[(Lit, Expr[B])],
-                      fallback: Expr[B]
-                  ): Expr[B] =
-                    if (lits.isEmpty) fallback
-                    else if (lits.length == 1) {
-                      val (lit, thenExpr) = lits.head
-                      If(CompareLit(occ, CompareRel.Eq, lit), thenExpr, fallback)
-                    } else {
-                      // Keep the left branch as all literals <= pivot.
-                      val leftSize = (lits.length + 1) / 2
-                      val pivot = lits(leftSize - 1)._1
-                      val leftTree = buildTree(lits.take(leftSize), fallback)
-                      val rightTree = buildTree(lits.drop(leftSize), fallback)
-                      If(CompareLit(occ, CompareRel.Lte, pivot), leftTree, rightTree)
-                    }
-
-                  (sortedLits.traverse(compileLiteralCase), fallbackExpr).mapN {
-                    (compiledLits, fallback) =>
-                      buildTree(compiledLits.toList.toVector, fallback)
-                  }
-                }
-
-                def enumSwitchData(
-                    sigs: List[HeadSig]
-                ): Option[(List[Int], NonEmptyList[HeadSig.EnumSig])] =
-                  NonEmptyList.fromList(sigs).flatMap { nel =>
-                    nel
-                      .traverse {
-                        case enumSig @ EnumSig(_, _, _, _) =>
-                          Some(enumSig)
-                        case _ =>
-                          None
-                      }
-                      .flatMap { enumSigs =>
-                        val famArities = enumSigs.head.famArities
-                        if (
-                          (enumSigs.length >= SwitchVariantMinCases) &&
-                          enumSigs.forall(_.famArities == famArities)
-                        ) Some((famArities, enumSigs))
-                        else None
-                      }
-                  }
-
-                def compileSwitchCases(
-                    famArities: List[Int],
-                    enumSigs: NonEmptyList[HeadSig.EnumSig],
-                    mustMatch: Boolean
-                ): F[Expr[B]] = {
-                  def compileCase(
-                      enumSig: HeadSig.EnumSig
-                  ): F[(Int, Expr[B])] =
-                    enumSig match {
-                      case EnumSig(_, variant, arity, _) =>
-                        val (newRows, keepOffsets) =
-                          minimizeSpecializedRows(enumSig, rows, colIdx, arity)
-                        val fields = keepOffsets.map(i =>
-                          GetEnumElement(occ, variant, i, arity)
+                    def buildTree(
+                        lits: Vector[(Lit, Expr[B])],
+                        fallback: Expr[B]
+                    ): Expr[B] =
+                      if (lits.isEmpty) fallback
+                      else if (lits.length == 1) {
+                        val (lit, thenExpr) = lits.head
+                        If(
+                          CompareLit(occ, CompareRel.Eq, lit),
+                          thenExpr,
+                          fallback
                         )
-                        val newOccs = occs.patch(colIdx, fields, 1)
+                      } else {
+                        // Keep the left branch as all literals <= pivot.
+                        val leftSize = (lits.length + 1) / 2
+                        val pivot = lits(leftSize - 1)._1
+                        val leftTree = buildTree(lits.take(leftSize), fallback)
+                        val rightTree = buildTree(lits.drop(leftSize), fallback)
+                        If(
+                          CompareLit(occ, CompareRel.Lte, pivot),
+                          leftTree,
+                          rightTree
+                        )
+                      }
 
-                        if (newRows.isEmpty) Monad[F].pure((variant, UnitExpr))
-                        else {
-                          val subMustMatch = mustMatch
-                          compileRows(newRows, newOccs, subMustMatch).map {
-                            (variant, _)
-                          }
+                    (sortedLits.traverse(compileLiteralCase), fallbackExpr)
+                      .mapN { (compiledLits, fallback) =>
+                        buildTree(compiledLits.toList.toVector, fallback)
+                      }
+                  }
+
+                  def enumSwitchData(
+                      sigs: List[HeadSig]
+                  ): Option[(List[Int], NonEmptyList[HeadSig.EnumSig])] =
+                    NonEmptyList.fromList(sigs).flatMap { nel =>
+                      nel
+                        .traverse {
+                          case enumSig @ EnumSig(_, _, _, _) =>
+                            Some(enumSig)
+                          case _ =>
+                            None
+                        }
+                        .flatMap { enumSigs =>
+                          val famArities = enumSigs.head.famArities
+                          if (
+                            (enumSigs.length >= SwitchVariantMinCases) &&
+                            enumSigs.forall(_.famArities == famArities)
+                          ) Some((famArities, enumSigs))
+                          else None
                         }
                     }
 
-                  val hasAllVariants = enumSigs.length == famArities.length
-                  val defaultExprF: F[Option[Expr[B]]] =
-                    if (defaultRows.nonEmpty)
-                      compileRows(defaultRows, defaultOccs, mustMatch).map(Some(_))
-                    else if (!mustMatch && !hasAllVariants)
-                      Monad[F].pure(Some(UnitExpr))
-                    else Monad[F].pure(None)
+                  def compileSwitchCases(
+                      famArities: List[Int],
+                      enumSigs: NonEmptyList[HeadSig.EnumSig],
+                      mustMatch: Boolean
+                  ): F[Expr[B]] = {
+                    def compileCase(
+                        enumSig: HeadSig.EnumSig
+                    ): F[(Int, Expr[B])] =
+                      enumSig match {
+                        case EnumSig(_, variant, arity, _) =>
+                          val (newRows, keepOffsets) =
+                            minimizeSpecializedRows(
+                              enumSig,
+                              rows,
+                              colIdx,
+                              arity
+                            )
+                          val fields = keepOffsets.map(i =>
+                            GetEnumElement(occ, variant, i, arity)
+                          )
+                          val newOccs = occs.patch(colIdx, fields, 1)
 
-                  (enumSigs.traverse(compileCase), defaultExprF).mapN {
-                    (compiledCases, defaultExpr) =>
-                      SwitchVariant(
-                        occ,
-                        famArities,
-                        compiledCases,
-                        defaultExpr
-                      )
-                  }
-                }
+                          if (newRows.isEmpty)
+                            Monad[F].pure((variant, UnitExpr))
+                          else {
+                            val subMustMatch = mustMatch
+                            compileRows(newRows, newOccs, subMustMatch).map {
+                              (variant, _)
+                            }
+                          }
+                      }
 
-                literalTreeLits(sigs) match {
-                  case Some(sortedLits) =>
-                    compileLiteralTreeCases(sortedLits, mustMatch)
-                  case None             =>
-                    enumSwitchData(sigs) match {
-                      case Some((famArities, enumSigs)) =>
-                        compileSwitchCases(famArities, enumSigs, mustMatch)
-                      case None =>
-                        compileCases(sigs, mustMatch)
+                    val hasAllVariants = enumSigs.length == famArities.length
+                    val defaultExprF: F[Option[Expr[B]]] =
+                      if (defaultRows.nonEmpty)
+                        compileRows(defaultRows, defaultOccs, mustMatch)
+                          .map(Some(_))
+                      else if (!mustMatch && !hasAllVariants)
+                        Monad[F].pure(Some(UnitExpr))
+                      else Monad[F].pure(None)
+
+                    (enumSigs.traverse(compileCase), defaultExprF).mapN {
+                      (compiledCases, defaultExpr) =>
+                        SwitchVariant(
+                          occ,
+                          famArities,
+                          compiledCases,
+                          defaultExpr
+                        )
                     }
-                }
-            }
+                  }
 
-          compiled.map(letAnons(occLets, _))
+                  literalTreeLits(sigs) match {
+                    case Some(sortedLits) =>
+                      compileLiteralTreeCases(sortedLits, mustMatch)
+                    case None =>
+                      enumSwitchData(sigs) match {
+                        case Some((famArities, enumSigs)) =>
+                          compileSwitchCases(famArities, enumSigs, mustMatch)
+                        case None =>
+                          compileCases(sigs, mustMatch)
+                      }
+                  }
+              }
+
+            compiled.map(letAnons(occLets, _))
         })
 
       compileRows(rows0, arg :: Nil, topMustMatch)
@@ -8853,11 +9353,9 @@ object Matchless {
           case If(cond, thenExpr, elseExpr) =>
             1 + loopBool(cond) + loopExpr(thenExpr) + loopExpr(elseExpr)
           case SwitchVariant(on, _, cases, default) =>
-            1 + loopExpr(on) + cases.iterator
-              .map { case (_, branch) =>
-                loopExpr(branch)
-              }
-              .sum + default.fold(0)(loopExpr)
+            1 + loopExpr(on) + cases.iterator.map { case (_, branch) =>
+              loopExpr(branch)
+            }.sum + default.fold(0)(loopExpr)
           case Always(cond, thenExpr) =>
             1 + loopBool(cond) + loopExpr(thenExpr)
           case PrevNat(of) =>
@@ -9120,10 +9618,10 @@ object Matchless {
       ): Boolean =
         p match {
           case Pattern.Var(_) | Pattern.Named(_, _) => true
-          case Pattern.Annotation(inner, _)          => bindsWholeRoot(inner)
-          case Pattern.Union(h, tail) =>
+          case Pattern.Annotation(inner, _)         => bindsWholeRoot(inner)
+          case Pattern.Union(h, tail)               =>
             bindsWholeRoot(h) && tail.forall(bindsWholeRoot)
-          case _                                    => false
+          case _ => false
         }
 
       val wholeRootBindBranches =
@@ -9164,11 +9662,17 @@ object Matchless {
           (p == falsePat) || (p == Pattern.WildCard)
 
         bs.toList match {
-          case MatchBranch(p1, None, ifTrue) :: MatchBranch(p2, None, ifFalse) :: Nil =>
+          case MatchBranch(p1, None, ifTrue) :: MatchBranch(
+                p2,
+                None,
+                ifFalse
+              ) :: Nil =>
             (normalizedNoNames(p1), normalizedNoNames(p2)) match {
-              case (Some(np1), Some(np2)) if isTrue(np1) && isFalseOrWild(np2) =>
+              case (Some(np1), Some(np2))
+                  if isTrue(np1) && isFalseOrWild(np2) =>
                 Some((ifTrue, ifFalse))
-              case (Some(np1), Some(np2)) if (np1 == falsePat) && (
+              case (Some(np1), Some(np2))
+                  if (np1 == falsePat) && (
                     (np2 == truePat) || (np2 == Pattern.WildCard)
                   ) =>
                 Some((ifFalse, ifTrue))
@@ -9221,7 +9725,9 @@ object Matchless {
             case `gtPat` =>
               Some(Set(2))
             case Pattern.Union(head, tail) =>
-              (head :: tail.toList).traverse(patternVariants).map(_.foldLeft(Set.empty[Int])(_ union _))
+              (head :: tail.toList)
+                .traverse(patternVariants)
+                .map(_.foldLeft(Set.empty[Int])(_ union _))
             case _ =>
               None
           }
@@ -9246,14 +9752,16 @@ object Matchless {
                 } yield {
                   val covered = remaining intersect variants
                   val nextTrueVariants =
-                    if (branchValue) trueVariants union covered else trueVariants
+                    if (branchValue) trueVariants union covered
+                    else trueVariants
                   (remaining diff covered, nextTrueVariants)
                 }
               case _ =>
                 None
             }
-            .collect { case (remaining, trueVariants) if remaining.isEmpty =>
-              trueVariants
+            .collect {
+              case (remaining, trueVariants) if remaining.isEmpty =>
+                trueVariants
             }
 
         for {
@@ -9263,7 +9771,7 @@ object Matchless {
           comparisonObservation(trueVariants) match {
             case Left(value) =>
               lowerConstantBool(value)
-            case Right(rel)  =>
+            case Right(rel) =>
               lowerBooleanCompare(domain, left, rel, right)
           }
         }
@@ -9274,9 +9782,13 @@ object Matchless {
           branches: NonEmptyList[MatchBranch],
           rootInlined: Option[InlinedStructRoot]
       ): F[Expr[B]] =
-        if (branches.exists(_.hasScopedGuard) || shouldPreferOrderedTerminalFallback(
+        if (
+          branches.exists(
+            _.hasScopedGuard
+          ) || shouldPreferOrderedTerminalFallback(
             branches
-          ))
+          )
+        )
           matchExprOrderedCheap(arg, branches, rootInlined)
         else
           matchExprMatrixCheap(arg, branches, rootInlined)
@@ -9328,7 +9840,9 @@ object Matchless {
         }
 
       // phase-1 policy: if multiple branches bind the whole root, keep eager root allocation
-      if (wholeRootBindBranches > 1 || maybeBoolBranches.nonEmpty || maybeComparisonBranches.nonEmpty)
+      if (
+        wholeRootBindBranches > 1 || maybeBoolBranches.nonEmpty || maybeComparisonBranches.nonEmpty
+      )
         compileWithoutInlining
       else {
         prepareInlinedStructRoot(arg).flatMap {
