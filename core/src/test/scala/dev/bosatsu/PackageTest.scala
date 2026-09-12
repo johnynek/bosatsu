@@ -309,7 +309,7 @@ main = classify(Miss)
 package BytesPkg
 export Bytes
 
-external struct Bytes
+external type Bytes
 """)
 
     val p2 = parse("""

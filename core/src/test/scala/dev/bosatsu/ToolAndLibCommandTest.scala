@@ -655,7 +655,7 @@ class ToolAndLibCommandTest extends FunSuite {
 |
 |export (unit, pure, raise_error, recover, ignore_err, await, recursive, map, map_err, observe, Prog, Main(), ProgTest())
 |
-|external struct Prog[err: +*, res: +*]
+|external type Prog[err: +*, res: +*]
 |
 |external def pure[err, res](a: res) -> Prog[err, res]
 |external def raise_error[err, res](e: err) -> Prog[err, res]
@@ -2219,7 +2219,7 @@ class ToolAndLibCommandTest extends FunSuite {
 
   test("show --externals only includes external values with types") {
     val src =
-      """external struct Box
+      """external type Box
 |
 |external def from_Int(i: Int) -> Box
 |external def to_Int(box: Box) -> Int
@@ -2384,7 +2384,7 @@ class ToolAndLibCommandTest extends FunSuite {
     val extSrc =
       """package App/Ext
 |
-|external struct Token
+|external type Token
 |external def mk_Token(i: Int) -> Token
 |external def read_Token(t: Token) -> Int
 |
@@ -3056,7 +3056,7 @@ class ToolAndLibCommandTest extends FunSuite {
 |export (Handle, stdin, stdout, read_utf8, write_utf8, flush)
 |exposes Bosatsu/IO/Error, Bosatsu/Prog
 |
-|external struct Handle
+|external type Handle
 |external stdin: Handle
 |external stdout: Handle
 |external def read_utf8(h: Handle, max_chars: Int) -> Prog[IOError, Option[String]]
@@ -3464,7 +3464,7 @@ class ToolAndLibCommandTest extends FunSuite {
 |export (Handle, stdin, stdout, read_utf8, write_utf8, flush)
 |exposes Bosatsu/IO/Error, Bosatsu/Prog
 |
-|external struct Handle
+|external type Handle
 |external stdin: Handle
 |external stdout: Handle
 |external def read_utf8(h: Handle, max_chars: Int) -> Prog[IOError, Option[String]]
@@ -3593,7 +3593,7 @@ class ToolAndLibCommandTest extends FunSuite {
 |
 |export (unit, pure, raise_error, recover, ignore_err, await, recursive, map, map_err, Prog, Main(), ProgTest())
 |
-|external struct Prog[err: +*, res: +*]
+|external type Prog[err: +*, res: +*]
 |
 |external def pure[err, res](a: res) -> Prog[err, res]
 |external def raise_error[err, res](e: err) -> Prog[err, res]
@@ -7618,7 +7618,7 @@ from Bosatsu/Num/Int64 import Int64
 export Array, from_List_Array, size_Array
 exposes Bosatsu/Num/Int64
 
-external struct Array[a: +*]
+external type Array[a: +*]
 external def from_List_Array[a](xs: List[a]) -> Array[a]
 external def size_Array[a](ary: Array[a]) -> Int64
 """
@@ -7627,7 +7627,7 @@ external def size_Array[a](ary: Array[a]) -> Int64
 
 export Int64, int64_to_Int
 
-external struct Int64
+external type Int64
 external def int64_to_Int(i: Int64) -> Int
 """
     val arrayFiles = baseLibFiles(arraySrc) ++ List(
@@ -7672,7 +7672,7 @@ external def int64_to_Int(i: Int64) -> Int
 |
 |export Bytes, from_List_Int, size_Bytes
 |
-|external struct Bytes
+|external type Bytes
 |external def from_List_Int(ints: List[Int]) -> Bytes
 |external def size_Bytes(bytes: Bytes) -> Int
 |""".stripMargin
@@ -8062,7 +8062,7 @@ from Bosatsu/Num/Int64 import Int64
 export Array, from_List_Array, size_Array
 exposes Bosatsu/Num/Int64
 
-external struct Array[a: +*]
+external type Array[a: +*]
 external def from_List_Array[a](xs: List[a]) -> Array[a]
 external def size_Array[a](ary: Array[a]) -> Int64
 """
@@ -8071,7 +8071,7 @@ external def size_Array[a](ary: Array[a]) -> Int64
 
 export Int64, int64_to_Int
 
-external struct Int64
+external type Int64
 external def int64_to_Int(i: Int64) -> Int
 """
     val arrayFnFiles = baseLibFiles(arrayFnSrc) ++ List(
@@ -8108,7 +8108,7 @@ external def int64_to_Int(i: Int64) -> Int
 |
 |export Bytes, from_List_Int, to_List_Int, size_Bytes
 |
-|external struct Bytes
+|external type Bytes
 |external def from_List_Int(ints: List[Int]) -> Bytes
 |external def to_List_Int(bytes: Bytes) -> List[Int]
 |external def size_Bytes(bytes: Bytes) -> Int
@@ -8181,7 +8181,7 @@ external def int64_to_Int(i: Int64) -> Int
 |export Array, size_Array
 |exposes Bosatsu/Num/Int64
 |
-|external struct Array[a: +*]
+|external type Array[a: +*]
 |external def size_Array[a](ary: Array[a]) -> Int64
 |""".stripMargin
     val int64PkgSrc =
@@ -8189,7 +8189,7 @@ external def int64_to_Int(i: Int64) -> Int
 |
 |export Int64
 |
-|external struct Int64
+|external type Int64
 |""".stripMargin
     val files = baseLibFiles(appSrc) ++ List(
       Chain("repo", "src", "Bosatsu", "Collection", "Array.bosatsu") -> arrayPkgSrc,
@@ -9115,7 +9115,7 @@ main = 0
     val lazySrc =
       """package Bosatsu/Lazy
 |
-|external struct LazyInt
+|external type LazyInt
 |external def mk_LazyInt(i: Int) -> LazyInt
 |
 |ignored = mk_LazyInt(1)
