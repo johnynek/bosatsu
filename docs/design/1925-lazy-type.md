@@ -92,7 +92,7 @@ export (
   get_Lazy,
 )
 
-external struct Lazy[a: +*]
+external type Lazy[a: +*]
 
 external def lazy[a](fn: Unit -> a) -> Lazy[a]
 external def get_Lazy[a](l: Lazy[a]) -> a
@@ -142,7 +142,7 @@ external def get_Lazy[a](l: Lazy[a]) -> a
 ### 4) C runtime support
 
 - Add `c_runtime/bosatsu_ext_Bosatsu_l_Lazy.h` declarations.
-- Add `c_runtime/bosatsu_ext_Bosatsu_l_Lazy.c` implementation with external struct cell:
+- Add `c_runtime/bosatsu_ext_Bosatsu_l_Lazy.c` implementation with external type cell:
   - stored thunk `BValue`
   - cached `BValue` result slot
   - `_Atomic _Bool` forced flag (avoid using `BValue` null/sentinel state so `Float64(0.0)` and other zero-bit patterns are safe)

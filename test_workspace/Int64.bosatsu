@@ -37,7 +37,7 @@ export (
   operator >>,
 )
 
-external struct Int64
+external type Int64
 
 external min_i64: Int64
 external max_i64: Int64

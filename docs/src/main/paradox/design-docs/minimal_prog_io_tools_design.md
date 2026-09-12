@@ -97,8 +97,8 @@ def path_join(base: Path, child: Path) -> Path
 def path_parent(path: Path) -> Option[Path]
 def path_file_name(path: Path) -> Option[String]
 
-external struct Handle
-external struct Process
+external type Handle
+external type Process
 
 # Opaque in public API because constructors are not exported.
 struct Instant(epoch_nanos: Int)
@@ -158,8 +158,8 @@ external def sleep(d: Duration) -> Prog[IOError, Unit]
 1. Chosen shape: native `struct Path(to_String: String)` with hidden constructor, plus `path_sep` and helper APIs.
 2. Advantage: callers manipulate `Path` values without runtime-specific wrapper allocation.
 3. Cost: runtime implementations still convert `Path.to_String` to platform-native path objects at IO call boundaries.
-4. Alternative considered: `external struct Path` parsed once per value. That can reduce repeated conversion but increases runtime payload complexity and portability risk.
-5. Follow-up option: if profiling shows conversion overhead, keep the same surface API and switch internals to `external struct Path`.
+4. Alternative considered: `external type Path` parsed once per value. That can reduce repeated conversion but increases runtime payload complexity and portability risk.
+5. Follow-up option: if profiling shows conversion overhead, keep the same surface API and switch internals to `external type Path`.
 
 ## Path parsing and cross-platform behavior
 1. `string_to_Path: String -> Option[Path]` is intentionally partial because not every `String` can be used as a path on every target runtime.
@@ -234,7 +234,7 @@ external def sleep(d: Duration) -> Prog[IOError, Unit]
 4. `Instant` maps to opaque `struct Instant(epoch_nanos: Int)`.
 5. `Duration` maps to opaque `struct Duration(to_nanos: Int)`.
 6. `FileKind`, `FileStat`, `OpenMode`, `Stdio`, `StdioConfig`, `SpawnResult` are new `enum`/`struct` types in `Bosatsu/IO/Core`.
-7. `Handle` and `Process` map to opaque `external struct` types in `Bosatsu/IO/Core`.
+7. `Handle` and `Process` map to opaque `external type` types in `Bosatsu/IO/Core`.
 8. Program entrypoint args use `Bosatsu/Prog::Main(run: List[String] -> forall err. Prog[err, Int])`.
 9. Constructors for `Path`, `Instant`, and `Duration` are intentionally hidden from consumers (type exported, constructor not exported).
 
