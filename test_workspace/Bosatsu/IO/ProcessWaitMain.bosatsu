@@ -12,12 +12,14 @@ from Bosatsu/Prog import (
   set,
   get,
 )
-from Bosatsu/IO/Error import IOError
+from Bosatsu/IO/Error import IOError, InvalidArgument
 from Bosatsu/IO/Std import show_error
 from Bosatsu/IO/Core import (
   Handle,
+  Process,
   StdioConfig,
   Pipe,
+  UseHandle,
   TempFile,
   Read,
   SpawnResult,
@@ -38,7 +40,6 @@ from Bosatsu/IO/Core import (
   poll,
   wait_timeout,
   with_process,
-  now_mono,
 )
 
 def stop_result_eq(left: StopResult, right: StopResult) -> Bool:
@@ -60,51 +61,62 @@ sleep_args: List[String] = ["-c", "import time; time.sleep(10)"]
 
 short_sleep_args: List[String] = ["-c", "import time; time.sleep(0.2)"]
 
-def exited_stop_case() -> Prog[IOError, Bool]:
+def post_recorded_status_is_stable(proc: Process, code: Int) -> Prog[IOError, Bool]:
   (
-    SpawnResult(proc, ...) <- spawn("true", [], StdioConfig(Pipe, Pipe, Pipe)).await()
-    first <- wait(proc).await()
+    second <- wait(proc).await()
     poll_after <- poll(proc).await()
-    timeout_after <- wait_timeout(proc, duration_from_nanos(-1)).await()
+    zero_timeout_after <- wait_timeout(proc, duration_from_nanos(0)).await()
+    negative_timeout_after <- wait_timeout(proc, duration_from_nanos(-1)).await()
     terminated <- terminate(proc).await()
     killed <- kill(proc).await()
-    second <- wait(proc).await()
+    third <- wait(proc).await()
     pure(and(
-      first.eq_Int(0),
+      second.eq_Int(code),
       and(
-        option_code_eq(poll_after, Some(0)),
+        option_code_eq(poll_after, Some(code)),
         and(
-          option_code_eq(timeout_after, Some(0)),
+          option_code_eq(zero_timeout_after, Some(code)),
           and(
-            stop_result_eq(terminated, AlreadyExited),
-            and(stop_result_eq(killed, AlreadyExited), second.eq_Int(0)),
+            option_code_eq(negative_timeout_after, Some(code)),
+            and(
+              stop_result_eq(terminated, AlreadyExited),
+              and(stop_result_eq(killed, AlreadyExited), third.eq_Int(code)),
+            ),
           ),
         ),
       ),
     ))
   )
 
+def exited_stop_case() -> Prog[IOError, Bool]:
+  (
+    SpawnResult(proc, ...) <- spawn("true", [], StdioConfig(Pipe, Pipe, Pipe)).await()
+    first <- wait(proc).await()
+    stable <- post_recorded_status_is_stable(proc, 0).await()
+    pure(and(first.eq_Int(0), stable))
+  )
+
 def poll_timeout_case() -> Prog[IOError, Bool]:
   (
     SpawnResult(proc, ...) <- spawn("python3", short_sleep_args, StdioConfig(Pipe, Pipe, Pipe)).await()
     poll_before <- poll(proc).await()
+    negative_timeout <- wait_timeout(proc, duration_from_nanos(-1)).await()
     zero_timeout <- wait_timeout(proc, duration_from_nanos(0)).await()
     tiny_timeout <- wait_timeout(proc, duration_from_nanos(1)).await()
     first <- wait(proc).await()
-    poll_after <- poll(proc).await()
     timeout_after <- wait_timeout(proc, duration_from_nanos(92233720368547758079223372036854775807)).await()
-    second <- wait(proc).await()
+    stable <- post_recorded_status_is_stable(proc, first).await()
     pure(and(
       option_code_eq(poll_before, None),
       and(
-        option_code_eq(zero_timeout, None),
+        option_code_eq(negative_timeout, None),
         and(
-          option_code_eq(tiny_timeout, None),
+          option_code_eq(zero_timeout, None),
           and(
-            first.eq_Int(0),
+            option_code_eq(tiny_timeout, None),
             and(
-              option_code_eq(poll_after, Some(0)),
-              and(option_code_eq(timeout_after, Some(0)), second.eq_Int(0)),
+              first.eq_Int(0),
+              and(option_code_eq(timeout_after, Some(0)), stable),
             ),
           ),
         ),
@@ -117,10 +129,10 @@ def terminate_case() -> Prog[IOError, Bool]:
     SpawnResult(proc, ...) <- spawn("python3", sleep_args, StdioConfig(Pipe, Pipe, Pipe)).await()
     stopped <- terminate(proc).await()
     first <- wait(proc).await()
-    second <- wait(proc).await()
+    stable <- post_recorded_status_is_stable(proc, first).await()
     pure(and(
       stop_result_eq(stopped, StopSent),
-      and(is_nonzero(first), first.eq_Int(second)),
+      and(is_nonzero(first), stable),
     ))
   )
 
@@ -129,62 +141,102 @@ def kill_case() -> Prog[IOError, Bool]:
     SpawnResult(proc, ...) <- spawn("python3", sleep_args, StdioConfig(Pipe, Pipe, Pipe)).await()
     stopped <- kill(proc).await()
     first <- wait(proc).await()
-    second <- wait(proc).await()
+    stable <- post_recorded_status_is_stable(proc, first).await()
     pure(and(
       stop_result_eq(stopped, StopSent),
-      and(is_nonzero(first), first.eq_Int(second)),
+      and(is_nonzero(first), stable),
     ))
   )
-
-def stop_result_observed(sr: StopResult) -> Bool:
-  match sr:
-    case StopSent: True
-    case AlreadyExited: True
-
-def option_code_observed(code: Option[Int]) -> Bool:
-  match code:
-    case Some(_): True
-    case None: False
 
 def stable_wait_case(cmd: String, code: Int) -> Prog[IOError, Bool]:
   (
     SpawnResult(proc, ...) <- spawn(cmd, [], StdioConfig(Pipe, Pipe, Pipe)).await()
-    timeout <- now_mono.await()
-    polled <- (
-      if False:
-        poll(proc)
-      else:
-        pure(None)
+    first <- wait(proc).await()
+    stable <- post_recorded_status_is_stable(proc, code).await()
+    pure(and(first.eq_Int(code), stable))
+  )
+
+def low_level_pipe_ownership_case() -> Prog[IOError, Bool]:
+  (
+    SpawnResult(proc, stdin_h, stdout_h, stderr_h) <- spawn(
+      "python3",
+      sleep_args,
+      StdioConfig(Pipe, Pipe, Pipe),
     ).await()
-    timed <- (
-      if False:
-        wait_timeout(proc, timeout)
-      else:
-        pure(None)
+    poll_before <- poll(proc).await()
+    timeout_before <- wait_timeout(proc, duration_from_nanos(0)).await()
+    stopped <- terminate(proc).await()
+    stdin_write_ok <- recover(
+      (
+        _ <- (match stdin_h:
+          case Some(h): write_utf8(h, "")
+          case None: raise_error(InvalidArgument("missing stdin pipe"))
+        ).await()
+        pure(True)
+      ),
+      _ -> pure(False)
     ).await()
-    terminated <- (
-      if False:
-        terminate(proc)
-      else:
-        pure(StopSent)
+    _ <- (match stdin_h:
+      case Some(h): close(h)
+      case None: pure(())
     ).await()
-    killed <- (
-      if False:
-        kill(proc)
-      else:
-        pure(AlreadyExited)
+    _ <- (match stdout_h:
+      case Some(h): close(h)
+      case None: pure(())
+    ).await()
+    _ <- (match stderr_h:
+      case Some(h): close(h)
+      case None: pure(())
     ).await()
     first <- wait(proc).await()
-    second <- wait(proc).await()
+    stable <- post_recorded_status_is_stable(proc, first).await()
     pure(and(
-      or(
-        option_code_observed(polled),
-        or(
-          option_code_observed(timed),
-          and(stop_result_observed(terminated), stop_result_observed(killed)),
+      option_code_eq(poll_before, None),
+      and(
+        option_code_eq(timeout_before, None),
+        and(
+          stdin_write_ok,
+          and(stop_result_eq(stopped, StopSent), and(is_nonzero(first), stable)),
         ),
       ),
-      and(first.eq_Int(code), second.eq_Int(code)),
+    ))
+  )
+
+def low_level_kill_pipe_ownership_case() -> Prog[IOError, Bool]:
+  (
+    SpawnResult(proc, stdin_h, stdout_h, stderr_h) <- spawn(
+      "python3",
+      sleep_args,
+      StdioConfig(Pipe, Pipe, Pipe),
+    ).await()
+    stopped <- kill(proc).await()
+    stdin_write_ok <- recover(
+      (
+        _ <- (match stdin_h:
+          case Some(h): write_utf8(h, "")
+          case None: raise_error(InvalidArgument("missing stdin pipe"))
+        ).await()
+        pure(True)
+      ),
+      _ -> pure(False)
+    ).await()
+    _ <- (match stdin_h:
+      case Some(h): close(h)
+      case None: pure(())
+    ).await()
+    _ <- (match stdout_h:
+      case Some(h): close(h)
+      case None: pure(())
+    ).await()
+    _ <- (match stderr_h:
+      case Some(h): close(h)
+      case None: pure(())
+    ).await()
+    first <- wait(proc).await()
+    stable <- post_recorded_status_is_stable(proc, first).await()
+    pure(and(
+      stop_result_eq(stopped, StopSent),
+      and(stdin_write_ok, and(is_nonzero(first), stable)),
     ))
   )
 
@@ -258,10 +310,10 @@ def with_process_use_failure_case() -> Prog[IOError, Bool]:
       sleep_args,
       StdioConfig(Pipe, Pipe, Pipe),
       duration_from_nanos(0),
-      _ -> raise_error("helper-owned error"),
-      _ -> raise_error("use-failed"),
+      _ -> raise_error(InvalidArgument("helper-owned error")),
+      _ -> raise_error(InvalidArgument("use-failed")),
     ),
-    err -> pure(err matches "use-failed")
+    err -> pure(err matches InvalidArgument("use-failed"))
   )
 
 def with_process_already_exited_case() -> Prog[IOError, Bool]:
@@ -326,7 +378,7 @@ def with_process_caller_owned_handle_case() -> Prog[IOError, Bool]:
     result <- with_process(
       "true",
       [],
-      StdioConfig(Pipe, Pipe, Pipe),
+      StdioConfig(UseHandle(handle), Pipe, Pipe),
       duration_from_nanos(1000000),
       _ -> pure(31),
       _ -> pure(31),
@@ -349,6 +401,8 @@ run_test: Prog[IOError, Int] =
     poll_timeout_ok <- poll_timeout_case().await()
     terminate_ok <- terminate_case().await()
     kill_ok <- kill_case().await()
+    low_level_pipe_ownership_ok <- low_level_pipe_ownership_case().await()
+    low_level_kill_pipe_ownership_ok <- low_level_kill_pipe_ownership_case().await()
     with_process_success_ok <- with_process_success_case().await()
     with_process_nonzero_exit_ok <- with_process_nonzero_exit_case().await()
     with_process_use_failure_ok <- with_process_use_failure_case().await()
@@ -362,7 +416,16 @@ run_test: Prog[IOError, Int] =
         nonzero_ok,
         and(
           exited_stop_ok,
-          and(poll_timeout_ok, and(terminate_ok, kill_ok)),
+          and(
+            poll_timeout_ok,
+            and(
+              terminate_ok,
+              and(
+                kill_ok,
+                and(low_level_pipe_ownership_ok, low_level_kill_pipe_ownership_ok),
+              ),
+            ),
+          ),
         ),
       ),
     )

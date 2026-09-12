@@ -149,7 +149,7 @@ export (
   index_in_range_Bytes,
 )
 
-external struct Bytes
+external type Bytes
 
 external empty_Bytes: Bytes
 external def from_List_Int(ints: List[Int]) -> Bytes

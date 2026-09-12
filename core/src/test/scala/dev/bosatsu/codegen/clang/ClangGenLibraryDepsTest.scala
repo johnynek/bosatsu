@@ -382,7 +382,7 @@ class ClangGenLibraryDepsTest extends munit.FunSuite {
         |
         |export Prog(), ProgTest(), pure, observe, await
         |
-        |external struct Prog[e: +*, a: +*]
+        |external type Prog[e: +*, a: +*]
         |
         |external def pure[a](a: a) -> forall e. Prog[e, a]
         |external def flat_map[e, a, b](prog: Prog[e, a], fn: a -> Prog[e, b]) -> Prog[e, b]

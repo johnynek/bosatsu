@@ -40,7 +40,7 @@ export (
   compute,
 )
 
-external struct JoinHandle[err: +*, a: +*]
+external type JoinHandle[err: +*, a: +*]
 
 enum JoinResult[err: +*, a: +*]:
   Succeeded(value: a)
@@ -144,8 +144,16 @@ No new public `Prog` tag is required for the API itself. On JVM and Python, the 
 The existing `Bosatsu/IO/Core` API already commits us to a specific process model:
 
 ```bosatsu
+enum StopResult:
+  StopSent
+  AlreadyExited
+
 spawn(cmd: String, args: List[String], stdio: StdioConfig) -> Prog[IOError, SpawnResult]
 wait(p: Process) -> Prog[IOError, Int]
+terminate(p: Process) -> Prog[IOError, StopResult]
+kill(p: Process) -> Prog[IOError, StopResult]
+poll(p: Process) -> Prog[IOError, Option[Int]]
+wait_timeout(p: Process, d: Duration) -> Prog[IOError, Option[Int]]
 ```
 
 To keep all backends aligned, this design commits to the following shared semantics:
@@ -155,12 +163,13 @@ To keep all backends aligned, this design commits to the following shared semant
 3. `spawn` raises `IOError` only if process creation or requested stdio setup fails. A child process exiting non-zero is observed only through `wait`.
 4. `SpawnResult.stdin`, `SpawnResult.stdout`, and `SpawnResult.stderr` are `Some(handle)` exactly when the corresponding `Stdio` entry was `Pipe`. For `Inherit`, `Null`, and `UseHandle`, the returned field is `None`.
 5. `UseHandle(handle)` validates direction at runtime: `stdin` requires a readable handle; `stdout` and `stderr` require writable handles. Closed or invalid handles raise `IOError`.
-6. `wait(p)` is idempotent and may be called multiple times or concurrently. Every successful call returns the same cached exit code.
-7. `wait(p)` does not implicitly close or drain pipe handles returned from `spawn`. If the caller requested `Pipe`, those returned handles remain ordinary Bosatsu handles with their own lifetime.
-8. Canceling a Bosatsu fiber blocked in `wait(p)` never kills the external process. It only cancels that Bosatsu wait.
-9. If a backend has to emulate `UseHandle` with internal copy tasks rather than native OS-level stdio inheritance, `wait(p)` must not complete until those backend-owned bridge tasks have also settled. Otherwise `wait` could return before the requested redirection is actually complete.
-10. `wait(p)` returns a single `Int`, so this API intentionally collapses normal exit and signal termination into one value. On POSIX backends that expose signal termination separately or as negative codes, Bosatsu should normalize signal termination to `128 + signal_number`.
-11. If Bosatsu later needs to distinguish ordinary exit from signal termination, that should be a new structured `ExitStatus` API rather than a silent change to `wait`.
+6. `wait(p)` is idempotent and may be called multiple times or concurrently. `wait`, `poll`, and `wait_timeout` observe the same cached normalized exit code; `poll` is nonblocking, and `wait_timeout` returning `None` does not consume the eventual result.
+7. `terminate(p)` and `kill(p)` control only that direct child. They return `StopSent` when a request is issued and `AlreadyExited` after status is recorded; `terminate` is the backend's best available normal stop and `kill` its best available forceful stop, neither promising graceful application shutdown.
+8. The process API exposes no raw signals, process ids, or process-tree/descendant controls. Its lifecycle operations do not implicitly close or drain pipe handles returned from `spawn`; if the caller requested `Pipe`, those returned handles remain ordinary Bosatsu handles with their own lifetime, while `UseHandle` resources remain caller-owned.
+9. Canceling a Bosatsu fiber blocked in `wait(p)` only cancels that wait. It does not invoke the separate direct-child `terminate(p)` or `kill(p)` APIs.
+10. If a backend has to emulate `UseHandle` with internal copy tasks rather than native OS-level stdio inheritance, `wait(p)` must not complete until those backend-owned bridge tasks have also settled. Otherwise `wait` could return before the requested redirection is actually complete.
+11. `wait(p)` returns a single `Int`, so this API intentionally collapses normal exit and signal termination into one value. On POSIX backends that expose signal termination separately or as negative codes, Bosatsu should normalize signal termination to `128 + signal_number`.
+12. If Bosatsu later needs to distinguish ordinary exit from signal termination, that should be a new structured `ExitStatus` API rather than a silent change to `wait`.
 
 ## Backend Notes
 
@@ -711,8 +720,7 @@ Cancellation must be effect-specific.
 
 #### Canceling `wait(process)`
 1. Canceling a fiber blocked in `Bosatsu/IO/Core::wait` only cancels the Bosatsu wait.
-2. It does not kill the external process.
-3. If we later want process termination, that should be a separate process API, not part of fiber cancellation.
+2. It does not invoke the direct-child `terminate` or `kill` APIs, so it does not stop the external process.
 
 ### C `Handle` representation
 The current C runtime stores:

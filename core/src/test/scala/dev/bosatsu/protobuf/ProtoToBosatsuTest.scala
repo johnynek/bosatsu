@@ -40,7 +40,7 @@ class ProtoToBosatsuTest extends munit.FunSuite {
       |  utf8_bytes_to_String,
       |)
       |
-      |external struct Bytes
+      |external type Bytes
       |external empty_Bytes: Bytes
       |external def concat_all_Bytes(chunks: List[Bytes]) -> Bytes
       |external def utf8_bytes_from_String(str: String) -> Bytes
