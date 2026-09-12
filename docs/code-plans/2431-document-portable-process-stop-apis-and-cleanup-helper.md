@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2431` Document portable process stop APIs and cleanup helper
-- Pending steps: `1`
-- Completed steps: `0`
+- Pending steps: `0`
+- Completed steps: `1`
 - Total steps: `1`
 
 ## Summary
@@ -33,7 +33,7 @@ Follow-up proposal: comprehensively reconcile the remainder of `docs/src/main/pa
 
 ## Steps
 
-1. [ ] `step-1` Document the shipped process lifecycle surface and cleanup helper
+1. [x] `step-1` Document the shipped process lifecycle surface and cleanup helper
 
 Update `docs/src/main/paradox/design-docs/minimal_prog_io_tools_design.md` using the declarations in `test_workspace/Bosatsu/IO/Core.bosatsu` as the authority for exact public names, argument order, type parameters, and result types. Extend the process-related export list and API example with `StopResult()`, `terminate`, `kill`, `poll`, `wait_timeout`, and `with_process`; include `duration_from_nanos` where needed so the grace-duration example uses a publicly constructible `Duration`. Show `StopResult` with `StopSent` and `AlreadyExited`, the four exact low-level signatures, and the exact error-polymorphic helper shape `with_process[e, a](cmd, args, stdio, grace, on_error, use) -> Prog[e, a]`. Do not describe `with_process` as an external function because it is the existing Bosatsu-level composition of `spawn`, `close`, and the low-level lifecycle operations.
 
@@ -64,3 +64,7 @@ Keep this change documentation-only. Do not edit runtime/library code, tests, ge
 #### Assertion Tests
 
 - None recorded.
+
+#### Completion Notes
+
+Updated both active Paradox process design pages to document the shipped direct-child stop/status APIs, explicit stdio ownership, and the Bosatsu-level `with_process` cleanup contract, including a type-correct grace-duration example. Verified the documented declarations against `test_workspace/Bosatsu/IO/Core.bosatsu`, checked the documentation diff and Markdown fences, and ran `git diff --check`; this documentation-only change requires no runnable tests.
