@@ -40,7 +40,7 @@ export (
   compute,
 )
 
-external struct JoinHandle[err: +*, a: +*]
+external type JoinHandle[err: +*, a: +*]
 
 enum JoinResult[err: +*, a: +*]:
   Succeeded(value: a)

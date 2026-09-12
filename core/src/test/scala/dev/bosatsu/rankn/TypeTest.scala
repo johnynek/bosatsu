@@ -1203,39 +1203,116 @@ class TypeTest extends munit.ScalaCheckSuite {
     forAll(NTypeGen.genDepth03, genSubs(3))(law)
   }
 
-  test("we can substitute to get an instantiation") {
-    forAll(NTypeGen.genDepth03, NTypeGen.genDepth03) { (t1, t2) =>
+  private def substituteInstantiation(in: Type, inst: Type.Instantiation): Type =
+    // Apply both maps at once: renaming LHS frees after inserting solved RHS
+    // types would also rename RHS variables when the two sides share names.
+    Type.substituteVar(
+      in,
+      (inst.subs.iterator.map { case (b, (_, t)) => (b, t) } ++
+        inst.frees.iterator.map { case (b, (_, rhs)) => (b, Type.TyVar(rhs)) })
+        .toMap[Type.Var, Type]
+    )
+
+  test("we can substitute to get an instantiation with only outer rhs foralls") {
+    // A single outer quantification can reconstruct RHS foralls only when the
+    // matcher does not open any nested RHS foralls. Tau permits existentials,
+    // but has no foralls anywhere in the type.
+    val genTarget = NTypeGen.genDepth03.suchThat { t =>
+      Type.Tau.isTau(Type.liftUniversals(t)._2)
+    }
+    forAll(NTypeGen.genDepth03, genTarget) { (t1, t2) =>
       t1 match {
         case Type.ForAll(fas, t) =>
           Type.instantiate(fas.iterator.toMap, t, Map.empty, t2, Map.empty) match {
             case Some(instantiation) =>
-              val t3 = Type.substituteVar(
-                t,
-                instantiation.subs.iterator.map { case (k, (_, v)) => (k, v) }.toMap
-              )
-
-              val t4 = Type.substituteVar(
-                t3,
-                instantiation.frees.iterator.map { case (v1, (_, v2)) =>
-                  (v1, Type.TyVar(v2))
-                }.toMap
-              )
-
-              val t5 = Type.quantify(
-                forallList = instantiation.frees.iterator.map { case (_, tup) =>
-                  tup.swap
-                }.toList,
+              val reconstructed = Type.quantify(
+                // `frees` only tracks unsolved LHS variables. A RHS forall
+                // variable can also occur inside a solved substitution, so
+                // retain the target's binders as well.
+                forallList = Type.forallList(t2) :::
+                  instantiation.frees.iterator.map { case (_, tup) =>
+                    tup.swap
+                  }.toList,
                 existList = Nil,
-                t4
+                substituteInstantiation(t, instantiation)
               )
 
-              assert(t5.sameAs(t2))
+              assert(
+                reconstructed.sameAs(t2),
+                s"from = $t1\nto = $t2\ninstantiation = $instantiation\nreconstructed = $reconstructed"
+              )
             case None =>
               ()
           }
         case _ => ()
       }
     }
+  }
+
+  test("instantiate substitutions retain rhs forall scope: seed dwwtysev...") {
+    val cases = List(
+      // Same shape as the reported failure, with shorter names, a known
+      // constructor, and valid kinds. The unused inner binders cause `a` to
+      // be solved to a whole quantified type containing the outer RHS `v`.
+      (
+        "forall f: * -> *, a. f[a]",
+        "forall v. Bosatsu/Predef::List[forall j, r. exists e. v]",
+        Map(
+          "f" -> "Bosatsu/Predef::List",
+          "a" -> "forall j, r. exists e. v"
+        )
+      ),
+      // The same issue occurs without any unused or nested quantifiers.
+      (
+        "forall a. Bosatsu/Predef::List[a]",
+        "forall v. Bosatsu/Predef::List[Bosatsu/Predef::List[v]]",
+        Map("a" -> "Bosatsu/Predef::List[v]")
+      )
+    )
+
+    cases.foreach { case (fromString, toString, expectedSubs) =>
+      val from = parse(fromString)
+      val Type.ForAll(fas, in) = from.runtimeChecked
+      val to = parse(toString)
+      val kindOf = Type.kindOfOption(tc => Type.builtInKinds.get(tc.tpe.toDefined))
+      assertEquals(kindOf(from), Some(Kind.Type))
+      assertEquals(kindOf(to), Some(Kind.Type))
+
+      val inst = Type
+        .instantiate(fas.iterator.toMap, in, Map.empty, to, Map.empty)
+        .getOrElse(fail(s"expected instantiation: $fromString to $toString"))
+      assertEquals(inst.frees.toList, Nil)
+      val subs = inst.subs.iterator.map { case (b, (_, t)) => (b, t) }.toMap
+      assertEquals(
+        subs,
+        expectedSubs.map { case (b, t) => (Type.Var.Bound(b), parse(t)) }
+      )
+
+      val substituted = substituteInstantiation(in, inst)
+      assertEquals(
+        Type.freeBoundTyVars(substituted :: Nil),
+        List(Type.Var.Bound("v"))
+      )
+      // The old property quantified only inst.frees, which is empty here.
+      assert(!substituted.sameAs(to))
+      val reconstructed = Type.forAll(Type.forallList(to), substituted)
+      assert(reconstructed.sameAs(to))
+      assert(isSubtype(from, to))
+    }
+  }
+
+  test("instantiate round-trip preserves rhs names inside solved substitutions") {
+    val Type.ForAll(fas, in) = parse("forall a, b. (a, b)").runtimeChecked
+    val to = parse("forall a, b. (b, Bosatsu/Predef::List[a])")
+    val inst = Type
+      .instantiate(fas.iterator.toMap, in, Map.empty, to, Map.empty)
+      .getOrElse(fail("expected instantiation with overlapping binder names"))
+    assertEquals(inst.frees(Type.Var.Bound("a"))._2, Type.Var.Bound("b"))
+    assertEquals(inst.subs(Type.Var.Bound("b"))._2, parse("Bosatsu/Predef::List[a]"))
+
+    val substituted = substituteInstantiation(in, inst)
+    assert(substituted.sameAs(parse("(b, Bosatsu/Predef::List[a])")))
+    assert(Type.forAll(Type.forallList(to), substituted).sameAs(to))
   }
 
   test("instantiate regression: forall/exists sameAs round-trip from seed AdQaLIO...") {

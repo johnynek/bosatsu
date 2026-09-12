@@ -896,7 +896,7 @@ def map_Trees(trees: LazyList[Tree]) -> LazyList[Tree]:
     val lazyPack = PackageName.parts("Bosatsu", "Lazy")
     allowed(
       """#
-external struct Lazy[a: +*]
+external type Lazy[a: +*]
 external def get_Lazy[a](l: Lazy[a]) -> a
 
 enum Stream:
@@ -918,7 +918,7 @@ def consume(s: Stream) -> Stream:
     val lazyPack = PackageName.parts("Bosatsu", "Lazy")
     allowed(
       """#
-external struct Lazy[a: +*]
+external type Lazy[a: +*]
 external def get_Lazy[a](l: Lazy[a]) -> a
 
 enum Stream:
@@ -941,7 +941,7 @@ def consume(s: Stream) -> Stream:
     val lazyPack = PackageName.parts("Bosatsu", "Lazy")
     allowed(
       """#
-external struct Lazy[a: +*]
+external type Lazy[a: +*]
 external def get_Lazy[a](l: Lazy[a]) -> a
 
 enum Tree:
@@ -967,7 +967,7 @@ def step(t: Tree) -> Tree:
     val lazyPack = PackageName.parts("Bosatsu", "Lazy")
     allowed(
       """#
-external struct Lazy[a: +*]
+external type Lazy[a: +*]
 external def lazy[a](fn: () -> a) -> Lazy[a]
 external def get_Lazy[a](l: Lazy[a]) -> a
 
@@ -997,7 +997,7 @@ def map_Trees(trees: LazyList[Tree]) -> LazyList[Tree]:
     val lazyPack = PackageName.parts("Bosatsu", "Lazy")
     allowed(
       """#
-external struct Lazy[a: +*]
+external type Lazy[a: +*]
 external def get_Lazy[a](l: Lazy[a]) -> a
 
 enum FreeF[a]:
@@ -1019,7 +1019,7 @@ def eval[a](ff: FreeF[a]) -> a:
     val lazyPack = PackageName.parts("Bosatsu", "Lazy")
     allowed(
       """#
-external struct Lazy[a: +*]
+external type Lazy[a: +*]
 external def get_Lazy[a](l: Lazy[a]) -> a
 
 enum Fuel:
@@ -1040,7 +1040,7 @@ def run[a](fuel: Fuel, value: a) -> a:
 
   test("recur rejects local get_Lazy when package is not trusted Bosatsu/Lazy") {
     disallowed("""#
-external struct Lazy[a: +*]
+external type Lazy[a: +*]
 external def get_Lazy[a](l: Lazy[a]) -> a
 
 enum Stream:
@@ -1060,7 +1060,7 @@ def bad(s: Stream) -> Stream:
     val evalPack = PackageName.parts("Bosatsu", "Eval")
     allowed(
       """#
-external struct Eval[a: +*]
+external type Eval[a: +*]
 external def eval[a](e: Eval[a]) -> a
 
 enum Stream:
@@ -1082,7 +1082,7 @@ def consume(s: Stream) -> Stream:
     val evalPack = PackageName.parts("Bosatsu", "Eval")
     allowed(
       """#
-external struct Eval[a: +*]
+external type Eval[a: +*]
 external def eval[a](e: Eval[a]) -> a
 
 enum Tree:
@@ -1108,7 +1108,7 @@ def step(t: Tree) -> Tree:
     val evalPack = PackageName.parts("Bosatsu", "Eval")
     allowed(
       """#
-external struct Eval[a: +*]
+external type Eval[a: +*]
 external def done[a](a: a) -> Eval[a]
 external def flat_map[a, b](e: Eval[a], fn: a -> Eval[b]) -> Eval[b]
 

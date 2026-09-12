@@ -27,7 +27,7 @@ estimated_size: M
 generated_at: 2026-04-06T06:04:41Z
 ---
 
-# Design: add Bosatsu/Num/Int64 external struct
+# Design: add Bosatsu/Num/Int64 external type
 
 _Issue: #2304 (https://github.com/johnynek/bosatsu/issues/2304)_
 
@@ -43,7 +43,7 @@ This change should land as a normal runtime-backed library package, not as a new
 
 ## Goals
 
-- Add an exported `Bosatsu/Num/Int64` package with an opaque `external struct Int64` and the minimum arithmetic, comparison, and conversion surface needed to use it from Bosatsu code.
+- Add an exported `Bosatsu/Num/Int64` package with an opaque `external type Int64` and the minimum arithmetic, comparison, and conversion surface needed to use it from Bosatsu code.
 - Include fixed-width bitwise and shift externals so performance-sensitive library code such as `Bosatsu/Rand` can stay on 64-bit values without round-tripping through boxed `Int`.
 - Make `Int -> Int64` semantics explicit by providing both a checked conversion and a truncating conversion.
 - Keep evaluator, Python, and C behavior aligned so `tool eval`, library tests, and transpiled runtimes agree on results.
@@ -117,7 +117,7 @@ The most important behavioral property is not any single example; it is that eve
 
 ### Frontend and library surface
 
-This issue does not need parser, typer, or literal support changes. `Int64` is a normal opaque `external struct` in a library package. The new Bosatsu source lives alongside `Float64`, exports the functions above, and adds small pure wrappers for `eq_Int64` plus the arithmetic and bitwise operators where Bosatsu syntax exists. That keeps the compiler unaware of `Int64` while still making the type first-class in user code.
+This issue does not need parser, typer, or literal support changes. `Int64` is a normal opaque `external type` in a library package. The new Bosatsu source lives alongside `Float64`, exports the functions above, and adds small pure wrappers for `eq_Int64` plus the arithmetic and bitwise operators where Bosatsu syntax exists. That keeps the compiler unaware of `Int64` while still making the type first-class in user code.
 
 The first non-trivial internal consumer should be `Bosatsu/Rand`. Once the package exists, the local `UInt64` wrapper and repeated `Int` bitmasking in `test_workspace/Rand.bosatsu` should be replaced with `Int64` state transitions and conversions.
 

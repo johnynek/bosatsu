@@ -3546,7 +3546,7 @@ package Bosatsu/Num/Int64
 
 export Int64, int_low_bits_to_Int64, int64_to_Int, eq_Int64
 
-external struct Int64
+external type Int64
 external def int_low_bits_to_Int64(i: Int) -> Int64
 external def int64_to_Int(i: Int64) -> Int
 external def eq_Int64(a: Int64, b: Int64) -> Bool
@@ -3580,7 +3580,7 @@ from Bosatsu/Num/Int64 import (
   int_low_bits_to_Int64,
 )
 
-external struct Array[a: +*]
+external type Array[a: +*]
 
 external empty_Array: forall a. Array[a]
 external def tabulate_Array[a](n: Int64, fn: Int64 -> a) -> Array[a]
@@ -3708,7 +3708,7 @@ export (
   to_List_Array,
 )
 
-external struct Array[a: +*]
+external type Array[a: +*]
 
 external def from_List_Array[a](xs: List[a]) -> Array[a]
 external def to_List_Array[a](ary: Array[a]) -> List[a]
@@ -3718,7 +3718,7 @@ package Bosatsu/IO/Bytes
 
 from Bosatsu/Collection/Array import Array, from_List_Array, to_List_Array
 
-external struct Bytes
+external type Bytes
 
 external empty_Bytes: Bytes
 external def from_List_Int(ints: List[Int]) -> Bytes
@@ -3777,7 +3777,7 @@ package Bosatsu/Lazy
 
 export (Lazy, lazy, get_Lazy)
 
-external struct Lazy[a: +*]
+external type Lazy[a: +*]
 
 external def lazy[a](fn: Unit -> a) -> Lazy[a]
 external def get_Lazy[a](l: Lazy[a]) -> a
@@ -3974,7 +3974,7 @@ export (
   Bytes,
 )
 
-external struct Bytes
+external type Bytes
 """
       val ioCorePack =
         Predef.loadFileInCompile("test_workspace/Bosatsu/IO/Core.bosatsu")
@@ -4066,7 +4066,7 @@ export (
   Bytes,
 )
 
-external struct Bytes
+external type Bytes
 """
       val ioCorePack =
         Predef.loadFileInCompile("test_workspace/Bosatsu/IO/Core.bosatsu")

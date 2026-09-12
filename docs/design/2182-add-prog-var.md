@@ -52,7 +52,7 @@ Existing recursive-variance checking already rejects recursive occurrences throu
 
 ## Proposed API
 Add to `Bosatsu/Prog`:
-- `external struct Var[a]`
+- `external type Var[a]`
 - `external def new_var[a](a: a) -> forall e. Prog[e, Var[a]]`
 - `external def update[a, b](v: Var[a], fn: a -> (a, b)) -> forall e. Prog[e, b]`
 - `external def set[a](v: Var[a], value: a) -> forall e. Prog[e, Unit]`
@@ -85,7 +85,7 @@ Rationale:
 ### 1. Surface package changes
 Update `test_workspace/Prog.bosatsu` to:
 - export `Var`, `new_var`, `update`, `set`, `get`, `swap`, `modify`, `get_and_update`, and `update_and_get`
-- declare `external struct Var[a]`
+- declare `external type Var[a]`
 - add the five external defs
 - define the three helper functions in ordinary Bosatsu code in terms of `update`
 
