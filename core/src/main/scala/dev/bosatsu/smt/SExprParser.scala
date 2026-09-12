@@ -62,8 +62,9 @@ object SExprParser {
     P.defer(list.orElse(barQuotedAtom).orElse(stringAtom).orElse(bareAtom))
 
   private lazy val list: P[SExpr] =
-    ((P.char('(') *> ignored) *> (sexpr <* ignored).rep0 <* P.char(')')).map { xs =>
-      List(xs.toVector)
+    ((P.char('(') *> ignored) *> (sexpr <* ignored).rep0 <* P.char(')')).map {
+      xs =>
+        List(xs.toVector)
     }
 
   private val topLevel: P0[Vector[SExpr]] =

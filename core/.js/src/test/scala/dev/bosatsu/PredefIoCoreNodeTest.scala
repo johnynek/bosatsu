@@ -19,7 +19,7 @@ class PredefIoCoreNodeTest extends munit.FunSuite {
 
   private def expectRight(result: Either[Value, Value]): Value =
     result match {
-      case Right(v) => v
+      case Right(v)  => v
       case Left(err) =>
         fail(s"expected success, got error: $err")
     }
@@ -47,7 +47,7 @@ class PredefIoCoreNodeTest extends munit.FunSuite {
 
   private def asPath(pathValue: Value): String =
     pathValue match {
-      case Str(path) => path
+      case Str(path)                               => path
       case p: ProductValue if p.values.length == 1 =>
         p.get(0) match {
           case Str(path) => path
@@ -89,7 +89,7 @@ class PredefIoCoreNodeTest extends munit.FunSuite {
       .applyDynamic("isDirectory")()
       .asInstanceOf[Boolean]
 
-  private def deleteTree(path: String): Unit = {
+  private def deleteTree(path: String): Unit =
     if (exists(path)) {
       val _ = fs.rmSync(
         path,
@@ -97,16 +97,16 @@ class PredefIoCoreNodeTest extends munit.FunSuite {
       )
       ()
     }
-  }
 
-  private def deleteFile(path: String): Unit = {
+  private def deleteFile(path: String): Unit =
     if (exists(path)) {
       val _ = fs.rmSync(path)
       ()
     }
-  }
 
-  test("prog_core_open_file CreateNew is atomic and returns context-rich errors") {
+  test(
+    "prog_core_open_file CreateNew is atomic and returns context-rich errors"
+  ) {
     val tempDir = mkTempDir("bosatsu-open-file-")
     try {
       val path = pathJoin(tempDir, "lock")
@@ -168,7 +168,9 @@ class PredefIoCoreNodeTest extends munit.FunSuite {
       )
 
       val invalidPathTypeErr = expectLeft(
-        runProg(PredefIoCorePlatform.prog_core_open_file(VInt(1), Str("not-a-mode")))
+        runProg(
+          PredefIoCorePlatform.prog_core_open_file(VInt(1), Str("not-a-mode"))
+        )
       )
       val (invalidPathTypeTag, invalidPathTypeContext) = ioErrorTagAndContext(
         invalidPathTypeErr
@@ -178,7 +180,9 @@ class PredefIoCoreNodeTest extends munit.FunSuite {
     } finally deleteTree(tempDir)
   }
 
-  test("prog_core_create_temp_file supports default and explicit dirs with rich argument validation") {
+  test(
+    "prog_core_create_temp_file supports default and explicit dirs with rich argument validation"
+  ) {
     val tempDir = mkTempDir("bosatsu-temp-file-")
     var explicitTemp: Option[String] = None
     var defaultTemp: Option[String] = None
@@ -198,7 +202,9 @@ class PredefIoCoreNodeTest extends munit.FunSuite {
       explicitTemp = Some(explicitPath)
       assert(exists(explicitPath), explicitPath)
       assertEquals(pathResolve(pathDirName(explicitPath)), pathResolve(tempDir))
-      val _ = expectRight(runProg(PredefIoCorePlatform.prog_core_close(explicitHandle)))
+      val _ = expectRight(
+        runProg(PredefIoCorePlatform.prog_core_close(explicitHandle))
+      )
 
       val defaultResult = expectRight(
         runProg(
@@ -213,7 +219,9 @@ class PredefIoCoreNodeTest extends munit.FunSuite {
       val defaultPath = asPath(defaultPathValue)
       defaultTemp = Some(defaultPath)
       assert(exists(defaultPath), defaultPath)
-      val _ = expectRight(runProg(PredefIoCorePlatform.prog_core_close(defaultHandle)))
+      val _ = expectRight(
+        runProg(PredefIoCorePlatform.prog_core_close(defaultHandle))
+      )
 
       val badDirOptionErr = expectLeft(
         runProg(
@@ -325,7 +333,9 @@ class PredefIoCoreNodeTest extends munit.FunSuite {
     }
   }
 
-  test("prog_core_create_temp_dir supports default and explicit dirs with rich argument validation") {
+  test(
+    "prog_core_create_temp_dir supports default and explicit dirs with rich argument validation"
+  ) {
     val tempDir = mkTempDir("bosatsu-temp-dir-")
     var explicitTempDir: Option[String] = None
     var defaultTempDir: Option[String] = None
@@ -342,7 +352,10 @@ class PredefIoCoreNodeTest extends munit.FunSuite {
       val explicitCreatedDir = asPath(explicitResult)
       explicitTempDir = Some(explicitCreatedDir)
       assert(isDirectory(explicitCreatedDir), explicitCreatedDir)
-      assertEquals(pathResolve(pathDirName(explicitCreatedDir)), pathResolve(tempDir))
+      assertEquals(
+        pathResolve(pathDirName(explicitCreatedDir)),
+        pathResolve(tempDir)
+      )
 
       val defaultResult = expectRight(
         runProg(
@@ -428,7 +441,9 @@ class PredefIoCoreNodeTest extends munit.FunSuite {
     }
   }
 
-  test("browser runtime returns IOError.Unsupported instead of missing externals") {
+  test(
+    "browser runtime returns IOError.Unsupported instead of missing externals"
+  ) {
     val result =
       PredefIoCorePlatform.withNodeRuntimeForTest(false) {
         runProg(

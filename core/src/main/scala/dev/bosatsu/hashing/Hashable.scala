@@ -59,7 +59,9 @@ object Hashable extends LowPriorityHashableInstances {
   def hash[B]: HashPartiallyApplied[B] =
     new HashPartiallyApplied[B](())
 
-  def hash[A, B](algo: Algo[B], a: A)(using hashable: Hashable[A]): Hashed[B, A] =
+  def hash[A, B](algo: Algo[B], a: A)(using
+      hashable: Hashable[A]
+  ): Hashed[B, A] =
     hashable.hash(a)(using algo)
 
   private val Utf8 = StandardCharsets.UTF_8
@@ -77,8 +79,10 @@ object Hashable extends LowPriorityHashableInstances {
   private inline def summonHashables[T <: Tuple]: List[AnyHashable] =
     inline erasedValue[T] match {
       case _: EmptyTuple => Nil
-      case _: (t *: ts) =>
-        new LiftedHashable[t](() => summonInline[Hashable[t]]) :: summonHashables[
+      case _: (t *: ts)  =>
+        new LiftedHashable[t](() =>
+          summonInline[Hashable[t]]
+        ) :: summonHashables[
           ts
         ]
     }
@@ -86,14 +90,14 @@ object Hashable extends LowPriorityHashableInstances {
   private inline def summonLabels[T <: Tuple]: List[String] =
     inline erasedValue[T] match {
       case _: EmptyTuple => Nil
-      case _: (t *: ts) =>
+      case _: (t *: ts)  =>
         constValue[t].asInstanceOf[String] :: summonLabels[ts]
     }
 
   private inline def summonTypeNames[T <: Tuple]: List[String] =
     inline erasedValue[T] match {
       case _: EmptyTuple => Nil
-      case _: (t *: ts) =>
+      case _: (t *: ts)  =>
         typeNameOf[t] :: summonTypeNames[ts]
     }
 
@@ -260,7 +264,9 @@ object Hashable extends LowPriorityHashableInstances {
         elem.asType match {
           case '[tt] =>
             '{
-              new LiftedHashable[tt](() => summonInline[Hashable[tt]]): AnyHashable
+              new LiftedHashable[tt](() =>
+                summonInline[Hashable[tt]]
+              ): AnyHashable
             }
           case _ =>
             report.errorAndAbort(s"Unexpected tuple element type: ${elem.show}")
@@ -364,7 +370,9 @@ object Hashable extends LowPriorityHashableInstances {
   }
 
   given [A](using hashA: Hashable[A]): Hashable[Option[A]] with {
-    def addHash[B](a: Option[A], algo: Algo[B])(hasher: algo.Hasher): algo.Hasher =
+    def addHash[B](a: Option[A], algo: Algo[B])(
+        hasher: algo.Hasher
+    ): algo.Hasher =
       a match {
         case Some(value) =>
           val withTag = addByte(1.toByte, algo)(hasher)
@@ -375,7 +383,9 @@ object Hashable extends LowPriorityHashableInstances {
   }
 
   given [A](using hashA: Hashable[A]): Hashable[List[A]] with {
-    def addHash[B](a: List[A], algo: Algo[B])(hasher: algo.Hasher): algo.Hasher = {
+    def addHash[B](a: List[A], algo: Algo[B])(
+        hasher: algo.Hasher
+    ): algo.Hasher = {
       var h = addIntBE(a.length, algo)(hasher)
       val iter = a.iterator
       while (iter.hasNext) {

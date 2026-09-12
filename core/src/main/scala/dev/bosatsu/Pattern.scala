@@ -7,7 +7,12 @@ import org.typelevel.paiges.{Doc, Document}
 import dev.bosatsu.pattern.{NamedSeqPattern, SeqPattern, SeqPart}
 import java.util.regex.{Pattern => RegexPattern}
 
-import Parser.{Combinators, maybeSpace, maybeSpacesAndCommentLines, MaybeTupleOrParens}
+import Parser.{
+  Combinators,
+  maybeSpace,
+  maybeSpacesAndCommentLines,
+  MaybeTupleOrParens
+}
 import cats.implicits._
 
 import Identifier.{Bindable, Constructor}
@@ -21,8 +26,8 @@ sealed abstract class Pattern[+N, +T] derives CanEqual {
   def mapType[U](fn: T => U): Pattern[N, U] =
     (new Pattern.InvariantPattern(this)).traverseType[cats.Id, U](fn)
 
-  /** Syntactic check for patterns that are guaranteed to match any value.
-    * This is intentionally conservative and does not consult type information.
+  /** Syntactic check for patterns that are guaranteed to match any value. This
+    * is intentionally conservative and does not consult type information.
     */
   lazy val definitelyTotal: Boolean =
     this match {
@@ -507,7 +512,9 @@ object Pattern {
       case PositionalStruct(_, ps) =>
         ps.iterator.map(searchInfo(_)).foldLeft(NotSearch)(mergeSearchInfo)
       case Union(h, t) =>
-        (h :: t.toList).iterator.map(searchInfo(_)).foldLeft(NotSearch)(mergeSearchInfo)
+        (h :: t.toList).iterator
+          .map(searchInfo(_))
+          .foldLeft(NotSearch)(mergeSearchInfo)
       case sp @ StrPat(_) =>
         strSearchInfo(sp)
       case lp @ ListPat(_) =>
@@ -641,14 +648,16 @@ object Pattern {
       parts: List[ListPart[Pattern[N, T]]]
   ): Boolean =
     parts match {
-      case Nil                      => false
-      case ListPart.WildList :: Nil => false
+      case Nil                          => false
+      case ListPart.WildList :: Nil     => false
       case ListPart.NamedList(_) :: Nil =>
         false
       case ListPart.Item(p) :: tail =>
         p.isSearchPattern || listIsSearchPattern(tail)
       case ListPart.WildList :: ListPart.Item(WildCard) :: tail =>
-        listIsSearchPattern(ListPart.Item(WildCard) :: ListPart.WildList :: tail)
+        listIsSearchPattern(
+          ListPart.Item(WildCard) :: ListPart.WildList :: tail
+        )
       case (_: ListPart.Glob) :: _ =>
         true
     }
@@ -1054,14 +1063,14 @@ object Pattern {
 
         def compare(a: StrPart, b: StrPart) =
           (a, b) match {
-            case (WildStr, WildStr)                      => 0
-            case (WildStr, _)                            => -1
-            case (WildChar, WildStr)                     => 1
-            case (WildChar, WildChar)                    => 0
-            case (WildChar, _)                           => -1
-            case (LitStr(_), WildStr | WildChar)         => 1
-            case (LitStr(sa), LitStr(sb))                => StringUtil.codePointCompare(sa, sb)
-            case (LitStr(_), NamedStr(_) | NamedChar(_)) => -1
+            case (WildStr, WildStr)              => 0
+            case (WildStr, _)                    => -1
+            case (WildChar, WildStr)             => 1
+            case (WildChar, WildChar)            => 0
+            case (WildChar, _)                   => -1
+            case (LitStr(_), WildStr | WildChar) => 1
+            case (LitStr(sa), LitStr(sb)) => StringUtil.codePointCompare(sa, sb)
+            case (LitStr(_), NamedStr(_) | NamedChar(_))        => -1
             case (NamedChar(_), WildStr | WildChar | LitStr(_)) => 1
             case (NamedChar(na), NamedChar(nb)) => ordBin.compare(na, nb)
             case (NamedChar(_), NamedStr(_))    => -1
@@ -1473,7 +1482,8 @@ object Pattern {
     // Foo(1 or more patterns, ...)
     // Foo(...)
 
-    val oneOrMore = recurse.nonEmptyListOfWs(patternWs).map(_.toList) ~ maybePartial
+    val oneOrMore =
+      recurse.nonEmptyListOfWs(patternWs).map(_.toList) ~ maybePartial
     val onlyPartial = P.string("...").as {
       (
         Nil,
@@ -1513,25 +1523,27 @@ object Pattern {
       case MaybeTupleOrParens.Tuple(p)  => tuple(p)
     }
 
-  /**
-   * After we have parsed a constructor, if this succeeds then we have parsed a pattern
-   */
-  val structAfterCons: P0[Constructor => PositionalStruct[StructKind, TypeRef]] =
-    (parseTupleStruct(bindParser) <+> parseRecordStruct(bindParser)).?
-      .map {
-        case None =>
-          (n: Constructor) =>
-            PositionalStruct(
-              StructKind.Named(n, StructKind.Style.TupleLike),
-              Nil
-            )
-        case Some(fn) => fn
-      }
+  /** After we have parsed a constructor, if this succeeds then we have parsed a
+    * pattern
+    */
+  val structAfterCons
+      : P0[Constructor => PositionalStruct[StructKind, TypeRef]] =
+    (parseTupleStruct(bindParser) <+> parseRecordStruct(bindParser)).?.map {
+      case None =>
+        (n: Constructor) =>
+          PositionalStruct(
+            StructKind.Named(n, StructKind.Style.TupleLike),
+            Nil
+          )
+      case Some(fn) => fn
+    }
 
   private def matchOrNot(isMatch: Boolean): P[Parsed] = {
     val recurse = P.defer(bindParser)
 
-    val positional = (Identifier.consParser ~ structAfterCons).map { case (c, fn) => fn(c) }
+    val positional = (Identifier.consParser ~ structAfterCons).map {
+      case (c, fn) => fn(c)
+    }
 
     val tupleOrParens = recurse.tupleOrParens.map(fromTupleOrParens)
 

@@ -25,7 +25,10 @@ import dev.bosatsu.{
 import scala.collection.immutable.SortedMap
 
 class ClangGenLibraryDepsTest extends munit.FunSuite {
-  private def extractCFunction(code: String, mangledNameFragment: String): String = {
+  private def extractCFunction(
+      code: String,
+      mangledNameFragment: String
+  ): String = {
     val start = code.indexOf(mangledNameFragment)
     assert(start >= 0, code)
     val headerStart = code.lastIndexOf("BValue ", start)
@@ -122,9 +125,11 @@ class ClangGenLibraryDepsTest extends munit.FunSuite {
       )
 
     Par.withEC {
-      val values = rootDl.lib.implementations.testEntries.toList.collect {
-        case (pn, Right(entry)) => (pn, entry)
-      }.sortBy(_._1)
+      val values = rootDl.lib.implementations.testEntries.toList
+        .collect { case (pn, Right(entry)) =>
+          (pn, entry)
+        }
+        .sortBy(_._1)
       ClangGen(rootDl).renderTests(values) match {
         case Right(doc) =>
           val rendered = doc.render(120)
@@ -300,9 +305,11 @@ class ClangGenLibraryDepsTest extends munit.FunSuite {
       )
 
     Par.withEC {
-      val values = rootDl.lib.implementations.testEntries.toList.collect {
-        case (pn, Right(entry)) => (pn, entry)
-      }.sortBy(_._1)
+      val values = rootDl.lib.implementations.testEntries.toList
+        .collect { case (pn, Right(entry)) =>
+          (pn, entry)
+        }
+        .sortBy(_._1)
       ClangGen(rootDl).renderTests(values) match {
         case Right(doc) =>
           val rendered = doc.render(120)
@@ -446,13 +453,18 @@ class ClangGenLibraryDepsTest extends munit.FunSuite {
       )
 
     Par.withEC {
-      val values = rootDl.lib.implementations.testEntries.toList.collect {
-        case (pn, Right(entry)) => (pn, entry)
-      }.sortBy(_._1)
+      val values = rootDl.lib.implementations.testEntries.toList
+        .collect { case (pn, Right(entry)) =>
+          (pn, entry)
+        }
+        .sortBy(_._1)
       ClangGen(rootDl).renderTests(values) match {
         case Right(doc) =>
           val rendered = doc.render(120)
-          assert(rendered.contains("___bsts_g_Bosatsu_l_Prog_l_observe"), rendered)
+          assert(
+            rendered.contains("___bsts_g_Bosatsu_l_Prog_l_observe"),
+            rendered
+          )
         case Left(err) =>
           fail(err.display.render(80))
       }
@@ -521,16 +533,24 @@ class ClangGenLibraryDepsTest extends munit.FunSuite {
       )
 
     Par.withEC {
-      val values = rootDl.lib.implementations.testEntries.toList.collect {
-        case (pn, Right(entry)) => (pn, entry)
-      }.sortBy(_._1)
+      val values = rootDl.lib.implementations.testEntries.toList
+        .collect { case (pn, Right(entry)) =>
+          (pn, entry)
+        }
+        .sortBy(_._1)
       ClangGen(rootDl).renderTests(values) match {
         case Right(doc) =>
           val rendered = doc.render(120)
-          assert(rendered.contains("___bsts_g_Bosatsu_l_Prog_l_new__var"), rendered)
+          assert(
+            rendered.contains("___bsts_g_Bosatsu_l_Prog_l_new__var"),
+            rendered
+          )
           assert(rendered.contains("___bsts_g_Bosatsu_l_Prog_l_set"), rendered)
           assert(rendered.contains("___bsts_g_Bosatsu_l_Prog_l_swap"), rendered)
-          assert(rendered.contains("___bsts_g_Bosatsu_l_Prog_l_update"), rendered)
+          assert(
+            rendered.contains("___bsts_g_Bosatsu_l_Prog_l_update"),
+            rendered
+          )
           assert(rendered.contains("___bsts_g_Bosatsu_l_Prog_l_get"), rendered)
         case Left(err) =>
           fail(err.display.render(80))

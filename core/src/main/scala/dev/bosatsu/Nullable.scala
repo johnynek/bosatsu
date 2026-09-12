@@ -11,17 +11,15 @@ object Nullable:
     transparent inline def fold[A](inline ifNull: => A)(inline fn: T => A): A =
       ${ foldImpl('nullable, 'ifNull, 'fn) }
 
-    inline def isNull: Boolean =
-      {
-        given CanEqual[T | Null, Null] = CanEqual.derived
-        nullable == null
-      }
+    inline def isNull: Boolean = {
+      given CanEqual[T | Null, Null] = CanEqual.derived
+      nullable == null
+    }
 
-    inline def nonNull: Boolean =
-      {
-        given CanEqual[T | Null, Null] = CanEqual.derived
-        nullable != null
-      }
+    inline def nonNull: Boolean = {
+      given CanEqual[T | Null, Null] = CanEqual.derived
+      nullable != null
+    }
 
     inline def map[B](inline fn: T => B): Nullable[B] =
       fold(null: Null)(fn)

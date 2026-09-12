@@ -37,7 +37,8 @@ object InSetCompiler {
     val includedSet = included.toSet
     val excluded = (0 until size).filterNot(includedSet).toVector
     val excludedCompiled = compilePositive(size, excluded)
-    val negatedExcluded = Compiled(excludedCompiled.cost, not(excludedCompiled.expr))
+    val negatedExcluded =
+      Compiled(excludedCompiled.cost, not(excludedCompiled.expr))
 
     if (includedCompiled.cost <= negatedExcluded.cost) includedCompiled.expr
     else negatedExcluded.expr
@@ -45,8 +46,8 @@ object InSetCompiler {
 
   def eval(expr: BoolExpr, value: Int): Boolean =
     expr match {
-      case TrueConst  => true
-      case FalseConst => false
+      case TrueConst        => true
+      case FalseConst       => false
       case Compare(op, rhs) =>
         op match {
           case Eq => value == rhs
@@ -76,7 +77,7 @@ object InSetCompiler {
         comparisonCount(inner)
     }
 
-  private def compilePositive(size: Int, included: Vector[Int]): Compiled = {
+  private def compilePositive(size: Int, included: Vector[Int]): Compiled =
     if (included.isEmpty) Compiled(0, FalseConst)
     else {
       val n = included.length
@@ -108,7 +109,6 @@ object InSetCompiler {
 
       Compiled(bestCost(0), bestExpr(0))
     }
-  }
 
   private def compileGroupedSpan(
       size: Int,
@@ -152,10 +152,10 @@ object InSetCompiler {
   private def and(left: BoolExpr, right: BoolExpr): BoolExpr =
     (left, right) match {
       case (FalseConst, _) | (_, FalseConst) => FalseConst
-      case (TrueConst, r)                     => r
-      case (l, TrueConst)                     => l
-      case (l, r) if l == r                   => l
-      case _                                  => And(left, right)
+      case (TrueConst, r)                    => r
+      case (l, TrueConst)                    => l
+      case (l, r) if l == r                  => l
+      case _                                 => And(left, right)
     }
 
   private def or(left: BoolExpr, right: BoolExpr): BoolExpr =
@@ -169,14 +169,14 @@ object InSetCompiler {
 
   private def not(expr: BoolExpr): BoolExpr =
     expr match {
-      case TrueConst            => FalseConst
-      case FalseConst           => TrueConst
-      case Compare(Eq, rhs)     => Compare(Ne, rhs)
-      case Compare(Ne, rhs)     => Compare(Eq, rhs)
-      case Compare(Lt, rhs)     => Compare(Ge, rhs)
-      case Compare(Ge, rhs)     => Compare(Lt, rhs)
-      case Not(inner)           => inner
-      case And(left, right)     => or(not(left), not(right))
-      case Or(left, right)      => and(not(left), not(right))
+      case TrueConst        => FalseConst
+      case FalseConst       => TrueConst
+      case Compare(Eq, rhs) => Compare(Ne, rhs)
+      case Compare(Ne, rhs) => Compare(Eq, rhs)
+      case Compare(Lt, rhs) => Compare(Ge, rhs)
+      case Compare(Ge, rhs) => Compare(Lt, rhs)
+      case Not(inner)       => inner
+      case And(left, right) => or(not(left), not(right))
+      case Or(left, right)  => and(not(left), not(right))
     }
 }

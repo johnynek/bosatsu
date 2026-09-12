@@ -40,9 +40,9 @@ object ProtoDescriptorModel {
             SInt64Type | Fixed32Type | Fixed64Type | SFixed32Type |
             SFixed64Type =>
           "Int"
-        case BoolType => "Bool"
+        case BoolType   => "Bool"
         case StringType => "String"
-        case BytesType => "Bytes"
+        case BytesType  => "Bytes"
       }
 
     def wireKind: WireKind =

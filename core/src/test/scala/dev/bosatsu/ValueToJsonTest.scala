@@ -36,7 +36,9 @@ class ValueToJsonTest extends munit.FunSuite {
     toJson(Value.UnitValue) match {
       case Left(_)     => ()
       case Right(json) =>
-        fail(s"expected ill-typed Array conversion failure, got: ${json.render}")
+        fail(
+          s"expected ill-typed Array conversion failure, got: ${json.render}"
+        )
     }
   }
 

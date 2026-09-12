@@ -145,7 +145,7 @@ abstract class TypeParser[A] {
               din
             case Some(_) =>
               par(din)
-            case None    =>
+            case None =>
               unapplyFn(in0)
                 .orElse(unapplyUniversal(in0))
                 .orElse(unapplyExistential(in0)) match {

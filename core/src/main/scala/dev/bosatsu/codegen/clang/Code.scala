@@ -217,7 +217,7 @@ object Code {
   private def allocEnum0Arg(expr: Expression): Option[Expression] =
     expr match {
       case Apply(Ident("alloc_enum0"), arg :: Nil) => Some(arg)
-      case _                                        => None
+      case _                                       => None
     }
 
   private def isBoolLike(expr: Expression): Boolean =
@@ -228,9 +228,9 @@ object Code {
         isBoolLike(target)
       case BinExpr(_, op, _) =>
         (op eq BinOp.And) || (op eq BinOp.Or) ||
-          (op eq BinOp.Eq) || (op eq BinOp.NotEq) ||
-          (op eq BinOp.Lt) || (op eq BinOp.LtEq) ||
-          (op eq BinOp.Gt) || (op eq BinOp.GtEq)
+        (op eq BinOp.Eq) || (op eq BinOp.NotEq) ||
+        (op eq BinOp.Lt) || (op eq BinOp.LtEq) ||
+        (op eq BinOp.Gt) || (op eq BinOp.GtEq)
       case Ternary(_, t, f) =>
         isBoolLike(t) && isBoolLike(f)
       case _ =>
@@ -325,8 +325,7 @@ object Code {
                         candNotEq
                       else candEq
                     )
-                  }
-                  else if (notElseIsThen)
+                  } else if (notElseIsThen)
                     Some(cond1.bin(BinOp.NotEq, else1))
                   else if (notThenIsElse)
                     Some(cond1 =:= then1)
@@ -382,7 +381,11 @@ object Code {
         case WithValue(stmt, v) =>
           WithValue(stmt, inlineTrivialBinding(v))
         case IfElseValue(cond, thenC, elseC) =>
-          IfElseValue(cond, inlineTrivialBinding(thenC), inlineTrivialBinding(elseC))
+          IfElseValue(
+            cond,
+            inlineTrivialBinding(thenC),
+            inlineTrivialBinding(elseC)
+          )
         case other =>
           other
       }
