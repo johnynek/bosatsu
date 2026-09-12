@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-ae644688*
+0.0.0+1-8895bfd2*
 </div>
 </div>
 <div class="nav-toc">
@@ -80,7 +80,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-ae644688*
+0.0.0+1-8895bfd2*
 </div>
 </div>
 <div class="nav-toc">
@@ -174,12 +174,14 @@ export (
   Process,
   Instant,
   Duration,
+  duration_from_nanos,
   FileKind(),
   FileStat(),
   OpenMode(),
   Stdio(),
   StdioConfig(),
   SpawnResult(),
+  StopResult(),
   stdin,
   stdout,
   stderr,
@@ -196,6 +198,11 @@ export (
   get_env,
   spawn,
   wait,
+  terminate,
+  kill,
+  poll,
+  wait_timeout,
+  with_process,
   now_wall,
   now_mono,
   sleep,
@@ -250,6 +257,10 @@ struct SpawnResult(
   stderr: Option[Handle],
 )
 
+enum StopResult:
+  StopSent
+  AlreadyExited
+
 external stdin: Handle
 external stdout: Handle
 external stderr: Handle
@@ -267,10 +278,50 @@ external def rename(from: Path, to: Path) -&gt; Prog[IOError, Unit]
 external def get_env(name: String) -&gt; Prog[IOError, Option[String]]
 external def spawn(cmd: String, args: List[String], stdio: StdioConfig) -&gt; Prog[IOError, SpawnResult]
 external def wait(p: Process) -&gt; Prog[IOError, Int]
+external def terminate(p: Process) -&gt; Prog[IOError, StopResult]
+external def kill(p: Process) -&gt; Prog[IOError, StopResult]
+external def poll(p: Process) -&gt; Prog[IOError, Option[Int]]
+external def wait_timeout(p: Process, d: Duration) -&gt; Prog[IOError, Option[Int]]
+def with_process[e, a](
+  cmd: String,
+  args: List[String],
+  stdio: StdioConfig,
+  grace: Duration,
+  on_error: IOError -&gt; Prog[e, a],
+  use: SpawnResult -&gt; Prog[e, a],
+) -&gt; Prog[e, a]
+def duration_from_nanos(nanos: Int) -&gt; Duration
 external now_wall: Prog[IOError, Instant]
 external now_mono: Prog[IOError, Duration]
 external def sleep(d: Duration) -&gt; Prog[IOError, Unit]
 </code></pre>
+<h2><a href="#spawned-process-lifecycle" name="spawned-process-lifecycle" class="anchor"><span class="anchor-link"></span></a>Spawned-process lifecycle</h2>
+<p><code>terminate</code> and <code>kill</code> operate only on the direct child represented by the <code>Process</code> returned from <code>spawn</code>. <code>terminate</code> requests the backend&rsquo;s best available normal stop and <code>kill</code> requests its best available forceful stop; neither promise a graceful application shutdown. Each returns <code>AlreadyExited</code> after final status is recorded, or <code>StopSent</code> when it issues a request. These are semantic operations: <code>Bosatsu/IO/Core</code> exposes neither raw signals nor control of descendants, process trees, process groups, or job objects.</p>
+<p><code>poll</code> is nonblocking. <code>wait_timeout</code> returns <code>None</code> when its duration expires without consuming the eventual result. <code>wait</code>, <code>poll</code>, and <code>wait_timeout</code> observe the same recorded, normalized integer status after exit, so repeated <code>wait</code> calls return the same value.</p>
+<p>At the low level, a <code>spawn</code> caller owns every handle returned for <code>Stdio.Pipe</code> and must close it. Lifecycle operations do not close or drain those handles. A handle supplied in <code>Stdio.UseHandle</code> remains caller-owned.</p>
+<p>For ordinary scoped cleanup, use the Bosatsu-level <code>with_process</code> composition rather than treating it as an external operation:</p>
+<pre class="prettyprint"><code class="language-bosatsu">from Bosatsu/Prog import Prog, raise_error
+from Bosatsu/IO/Error import IOError
+from Bosatsu/IO/Core import (
+  Pipe,
+  StdioConfig,
+  SpawnResult,
+  duration_from_nanos,
+  wait,
+  with_process,
+)
+
+def run_version() -&gt; Prog[IOError, Int]:
+  with_process(
+    &quot;tool&quot;,
+    [&quot;--version&quot;],
+    StdioConfig(Pipe, Pipe, Pipe),
+    duration_from_nanos(1000000000),
+    err -&gt; raise_error(err),
+    SpawnResult(proc, ...) -&gt; wait(proc),
+  )
+</code></pre>
+<p>After a successful spawn, <code>with_process</code> runs <code>use</code>; whether <code>use</code> succeeds or fails, it closes returned stdin first, observes or stops the direct child, waits for the grace duration before escalating to <code>kill</code> when necessary, attempts a final <code>wait</code>, then closes returned stdout and stderr. It closes only pipe handles returned in <code>SpawnResult</code>, never caller-supplied <code>UseHandle</code> resources, and does not drain output. Callers needing a custom drain or close order should keep using the low-level API.</p>
 <h2><a href="#path-representation-tradeoff" name="path-representation-tradeoff" class="anchor"><span class="anchor-link"></span></a>Path representation tradeoff</h2>
 <ol>
   <li>Chosen shape: native <code>struct Path(to_String: String)</code> with hidden constructor, plus <code>path_sep</code> and helper APIs.</li>
@@ -318,9 +369,9 @@ external def sleep(d: Duration) -&gt; Prog[IOError, Unit]
   <li>Python <code>pathlib</code> lexical behavior and flavor differences: <a href="https://docs.python.org/3/library/pathlib.html">https://docs.python.org/3/library/pathlib.html</a></li>
   <li>Windows naming constraints: <a href="https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file">https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file</a></li>
 </ol>
-<h2><a href="#process-termination-tradeoff" name="process-termination-tradeoff" class="anchor"><span class="anchor-link"></span></a>Process termination tradeoff</h2>
+<h2><a href="#current-program-exit-tradeoff" name="current-program-exit-tradeoff" class="anchor"><span class="anchor-link"></span></a>Current-program exit tradeoff</h2>
 <ol>
-  <li>This design intentionally omits direct <code>exit</code> from <code>Bosatsu/IO/Core</code>.</li>
+  <li>This design intentionally omits direct <code>exit</code> for the current Bosatsu program from <code>Bosatsu/IO/Core</code>; it does support stopping a spawned direct child through the lifecycle API above.</li>
   <li>Abrupt process termination from inside arbitrary <code>Prog</code> code makes cleanup and structured error handling less safe.</li>
   <li>Preferred pattern: return status from <code>Main</code> (<code>Prog[err, Int]</code>), or encode early termination in program types such as <code>Prog[IOError, Result[Int, a]]</code>.</li>
 </ol>
@@ -344,6 +395,10 @@ external def sleep(d: Duration) -&gt; Prog[IOError, Unit]
   <li><code>exit</code> -&gt; intentionally omitted; use <code>Main</code> return codes and typed early-termination (<code>Result[Int, a]</code>) instead</li>
   <li><code>spawn</code> -&gt; <code>spawn</code></li>
   <li><code>wait</code> -&gt; <code>wait</code></li>
+  <li><code>terminate</code> -&gt; <code>terminate</code></li>
+  <li><code>kill</code> -&gt; <code>kill</code></li>
+  <li><code>poll</code> -&gt; <code>poll</code></li>
+  <li><code>waitTimeout</code> -&gt; <code>wait_timeout</code></li>
   <li><code>nowWall</code> -&gt; <code>now_wall</code></li>
   <li><code>nowMono</code> -&gt; <code>now_mono</code></li>
   <li><code>sleep</code> -&gt; <code>sleep</code></li>
@@ -369,7 +424,7 @@ external def sleep(d: Duration) -&gt; Prog[IOError, Unit]
   <li><code>stat.kind</code> is <code>Symlink</code> when path itself is a symlink (<code>lstat</code>-style classification).</li>
   <li><code>remove(recursive = true)</code> removes directory trees without following symlinks.</li>
   <li><code>spawn</code> never invokes a shell; <code>cmd</code> + <code>args</code> are executed directly.</li>
-  <li><code>wait</code> is idempotent: once complete, repeated waits return the same exit code.</li>
+  <li><code>wait</code> is idempotent: once complete, repeated waits return the same exit code; <code>poll</code> and <code>wait_timeout</code> observe that same recorded normalized integer status, and a timed-out <code>wait_timeout</code> does not consume it.</li>
   <li>Time precision is nanoseconds.</li>
   <li><code>now_wall</code> returns a wall-clock timestamp value (<code>Instant</code>) whose intended encoding is UNIX epoch nanoseconds.</li>
   <li><code>now_mono</code> returns a monotonic elapsed-time reading (<code>Duration</code>) and is not affected by wall-clock changes.</li>
@@ -537,7 +592,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="../lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="../lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-ae644688-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-8895bfd2-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>

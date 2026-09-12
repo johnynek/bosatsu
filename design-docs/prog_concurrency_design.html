@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-ae644688*
+0.0.0+1-8895bfd2*
 </div>
 </div>
 <div class="nav-toc">
@@ -80,7 +80,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-ae644688*
+0.0.0+1-8895bfd2*
 </div>
 </div>
 <div class="nav-toc">
@@ -252,8 +252,16 @@ background_hash =
 <p>No new public <code>Prog</code> tag is required for the API itself. On JVM and Python, the new operations can still be exposed as ordinary <code>Prog</code> externals. A libuv runtime will likely need richer internal scheduler machinery, but that can stay behind the same Bosatsu API.</p>
 <h2><a href="#shared-bosatsu-io-core-process-contract" name="shared-bosatsu-io-core-process-contract" class="anchor"><span class="anchor-link"></span></a>Shared <code>Bosatsu/IO/Core</code> Process Contract</h2>
 <p>The existing <code>Bosatsu/IO/Core</code> API already commits us to a specific process model:</p>
-<pre class="prettyprint"><code class="language-bosatsu">spawn(cmd: String, args: List[String], stdio: StdioConfig) -&gt; Prog[IOError, SpawnResult]
+<pre class="prettyprint"><code class="language-bosatsu">enum StopResult:
+  StopSent
+  AlreadyExited
+
+spawn(cmd: String, args: List[String], stdio: StdioConfig) -&gt; Prog[IOError, SpawnResult]
 wait(p: Process) -&gt; Prog[IOError, Int]
+terminate(p: Process) -&gt; Prog[IOError, StopResult]
+kill(p: Process) -&gt; Prog[IOError, StopResult]
+poll(p: Process) -&gt; Prog[IOError, Option[Int]]
+wait_timeout(p: Process, d: Duration) -&gt; Prog[IOError, Option[Int]]
 </code></pre>
 <p>To keep all backends aligned, this design commits to the following shared semantics:</p>
 <ol>
@@ -262,9 +270,10 @@ wait(p: Process) -&gt; Prog[IOError, Int]
   <li><code>spawn</code> raises <code>IOError</code> only if process creation or requested stdio setup fails. A child process exiting non-zero is observed only through <code>wait</code>.</li>
   <li><code>SpawnResult.stdin</code>, <code>SpawnResult.stdout</code>, and <code>SpawnResult.stderr</code> are <code>Some(handle)</code> exactly when the corresponding <code>Stdio</code> entry was <code>Pipe</code>. For <code>Inherit</code>, <code>Null</code>, and <code>UseHandle</code>, the returned field is <code>None</code>.</li>
   <li><code>UseHandle(handle)</code> validates direction at runtime: <code>stdin</code> requires a readable handle; <code>stdout</code> and <code>stderr</code> require writable handles. Closed or invalid handles raise <code>IOError</code>.</li>
-  <li><code>wait(p)</code> is idempotent and may be called multiple times or concurrently. Every successful call returns the same cached exit code.</li>
-  <li><code>wait(p)</code> does not implicitly close or drain pipe handles returned from <code>spawn</code>. If the caller requested <code>Pipe</code>, those returned handles remain ordinary Bosatsu handles with their own lifetime.</li>
-  <li>Canceling a Bosatsu fiber blocked in <code>wait(p)</code> never kills the external process. It only cancels that Bosatsu wait.</li>
+  <li><code>wait(p)</code> is idempotent and may be called multiple times or concurrently. <code>wait</code>, <code>poll</code>, and <code>wait_timeout</code> observe the same cached normalized exit code; <code>poll</code> is nonblocking, and <code>wait_timeout</code> returning <code>None</code> does not consume the eventual result.</li>
+  <li><code>terminate(p)</code> and <code>kill(p)</code> control only that direct child. They return <code>StopSent</code> when a request is issued and <code>AlreadyExited</code> after status is recorded; <code>terminate</code> is the backend&rsquo;s best available normal stop and <code>kill</code> its best available forceful stop, neither promising graceful application shutdown.</li>
+  <li>The process API exposes no raw signals, process ids, or process-tree/descendant controls. Its lifecycle operations do not implicitly close or drain pipe handles returned from <code>spawn</code>; if the caller requested <code>Pipe</code>, those returned handles remain ordinary Bosatsu handles with their own lifetime, while <code>UseHandle</code> resources remain caller-owned.</li>
+  <li>Canceling a Bosatsu fiber blocked in <code>wait(p)</code> only cancels that wait. It does not invoke the separate direct-child <code>terminate(p)</code> or <code>kill(p)</code> APIs.</li>
   <li>If a backend has to emulate <code>UseHandle</code> with internal copy tasks rather than native OS-level stdio inheritance, <code>wait(p)</code> must not complete until those backend-owned bridge tasks have also settled. Otherwise <code>wait</code> could return before the requested redirection is actually complete.</li>
   <li><code>wait(p)</code> returns a single <code>Int</code>, so this API intentionally collapses normal exit and signal termination into one value. On POSIX backends that expose signal termination separately or as negative codes, Bosatsu should normalize signal termination to <code>128 + signal_number</code>.</li>
   <li>If Bosatsu later needs to distinguish ordinary exit from signal termination, that should be a new structured <code>ExitStatus</code> API rather than a silent change to <code>wait</code>.</li>
@@ -794,8 +803,7 @@ typedef BSTS_Effect_Result (*BSTS_Effect_Start)(
 <h4><a href="#canceling-wait-process-" name="canceling-wait-process-" class="anchor"><span class="anchor-link"></span></a>Canceling <code>wait(process)</code></h4>
 <ol>
   <li>Canceling a fiber blocked in <code>Bosatsu/IO/Core::wait</code> only cancels the Bosatsu wait.</li>
-  <li>It does not kill the external process.</li>
-  <li>If we later want process termination, that should be a separate process API, not part of fiber cancellation.</li>
+  <li>It does not invoke the direct-child <code>terminate</code> or <code>kill</code> APIs, so it does not stop the external process.</li>
 </ol>
 <h3><a href="#c-handle-representation" name="c-handle-representation" class="anchor"><span class="anchor-link"></span></a>C <code>Handle</code> representation</h3>
 <p>The current C runtime stores:</p>
@@ -1745,7 +1753,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="../lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="../lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-ae644688-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-8895bfd2-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>
