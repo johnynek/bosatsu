@@ -722,19 +722,64 @@ static void io_core_assert_stop_result(BValue value, int expected, const char* m
   }
 }
 
-static BValue io_core_spawn_poll_after_wait_poll_fn(BValue* slots, BValue opt) {
-  (void)slots;
-  assert_option_int(opt, "3", "IO/Core poll after wait should return the cached child status");
-  return ___bsts_g_Bosatsu_l_Prog_l_pure(get_enum_index(opt, 0));
+static BValue io_core_spawn_stable_status_final_wait_fn(BValue* slots, BValue status) {
+  assert(
+      bsts_integer_cmp(status, slots[1]) == 0,
+      "IO/Core final repeated wait should return the cached child status");
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(status);
+}
+
+static BValue io_core_spawn_stable_status_wait_timeout_fn(BValue* slots, BValue opt) {
+  if (get_variant(opt) != 1) {
+    printf("IO/Core wait_timeout after recorded exit should return Some(cached status)\nexpected: Some\n");
+    exit(1);
+  }
+  assert(
+      bsts_integer_cmp(get_enum_index(opt, 0), slots[1]) == 0,
+      "IO/Core wait_timeout after recorded exit should return the cached child status");
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_wait(slots[0]),
+      alloc_closure1(2, slots, io_core_spawn_stable_status_final_wait_fn));
+}
+
+static BValue io_core_spawn_stable_status_second_poll_fn(BValue* slots, BValue opt) {
+  if (get_variant(opt) != 1) {
+    printf("IO/Core repeated poll after recorded exit should return Some(cached status)\nexpected: Some\n");
+    exit(1);
+  }
+  assert(
+      bsts_integer_cmp(get_enum_index(opt, 0), slots[1]) == 0,
+      "IO/Core repeated poll after recorded exit should return the cached child status");
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_wait__timeout(slots[0], bsts_integer_from_int(0)),
+      alloc_closure1(2, slots, io_core_spawn_stable_status_wait_timeout_fn));
+}
+
+static BValue io_core_spawn_stable_status_first_poll_fn(BValue* slots, BValue opt) {
+  if (get_variant(opt) != 1) {
+    printf("IO/Core poll after recorded exit should return Some(cached status)\nexpected: Some\n");
+    exit(1);
+  }
+  assert(
+      bsts_integer_cmp(get_enum_index(opt, 0), slots[1]) == 0,
+      "IO/Core poll after recorded exit should return the cached child status");
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_poll(slots[0]),
+      alloc_closure1(2, slots, io_core_spawn_stable_status_second_poll_fn));
+}
+
+static BValue io_core_spawn_assert_stable_status(BValue process, BValue status) {
+  BValue slots[2] = { process, status };
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_poll(process),
+      alloc_closure1(2, slots, io_core_spawn_stable_status_first_poll_fn));
 }
 
 static BValue io_core_spawn_poll_after_wait_fn(BValue* slots, BValue status) {
   assert(
       bsts_integer_cmp(status, bsts_integer_from_int(3)) == 0,
       "IO/Core poll test wait should observe the child status");
-  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
-      ___bsts_g_Bosatsu_l_IO_l_Core_l_poll(slots[0]),
-      alloc_closure1(1, slots, io_core_spawn_poll_after_wait_poll_fn));
+  return io_core_spawn_assert_stable_status(slots[0], status);
 }
 
 static BValue io_core_spawn_poll_before_wait_fn(BValue* slots, BValue opt) {
@@ -766,7 +811,7 @@ static BValue io_core_spawn_wait_timeout_wait_fn(BValue* slots, BValue status) {
   assert(
       bsts_integer_cmp(status, bsts_integer_from_int(4)) == 0,
       "IO/Core wait_timeout should not consume the later child status");
-  return ___bsts_g_Bosatsu_l_Prog_l_pure(status);
+  return io_core_spawn_assert_stable_status(slots[0], status);
 }
 
 static BValue io_core_spawn_wait_timeout_none_fn(BValue* slots, BValue opt) {
@@ -837,11 +882,10 @@ static BValue io_core_spawn_wait_timeout_zero_test_fn(BValue arg) {
 }
 
 static BValue io_core_spawn_stop_wait_fn(BValue* slots, BValue status) {
-  (void)slots;
   assert(
       bsts_integer_cmp(status, bsts_integer_from_int(0)) != 0,
       "IO/Core stop followed by wait should observe a non-zero stopped status");
-  return ___bsts_g_Bosatsu_l_Prog_l_pure(status);
+  return io_core_spawn_assert_stable_status(slots[0], status);
 }
 
 static BValue io_core_spawn_terminate_sent_fn(BValue* slots, BValue stop_result) {
@@ -905,7 +949,7 @@ static BValue io_core_spawn_already_exited_final_wait_fn(BValue* slots, BValue s
       stop_result,
       1,
       "IO/Core kill after recorded exit should return AlreadyExited");
-  return ___bsts_g_Bosatsu_l_IO_l_Core_l_wait(slots[0]);
+  return io_core_spawn_assert_stable_status(slots[0], slots[1]);
 }
 
 static BValue io_core_spawn_already_exited_kill_fn(BValue* slots, BValue stop_result) {
@@ -915,16 +959,17 @@ static BValue io_core_spawn_already_exited_kill_fn(BValue* slots, BValue stop_re
       "IO/Core terminate after recorded exit should return AlreadyExited");
   return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
       ___bsts_g_Bosatsu_l_IO_l_Core_l_kill(slots[0]),
-      alloc_closure1(1, slots, io_core_spawn_already_exited_final_wait_fn));
+      alloc_closure1(2, slots, io_core_spawn_already_exited_final_wait_fn));
 }
 
 static BValue io_core_spawn_already_exited_wait_fn(BValue* slots, BValue status) {
   assert(
       bsts_integer_cmp(status, bsts_integer_from_int(0)) == 0,
       "IO/Core already-exited stop test should first record zero child status");
+  BValue next_slots[2] = { slots[0], status };
   return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
       ___bsts_g_Bosatsu_l_IO_l_Core_l_terminate(slots[0]),
-      alloc_closure1(1, slots, io_core_spawn_already_exited_kill_fn));
+      alloc_closure1(2, next_slots, io_core_spawn_already_exited_kill_fn));
 }
 
 static BValue io_core_spawn_already_exited_process_fn(BValue spawn_result) {
@@ -1285,6 +1330,179 @@ static BValue io_core_spawn_pipe_stdin_test_fn(BValue arg) {
           io_core_string_list2("-c", "cat"),
           alloc_struct3(io_core_stdio_pipe(), io_core_stdio_pipe(), alloc_enum0(2))),
       alloc_boxed_pure_fn1(io_core_spawn_pipe_stdin_write_fn));
+}
+
+static BValue io_core_spawn_low_level_pipe_owner_wait_fn(BValue* slots, BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_IO_l_Core_l_wait(slots[0]);
+}
+
+static BValue io_core_spawn_low_level_pipe_owner_close_stdout_fn(BValue* slots, BValue arg) {
+  static const uint8_t expected[] = {'r', 'o', 'u', 'n', 'd', '\n'};
+  assert_bytes_equal(
+      arg,
+      expected,
+      (int)sizeof(expected),
+      "IO/Core low-level process operations should not close or drain returned stdio pipes");
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_close(slots[2]),
+      alloc_closure1(3, slots, io_core_spawn_low_level_pipe_owner_wait_fn));
+}
+
+static BValue io_core_spawn_low_level_pipe_owner_read_stdout_fn(BValue* slots, BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_read__all__bytes(slots[2], bsts_integer_from_int(16)),
+      alloc_closure1(3, slots, io_core_spawn_low_level_pipe_owner_close_stdout_fn));
+}
+
+static BValue io_core_spawn_low_level_pipe_owner_close_stdin_fn(BValue* slots, BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_close(slots[1]),
+      alloc_closure1(3, slots, io_core_spawn_low_level_pipe_owner_read_stdout_fn));
+}
+
+static BValue io_core_spawn_low_level_pipe_owner_write_fn(BValue* slots, BValue stop_result) {
+  io_core_assert_stop_result(
+      stop_result,
+      0,
+      "IO/Core terminate before stdio use should return StopSent for the running child");
+  static const uint8_t payload[] = {'r', 'o', 'u', 'n', 'd', '\n'};
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_write__bytes(
+          slots[1],
+          io_core_bytes_value(payload, (int)sizeof(payload))),
+      alloc_closure1(3, slots, io_core_spawn_low_level_pipe_owner_close_stdin_fn));
+}
+
+static BValue io_core_spawn_low_level_pipe_owner_timeout_fn(BValue* slots, BValue opt) {
+  assert_option_none(
+      opt,
+      "IO/Core wait_timeout before stdio use should not consume or close returned pipes");
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_terminate(slots[0]),
+      alloc_closure1(3, slots, io_core_spawn_low_level_pipe_owner_write_fn));
+}
+
+static BValue io_core_spawn_low_level_pipe_owner_poll_fn(BValue* slots, BValue opt) {
+  assert_option_none(
+      opt,
+      "IO/Core poll before stdio use should not consume or close returned pipes");
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_wait__timeout(slots[0], bsts_integer_from_int(0)),
+      alloc_closure1(3, slots, io_core_spawn_low_level_pipe_owner_timeout_fn));
+}
+
+static BValue io_core_spawn_low_level_pipe_owner_ready_fn(BValue* slots, BValue ready) {
+  static const uint8_t expected[] = {'r', 'e', 'a', 'd', 'y', '\n'};
+  assert_option_bytes_equal(
+      ready,
+      expected,
+      (int)sizeof(expected),
+      "IO/Core low-level pipe ownership test child should install its TERM trap before stop");
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_poll(slots[0]),
+      alloc_closure1(3, slots, io_core_spawn_low_level_pipe_owner_poll_fn));
+}
+
+static BValue io_core_spawn_low_level_pipe_owner_fn(BValue spawn_result) {
+  BValue stdin_opt = get_struct_index(spawn_result, 1);
+  BValue stdout_opt = get_struct_index(spawn_result, 2);
+  io_core_assert_some_handle(stdin_opt, "IO/Core spawn stdin pipe should return a handle");
+  io_core_assert_some_handle(stdout_opt, "IO/Core spawn stdout pipe should return a handle");
+  BValue slots[3] = {
+      get_struct_index(spawn_result, 0),
+      get_enum_index(stdin_opt, 0),
+      get_enum_index(stdout_opt, 0)};
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_read__bytes(slots[2], bsts_integer_from_int(6)),
+      alloc_closure1(3, slots, io_core_spawn_low_level_pipe_owner_ready_fn));
+}
+
+static BValue io_core_spawn_low_level_pipe_owner_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_spawn(
+          bsts_string_from_utf8_bytes_static(7, "/bin/sh"),
+          io_core_string_list2("-c", "trap '' TERM; printf 'ready\\n'; cat"),
+          alloc_struct3(io_core_stdio_pipe(), io_core_stdio_pipe(), alloc_enum0(2))),
+      alloc_boxed_pure_fn1(io_core_spawn_low_level_pipe_owner_fn));
+}
+
+static BValue io_core_spawn_low_level_pipe_owner_kill_done_fn(BValue* slots, BValue status) {
+  (void)slots;
+  assert(
+      bsts_integer_cmp(status, bsts_integer_from_int(0)) != 0,
+      "IO/Core kill before stdio close should be followed by a non-zero stopped status");
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_integer_from_int(0));
+}
+
+static BValue io_core_spawn_low_level_pipe_owner_kill_wait_fn(BValue* slots, BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_wait(slots[0]),
+      alloc_closure1(3, slots, io_core_spawn_low_level_pipe_owner_kill_done_fn));
+}
+
+static BValue io_core_spawn_low_level_pipe_owner_kill_close_stdout_fn(BValue* slots, BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_close(slots[2]),
+      alloc_closure1(3, slots, io_core_spawn_low_level_pipe_owner_kill_wait_fn));
+}
+
+static BValue io_core_spawn_low_level_pipe_owner_kill_close_stdin_fn(BValue* slots, BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_close(slots[1]),
+      alloc_closure1(3, slots, io_core_spawn_low_level_pipe_owner_kill_close_stdout_fn));
+}
+
+static BValue io_core_spawn_low_level_pipe_owner_kill_write_fn(BValue* slots, BValue stop_result) {
+  io_core_assert_stop_result(
+      stop_result,
+      0,
+      "IO/Core kill before stdio close should return StopSent for the running child");
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_write__bytes(slots[1], io_core_bytes_value(NULL, 0)),
+      alloc_closure1(3, slots, io_core_spawn_low_level_pipe_owner_kill_close_stdin_fn));
+}
+
+static BValue io_core_spawn_low_level_pipe_owner_kill_ready_fn(BValue* slots, BValue ready) {
+  static const uint8_t expected[] = {'r', 'e', 'a', 'd', 'y', '\n'};
+  assert_option_bytes_equal(
+      ready,
+      expected,
+      (int)sizeof(expected),
+      "IO/Core low-level pipe ownership kill child should be running before stop");
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_kill(slots[0]),
+      alloc_closure1(3, slots, io_core_spawn_low_level_pipe_owner_kill_write_fn));
+}
+
+static BValue io_core_spawn_low_level_pipe_owner_kill_fn(BValue spawn_result) {
+  BValue stdin_opt = get_struct_index(spawn_result, 1);
+  BValue stdout_opt = get_struct_index(spawn_result, 2);
+  io_core_assert_some_handle(stdin_opt, "IO/Core spawn stdin pipe should return a handle");
+  io_core_assert_some_handle(stdout_opt, "IO/Core spawn stdout pipe should return a handle");
+  BValue slots[3] = {
+      get_struct_index(spawn_result, 0),
+      get_enum_index(stdin_opt, 0),
+      get_enum_index(stdout_opt, 0)};
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_read__bytes(slots[2], bsts_integer_from_int(6)),
+      alloc_closure1(3, slots, io_core_spawn_low_level_pipe_owner_kill_ready_fn));
+}
+
+static BValue io_core_spawn_low_level_pipe_owner_kill_test_fn(BValue arg) {
+  (void)arg;
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_IO_l_Core_l_spawn(
+          bsts_string_from_utf8_bytes_static(7, "/bin/sh"),
+          io_core_string_list2("-c", "printf 'ready\\n'; sleep 10"),
+          alloc_struct3(io_core_stdio_pipe(), io_core_stdio_pipe(), alloc_enum0(2))),
+      alloc_boxed_pure_fn1(io_core_spawn_low_level_pipe_owner_kill_fn));
 }
 
 static BValue io_core_spawn_existing_handle_invalid_test_fn(BValue arg) {
@@ -3429,6 +3647,14 @@ void test_io_core_libuv_effects() {
       bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_spawn_pipe_stdin_test_fn)),
       "0",
       "IO/Core spawn should support piped stdin");
+  assert_prog_success_int(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_spawn_low_level_pipe_owner_test_fn)),
+      "0",
+      "IO/Core low-level process operations should leave returned stdio pipes caller-owned");
+  assert_prog_success_int(
+      bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_spawn_low_level_pipe_owner_kill_test_fn)),
+      "0",
+      "IO/Core kill should leave returned stdio pipes caller-owned");
   assert_prog_error_variant(
       bsts_Bosatsu_Prog_run_test(alloc_boxed_pure_fn1(io_core_spawn_existing_handle_invalid_test_fn)),
       14,
