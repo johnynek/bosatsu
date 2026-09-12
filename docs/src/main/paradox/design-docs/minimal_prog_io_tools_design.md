@@ -56,12 +56,14 @@ export (
   Process,
   Instant,
   Duration,
+  duration_from_nanos,
   FileKind(),
   FileStat(),
   OpenMode(),
   Stdio(),
   StdioConfig(),
   SpawnResult(),
+  StopResult(),
   stdin,
   stdout,
   stderr,
@@ -78,6 +80,11 @@ export (
   get_env,
   spawn,
   wait,
+  terminate,
+  kill,
+  poll,
+  wait_timeout,
+  with_process,
   now_wall,
   now_mono,
   sleep,
@@ -132,6 +139,10 @@ struct SpawnResult(
   stderr: Option[Handle],
 )
 
+enum StopResult:
+  StopSent
+  AlreadyExited
+
 external stdin: Handle
 external stdout: Handle
 external stderr: Handle
@@ -149,10 +160,76 @@ external def rename(from: Path, to: Path) -> Prog[IOError, Unit]
 external def get_env(name: String) -> Prog[IOError, Option[String]]
 external def spawn(cmd: String, args: List[String], stdio: StdioConfig) -> Prog[IOError, SpawnResult]
 external def wait(p: Process) -> Prog[IOError, Int]
+external def terminate(p: Process) -> Prog[IOError, StopResult]
+external def kill(p: Process) -> Prog[IOError, StopResult]
+external def poll(p: Process) -> Prog[IOError, Option[Int]]
+external def wait_timeout(p: Process, d: Duration) -> Prog[IOError, Option[Int]]
+def with_process[e, a](
+  cmd: String,
+  args: List[String],
+  stdio: StdioConfig,
+  grace: Duration,
+  on_error: IOError -> Prog[e, a],
+  use: SpawnResult -> Prog[e, a],
+) -> Prog[e, a]
+def duration_from_nanos(nanos: Int) -> Duration
 external now_wall: Prog[IOError, Instant]
 external now_mono: Prog[IOError, Duration]
 external def sleep(d: Duration) -> Prog[IOError, Unit]
 ```
+
+## Spawned-process lifecycle
+
+`terminate` and `kill` operate only on the direct child represented by the
+`Process` returned from `spawn`. `terminate` requests the backend's best
+available normal stop and `kill` requests its best available forceful stop;
+neither promise a graceful application shutdown. Each returns `AlreadyExited`
+after final status is recorded, or `StopSent` when it issues a request. These
+are semantic operations: `Bosatsu/IO/Core` exposes neither raw signals nor
+control of descendants, process trees, process groups, or job objects.
+
+`poll` is nonblocking. `wait_timeout` returns `None` when its duration expires
+without consuming the eventual result. `wait`, `poll`, and `wait_timeout`
+observe the same recorded, normalized integer status after exit, so repeated
+`wait` calls return the same value.
+
+At the low level, a `spawn` caller owns every handle returned for
+`Stdio.Pipe` and must close it. Lifecycle operations do not close or drain
+those handles. A handle supplied in `Stdio.UseHandle` remains caller-owned.
+
+For ordinary scoped cleanup, use the Bosatsu-level `with_process` composition
+rather than treating it as an external operation:
+
+```bosatsu
+from Bosatsu/Prog import Prog, raise_error
+from Bosatsu/IO/Error import IOError
+from Bosatsu/IO/Core import (
+  Pipe,
+  StdioConfig,
+  SpawnResult,
+  duration_from_nanos,
+  wait,
+  with_process,
+)
+
+def run_version() -> Prog[IOError, Int]:
+  with_process(
+    "tool",
+    ["--version"],
+    StdioConfig(Pipe, Pipe, Pipe),
+    duration_from_nanos(1000000000),
+    err -> raise_error(err),
+    SpawnResult(proc, ...) -> wait(proc),
+  )
+```
+
+After a successful spawn, `with_process` runs `use`; whether `use` succeeds
+or fails, it closes returned stdin first, observes or stops the direct child,
+waits for the grace duration before escalating to `kill` when necessary,
+attempts a final `wait`, then closes returned stdout and stderr. It closes only
+pipe handles returned in `SpawnResult`, never caller-supplied `UseHandle`
+resources, and does not drain output. Callers needing a custom drain or close
+order should keep using the low-level API.
 
 ## Path representation tradeoff
 1. Chosen shape: native `struct Path(to_String: String)` with hidden constructor, plus `path_sep` and helper APIs.
@@ -199,8 +276,8 @@ external def sleep(d: Duration) -> Prog[IOError, Unit]
    3. Python `pathlib` lexical behavior and flavor differences: <https://docs.python.org/3/library/pathlib.html>
    4. Windows naming constraints: <https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file>
 
-## Process termination tradeoff
-1. This design intentionally omits direct `exit` from `Bosatsu/IO/Core`.
+## Current-program exit tradeoff
+1. This design intentionally omits direct `exit` for the current Bosatsu program from `Bosatsu/IO/Core`; it does support stopping a spawned direct child through the lifecycle API above.
 2. Abrupt process termination from inside arbitrary `Prog` code makes cleanup and structured error handling less safe.
 3. Preferred pattern: return status from `Main` (`Prog[err, Int]`), or encode early termination in program types such as `Prog[IOError, Result[Int, a]]`.
 
@@ -223,9 +300,13 @@ external def sleep(d: Duration) -> Prog[IOError, Unit]
 16. `exit` -> intentionally omitted; use `Main` return codes and typed early-termination (`Result[Int, a]`) instead
 17. `spawn` -> `spawn`
 18. `wait` -> `wait`
-19. `nowWall` -> `now_wall`
-20. `nowMono` -> `now_mono`
-21. `sleep` -> `sleep`
+19. `terminate` -> `terminate`
+20. `kill` -> `kill`
+21. `poll` -> `poll`
+22. `waitTimeout` -> `wait_timeout`
+23. `nowWall` -> `now_wall`
+24. `nowMono` -> `now_mono`
+25. `sleep` -> `sleep`
 
 ## Type mapping in Bosatsu / Predef / core_alpha
 1. `String`, `Int`, `Bool`, `List[a]`, `Option[a]`, `Unit` map to existing `Bosatsu/Predef` builtins.
@@ -246,7 +327,7 @@ external def sleep(d: Duration) -> Prog[IOError, Unit]
 5. `stat.kind` is `Symlink` when path itself is a symlink (`lstat`-style classification).
 6. `remove(recursive = true)` removes directory trees without following symlinks.
 7. `spawn` never invokes a shell; `cmd` + `args` are executed directly.
-8. `wait` is idempotent: once complete, repeated waits return the same exit code.
+8. `wait` is idempotent: once complete, repeated waits return the same exit code; `poll` and `wait_timeout` observe that same recorded normalized integer status, and a timed-out `wait_timeout` does not consume it.
 9. Time precision is nanoseconds.
 10. `now_wall` returns a wall-clock timestamp value (`Instant`) whose intended encoding is UNIX epoch nanoseconds.
 11. `now_mono` returns a monotonic elapsed-time reading (`Duration`) and is not affected by wall-clock changes.
