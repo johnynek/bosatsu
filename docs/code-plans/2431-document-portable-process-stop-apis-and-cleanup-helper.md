@@ -13,7 +13,7 @@
 
 ## Summary
 
-Update the existing user/developer documentation to accurately present the shipped `Bosatsu/IO/Core` direct-child process lifecycle APIs and the managed `with_process` helper. The documentation-only change will describe stable status observation, stop-operation limits, explicit stdio ownership, and a type-correct helper example using a grace `Duration`, while preserving the distinction between stopping a spawned child and exiting the current Bosatsu program.
+Updated the existing user/developer documentation to accurately present the shipped `Bosatsu/IO/Core` direct-child lifecycle APIs and managed `with_process` helper, including stable status observation, stop-operation limits, explicit stdio ownership, and a type-correct grace-`Duration` example. The supervised gate did not reach repository tests: `.mergexo/context/required-tests/a2e61a1c7cb2252c1c689d50beb571afd51fda45/01a0935127457852beaba02f2b8a5753/report.json` records exit 127 after `scripts/test_basic.sh` could not find `sbt`, with empty stdout. The candidate does not change that script, and the completed issue work is documentation-only, so this environment-provisioning failure demonstrates no repository defect and warrants no additional pending step; the gate should be rerun automatically in a worker with `sbt` available.
 
 Plan trajectory: initial steps 1; review revisions 0; review-origin steps 0.
 
