@@ -39,7 +39,8 @@ object EvalCommand {
       )
       Right(Output.RunMainResult(run))
     } else {
-      val actual = rankn.Type.fullyResolvedDocument.document(result.tpe).render(80)
+      val actual =
+        rankn.Type.fullyResolvedDocument.document(result.tpe).render(80)
       Left(
         CliException.Basic(
           show"--run requires a Bosatsu/Prog::Main value, found type: $actual"
@@ -91,7 +92,7 @@ object EvalCommand {
       evalDoc = memoizedEval.map { v =>
         toDocFn(v) match {
           case Right(d) => d
-          case Left(_) =>
+          case Left(_)  =>
             Doc.text(
               "Could not render the value. The value does not appear to be the correct type. This should be impossible. Report this as a bug."
             )

@@ -114,7 +114,8 @@ trait SetOps[A] extends Relatable[A] {
         val next = greedyMissing(unifyUnion(normalizedBranches ::: current))
         val additional = differenceAll(next, current)
         if (additional.isEmpty) current
-        else closeMissing(unifyUnion(current ::: additional), remainingRounds - 1)
+        else
+          closeMissing(unifyUnion(current ::: additional), remainingRounds - 1)
       }
 
     val missing = closeMissing(greedyMissing(normalizedBranches), 8)

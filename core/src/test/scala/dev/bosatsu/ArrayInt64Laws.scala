@@ -13,7 +13,7 @@ class ArrayInt64Laws extends munit.ScalaCheckSuite {
   private def int64Value(value: Value): Long =
     value match {
       case ExternalValue(v: java.lang.Long) => v.longValue
-      case other                            => fail(s"expected Int64 value, found: $other")
+      case other => fail(s"expected Int64 value, found: $other")
     }
 
   private def intValue(value: Value): Int =
@@ -46,7 +46,8 @@ class ArrayInt64Laws extends munit.ScalaCheckSuite {
     if (values.isEmpty) PredefImpl.emptyArray
     else
       ExternalValue(
-        PredefImpl.ArrayValue(values.iterator.map(VFloat(_)).toArray, 0, values.length)
+        PredefImpl
+          .ArrayValue(values.iterator.map(VFloat(_)).toArray, 0, values.length)
       )
 
   private def readIntArray(value: Value): Vector[Int] =
@@ -141,13 +142,24 @@ class ArrayInt64Laws extends munit.ScalaCheckSuite {
 
   test("Float64 Array reductions follow visible left-to-right order") {
     forAll(genFloatSliceCase, genFloatSliceCase) {
-      case ((leftValues, leftStart, leftEnd), (rightValues, rightStart, rightEnd)) =>
+      case (
+            (leftValues, leftStart, leftEnd),
+            (rightValues, rightStart, rightEnd)
+          ) =>
         val leftSlice = leftValues.slice(leftStart, leftEnd)
         val rightSlice = rightValues.slice(rightStart, rightEnd)
         val left =
-          PredefImpl.slice_Array(floatArray(leftValues), int64(leftStart), int64(leftEnd))
+          PredefImpl.slice_Array(
+            floatArray(leftValues),
+            int64(leftStart),
+            int64(leftEnd)
+          )
         val right =
-          PredefImpl.slice_Array(floatArray(rightValues), int64(rightStart), int64(rightEnd))
+          PredefImpl.slice_Array(
+            floatArray(rightValues),
+            int64(rightStart),
+            int64(rightEnd)
+          )
 
         val sumExpected = leftSlice.foldLeft(0.0)(_ + _)
         val sumsqExpected = leftSlice.foldLeft(0.0) { (acc, item) =>
@@ -161,7 +173,10 @@ class ArrayInt64Laws extends munit.ScalaCheckSuite {
 
         assertEquals(floatValue(PredefImpl.sumf_Array(left)), sumExpected)
         assertEquals(floatValue(PredefImpl.sumsqf_Array(left)), sumsqExpected)
-        assertEquals(floatValue(PredefImpl.dotf_Array(left, right)), dotExpected)
+        assertEquals(
+          floatValue(PredefImpl.dotf_Array(left, right)),
+          dotExpected
+        )
         assertEquals(
           floatValue(
             PredefImpl.zip_sumf_Array(
@@ -176,6 +191,6 @@ class ArrayInt64Laws extends munit.ScalaCheckSuite {
           ),
           zipSumExpected
         )
-      }
+    }
   }
 }

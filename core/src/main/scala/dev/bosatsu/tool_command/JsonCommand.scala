@@ -52,7 +52,11 @@ object JsonCommand {
         }
       }
 
-    def outputFor(json: Json, yamlOut: Boolean, outputOpt: Option[Path]): Output[Path] =
+    def outputFor(
+        json: Json,
+        yamlOut: Boolean,
+        outputOpt: Option[Path]
+    ): Output[Path] =
       if (yamlOut) Output.Basic(Json.toYamlDoc(json), outputOpt)
       else Output.JsonOutput(json, outputOpt)
 
@@ -67,7 +71,8 @@ object JsonCommand {
         Opts
           .flag(
             "yaml",
-            help = "emit YAML output; --json_input and --json_string remain JSON-only"
+            help =
+              "emit YAML output; --json_input and --json_string remain JSON-only"
           )
           .orFalse,
         commonOpts.mainIdentifierOpt,
@@ -245,15 +250,25 @@ object JsonCommand {
                                 items
                                   .traverse(applyFnToArgArray)
                                   .map { out =>
-                                    outputFor(Json.JArray(out), yamlOut, outputOpt)
+                                    outputFor(
+                                      Json.JArray(out),
+                                      yamlOut,
+                                      outputOpt
+                                    )
                                   }
                               case obj @ Json.JObject(_) =>
                                 obj.keys
                                   .traverse { key =>
-                                    applyFnToArgArray(obj.toMap(key)).map(key -> _)
+                                    applyFnToArgArray(obj.toMap(key)).map(
+                                      key -> _
+                                    )
                                   }
                                   .map { out =>
-                                    outputFor(Json.JObject(out), yamlOut, outputOpt)
+                                    outputFor(
+                                      Json.JObject(out),
+                                      yamlOut,
+                                      outputOpt
+                                    )
                                   }
                               case other =>
                                 moduleIOMonad.raiseError(
@@ -269,7 +284,7 @@ object JsonCommand {
                                 show"unexpected value error: $valueError"
                               )
                             )
-                        // $COVERAGE-ON$
+                          // $COVERAGE-ON$
                         }
                     }
                 }
@@ -283,14 +298,16 @@ object JsonCommand {
       Opts
         .option[Path](
           "json_input",
-          help = "json input path (JSON only; --yaml changes output format only)"
+          help =
+            "json input path (JSON only; --yaml changes output format only)"
         )
         .map(JsonInput.FromPath(_))
         .orElse(
           Opts
             .option[String](
               "json_string",
-              help = "json string argument (JSON only; --yaml changes output format only)"
+              help =
+                "json string argument (JSON only; --yaml changes output format only)"
             )
             .map(JsonInput.FromString(_))
         )

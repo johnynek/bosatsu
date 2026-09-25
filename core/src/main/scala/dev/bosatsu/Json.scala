@@ -24,7 +24,7 @@ object Json {
   private inline def summonLabels[T <: Tuple]: List[String] =
     inline erasedValue[T] match {
       case _: EmptyTuple => Nil
-      case _: (t *: ts) =>
+      case _: (t *: ts)  =>
         constValue[t].asInstanceOf[String] :: summonLabels[ts]
     }
 
@@ -70,7 +70,7 @@ object Json {
         case '\n' => sb.append("\\n")
         case '\r' => sb.append("\\r")
         case '\t' => sb.append("\\t")
-        case _ =>
+        case _    =>
           if (needsYamlUnicodeEscape(c)) {
             sb.append("\\u")
             appendHex4(sb, c)
@@ -101,7 +101,7 @@ object Json {
 
   private def hasNestedYamlContent(j: Json): Boolean =
     j match {
-      case JArray(items) => items.nonEmpty
+      case JArray(items)  => items.nonEmpty
       case JObject(items) =>
         items.nonEmpty
       case _ => false
@@ -133,7 +133,11 @@ object Json {
         else Doc.intercalate(Doc.line, toVector.map(yamlItemDoc))
       case jobj @ JObject(items) =>
         if (items.isEmpty) emptyDict
-        else Doc.intercalate(Doc.line, jobj.keys.map(k => yamlFieldDoc(k, jobj.toMap(k))))
+        else
+          Doc.intercalate(
+            Doc.line,
+            jobj.keys.map(k => yamlFieldDoc(k, jobj.toMap(k)))
+          )
     }
 
   def renderYaml(j: Json): String =
@@ -204,13 +208,13 @@ object Json {
     val toDoc = text(render)
   }
 
-  private sealed trait RenderFrame
-  private final case class ArrayFrame(
+  sealed private trait RenderFrame
+  final private case class ArrayFrame(
       items: Vector[Json],
       nextIndex: Int,
       indent: Int
   ) extends RenderFrame
-  private final case class ObjectFrame(
+  final private case class ObjectFrame(
       keys: Vector[String],
       values: Map[String, Json],
       nextIndex: Int,
@@ -268,7 +272,8 @@ object Json {
                 out += Doc.char('[')
                 out += Doc.hardLine
                 out += indentDoc(indent + 2)
-                stack = ArrayFrame(items, nextIndex = 1, indent = indent) :: stack
+                stack =
+                  ArrayFrame(items, nextIndex = 1, indent = indent) :: stack
                 current = Some((items(0), indent + 2))
               }
             case obj @ JObject(items) =>
@@ -281,8 +286,12 @@ object Json {
                 out += indentDoc(indent + 2)
                 out += quotedDoc(keys(0))
                 out += Doc.text(": ")
-                stack =
-                  ObjectFrame(keys, values, nextIndex = 1, indent = indent) :: stack
+                stack = ObjectFrame(
+                  keys,
+                  values,
+                  nextIndex = 1,
+                  indent = indent
+                ) :: stack
                 current = Some((values(keys(0)), indent + 2))
               }
           }
@@ -565,8 +574,10 @@ object Json {
         : List[AnyProductFieldReader] =
       inline erasedValue[T] match {
         case _: EmptyTuple => Nil
-        case _: (t *: ts) =>
-          new LiftedProductFieldReader[t](() => summonInline[ProductFieldReader[t]]) ::
+        case _: (t *: ts)  =>
+          new LiftedProductFieldReader[t](() =>
+            summonInline[ProductFieldReader[t]]
+          ) ::
             summonProductFieldReaders[ts]
       }
 
@@ -618,15 +629,16 @@ object Json {
       ): Either[(String, Json, Path), Option[JObject]] = {
         val path = from.path.key(key)
         from.j.getOrNull(key) match {
-          case JNull                              => Right(None)
-          case obj: JObject if obj.keys.isEmpty   => Right(None)
-          case obj: JObject                       => Right(Some(obj))
-          case other                              => Left(("expected to find Json.JObject", other, path))
+          case JNull                            => Right(None)
+          case obj: JObject if obj.keys.isEmpty => Right(None)
+          case obj: JObject                     => Right(Some(obj))
+          case other => Left(("expected to find Json.JObject", other, path))
         }
       }
     }
 
-    given optionListFieldReader[A: Reader]: ProductFieldReader[Option[List[A]]] with {
+    given optionListFieldReader[A: Reader]: ProductFieldReader[Option[List[A]]]
+    with {
       def read(
           from: FromObj,
           key: String
@@ -717,7 +729,10 @@ object Json {
     implicit def nullableReader[A: Reader]: Reader[Nullable[A]] =
       new Reader[Nullable[A]] {
         val describe = s"Nullable[${Reader[A].describe}]"
-        def read(path: Path, j: Json): Either[(String, Json, Path), Nullable[A]] =
+        def read(
+            path: Path,
+            j: Json
+        ): Either[(String, Json, Path), Nullable[A]] =
           j match {
             case JNull => Right(Nullable.empty)
             case other => Reader[A].read(path, other).map(Nullable(_))
@@ -734,7 +749,7 @@ object Json {
                 case Right(value) => Right(value)
                 case Left(value)  =>
                   Left((show"string parser error: $value", j, path))
-                }
+              }
             case _ => Left((s"expected to find $describe", j, path))
           }
       }
@@ -788,7 +803,10 @@ object Json {
         var labels = fieldLabels
         var writers = fieldWriters
         while (writers.nonEmpty) {
-          builder ++= writers.head.fields(labels.head, product.productElement(idx))
+          builder ++= writers.head.fields(
+            labels.head,
+            product.productElement(idx)
+          )
           idx += 1
           labels = labels.tail
           writers = writers.tail
@@ -802,8 +820,10 @@ object Json {
         : List[AnyProductFieldWriter] =
       inline erasedValue[T] match {
         case _: EmptyTuple => Nil
-        case _: (t *: ts) =>
-          new LiftedProductFieldWriter[t](() => summonInline[ProductFieldWriter[t]]) ::
+        case _: (t *: ts)  =>
+          new LiftedProductFieldWriter[t](() =>
+            summonInline[ProductFieldWriter[t]]
+          ) ::
             summonProductFieldWriters[ts]
       }
 
@@ -836,7 +856,8 @@ object Json {
         }
     }
 
-    given optionListFieldWriter[A: Writer]: ProductFieldWriter[Option[List[A]]] with {
+    given optionListFieldWriter[A: Writer]: ProductFieldWriter[Option[List[A]]]
+    with {
       def fields(name: String, value: Option[List[A]]): List[(String, Json)] =
         value.filter(_.nonEmpty) match {
           case Some(items) => (name -> write(items)) :: Nil
@@ -869,7 +890,9 @@ object Json {
         value.fold[Json](JNull)(write(_))
       }
 
-    inline given derived[A <: Product](using mirror: Mirror.ProductOf[A]): Writer[A] =
+    inline given derived[A <: Product](using
+        mirror: Mirror.ProductOf[A]
+    ): Writer[A] =
       new DerivedProductWriter[A](
         summonLabels[mirror.MirroredElemLabels],
         summonProductFieldWriters[mirror.MirroredElemTypes]

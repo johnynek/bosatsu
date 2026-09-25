@@ -54,7 +54,10 @@ class JsonJawnTest extends munit.ScalaCheckSuite {
     assertEquals(Json.renderYaml(Json.JString("workflow_job")), "workflow_job")
 
     List("true", "false", "null", "123", "1.5", "[]", "{}").foreach { value =>
-      assertEquals(Json.renderYaml(Json.JString(value)), Json.JString(value).render)
+      assertEquals(
+        Json.renderYaml(Json.JString(value)),
+        Json.JString(value).render
+      )
     }
 
     assertEquals(
@@ -64,7 +67,10 @@ class JsonJawnTest extends munit.ScalaCheckSuite {
 
     List("yes", "Yes", "NO", "on", "Off", "True", "FALSE", "Null").foreach {
       value =>
-      assertEquals(Json.renderYaml(Json.JString(value)), Json.JString(value).render)
+        assertEquals(
+          Json.renderYaml(Json.JString(value)),
+          Json.JString(value).render
+        )
     }
   }
 }
