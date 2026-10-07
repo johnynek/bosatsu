@@ -1,6 +1,9 @@
 package Bosatsu/Dict
 
-from Bosatsu/List import eq_List
+from Bosatsu/List import eq_List, for_all
+from Bosatsu/Rand import (Rand, sequence_Rand, flat_map_Rand, prod_Rand,
+  int_range as int_range_Rand)
+from Bosatsu/Testing/Properties import forall_Prop, suite_Prop, run_Prop
 
 export eq_Dict, eq_Pair
 
@@ -10,3 +13,63 @@ def eq_Pair(eq_a, eq_b)((l1, l2), (r1, r2)) -> Bool:
 
 def eq_Dict(eq_key, eq_value)(left, right) -> Bool:
   eq_List(eq_Pair(eq_key, eq_value))(items(left), items(right))
+
+########
+## TestSuites below
+########
+
+def samp(r, fn): flat_map_Rand(r, fn)
+
+rand_int = int_range_Rand(128)
+
+# long enough lists that every AVL rotation is exercised
+rand_List_Int: Rand[List[Int]] = (
+  len <- int_range_Rand(100).samp()
+  lst = replicate_List(rand_int, len)
+  sequence_Rand(lst)
+)
+
+def from_keys(keys: List[Int]) -> Dict[Int, Int]:
+  keys.foldl_List(empty_Dict(Order(cmp_Int)), (d, k) -> d.add_key(k, k))
+
+def is_some(o: Option[a]) -> Bool:
+  o matches Some(_)
+
+def strictly_increasing(keys: List[Int]) -> Bool:
+  def above(prev: Int, keys: List[Int]) -> Bool:
+    loop keys:
+      case []: True
+      case [h, *t]: above(h, t) if cmp_Int(prev, h) matches LT else False
+  match keys:
+    case []: True
+    case [h, *t]: above(h, t)
+
+def show_keys(keys: List[Int]) -> String:
+  keys.foldl_List("", (acc, k) -> "${acc} ${int_to_String(k)}")
+
+dict_laws = suite_Prop(
+  "dict properties",
+  [
+    forall_Prop(rand_List_Int, "every added key can be found", keys -> (
+      d = from_keys(keys)
+      Assertion(keys.for_all(k -> d.get_key(k).is_some()), "added:${show_keys(keys)}")
+    )),
+    forall_Prop(rand_List_Int, "items are in strictly increasing key order", keys -> (
+      d = from_keys(keys)
+      Assertion(d.items().map_List(((k, _)) -> k).strictly_increasing(), "added:${show_keys(keys)}")
+    )),
+    forall_Prop(prod_Rand(rand_int, rand_List_Int), "a removed key is gone", ((k, keys)) -> (
+      d = from_keys([k, *keys]).remove_key(k)
+      Assertion(d.get_key(k) matches None, "removed ${int_to_String(k)} from:${show_keys([k, *keys])}")
+    )),
+    forall_Prop(prod_Rand(rand_int, rand_List_Int), "removing a key keeps the others", ((k, keys)) -> (
+      d = from_keys(keys).remove_key(k)
+      kept = keys.for_all(k1 -> True if eq_Int(k1, k) else d.get_key(k1).is_some())
+      Assertion(kept, "removed ${int_to_String(k)} from:${show_keys(keys)}")
+    )),
+  ]
+)
+
+tests = TestSuite("dict tests", [
+  run_Prop(dict_laws, 100, 4242),
+])
