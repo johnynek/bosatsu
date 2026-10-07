@@ -9,7 +9,6 @@ This section is generated from `test_workspace` using:
 
 @@@ index
 * [Ackermann](Ackermann.md)
-* [AvlTree](AvlTree.md)
 * [Bar](Bar.md)
 * [BazelDepsApi](BazelDepsApi.md)
 * [Bo/Test](Bo/Test.md)
@@ -86,7 +85,6 @@ This section is generated from `test_workspace` using:
 ## Browse all generated docs
 
 * [Ackermann](Ackermann.html)
-* [AvlTree](AvlTree.html)
 * [Bar](Bar.html)
 * [BazelDepsApi](BazelDepsApi.html)
 * [Bo/Test](Bo/Test.html)

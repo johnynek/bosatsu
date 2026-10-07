@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-a6d51e4e*
+0.0.0+1-f1c780f4*
 </div>
 </div>
 <div class="nav-toc">
@@ -80,7 +80,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-a6d51e4e*
+0.0.0+1-f1c780f4*
 </div>
 </div>
 <div class="nav-toc">
@@ -224,14 +224,14 @@ def consume(s: Stream[a]) -&gt; Stream[a]:
 <p>Recur on tree subtrees (<code>left</code>, <code>right</code>) instead of list tails.</p>
 <p>This style is especially useful when the tree-like structure is kept balanced. In that case, recursive depth is logarithmic in input size (<code>O(log n)</code>), so deep recursion risk is much lower. Many balanced tree-shaped data structures can use this pattern.</p>
 <p>This is again structural/well-founded recursion, with the tree structure supplying the decrease relation.</p>
-<p>From <code>AvlTree.bosatsu</code>:</p>
-<pre class="prettyprint"><code class="language-bosatsu">def fold_left_Tree(t: Tree[a], left_v: b, fn: (b, a) -&gt; b) -&gt; b:
+<p>From <code>Predef</code> (the balanced tree behind <code>Dict</code>):</p>
+<pre class="prettyprint"><code class="language-bosatsu">def fold_right_Tree(t: Tree[a], right_v: b, fn: (a, b) -&gt; b) -&gt; b:
   recur t:
-    case Empty: left_v
+    case Empty: right_v
     case Branch { key, left, right, ... }:
-      v1 = fold_left_Tree(left, left_v, fn)
-      v2 = fn(v1, key)
-      fold_left_Tree(right, v2, fn)
+      v1 = fold_right_Tree(right, right_v, fn)
+      v2 = fn(key, v1)
+      fold_right_Tree(left, v2, fn)
 </code></pre>
 <p>Also used in <code>TreeList.bosatsu</code> (<code>fold_Tree</code>).</p>
 <h2><a href="#pattern-4-fuel-step-indexed-recursion-on-nat" name="pattern-4-fuel-step-indexed-recursion-on-nat" class="anchor"><span class="anchor-link"></span></a>Pattern 4: Fuel / Step-Indexed Recursion On <code>Nat</code></h2>
@@ -456,7 +456,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-a6d51e4e-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-f1c780f4-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>
