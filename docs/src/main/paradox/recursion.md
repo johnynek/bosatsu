@@ -197,16 +197,16 @@ this pattern.
 This is again structural/well-founded recursion, with the tree structure
 supplying the decrease relation.
 
-From `AvlTree.bosatsu`:
+From `Predef` (the balanced tree behind `Dict`):
 
 ```bosatsu
-def fold_left_Tree(t: Tree[a], left_v: b, fn: (b, a) -> b) -> b:
+def fold_right_Tree(t: Tree[a], right_v: b, fn: (a, b) -> b) -> b:
   recur t:
-    case Empty: left_v
+    case Empty: right_v
     case Branch { key, left, right, ... }:
-      v1 = fold_left_Tree(left, left_v, fn)
-      v2 = fn(v1, key)
-      fold_left_Tree(right, v2, fn)
+      v1 = fold_right_Tree(right, right_v, fn)
+      v2 = fn(key, v1)
+      fold_right_Tree(left, v2, fn)
 ```
 
 Also used in `TreeList.bosatsu` (`fold_Tree`).
