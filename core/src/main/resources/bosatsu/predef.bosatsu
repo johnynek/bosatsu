@@ -485,7 +485,7 @@ def balance(t: Tree[a]) -> Tree[a]:
                               case RightRo:
                                   match right_left:
                                       case Empty: trace("unreachable", t)
-                                      case Branch { key: right_left_key, right: right_left_left, left: right_left_right, ... }:
+                                      case Branch { key: right_left_key, left: right_left_left, right: right_left_right, ... }:
                                           branch_s(
                                             right_left_key,
                                             branch_s(top_item, left, right_left_left),
@@ -523,6 +523,19 @@ def contains(ord: Order[a], tree: Tree[a], item: a) -> Option[a]:
 
     loop(tree)
 
+def min_item(tree: Tree[a]) -> Option[a]:
+    loop tree:
+        case Empty: None
+        case Branch { key, left: Empty, ... }: Some(key)
+        case Branch { left, ... }: min_item(left)
+
+def remove_min(tree: Tree[a]) -> Tree[a]:
+    recur tree:
+        case Empty: Empty
+        case Branch { left: Empty, right, ... }: right
+        case Branch { size, key, left, right, ... }:
+            branch(size.sub(1), key, remove_min(left), right).balance()
+
 def remove_item(ord: Order[a], tree: Tree[a], item: a) -> Tree[a]:
     Order(fn) = ord
 
@@ -532,11 +545,11 @@ def remove_item(ord: Order[a], tree: Tree[a], item: a) -> Tree[a]:
             case Branch { size, key, left, right, ... }:
                 match fn(item, key):
                     case EQ:
-                        match right:
-                            case Empty: left
-                            case _:
-                                right = loop(right)
-                                branch(size.sub(1), key, left, right).balance()
+                        # replace this node with the smallest item on the right
+                        match min_item(right):
+                            case None: left
+                            case Some(next):
+                                branch(size.sub(1), next, left, remove_min(right)).balance()
                     case LT:
                         left = loop(left)
                         branch(size.sub(1), key, left, right).balance()
