@@ -22,7 +22,7 @@ def samp(r, fn): flat_map_Rand(r, fn)
 
 rand_int = int_range_Rand(128)
 
-# long enough lists that every AVL rotation is exercised
+# lists long enough to need double rotations in the tree
 rand_List_Int: Rand[List[Int]] = (
   len <- int_range_Rand(100).samp()
   lst = replicate_List(rand_int, len)
@@ -31,9 +31,6 @@ rand_List_Int: Rand[List[Int]] = (
 
 def from_keys(keys: List[Int]) -> Dict[Int, Int]:
   keys.foldl_List(empty_Dict(Order(cmp_Int)), (d, k) -> d.add_key(k, k))
-
-def is_some(o: Option[a]) -> Bool:
-  o matches Some(_)
 
 def strictly_increasing(keys: List[Int]) -> Bool:
   def above(prev: Int, keys: List[Int]) -> Bool:
@@ -52,7 +49,7 @@ dict_laws = suite_Prop(
   [
     forall_Prop(rand_List_Int, "every added key can be found", keys -> (
       d = from_keys(keys)
-      Assertion(keys.for_all(k -> d.get_key(k).is_some()), "added:${show_keys(keys)}")
+      Assertion(keys.for_all(k -> (d.get_key(k) matches Some(_))), "added:${show_keys(keys)}")
     )),
     forall_Prop(rand_List_Int, "items are in strictly increasing key order", keys -> (
       d = from_keys(keys)
@@ -64,7 +61,7 @@ dict_laws = suite_Prop(
     )),
     forall_Prop(prod_Rand(rand_int, rand_List_Int), "removing a key keeps the others", ((k, keys)) -> (
       d = from_keys(keys).remove_key(k)
-      kept = keys.for_all(k1 -> True if eq_Int(k1, k) else d.get_key(k1).is_some())
+      kept = keys.for_all(k1 -> True if eq_Int(k1, k) else (d.get_key(k1) matches Some(_)))
       Assertion(kept, "removed ${int_to_String(k)} from:${show_keys(keys)}")
     )),
   ]
