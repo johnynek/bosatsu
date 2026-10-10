@@ -123,7 +123,7 @@ object ShowSelection {
   private def typeConstsOf(types: List[Type]): Set[TypeConst] =
     Type.allConsts(types).iterator.map(_.tpe.toDefined).toSet
 
-  private final case class Analysis(
+  final private case class Analysis(
       keepValues: Set[Bindable],
       keepLocalTypes: Set[TypeName],
       neededGlobals: Set[(PackageName, Identifier)],
@@ -145,7 +145,9 @@ object ShowSelection {
     def localTypeFromConst(tc: TypeConst): Option[TypeName] =
       if (tc.packageName == packName) Some(tc.name) else None
 
-    def localTypeFromConstructor(cons: Identifier.Constructor): Option[TypeName] =
+    def localTypeFromConstructor(
+        cons: Identifier.Constructor
+    ): Option[TypeName] =
       prog.types.getConstructor(packName, cons).map(_._1.name)
 
     @annotation.tailrec
@@ -169,7 +171,8 @@ object ShowSelection {
           )
         case value :: valueTail =>
           val maybeExpr = letsByName.get(value)
-          val globals = maybeExpr.fold(Set.empty[(PackageName, Identifier)])(_.globals)
+          val globals =
+            maybeExpr.fold(Set.empty[(PackageName, Identifier)])(_.globals)
           val localValueDeps = globals.iterator.flatMap {
             case (`packName`, ident) =>
               ident.toBindable.filter { bindable =>
@@ -196,8 +199,7 @@ object ShowSelection {
             valueTypeConsts.iterator.flatMap(localTypeFromConst).toSet
 
           loop(
-            pendingValues =
-              localValueDeps.toList ::: valueTail,
+            pendingValues = localValueDeps.toList ::: valueTail,
             pendingTypes =
               (localTypeDepsFromGlobals ++ localTypeDepsFromTypes).toList ::: pendingTypes,
             keepValues = keepValues + value,
@@ -308,7 +310,11 @@ object ShowSelection {
         externalDefs = prog.externalDefs.filter(keepValues)
       )
 
-    pack.copy(imports = imports1, exports = exports1, program = (program1, importMap1))
+    pack.copy(
+      imports = imports1,
+      exports = exports1,
+      program = (program1, importMap1)
+    )
   }
 
   private def externalsOnlyPackage(

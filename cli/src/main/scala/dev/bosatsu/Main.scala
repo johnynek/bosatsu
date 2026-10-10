@@ -12,7 +12,7 @@ object Main extends IOApp {
 
   def run(args: List[String]): IO[ExitCode] =
     PathModule.runAndReport(args) match {
-      case Right(io)  =>
+      case Right(io) =>
         io.map(fromToolExit)
       case Left(help) =>
         IO.blocking {

@@ -46,7 +46,9 @@ tests = TestSuite(\"repro\", [$assertions])
   }
 
   Platform.onJvm(
-    test("source conversion should not stack overflow on a moderately large list literal") {
+    test(
+      "source conversion should not stack overflow on a moderately large list literal"
+    ) {
       val defCount = sys.props.get("repro.defCount").fold(0)(_.toInt)
       val assertionCount =
         sys.props.get("repro.assertionCount").fold(200)(_.toInt)
@@ -72,7 +74,7 @@ tests = TestSuite(\"repro\", [$assertions])
           )
         case Some(other) =>
           throw other
-        case None        =>
+        case None =>
           ()
       }
     }

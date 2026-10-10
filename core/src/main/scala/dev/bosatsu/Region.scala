@@ -8,15 +8,14 @@ object Region extends RegionLowPriority {
   // Use an opaque type to pack two Int values into a Long
   opaque type Tpe = Long
   extension (tpe: Tpe) {
-    inline def start: Int = {
+    inline def start: Int =
       (tpe >>> 32).toInt
-    }
 
     inline def end: Int = tpe.toInt
 
     inline def eqv(that: Tpe): Boolean = tpe == that
 
-    inline def +(that:  Tpe): Tpe =
+    inline def +(that: Tpe): Tpe =
       Region(tpe.start, that.end)
 
     def -(that: Tpe): Tpe =

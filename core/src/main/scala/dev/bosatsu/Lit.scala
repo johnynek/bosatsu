@@ -253,10 +253,10 @@ object Lit {
           case (a: Float64, b: Float64)            => compareFloat64(a, b)
           case (_: Float64, Str(_) | Chr(_))       => -1
           case (Chr(_), Integer(_) | (_: Float64)) => 1
-          case (Chr(a), Chr(b))                    => StringUtil.codePointCompare(a, b)
-          case (Chr(_), Str(_))                    => -1
+          case (Chr(a), Chr(b)) => StringUtil.codePointCompare(a, b)
+          case (Chr(_), Str(_)) => -1
           case (Str(_), Integer(_) | (_: Float64) | Chr(_)) => 1
-          case (Str(a), Str(b))                             => StringUtil.codePointCompare(a, b)
+          case (Str(a), Str(b)) => StringUtil.codePointCompare(a, b)
         }
     }
 

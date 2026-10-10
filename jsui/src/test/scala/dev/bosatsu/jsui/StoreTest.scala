@@ -21,7 +21,9 @@ class StoreTest extends munit.FunSuite {
 
   private val webDemoFiles = Map(webDemoPath -> webDemoSource)
 
-  private def runWith(args: List[String]): Either[Throwable, Output[Chain[String]]] =
+  private def runWith(
+      args: List[String]
+  ): Either[Throwable, Output[Chain[String]]] =
     Store.memoryMain.runWith(files = webDemoFiles)(args)
 
   test("legacy root test argv fails in library-mode parser") {
@@ -63,7 +65,7 @@ class StoreTest extends munit.FunSuite {
   test("cmdHandler eval args return EvaluationResult") {
     assertCommandOutput(Action.Cmd.Eval) {
       case Output.EvaluationResult(_, _, _) => ()
-      case other =>
+      case other                            =>
         fail(s"expected Output.EvaluationResult, got: $other")
     }
   }
@@ -71,7 +73,7 @@ class StoreTest extends munit.FunSuite {
   test("cmdHandler test args return TestOutput") {
     assertCommandOutput(Action.Cmd.Test) {
       case _: Output.TestOutput => ()
-      case other =>
+      case other                =>
         fail(s"expected Output.TestOutput, got: $other")
     }
   }
@@ -79,7 +81,7 @@ class StoreTest extends munit.FunSuite {
   test("cmdHandler show args return ShowOutput") {
     assertCommandOutput(Action.Cmd.Show) {
       case Output.ShowOutput(_, _) => ()
-      case other =>
+      case other                   =>
         fail(s"expected Output.ShowOutput, got: $other")
     }
   }
@@ -95,7 +97,7 @@ class StoreTest extends munit.FunSuite {
     val (args, _) = Store.cmdHandler(Action.Cmd.Eval)
     Store.memoryMain.runWith(files = Map(webDemoPath -> source))(args) match {
       case Right(Output.EvaluationResult(_, _, _)) => ()
-      case Right(other) =>
+      case Right(other)                            =>
         fail(s"expected Output.EvaluationResult, got: $other")
       case Left(err) =>
         fail(Option(err.getMessage).getOrElse(err.toString))
@@ -110,7 +112,9 @@ class StoreTest extends munit.FunSuite {
         |""".stripMargin
 
     val (args, _) = Store.cmdHandler(Action.Cmd.Eval)
-    Store.memoryMain.runWith(files = Map(webDemoPath -> reproSource))(args) match {
+    Store.memoryMain.runWith(files = Map(webDemoPath -> reproSource))(
+      args
+    ) match {
       case Left(err) =>
         val msg = Option(err.getMessage).getOrElse(err.toString)
         assert(msg.contains("in file: root/WebDemo"), msg)

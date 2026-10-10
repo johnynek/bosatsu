@@ -56,7 +56,8 @@ class InSetCompilerTest extends munit.ScalaCheckSuite {
         mask += 1
       }
 
-      val finite = (0 until stateCount).filter(mask => costs(mask) < inf).toArray
+      val finite =
+        (0 until stateCount).filter(mask => costs(mask) < inf).toArray
       var i = 0
       while (i < finite.length) {
         val left = finite(i)

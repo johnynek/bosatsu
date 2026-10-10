@@ -52,7 +52,7 @@ class CompileCacheTest extends FunSuite {
         packMap.toMap.get(parsed.name).getOrElse {
           fail(s"missing compiled package ${parsed.name}")
         }
-      case None          =>
+      case None =>
         fail(s"typecheck failed: $checked")
     }
   }
@@ -104,9 +104,11 @@ class CompileCacheTest extends FunSuite {
   }
 
   private def mainExpr(pack: Package.Compiled): TypedExpr[Region] =
-    pack.lets.collectFirst {
-      case (Identifier.Name("main"), _, expr) => expr
-    }.getOrElse(fail(s"missing main in ${pack.name}"))
+    pack.lets
+      .collectFirst { case (Identifier.Name("main"), _, expr) =>
+        expr
+      }
+      .getOrElse(fail(s"missing main in ${pack.name}"))
 
   @annotation.tailrec
   private def stripWrappers(
@@ -185,11 +187,19 @@ class CompileCacheTest extends FunSuite {
     val consumer = parsePackage(consumerSource)
     val depIfaceV1 =
       Package.interfaceOf(
-        compilePackage(depSourceV1, depIfaces = Nil, compileOptions = CompileOptions.Default)
+        compilePackage(
+          depSourceV1,
+          depIfaces = Nil,
+          compileOptions = CompileOptions.Default
+        )
       )
     val depIfaceV2 =
       Package.interfaceOf(
-        compilePackage(depSourceV2, depIfaces = Nil, compileOptions = CompileOptions.Default)
+        compilePackage(
+          depSourceV2,
+          depIfaces = Nil,
+          compileOptions = CompileOptions.Default
+        )
       )
 
     val keyV1 =
@@ -205,7 +215,10 @@ class CompileCacheTest extends FunSuite {
         compileOptions = CompileOptions.Default
       )
 
-    assertNotEquals(CompileCache.keyHashHex(keyV1), CompileCache.keyHashHex(keyV2))
+    assertNotEquals(
+      CompileCache.keyHashHex(keyV1),
+      CompileCache.keyHashHex(keyV2)
+    )
   }
 
   test("compile mode and optimize flag invalidate the compile key") {
@@ -216,7 +229,11 @@ class CompileCacheTest extends FunSuite {
     val parsed = parsePackage(source)
 
     val emitKey =
-      compileKey(parsed, deps = SortedMap.empty, compileOptions = CompileOptions.Default)
+      compileKey(
+        parsed,
+        deps = SortedMap.empty,
+        compileOptions = CompileOptions.Default
+      )
     val typecheckKey =
       compileKey(
         parsed,
@@ -273,7 +290,11 @@ class CompileCacheTest extends FunSuite {
     assertNotEquals(
       CompileCache.keyHashHex(noNormalize),
       CompileCache.keyHashHex(
-        compileKey(parsed, deps = SortedMap.empty, compileOptions = CompileOptions.Default)
+        compileKey(
+          parsed,
+          deps = SortedMap.empty,
+          compileOptions = CompileOptions.Default
+        )
       )
     )
   }
@@ -293,7 +314,11 @@ class CompileCacheTest extends FunSuite {
     val consumer = parsePackage(consumerSource)
     val depIface =
       Package.interfaceOf(
-        compilePackage(depSource, depIfaces = Nil, compileOptions = CompileOptions.Default)
+        compilePackage(
+          depSource,
+          depIfaces = Nil,
+          compileOptions = CompileOptions.Default
+        )
       )
     val isolatedCache = CompileCache.filesystem(cacheDir, platform)
     val directKey =
@@ -343,9 +368,17 @@ class CompileCacheTest extends FunSuite {
         |""".stripMargin
     val parsed = parsePackage(source)
     val compiled =
-      compilePackage(source, depIfaces = Nil, compileOptions = CompileOptions.Default)
+      compilePackage(
+        source,
+        depIfaces = Nil,
+        compileOptions = CompileOptions.Default
+      )
     val key =
-      compileKey(parsed, deps = SortedMap.empty, compileOptions = CompileOptions.Default)
+      compileKey(
+        parsed,
+        deps = SortedMap.empty,
+        compileOptions = CompileOptions.Default
+      )
 
     val (stateWithCache, _) =
       runF(cache.put(key, compiled), state = MemoryMain.State.empty)
@@ -380,7 +413,11 @@ class CompileCacheTest extends FunSuite {
         |""".stripMargin
 
     val depCompiled =
-      compilePackage(depSource, depIfaces = Nil, compileOptions = CompileOptions.Default)
+      compilePackage(
+        depSource,
+        depIfaces = Nil,
+        compileOptions = CompileOptions.Default
+      )
     val depIface = Package.interfaceOf(depCompiled)
     val appParsed = parsePackage(appSource)
     val appCompiled =
@@ -420,9 +457,17 @@ class CompileCacheTest extends FunSuite {
 
     val parsed = parsePackage(source)
     val compiled =
-      compilePackage(source, depIfaces = Nil, compileOptions = CompileOptions.Default)
+      compilePackage(
+        source,
+        depIfaces = Nil,
+        compileOptions = CompileOptions.Default
+      )
     val key =
-      compileKey(parsed, deps = SortedMap.empty, compileOptions = CompileOptions.Default)
+      compileKey(
+        parsed,
+        deps = SortedMap.empty,
+        compileOptions = CompileOptions.Default
+      )
     val (stateWithCache, _) =
       runF(cache.put(key, compiled), state = MemoryMain.State.empty)
     val (_, warmHit) = runF(cache.get(key), state = stateWithCache)
@@ -431,13 +476,17 @@ class CompileCacheTest extends FunSuite {
     def patternRegions(
         pack: Package.Compiled
     ): NonEmptyList[Region] =
-      pack.lets.collectFirst {
-        case (Identifier.Name("select"), _, expr) => expr
-      }.map(stripWrappers).getOrElse(fail(s"missing select in ${pack.name}")) match {
+      pack.lets
+        .collectFirst { case (Identifier.Name("select"), _, expr) =>
+          expr
+        }
+        .map(stripWrappers)
+        .getOrElse(fail(s"missing select in ${pack.name}")) match {
         case TypedExpr.AnnotatedLambda(_, body, _) =>
           stripWrappers(body) match {
-            case TypedExpr.Match(_, branches, _) => branches.map(_.patternRegion)
-            case other                           =>
+            case TypedExpr.Match(_, branches, _) =>
+              branches.map(_.patternRegion)
+            case other =>
               fail(s"expected select body to be a match expression, got $other")
           }
         case other =>
@@ -456,9 +505,17 @@ class CompileCacheTest extends FunSuite {
         |""".stripMargin
     val parsed = parsePackage(source)
     val compiled =
-      compilePackage(source, depIfaces = Nil, compileOptions = CompileOptions.Default)
+      compilePackage(
+        source,
+        depIfaces = Nil,
+        compileOptions = CompileOptions.Default
+      )
     val currentKey =
-      compileKey(parsed, deps = SortedMap.empty, compileOptions = CompileOptions.Default)
+      compileKey(
+        parsed,
+        deps = SortedMap.empty,
+        compileOptions = CompileOptions.Default
+      )
     val oldKey = currentKey.copy(schemaVersion = 1)
     val outputHex = CompileCache.outputHashHex(compiled).getOrElse {
       fail("expected compiled package output hash")

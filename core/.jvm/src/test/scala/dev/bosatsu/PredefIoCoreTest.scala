@@ -15,7 +15,7 @@ class PredefIoCoreTest extends munit.FunSuite {
 
   private def expectRight(result: Either[Value, Value]): Value =
     result match {
-      case Right(v) => v
+      case Right(v)  => v
       case Left(err) =>
         fail(s"expected success, got error: $err")
     }
@@ -23,7 +23,7 @@ class PredefIoCoreTest extends munit.FunSuite {
   private def expectLeft(result: Either[Value, Value]): Value =
     result match {
       case Left(err) => err
-      case Right(v) =>
+      case Right(v)  =>
         fail(s"expected error, got success: $v")
     }
 
@@ -43,7 +43,7 @@ class PredefIoCoreTest extends munit.FunSuite {
 
   private def asPath(pathValue: Value): JPath =
     pathValue match {
-      case Str(path) => Paths.get(path)
+      case Str(path)                               => Paths.get(path)
       case p: ProductValue if p.values.length == 1 =>
         p.get(0) match {
           case Str(path) => Paths.get(path)
@@ -73,7 +73,9 @@ class PredefIoCoreTest extends munit.FunSuite {
       } finally walk.close()
     }
 
-  test("prog_core_open_file CreateNew is atomic and returns context-rich errors") {
+  test(
+    "prog_core_open_file CreateNew is atomic and returns context-rich errors"
+  ) {
     val tempDir = Files.createTempDirectory("bosatsu-open-file")
     try {
       val path = tempDir.resolve("lock")
@@ -145,7 +147,9 @@ class PredefIoCoreTest extends munit.FunSuite {
     } finally deleteTree(tempDir)
   }
 
-  test("prog_core_create_temp_file supports default and explicit dirs with rich argument validation") {
+  test(
+    "prog_core_create_temp_file supports default and explicit dirs with rich argument validation"
+  ) {
     val tempDir = Files.createTempDirectory("bosatsu-temp-file")
     var explicitTemp: Option[JPath] = None
     var defaultTemp: Option[JPath] = None
@@ -291,7 +295,9 @@ class PredefIoCoreTest extends munit.FunSuite {
     }
   }
 
-  test("prog_core_create_temp_dir supports default and explicit dirs with rich argument validation") {
+  test(
+    "prog_core_create_temp_dir supports default and explicit dirs with rich argument validation"
+  ) {
     val tempDir = Files.createTempDirectory("bosatsu-temp-dir")
     var explicitTempDir: Option[JPath] = None
     var defaultTempDir: Option[JPath] = None

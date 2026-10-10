@@ -97,20 +97,23 @@ lazy val docs = (project in file("docs"))
           |""".stripMargin
       def rewriteMarkdownLinksToHtml(content: String): String = {
         val linkPattern = raw"\]\(([^)]+)\)".r
-        linkPattern.replaceAllIn(content, m => {
-          val target = m.group(1)
-          val hashIdx = target.indexOf('#')
-          val (path, suffix) =
-            if (hashIdx >= 0) {
-              (target.substring(0, hashIdx), target.substring(hashIdx))
-            } else (target, "")
+        linkPattern.replaceAllIn(
+          content,
+          m => {
+            val target = m.group(1)
+            val hashIdx = target.indexOf('#')
+            val (path, suffix) =
+              if (hashIdx >= 0) {
+                (target.substring(0, hashIdx), target.substring(hashIdx))
+              } else (target, "")
 
-          if (path.endsWith(".md") && !path.contains("://")) {
-            s"](${path.stripSuffix(".md")}.html$suffix)"
-          } else {
-            m.matched
+            if (path.endsWith(".md") && !path.contains("://")) {
+              s"](${path.stripSuffix(".md")}.html$suffix)"
+            } else {
+              m.matched
+            }
           }
-        })
+        )
       }
 
       // Ensure bosatsuj has an up-to-date CLI assembly before generating docs.
@@ -197,7 +200,9 @@ lazy val docs = (project in file("docs"))
         val markdown = IO.read(file)
         IO.write(
           file,
-          disableParadoxSourceMarkdownLink + rewriteMarkdownLinksToHtml(markdown)
+          disableParadoxSourceMarkdownLink + rewriteMarkdownLinksToHtml(
+            markdown
+          )
         )
       }
       IO.write(
@@ -215,7 +220,8 @@ lazy val docs = (project in file("docs"))
       val log = streams.value.log
       val generatedSourceRoot =
         (Compile / sourceDirectory).value / "paradox" / "generated" / "core_alpha"
-      val paradoxSiteRoot = (Compile / target).value / "paradox" / "site" / "main"
+      val paradoxSiteRoot =
+        (Compile / target).value / "paradox" / "site" / "main"
       val generatedSiteRoot = paradoxSiteRoot / "generated" / "core_alpha"
 
       val markdownFiles = (generatedSourceRoot ** "*.md").get

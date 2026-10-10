@@ -25,7 +25,7 @@ object Store {
     // If there is no parseable header, inject a stable package name for tool args.
     Parser.parse(optionalHeaderParser, str) match {
       case Validated.Valid((_, Some(_))) => str
-      case Validated.Valid((_, None)) =>
+      case Validated.Valid((_, None))    =>
         s"package $webDemoPackageName\n\n$str"
       case Validated.Invalid(_) =>
         str

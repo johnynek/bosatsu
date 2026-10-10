@@ -210,7 +210,7 @@ class ClangGenBooleanCodegenTest extends munit.FunSuite {
         assert(fn.contains(s"alloc_enum0($value)"), fn)
         assert(!fn.contains("get_variant_value(__bsts_b_a0)"), fn)
         assert(!fn.contains("get_variant_value(__bsts_b_b0)"), fn)
-      case Expectation.Expr(expr)   =>
+      case Expectation.Expr(expr) =>
         if (checkExactExpr) {
           val expected = s"return alloc_enum0($expr);"
           assert(normalizedFn.contains(expected), fn)
@@ -226,14 +226,26 @@ class ClangGenBooleanCodegenTest extends munit.FunSuite {
 
   test("all 16 binary Boolean truth tables map to optimized C") {
     (0 to 15).foreach { bits =>
-      assertExpectation(s"b$bits", binaryExpectations(bits), checkExactExpr = true)
-      assertExpectation(s"bm$bits", binaryExpectations(bits), checkExactExpr = false)
+      assertExpectation(
+        s"b$bits",
+        binaryExpectations(bits),
+        checkExactExpr = true
+      )
+      assertExpectation(
+        s"bm$bits",
+        binaryExpectations(bits),
+        checkExactExpr = false
+      )
     }
   }
 
   test("all 4 unary Boolean truth tables map to optimized C") {
     (0 to 3).foreach { bits =>
-      assertExpectation(s"u$bits", unaryExpectations(bits), checkExactExpr = true)
+      assertExpectation(
+        s"u$bits",
+        unaryExpectations(bits),
+        checkExactExpr = true
+      )
     }
   }
 }

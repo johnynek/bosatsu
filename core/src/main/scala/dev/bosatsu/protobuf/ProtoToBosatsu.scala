@@ -34,7 +34,7 @@ object ProtoToBosatsu {
       content: String
   )
 
-  private final case class EnumCodecInfo(
+  final private case class EnumCodecInfo(
       packageName: PackageName,
       typeName: String
   ) {
@@ -42,7 +42,7 @@ object ProtoToBosatsu {
     val decodeFnName: String = s"decode_enum_$typeName"
   }
 
-  private final case class MessageCodecInfo(
+  final private case class MessageCodecInfo(
       packageName: PackageName,
       typeName: String
   ) {
@@ -50,12 +50,12 @@ object ProtoToBosatsu {
     val decodeFnName: String = s"decode_$typeName"
   }
 
-  private final case class RenderContext(
+  final private case class RenderContext(
       enumCodecs: Map[(PackageName, String), EnumCodecInfo],
       messageCodecs: Map[(PackageName, String), MessageCodecInfo]
   )
 
-  private final case class TypeDecl(
+  final private case class TypeDecl(
       name: String,
       statement: Statement,
       deps: Set[String]
@@ -81,7 +81,10 @@ object ProtoToBosatsu {
       .flatMap(_.messages)
       .map { messageModel =>
         val key = (messageModel.packageName, messageModel.bosatsuName)
-        key -> MessageCodecInfo(messageModel.packageName, messageModel.bosatsuName)
+        key -> MessageCodecInfo(
+          messageModel.packageName,
+          messageModel.bosatsuName
+        )
       }
       .toMap
 
@@ -126,12 +129,16 @@ object ProtoToBosatsu {
               TypeDecl(
                 name = oneofModel.bosatsuTypeName,
                 statement = renderOneofStatement(oneofModel),
-                deps = oneofModel.fields.iterator.flatMap(field => fieldTypeDeps(field.fieldType)).toSet
+                deps = oneofModel.fields.iterator
+                  .flatMap(field => fieldTypeDeps(field.fieldType))
+                  .toSet
               )
             }
 
             val messageDeps =
-              messageModel.fields.iterator.flatMap(field => fieldTypeDeps(field.fieldType)).toSet ++
+              messageModel.fields.iterator
+                .flatMap(field => fieldTypeDeps(field.fieldType))
+                .toSet ++
                 messageModel.oneofs.iterator.map(_.bosatsuTypeName)
 
             oneofDecls :+ TypeDecl(
@@ -146,16 +153,21 @@ object ProtoToBosatsu {
 
     val enumCodecStatements: Vector[Statement] =
       fileModel.enums.flatMap { enumModel =>
-        val codecInfo = ctx.enumCodecs((enumModel.packageName, enumModel.bosatsuName))
+        val codecInfo =
+          ctx.enumCodecs((enumModel.packageName, enumModel.bosatsuName))
         renderEnumCodecStatements(enumModel, codecInfo)
       }
 
-    val orderedMessagesForCodecs = orderMessageModelsForCodecs(fileModel.messages)
+    val orderedMessagesForCodecs = orderMessageModelsForCodecs(
+      fileModel.messages
+    )
 
     val messageCodecStatements: Vector[Statement] =
       orderedMessagesForCodecs.flatMap { messageModel =>
         val codecInfo =
-          ctx.messageCodecs((messageModel.packageName, messageModel.bosatsuName))
+          ctx.messageCodecs(
+            (messageModel.packageName, messageModel.bosatsuName)
+          )
         renderMessageCodecStatements(messageModel, codecInfo, ctx)
       }
 
@@ -163,9 +175,12 @@ object ProtoToBosatsu {
       (typeStatements ++ enumCodecStatements ++ messageCodecStatements).toList
 
     val statementSources =
-      statements.iterator.map(Document[Statement].document(_).render(120)).toVector
+      statements.iterator
+        .map(Document[Statement].document(_).render(120))
+        .toVector
 
-    val bytesImports = usedNamesInSources(statementSources, bytesImportCandidates)
+    val bytesImports =
+      usedNamesInSources(statementSources, bytesImportCandidates)
     val usedWireImports = usedNamesInSources(statementSources, wireImports)
     val crossPackageImports = computeCrossPackageImports(fileModel, ctx)
     val imports =
@@ -174,16 +189,21 @@ object ProtoToBosatsu {
           importOf(PackageName.parts("Bosatsu", "IO", "Bytes"), bytesImports)
         },
         Option.when(usedWireImports.nonEmpty) {
-          importOf(PackageName.parts("Bosatsu", "Proto", "Wire"), usedWireImports)
+          importOf(
+            PackageName.parts("Bosatsu", "Proto", "Wire"),
+            usedWireImports
+          )
         }
       ).flatten ++
         crossPackageImports.map { case (pack, items) =>
           importOf(pack, items.toVector.sorted)
         }
     val exposes =
-      Option.when(bytesImports.nonEmpty) {
-        List(PackageName.parts("Bosatsu", "IO", "Bytes"))
-      }.toList
+      Option
+        .when(bytesImports.nonEmpty) {
+          List(PackageName.parts("Bosatsu", "IO", "Bytes"))
+        }
+        .toList
 
     val parsedPack =
       Package(
@@ -193,7 +213,8 @@ object ProtoToBosatsu {
         statements,
         exposes
       )
-    val rendered = Document[Package.Parsed].document(parsedPack).render(80).trim + "\n"
+    val rendered =
+      Document[Package.Parsed].document(parsedPack).render(80).trim + "\n"
 
     GeneratedFile(
       fileModel.bosatsuPackage,
@@ -209,7 +230,9 @@ object ProtoToBosatsu {
     Import(
       packageName,
       NonEmptyList.fromListUnsafe(
-        names.toList.map(name => ImportedName.OriginalName(Identifier.unsafe(name), ()))
+        names.toList.map(name =>
+          ImportedName.OriginalName(Identifier.unsafe(name), ())
+        )
       )
     )
 
@@ -305,7 +328,7 @@ object ProtoToBosatsu {
   private def constructor(name: String): Identifier.Constructor =
     Identifier.unsafe(name) match {
       case c: Identifier.Constructor => c
-      case other =>
+      case other                     =>
         sys.error(s"expected constructor identifier: $other")
     }
 
@@ -343,7 +366,8 @@ object ProtoToBosatsu {
   private def fieldTypeRef(fieldModel: FieldModel): TypeRef =
     fieldModel.cardinality match {
       case Cardinality.Singular => fieldTypeToTypeRef(fieldModel.fieldType)
-      case Cardinality.Optional => optionType(fieldTypeToTypeRef(fieldModel.fieldType))
+      case Cardinality.Optional =>
+        optionType(fieldTypeToTypeRef(fieldModel.fieldType))
       case Cardinality.Repeated =>
         fieldModel.fieldType match {
           case _: FieldType.MapEntry =>
@@ -355,7 +379,7 @@ object ProtoToBosatsu {
 
   private def fieldTypeDeps(fieldType: FieldType): Set[String] =
     fieldType match {
-      case FieldType.Scalar(_) => Set.empty
+      case FieldType.Scalar(_)            => Set.empty
       case FieldType.EnumRef(_, typeName) =>
         Set(typeName)
       case FieldType.MessageRef(_, typeName) =>
@@ -415,7 +439,11 @@ object ProtoToBosatsu {
           .flatMap(field => fieldTypeMessageDeps(field.fieldType))
           .toSet ++
           messageModel.oneofs.iterator
-            .flatMap(oneof => oneof.fields.iterator.flatMap(field => fieldTypeMessageDeps(field.fieldType)))
+            .flatMap(oneof =>
+              oneof.fields.iterator.flatMap(field =>
+                fieldTypeMessageDeps(field.fieldType)
+              )
+            )
       messageModel.bosatsuName -> deps.intersect(knownNames)
     }.toMap
 
@@ -428,7 +456,8 @@ object ProtoToBosatsu {
       if (remaining.isEmpty) acc
       else {
         val (ready, waiting) = remaining.partition(messageModel =>
-          (depsByName.getOrElse(messageModel.bosatsuName, Set.empty) -- resolved).isEmpty
+          (depsByName
+            .getOrElse(messageModel.bosatsuName, Set.empty) -- resolved).isEmpty
         )
 
         if (ready.isEmpty) acc ++ remaining
@@ -490,7 +519,10 @@ object ProtoToBosatsu {
               Statement.EnumBranch(
                 constructor(oneofField.bosatsuCaseName),
                 None,
-                constructorArg("value", fieldTypeToTypeRef(oneofField.fieldType)) :: Nil,
+                constructorArg(
+                  "value",
+                  fieldTypeToTypeRef(oneofField.fieldType)
+                ) :: Nil,
                 generatedRegion
               )
             )).toList
@@ -504,7 +536,10 @@ object ProtoToBosatsu {
         constructorArg(fieldModel.bosatsuName, fieldTypeRef(fieldModel))
       ) ++
         messageModel.oneofs.map(oneofModel =>
-          constructorArg(oneofModel.bosatsuFieldName, typeNameRef(oneofModel.bosatsuTypeName))
+          constructorArg(
+            oneofModel.bosatsuFieldName,
+            typeNameRef(oneofModel.bosatsuTypeName)
+          )
         )
 
     Statement.Struct(
@@ -549,7 +584,8 @@ object ProtoToBosatsu {
       args: List[Pattern.Parsed]
   ): Pattern.Parsed =
     Pattern.PositionalStruct(
-      Pattern.StructKind.Named(constructor(name), Pattern.StructKind.Style.TupleLike),
+      Pattern.StructKind
+        .Named(constructor(name), Pattern.StructKind.Style.TupleLike),
       args
     )
 
@@ -600,7 +636,10 @@ object ProtoToBosatsu {
         )(using generatedRegion)
       ) :+
         Declaration.MatchBranch(
-          constructorPattern(unknownEnumCtor(enumModel), Pattern.Var(bindable("unknown")) :: Nil),
+          constructorPattern(
+            unknownEnumCtor(enumModel),
+            Pattern.Var(bindable("unknown")) :: Nil
+          ),
           None,
           OptIndent.same(varRef("unknown"))
         )(using generatedRegion)).toList
@@ -616,14 +655,21 @@ object ProtoToBosatsu {
       enumModel.values.map(valueModel =>
         (
           enumCompareEq("value", valueModel.number),
-          notSameLine(constructorValue(valueModel.bosatsuName, Nil): Declaration)
+          notSameLine(
+            constructorValue(valueModel.bosatsuName, Nil): Declaration
+          )
         )
       )
 
     val decodeBody =
       Declaration.IfElse(
         NonEmptyList.fromListUnsafe(decodeCases.toList),
-        notSameLine(constructorValue(unknownEnumCtor(enumModel), varRef("value") :: Nil): Declaration)
+        notSameLine(
+          constructorValue(
+            unknownEnumCtor(enumModel),
+            varRef("value") :: Nil
+          ): Declaration
+        )
       )(using generatedRegion)
 
     Vector(
@@ -648,7 +694,14 @@ object ProtoToBosatsu {
       ctx: RenderContext
   ): Vector[Statement] = {
     val mapHelpers = messageModel.fields.flatMap {
-      case fieldModel @ FieldModel(_, _, _, _, mapType: FieldType.MapEntry, _) =>
+      case fieldModel @ FieldModel(
+            _,
+            _,
+            _,
+            _,
+            mapType: FieldType.MapEntry,
+            _
+          ) =>
         Vector(
           renderMapEncodeHelperStatement(fieldModel, mapType, ctx),
           renderMapDecodeHelperStatement(fieldModel, mapType, ctx)
@@ -685,7 +738,11 @@ object ProtoToBosatsu {
               renderEncodeFieldExpr(fieldModel, fieldModel.bosatsuName, ctx)
             ) ++
               messageModel.oneofs.map(oneofModel =>
-                renderEncodeOneofExpr(oneofModel, oneofModel.bosatsuFieldName, ctx)
+                renderEncodeOneofExpr(
+                  oneofModel,
+                  oneofModel.bosatsuFieldName,
+                  ctx
+                )
               )
           )
 
@@ -698,7 +755,11 @@ object ProtoToBosatsu {
                 emptyListExpr,
                 lambda(
                   List("acc", "next_chunk_list"),
-                  dotCall(varRef("next_chunk_list"), "reverse_concat", List(varRef("acc")))
+                  dotCall(
+                    varRef("next_chunk_list"),
+                    "reverse_concat",
+                    List(varRef("acc"))
+                  )
                 )
               )
             ),
@@ -742,8 +803,11 @@ object ProtoToBosatsu {
       renderDecodeLoopBody(
         loopTarget = "fields",
         tailVar = "tail",
-        bindFieldValueNames = messageModel.fields.nonEmpty || messageModel.oneofs.nonEmpty,
-        emptyBody = someExpr(messageStructExpr(messageModel, decodeFinalValues(messageModel))),
+        bindFieldValueNames =
+          messageModel.fields.nonEmpty || messageModel.oneofs.nonEmpty,
+        emptyBody = someExpr(
+          messageStructExpr(messageModel, decodeFinalValues(messageModel))
+        ),
         nonEmptyBody = renderDecodeLoopNonEmptyBody(messageModel, loopVars, ctx)
       )
 
@@ -756,7 +820,10 @@ object ProtoToBosatsu {
           args = "fields" :: loopVars.toList,
           returnType = optionType(typeNameRef(messageModel.bosatsuName)),
           body = loopBody,
-          in = call("loop", (varRef("parsed") :: decodeInitialValues(messageModel, ctx).toList)*)
+          in = call(
+            "loop",
+            (varRef("parsed") :: decodeInitialValues(messageModel, ctx).toList)*
+          )
         )
       )
 
@@ -814,7 +881,8 @@ object ProtoToBosatsu {
 
     fieldModel.fieldType match {
       case _: FieldType.MapEntry =>
-        val decodeExpr = call(mapDecodeHelperName(fieldModel), varRef("payload"))
+        val decodeExpr =
+          call(mapDecodeHelperName(fieldModel), varRef("payload"))
         val updated =
           listLiteralWithSplices(
             List(
@@ -826,7 +894,14 @@ object ProtoToBosatsu {
           fieldModel.fieldType,
           decodeExpr,
           "decoded_value",
-          call("loop", (varRef("tail") :: replaceLoopVar(loopVars, targetVar, updated).toList)*)
+          call(
+            "loop",
+            (varRef("tail") :: replaceLoopVar(
+              loopVars,
+              targetVar,
+              updated
+            ).toList)*
+          )
         )
 
       case _ =>
@@ -835,9 +910,9 @@ object ProtoToBosatsu {
             if (fieldModel.packed && fieldModel.fieldType.isPackable) {
               val packedDecodeFn =
                 fieldModel.fieldType.wireKind match {
-                  case WireKind.Varint  => "decode_packed_varints"
-                  case WireKind.Fixed32 => "decode_packed_fixed32"
-                  case WireKind.Fixed64 => "decode_packed_fixed64"
+                  case WireKind.Varint          => "decode_packed_varints"
+                  case WireKind.Fixed32         => "decode_packed_fixed32"
+                  case WireKind.Fixed64         => "decode_packed_fixed64"
                   case WireKind.LengthDelimited => "decode_packed_varints"
                 }
 
@@ -852,7 +927,11 @@ object ProtoToBosatsu {
                       listLiteralWithSplices(
                         List(
                           ListLang.SpliceOrItem.Item(
-                            decodePackedItemExpr(fieldModel.fieldType, varRef("packed_item"), ctx)
+                            decodePackedItemExpr(
+                              fieldModel.fieldType,
+                              varRef("packed_item"),
+                              ctx
+                            )
                           ),
                           ListLang.SpliceOrItem.Splice(varRef("acc"))
                         )
@@ -862,7 +941,11 @@ object ProtoToBosatsu {
                 )
 
               val updated =
-                dotCall(varRef("mapped"), "reverse_concat", List(varRef(targetVar)))
+                dotCall(
+                  varRef("mapped"),
+                  "reverse_concat",
+                  List(varRef(targetVar))
+                )
 
               val packedBody =
                 optionMatch(
@@ -873,7 +956,11 @@ object ProtoToBosatsu {
                     mappedExpr,
                     call(
                       "loop",
-                      (varRef("tail") :: replaceLoopVar(loopVars, targetVar, updated).toList)*
+                      (varRef("tail") :: replaceLoopVar(
+                        loopVars,
+                        targetVar,
+                        updated
+                      ).toList)*
                     )
                   )
                 )
@@ -899,7 +986,14 @@ object ProtoToBosatsu {
                 fieldModel.fieldType,
                 decodeExpr,
                 "decoded_value",
-                call("loop", (varRef("tail") :: replaceLoopVar(loopVars, targetVar, updated).toList)*)
+                call(
+                  "loop",
+                  (varRef("tail") :: replaceLoopVar(
+                    loopVars,
+                    targetVar,
+                    updated
+                  ).toList)*
+                )
               )
             }
 
@@ -912,7 +1006,11 @@ object ProtoToBosatsu {
               call(
                 "loop",
                 (varRef("tail") ::
-                  replaceLoopVar(loopVars, targetVar, someExpr(varRef("decoded_value"))).toList)*
+                  replaceLoopVar(
+                    loopVars,
+                    targetVar,
+                    someExpr(varRef("decoded_value"))
+                  ).toList)*
               )
             )
 
@@ -924,7 +1022,11 @@ object ProtoToBosatsu {
               "decoded_value",
               call(
                 "loop",
-                (varRef("tail") :: replaceLoopVar(loopVars, targetVar, varRef("decoded_value")).toList)*
+                (varRef("tail") :: replaceLoopVar(
+                  loopVars,
+                  targetVar,
+                  varRef("decoded_value")
+                ).toList)*
               )
             )
         }
@@ -939,7 +1041,10 @@ object ProtoToBosatsu {
   ): Declaration = {
     val oneofVar = oneofModel.bosatsuFieldName
     val decodedExpr = decodeValue(oneofField.fieldType, ctx)
-    val updated = constructorValue(oneofField.bosatsuCaseName, varRef("decoded_variant") :: Nil)
+    val updated = constructorValue(
+      oneofField.bosatsuCaseName,
+      varRef("decoded_variant") :: Nil
+    )
 
     decodeFieldValueMatch(
       oneofField.fieldType,
@@ -958,8 +1063,14 @@ object ProtoToBosatsu {
       ctx: RenderContext
   ): Statement = {
     val keyEncode =
-      encodeFieldExpr(1, FieldType.Scalar(mapType.keyType), varRef("item_key"), ctx)
-    val valueEncode = encodeFieldExpr(2, mapType.valueType, varRef("item_value"), ctx)
+      encodeFieldExpr(
+        1,
+        FieldType.Scalar(mapType.keyType),
+        varRef("item_key"),
+        ctx
+      )
+    val valueEncode =
+      encodeFieldExpr(2, mapType.valueType, varRef("item_value"), ctx)
     val tupleType =
       TypeRef.TypeTuple(
         List(
@@ -973,7 +1084,12 @@ object ProtoToBosatsu {
       List("item" -> Some(tupleType)),
       typeNameRef("Bytes"),
       bindIn(
-        tuplePattern(List(Pattern.Var(bindable("item_key")), Pattern.Var(bindable("item_value")))),
+        tuplePattern(
+          List(
+            Pattern.Var(bindable("item_key")),
+            Pattern.Var(bindable("item_value"))
+          )
+        ),
         varRef("item"),
         call(
           "field_length_delimited",
@@ -1004,21 +1120,33 @@ object ProtoToBosatsu {
         loopTarget = "in_fields",
         tailVar = "tail",
         bindFieldValueNames = true,
-        emptyBody = someExpr(tupleExpr(List(varRef("current_key"), varRef("current_value")))),
+        emptyBody = someExpr(
+          tupleExpr(List(varRef("current_key"), varRef("current_value")))
+        ),
         nonEmptyBody = {
           val keyBody =
             decodeFieldValueMatch(
               FieldType.Scalar(mapType.keyType),
               decodeValue(FieldType.Scalar(mapType.keyType), ctx),
               "next_key",
-              call("loop", varRef("tail"), varRef("next_key"), varRef("current_value"))
+              call(
+                "loop",
+                varRef("tail"),
+                varRef("next_key"),
+                varRef("current_value")
+              )
             )
           val valueBody =
             decodeFieldValueMatch(
               mapType.valueType,
               decodeValue(mapType.valueType, ctx),
               "next_value",
-              call("loop", varRef("tail"), varRef("current_key"), varRef("next_value"))
+              call(
+                "loop",
+                varRef("tail"),
+                varRef("current_key"),
+                varRef("next_value")
+              )
             )
 
           ifElseExpr(
@@ -1026,7 +1154,12 @@ object ProtoToBosatsu {
               enumCompareEq("field_number", 1) -> keyBody,
               enumCompareEq("field_number", 2) -> valueBody
             ),
-            call("loop", varRef("tail"), varRef("current_key"), varRef("current_value"))
+            call(
+              "loop",
+              varRef("tail"),
+              varRef("current_key"),
+              varRef("current_value")
+            )
           )
         }
       )
@@ -1066,7 +1199,12 @@ object ProtoToBosatsu {
   ): Declaration.NonBinding = {
     val pairPattern =
       if (bindFieldValueNames)
-        tuplePattern(List(Pattern.Var(bindable("field_number")), Pattern.Var(bindable("field_value"))))
+        tuplePattern(
+          List(
+            Pattern.Var(bindable("field_number")),
+            Pattern.Var(bindable("field_value"))
+          )
+        )
       else tuplePattern(List(Pattern.WildCard, Pattern.WildCard))
 
     val nonEmptyPattern =
@@ -1103,12 +1241,13 @@ object ProtoToBosatsu {
             )
 
           case _ if fieldModel.packed && fieldModel.fieldType.isPackable =>
-            val itemBitsExpr = encodeValue(fieldModel.fieldType, varRef("item"), ctx)
+            val itemBitsExpr =
+              encodeValue(fieldModel.fieldType, varRef("item"), ctx)
             val payloadEncodeFn =
               fieldModel.fieldType.wireKind match {
-                case WireKind.Varint  => "encode_varint_u64"
-                case WireKind.Fixed32 => "encode_fixed32"
-                case WireKind.Fixed64 => "encode_fixed64"
+                case WireKind.Varint          => "encode_varint_u64"
+                case WireKind.Fixed32         => "encode_fixed32"
+                case WireKind.Fixed64         => "encode_fixed64"
                 case WireKind.LengthDelimited => "encode_varint_u64"
               }
 
@@ -1132,14 +1271,23 @@ object ProtoToBosatsu {
               ),
               listLiteral(
                 List(
-                  call("field_length_delimited", intLit(fieldModel.number), payload)
+                  call(
+                    "field_length_delimited",
+                    intLit(fieldModel.number),
+                    payload
+                  )
                 )
               )
             )
 
           case _ =>
             listComprehension(
-              encodeFieldExpr(fieldModel.number, fieldModel.fieldType, varRef("item"), ctx),
+              encodeFieldExpr(
+                fieldModel.number,
+                fieldModel.fieldType,
+                varRef("item"),
+                ctx
+              ),
               "item",
               varRef(valueName)
             )
@@ -1150,7 +1298,10 @@ object ProtoToBosatsu {
           Declaration.MatchKind.Match,
           varRef(valueName),
           List(
-            constructorPattern("Some", Pattern.Var(bindable("present_value")) :: Nil) ->
+            constructorPattern(
+              "Some",
+              Pattern.Var(bindable("present_value")) :: Nil
+            ) ->
               listLiteral(
                 List(
                   encodeFieldExpr(
@@ -1167,14 +1318,23 @@ object ProtoToBosatsu {
 
       case Cardinality.Singular =>
         val encodedField =
-          encodeFieldExpr(fieldModel.number, fieldModel.fieldType, varRef(valueName), ctx)
+          encodeFieldExpr(
+            fieldModel.number,
+            fieldModel.fieldType,
+            varRef(valueName),
+            ctx
+          )
 
         fieldModel.fieldType match {
           case enumRef: FieldType.EnumRef =>
-            val enumCodec = ctx.enumCodecs((enumRef.packageName, enumRef.typeName))
+            val enumCodec =
+              ctx.enumCodecs((enumRef.packageName, enumRef.typeName))
             ifElseExpr(
               List(
-                cmpIntEq(call(enumCodec.encodeFnName, varRef(valueName)), 0) -> emptyListExpr
+                cmpIntEq(
+                  call(enumCodec.encodeFnName, varRef(valueName)),
+                  0
+                ) -> emptyListExpr
               ),
               listLiteral(List(encodedField))
             )
@@ -1182,7 +1342,9 @@ object ProtoToBosatsu {
             val defaultPat = defaultPatternForType(fieldModel.fieldType, ctx)
             ifElseExpr(
               List(
-                Declaration.Matches(varRef(valueName), defaultPat, None)(using generatedRegion) -> emptyListExpr
+                Declaration.Matches(varRef(valueName), defaultPat, None)(using
+                  generatedRegion
+                ) -> emptyListExpr
               ),
               listLiteral(List(encodedField))
             )
@@ -1226,7 +1388,11 @@ object ProtoToBosatsu {
       Declaration.MatchKind.Match,
       varRef("field_value"),
       List(
-        wireCasePattern(fieldType.wireKind) -> optionMatch(decodedExpr, outVar, successBody),
+        wireCasePattern(fieldType.wireKind) -> optionMatch(
+          decodedExpr,
+          outVar,
+          successBody
+        ),
         Pattern.WildCard -> noneExpr
       )
     )
@@ -1240,7 +1406,10 @@ object ProtoToBosatsu {
       case WireKind.Fixed32 =>
         constructorPattern("Fixed32", Pattern.Var(bindable("bits")) :: Nil)
       case WireKind.LengthDelimited =>
-        constructorPattern("LengthDelimited", Pattern.Var(bindable("payload")) :: Nil)
+        constructorPattern(
+          "LengthDelimited",
+          Pattern.Var(bindable("payload")) :: Nil
+        )
     }
 
   private def decodePackedItemExpr(
@@ -1287,9 +1456,11 @@ object ProtoToBosatsu {
   ): Declaration.NonBinding = {
     val encoded = encodeValue(fieldType, valueExpr, ctx)
     fieldType.wireKind match {
-      case WireKind.Varint  => call("field_varint", intLit(fieldNumber), encoded)
-      case WireKind.Fixed64 => call("field_fixed64", intLit(fieldNumber), encoded)
-      case WireKind.Fixed32 => call("field_fixed32", intLit(fieldNumber), encoded)
+      case WireKind.Varint => call("field_varint", intLit(fieldNumber), encoded)
+      case WireKind.Fixed64 =>
+        call("field_fixed64", intLit(fieldNumber), encoded)
+      case WireKind.Fixed32 =>
+        call("field_fixed32", intLit(fieldNumber), encoded)
       case WireKind.LengthDelimited =>
         call("field_length_delimited", intLit(fieldNumber), encoded)
     }
@@ -1328,7 +1499,9 @@ object ProtoToBosatsu {
         decodeScalarValue(scalarType, source)
       case enumRef: FieldType.EnumRef =>
         val enumCodec = ctx.enumCodecs((enumRef.packageName, enumRef.typeName))
-        someExpr(call(enumCodec.decodeFnName, call("decode_enum", varRef("bits"))))
+        someExpr(
+          call(enumCodec.decodeFnName, call("decode_enum", varRef("bits")))
+        )
       case messageRef: FieldType.MessageRef =>
         val messageCodec =
           ctx.messageCodecs((messageRef.packageName, messageRef.typeName))
@@ -1364,21 +1537,25 @@ object ProtoToBosatsu {
       sourceExpr: Declaration.NonBinding
   ): Declaration.NonBinding =
     scalarType match {
-      case ScalarType.DoubleType   => someExpr(call("decode_double", sourceExpr))
-      case ScalarType.FloatType    => someExpr(call("decode_float", sourceExpr))
-      case ScalarType.Int32Type    => someExpr(call("decode_int32", sourceExpr))
-      case ScalarType.Int64Type    => someExpr(call("decode_int64", sourceExpr))
-      case ScalarType.UInt32Type   => someExpr(call("decode_uint32", sourceExpr))
-      case ScalarType.UInt64Type   => someExpr(call("decode_uint64", sourceExpr))
-      case ScalarType.SInt32Type   => someExpr(call("decode_sint32", sourceExpr))
-      case ScalarType.SInt64Type   => someExpr(call("decode_sint64", sourceExpr))
-      case ScalarType.Fixed32Type  => someExpr(call("decode_fixed32", sourceExpr))
-      case ScalarType.Fixed64Type  => someExpr(call("decode_fixed64", sourceExpr))
-      case ScalarType.SFixed32Type => someExpr(call("decode_sfixed32", sourceExpr))
-      case ScalarType.SFixed64Type => someExpr(call("decode_sfixed64", sourceExpr))
-      case ScalarType.BoolType     => someExpr(call("decode_bool", sourceExpr))
-      case ScalarType.StringType   => call("utf8_bytes_to_String", sourceExpr)
-      case ScalarType.BytesType    => someExpr(sourceExpr)
+      case ScalarType.DoubleType  => someExpr(call("decode_double", sourceExpr))
+      case ScalarType.FloatType   => someExpr(call("decode_float", sourceExpr))
+      case ScalarType.Int32Type   => someExpr(call("decode_int32", sourceExpr))
+      case ScalarType.Int64Type   => someExpr(call("decode_int64", sourceExpr))
+      case ScalarType.UInt32Type  => someExpr(call("decode_uint32", sourceExpr))
+      case ScalarType.UInt64Type  => someExpr(call("decode_uint64", sourceExpr))
+      case ScalarType.SInt32Type  => someExpr(call("decode_sint32", sourceExpr))
+      case ScalarType.SInt64Type  => someExpr(call("decode_sint64", sourceExpr))
+      case ScalarType.Fixed32Type =>
+        someExpr(call("decode_fixed32", sourceExpr))
+      case ScalarType.Fixed64Type =>
+        someExpr(call("decode_fixed64", sourceExpr))
+      case ScalarType.SFixed32Type =>
+        someExpr(call("decode_sfixed32", sourceExpr))
+      case ScalarType.SFixed64Type =>
+        someExpr(call("decode_sfixed64", sourceExpr))
+      case ScalarType.BoolType   => someExpr(call("decode_bool", sourceExpr))
+      case ScalarType.StringType => call("utf8_bytes_to_String", sourceExpr)
+      case ScalarType.BytesType  => someExpr(sourceExpr)
     }
 
   private def defaultExprForType(
@@ -1389,7 +1566,9 @@ object ProtoToBosatsu {
       case FieldType.Scalar(scalarType) =>
         scalarType match {
           case ScalarType.DoubleType | ScalarType.FloatType =>
-            Declaration.Literal(Lit.Float64.fromDouble(0.0))(using generatedRegion)
+            Declaration.Literal(Lit.Float64.fromDouble(0.0))(using
+              generatedRegion
+            )
           case ScalarType.BoolType =>
             varRef("False")
           case ScalarType.StringType =>
@@ -1451,8 +1630,9 @@ object ProtoToBosatsu {
 
   private def finalDecodeValue(fieldModel: FieldModel): Declaration.NonBinding =
     fieldModel.cardinality match {
-      case Cardinality.Repeated => dotCall(varRef(s"${fieldModel.bosatsuName}_rev"), "reverse")
-      case _                    => varRef(decodeVarName(fieldModel))
+      case Cardinality.Repeated =>
+        dotCall(varRef(s"${fieldModel.bosatsuName}_rev"), "reverse")
+      case _ => varRef(decodeVarName(fieldModel))
     }
 
   private def messageStructExpr(
@@ -1462,10 +1642,15 @@ object ProtoToBosatsu {
     val names = messageModel.fields.map(_.bosatsuName) ++
       messageModel.oneofs.map(_.bosatsuFieldName)
     val args =
-      names.zip(values).map { case (name, value) =>
-        Declaration.RecordArg.Pair(bindable(name), value)
-      }.toList
-    Declaration.RecordConstructor(constructor(messageModel.bosatsuName), args)(using generatedRegion)
+      names
+        .zip(values)
+        .map { case (name, value) =>
+          Declaration.RecordArg.Pair(bindable(name), value)
+        }
+        .toList
+    Declaration.RecordConstructor(constructor(messageModel.bosatsuName), args)(
+      using generatedRegion
+    )
   }
 
   private def replaceLoopVar(
@@ -1567,7 +1752,9 @@ object ProtoToBosatsu {
       notSameLine(
         NonEmptyList.fromListUnsafe(
           branches.map { case (pattern, body) =>
-            Declaration.MatchBranch(pattern, None, notSameLine(body))(using generatedRegion)
+            Declaration.MatchBranch(pattern, None, notSameLine(body))(using
+              generatedRegion
+            )
           }
         )
       )
@@ -1582,7 +1769,10 @@ object ProtoToBosatsu {
       Declaration.MatchKind.Match,
       optionExpr,
       List(
-        constructorPattern("Some", Pattern.Var(bindable(someName)) :: Nil) -> someBody,
+        constructorPattern(
+          "Some",
+          Pattern.Var(bindable(someName)) :: Nil
+        ) -> someBody,
         Pattern.WildCard -> noneExpr
       )
     )
@@ -1606,7 +1796,9 @@ object ProtoToBosatsu {
   ): Pattern.Parsed =
     Pattern.recordPat(
       constructor(messageName),
-      NonEmptyList.fromListUnsafe(fieldNames.toList.map(name => Left(bindable(name))))
+      NonEmptyList.fromListUnsafe(
+        fieldNames.toList.map(name => Left(bindable(name)))
+      )
     )((name, style) => Pattern.StructKind.Named(name, style))
 
   private def bindIn(
@@ -1649,8 +1841,9 @@ object ProtoToBosatsu {
     val refs = referencedCodecs(fileModel, ctx)
 
     refs.toVector
-      .collect { case (pack, names) if pack != fileModel.bosatsuPackage =>
-        (pack, names)
+      .collect {
+        case (pack, names) if pack != fileModel.bosatsuPackage =>
+          (pack, names)
       }
       .sortBy(_._1.asString)
   }
@@ -1662,21 +1855,30 @@ object ProtoToBosatsu {
     val referencedTypes =
       fileModel.messages.iterator.flatMap { messageModel =>
         messageModel.fields.iterator.map(_.fieldType) ++
-          messageModel.oneofs.iterator.flatMap(_.fields.iterator.map(_.fieldType))
+          messageModel.oneofs.iterator.flatMap(
+            _.fields.iterator.map(_.fieldType)
+          )
       }.toVector
 
     referencedTypes.foldLeft(Map.empty[PackageName, Set[String]]) {
-      case (acc, FieldType.Scalar(_)) => acc
+      case (acc, FieldType.Scalar(_))        => acc
       case (acc, enumRef: FieldType.EnumRef) =>
         val enumCodec = ctx.enumCodecs((enumRef.packageName, enumRef.typeName))
         val names =
           Set(enumRef.typeName, enumCodec.encodeFnName, enumCodec.decodeFnName)
-        acc.updated(enumRef.packageName, acc.getOrElse(enumRef.packageName, Set.empty) ++ names)
+        acc.updated(
+          enumRef.packageName,
+          acc.getOrElse(enumRef.packageName, Set.empty) ++ names
+        )
       case (acc, messageRef: FieldType.MessageRef) =>
         val messageCodec =
           ctx.messageCodecs((messageRef.packageName, messageRef.typeName))
         val names =
-          Set(messageRef.typeName, messageCodec.encodeFnName, messageCodec.decodeFnName)
+          Set(
+            messageRef.typeName,
+            messageCodec.encodeFnName,
+            messageCodec.decodeFnName
+          )
         acc.updated(
           messageRef.packageName,
           acc.getOrElse(messageRef.packageName, Set.empty) ++ names
@@ -1693,7 +1895,7 @@ object ProtoToBosatsu {
       ctx: RenderContext
   ): Map[PackageName, Set[String]] =
     valueType match {
-      case FieldType.Scalar(_) => input
+      case FieldType.Scalar(_)        => input
       case enumRef: FieldType.EnumRef =>
         val enumCodec = ctx.enumCodecs((enumRef.packageName, enumRef.typeName))
         val names =
@@ -1706,7 +1908,11 @@ object ProtoToBosatsu {
         val messageCodec =
           ctx.messageCodecs((messageRef.packageName, messageRef.typeName))
         val names =
-          Set(messageRef.typeName, messageCodec.encodeFnName, messageCodec.decodeFnName)
+          Set(
+            messageRef.typeName,
+            messageCodec.encodeFnName,
+            messageCodec.decodeFnName
+          )
         input.updated(
           messageRef.packageName,
           input.getOrElse(messageRef.packageName, Set.empty) ++ names

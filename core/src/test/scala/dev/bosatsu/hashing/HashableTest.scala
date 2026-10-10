@@ -125,7 +125,9 @@ class HashableTest extends munit.FunSuite {
     assertNotEquals(h1.hash, h2.hash)
   }
 
-  test("hashable for Hashed uses hash identity and composes through derived fields") {
+  test(
+    "hashable for Hashed uses hash identity and composes through derived fields"
+  ) {
     val hashedString: Hashable[Hashed[Algo.Blake3, String]] =
       summon[Hashable[Hashed[Algo.Blake3, String]]]
 
@@ -133,8 +135,10 @@ class HashableTest extends munit.FunSuite {
     val oneHash = Hashable.hash[Algo.Blake3](1).hash
     val twoHash = Hashable.hash[Algo.Blake3](2).hash
 
-    val directA = hashedString.hash(Hashed(rootHash, "payload-a"))(using Algo.blake3Algo)
-    val directB = hashedString.hash(Hashed(rootHash, "payload-b"))(using Algo.blake3Algo)
+    val directA =
+      hashedString.hash(Hashed(rootHash, "payload-a"))(using Algo.blake3Algo)
+    val directB =
+      hashedString.hash(Hashed(rootHash, "payload-b"))(using Algo.blake3Algo)
     assertEquals(directA.hash, directB.hash)
 
     val treeA = HashTree(
@@ -159,7 +163,8 @@ class HashableTest extends munit.FunSuite {
   }
 
   test("foldable fallback provides Hashable for NonEmptyList") {
-    val nelHashable: Hashable[NonEmptyList[Int]] = summon[Hashable[NonEmptyList[Int]]]
+    val nelHashable: Hashable[NonEmptyList[Int]] =
+      summon[Hashable[NonEmptyList[Int]]]
     val foldableNel: Foldable[NonEmptyList] = summon[Foldable[NonEmptyList]]
 
     val a = NonEmptyList.of(1, 2, 3)
@@ -168,7 +173,10 @@ class HashableTest extends munit.FunSuite {
     val ha = nelHashable.hash(a)(using Algo.blake3Algo)
     val hb = Hashable.hash[Algo.Blake3](b)
 
-    assertNotEquals(foldableNel.foldLeft(a, 0)(_ + _), foldableNel.foldLeft(b, 0)(_ + _))
+    assertNotEquals(
+      foldableNel.foldLeft(a, 0)(_ + _),
+      foldableNel.foldLeft(b, 0)(_ + _)
+    )
     assertNotEquals(ha.hash, hb.hash)
   }
 
@@ -199,7 +207,8 @@ class HashableTest extends munit.FunSuite {
 
     val hashedBytes = Hashable[Array[Byte]]
     val emptyBase = algo.newHasher()
-    val emptyApplied = hashedBytes.addHash(Array.emptyByteArray, algo)(algo.newHasher())
+    val emptyApplied =
+      hashedBytes.addHash(Array.emptyByteArray, algo)(algo.newHasher())
     val bytesApplied = hashedBytes.addHash(bytes, algo)(algo.newHasher())
     assertEquals(algo.finishHash(emptyApplied), algo.finishHash(emptyBase))
     assertNotEquals(algo.finishHash(bytesApplied), algo.finishHash(emptyBase))

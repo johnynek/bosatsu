@@ -90,9 +90,8 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
       }
     }
 
-  val gitShaHead: IO[String] = {
+  val gitShaHead: IO[String] =
     systemStdout("git", "rev-parse" :: "HEAD" :: Nil).map(_.trim)
-  }
 
   def env(name: String): IO[Option[String]] =
     IO(Option(System.getenv(name)))
@@ -359,7 +358,10 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
                           .move(
                             source = tempPath,
                             target = Fs2Path.fromNioPath(path),
-                            CopyFlags(CopyFlag.AtomicMove, CopyFlag.ReplaceExisting)
+                            CopyFlags(
+                              CopyFlag.AtomicMove,
+                              CopyFlag.ReplaceExisting
+                            )
                           )
                           .as(Right(()))
                       } else {
@@ -376,7 +378,9 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
                     }
                 } else {
                   IO.pure(
-                    Left(FetchHashFailure.HttpStatus(uri, response.status.toString))
+                    Left(
+                      FetchHashFailure.HttpStatus(uri, response.status.toString)
+                    )
                   )
                 }
               }

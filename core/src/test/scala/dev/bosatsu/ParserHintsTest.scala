@@ -226,7 +226,9 @@ class ParserHintsTest extends munit.FunSuite {
       hints.mkString("\n")
     )
     assert(
-      hints.exists(_.contains("""which starts string interpolation (`${x}`)""")),
+      hints.exists(
+        _.contains("""which starts string interpolation (`${x}`)""")
+      ),
       hints.mkString("\n")
     )
     assert(

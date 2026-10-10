@@ -1,7 +1,14 @@
 package dev.bosatsu.library
 
 import cats.data.Validated
-import dev.bosatsu.rankn.{ConstructorFn, ConstructorParam, DefinedType, Type, TypeAlias, TypeEnv}
+import dev.bosatsu.rankn.{
+  ConstructorFn,
+  ConstructorParam,
+  DefinedType,
+  Type,
+  TypeAlias,
+  TypeEnv
+}
 import dev.bosatsu.{
   ExportedName,
   Identifier,
@@ -87,7 +94,7 @@ class ApiDiffTest extends munit.FunSuite {
     )
 
     res match {
-      case Validated.Valid(diffs)   => diffs
+      case Validated.Valid(diffs)    => diffs
       case Validated.Invalid(errors) =>
         fail(s"expected diffs, got errors: ${errors.iterator.toList}")
     }
@@ -139,13 +146,16 @@ class ApiDiffTest extends munit.FunSuite {
 
     val diffs =
       res match {
-        case Validated.Valid(value)   => value
+        case Validated.Valid(value)    => value
         case Validated.Invalid(errors) =>
           fail(s"expected diffs, got errors: ${errors.iterator.toList}")
       }
     val flat = diffs.toMap.valuesIterator.flatMap(_.toList).toList
 
-    assert(flat.exists(_.isInstanceOf[ApiDiff.AddedName]), s"expected AddedName in: $flat")
+    assert(
+      flat.exists(_.isInstanceOf[ApiDiff.AddedName]),
+      s"expected AddedName in: $flat"
+    )
   }
 
   test("changing an alias kind or rhs is breaking") {
@@ -169,7 +179,7 @@ class ApiDiffTest extends munit.FunSuite {
 
     val diffs =
       res match {
-        case Validated.Valid(value)   => value
+        case Validated.Valid(value)    => value
         case Validated.Invalid(errors) =>
           fail(s"expected diffs, got errors: ${errors.iterator.toList}")
       }

@@ -46,8 +46,8 @@ object Generators {
     (('a' to 'z') ++
       ('A' to 'Z') ++
       ('0' to '9') ++
-      Vector('-', '_', '/', '?', '!', '$', '*', '+', '.', '<', '>', '='))
-      .toVector
+      Vector('-', '_', '/', '?', '!', '$', '*', '+', '.', '<', '>',
+        '=')).toVector
 
   private val reservedShowJsonKeys: List[String] =
     List("$form", "$list", "$vec", "$sym", "$str", "$kw", "$map")
@@ -557,12 +557,12 @@ object Generators {
     import Declaration._
 
     val argGen = argGen0.map {
-      case lam @ Lambda(_, _)      => Parens(lam)(using emptyRegion)
-      case ife @ IfElse(_, _)      => Parens(ife)(using emptyRegion)
-      case tern @ Ternary(_, _, _) => Parens(tern)(using emptyRegion)
+      case lam @ Lambda(_, _)         => Parens(lam)(using emptyRegion)
+      case ife @ IfElse(_, _)         => Parens(ife)(using emptyRegion)
+      case tern @ Ternary(_, _, _)    => Parens(tern)(using emptyRegion)
       case matches @ Matches(_, _, _) => Parens(matches)(using emptyRegion)
-      case m @ Match(_, _, _)      => Parens(m)(using emptyRegion)
-      case not                     => not
+      case m @ Match(_, _, _)         => Parens(m)(using emptyRegion)
+      case not                        => not
     }
     Gen
       .zip(argGen, argGen, argGen)
@@ -837,38 +837,40 @@ object Generators {
   }
 
   def matchesGen(argGen0: Gen[NonBinding]): Gen[Declaration.Matches] =
-    Gen.zip(
-      argGen0,
-      genPattern(3),
-      Gen.frequency((3, Gen.const(None)), (1, argGen0.map(Some(_))))
-    ).map { case (a, p, guard) =>
-      import Declaration._
+    Gen
+      .zip(
+        argGen0,
+        genPattern(3),
+        Gen.frequency((3, Gen.const(None)), (1, argGen0.map(Some(_))))
+      )
+      .map { case (a, p, guard) =>
+        import Declaration._
 
-      @annotation.tailrec
-      def guardedMatchesNeedsParens(g: NonBinding): Boolean =
-        g match {
-          case Annotation(of, _) => guardedMatchesNeedsParens(of)
-          case Matches(_, _, Some(_)) =>
-            true
-          case _ =>
-            false
+        @annotation.tailrec
+        def guardedMatchesNeedsParens(g: NonBinding): Boolean =
+          g match {
+            case Annotation(of, _)      => guardedMatchesNeedsParens(of)
+            case Matches(_, _, Some(_)) =>
+              true
+            case _ =>
+              false
+          }
+
+        val fixa = a match {
+          // matches binds tighter than all these
+          case Lambda(_, _) | IfElse(_, _) | ApplyOp(_, _, _) | Match(_, _, _) |
+              Matches(_, _, Some(_)) | Ternary(_, _, _) =>
+            Parens(a)(using emptyRegion)
+          case _ => a
         }
-
-      val fixa = a match {
-        // matches binds tighter than all these
-        case Lambda(_, _) | IfElse(_, _) | ApplyOp(_, _, _) | Match(_, _, _) |
-            Matches(_, _, Some(_)) | Ternary(_, _, _) =>
-          Parens(a)(using emptyRegion)
-        case _ => a
+        val fixGuard = guard.map {
+          case g if guardedMatchesNeedsParens(g) =>
+            Parens(g)(using emptyRegion)
+          case g =>
+            g
+        }
+        Matches(fixa, p, fixGuard)(using emptyRegion)
       }
-      val fixGuard = guard.map {
-        case g if guardedMatchesNeedsParens(g) =>
-          Parens(g)(using emptyRegion)
-        case g =>
-          g
-      }
-      Matches(fixa, p, fixGuard)(using emptyRegion)
-    }
 
   val genLit: Gen[Lit] = {
     val str = for {

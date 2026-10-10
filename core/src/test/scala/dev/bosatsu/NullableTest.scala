@@ -53,7 +53,8 @@ class NullableTest extends munit.ScalaCheckSuite:
   }
 
   test("fromOption(Option(null)) equals Nullable(null)") {
-    val left: Nullable[String] = Nullable.fromOption(Option(null.asInstanceOf[String]))
+    val left: Nullable[String] =
+      Nullable.fromOption(Option(null.asInstanceOf[String]))
     val right: Nullable[String] = Nullable(null)
     assert(left === right)
   }

@@ -64,8 +64,7 @@ class ProtoConverterTest extends munit.ScalaCheckSuite with ParTest {
       for {
         someValue <- genSmallInt
         noneValue <- genSmallInt
-      } yield
-        s"""package Proto/RoundTrip
+      } yield s"""package Proto/RoundTrip
            |
            |export main
            |
@@ -220,7 +219,9 @@ class ProtoConverterTest extends munit.ScalaCheckSuite with ParTest {
     val x = Identifier.Name("x")
     val xExpr = TypedExpr.Local(x, intType, Region(1, 2))
     val loopExpr = TypedExpr.Loop(
-      NonEmptyList.one((x, TypedExpr.Literal(Lit.fromInt(1), intType, Region(2, 3)))),
+      NonEmptyList.one(
+        (x, TypedExpr.Literal(Lit.fromInt(1), intType, Region(2, 3)))
+      ),
       TypedExpr.Match(
         xExpr,
         NonEmptyList.of(
@@ -280,7 +281,9 @@ class ProtoConverterTest extends munit.ScalaCheckSuite with ParTest {
           tps <- ProtoConverter.buildTypes(ss.types.inOrder)
           pats = ProtoConverter.buildPatterns(ss.patterns.inOrder)
           patTab <- pats.local[ProtoConverter.DecodeState](_.withTypes(tps))
-          decoded = ProtoConverter.buildExprs(ss.expressions.inOrder).map(_(idx - 1))
+          decoded = ProtoConverter
+            .buildExprs(ss.expressions.inOrder)
+            .map(_(idx - 1))
           res <- decoded.local[ProtoConverter.DecodeState](
             _.withTypes(tps).withPatterns(patTab)
           )
@@ -372,11 +375,13 @@ class ProtoConverterTest extends munit.ScalaCheckSuite with ParTest {
       Region(7, 8)
     )
 
-    val encoded = ProtoConverter.runTab(
-      ProtoConverter.typedExprToProto(guardedMatch)
-    ).map { case (ss, idx) =>
-      ss.expressions.inOrder(idx - 1)
-    }
+    val encoded = ProtoConverter
+      .runTab(
+        ProtoConverter.typedExprToProto(guardedMatch)
+      )
+      .map { case (ss, idx) =>
+        ss.expressions.inOrder(idx - 1)
+      }
 
     encoded match {
       case Success(rootExprProto) =>
@@ -529,7 +534,11 @@ bar = 1
         |""".stripMargin
     )
     val iface = Package.interfaceOf(compiled)
-    law(iface, ProtoConverter.interfaceToProto, ProtoConverter.interfaceFromProto)
+    law(
+      iface,
+      ProtoConverter.interfaceToProto,
+      ProtoConverter.interfaceFromProto
+    )
   }
 
   test("compiled package roundtrip preserves local type aliases") {
@@ -566,7 +575,8 @@ bar = 1
         .strictToValidated
         .fold(
           errs => fail(errs.toList.mkString("typecheck failed: ", "\n", "")),
-          _.toMap.getOrElse(parsed.name, fail(s"missing package ${parsed.name}"))
+          _.toMap
+            .getOrElse(parsed.name, fail(s"missing package ${parsed.name}"))
         )
     }
   }
@@ -583,7 +593,7 @@ bar = 1
 
   private def roundTrip(pack: Package.Compiled): Package.Compiled =
     ProtoConverter.packageToProto(pack) match {
-      case Failure(err) => fail(s"failed to encode package: $err")
+      case Failure(err)       => fail(s"failed to encode package: $err")
       case Success(protoPack) =>
         ProtoConverter.packagesFromProto(Nil, protoPack :: Nil) match {
           case Failure(err) =>
@@ -591,7 +601,9 @@ bar = 1
           case Success((_, decoded :: Nil)) =>
             decoded
           case Success((_, other)) =>
-            fail(s"expected one package after roundtrip, got ${other.map(_.name)}")
+            fail(
+              s"expected one package after roundtrip, got ${other.map(_.name)}"
+            )
         }
     }
 
@@ -633,10 +645,14 @@ bar = 1
     val compiled = compilePackage(source)
     val roundTripped = roundTrip(compiled)
 
-    def branchesOf(pack: Package.Compiled): NonEmptyList[TypedExpr.Branch[Region]] = {
-      val selectExpr = pack.lets.collectFirst {
-        case (Identifier.Name("select"), _, te) => te
-      }.getOrElse(fail(s"missing select in ${pack.name}"))
+    def branchesOf(
+        pack: Package.Compiled
+    ): NonEmptyList[TypedExpr.Branch[Region]] = {
+      val selectExpr = pack.lets
+        .collectFirst { case (Identifier.Name("select"), _, te) =>
+          te
+        }
+        .getOrElse(fail(s"missing select in ${pack.name}"))
 
       stripWrappers(selectExpr) match {
         case TypedExpr.AnnotatedLambda(_, body, _) =>
@@ -654,7 +670,10 @@ bar = 1
     val decodedBranches = branchesOf(roundTripped)
 
     assert(originalBranches.exists(b => !b.patternRegion.eqv(Region.empty)))
-    assertEquals(decodedBranches.map(_.patternRegion), originalBranches.map(_.patternRegion))
+    assertEquals(
+      decodedBranches.map(_.patternRegion),
+      originalBranches.map(_.patternRegion)
+    )
   }
 
   test("TypedExpr proto roundtrip preserves MatchGuard branches") {
@@ -693,8 +712,8 @@ bar = 1
         TypedExpr.Branch.fromGuardNode(
           Pattern.WildCard,
           Some(
-            TypedExpr.MatchGuard(valueExpr, guardPattern, Some(innerGuardExpr))(using
-              Region(6, 7)
+            TypedExpr.MatchGuard(valueExpr, guardPattern, Some(innerGuardExpr))(
+              using Region(6, 7)
             )
           ),
           TypedExpr.Local(even, intType, Region(7, 8))
@@ -726,7 +745,9 @@ bar = 1
     testFn(expr)
   }
 
-  test("TypedExpr proto decode rejects branches with both guard encodings set") {
+  test(
+    "TypedExpr proto decode rejects branches with both guard encodings set"
+  ) {
     val intType = rankn.Type.IntType
     val value = Identifier.Name("value")
     val expr = TypedExpr.Match(
@@ -741,51 +762,56 @@ bar = 1
       Region(4, 5)
     )
 
-    val decoded = ProtoConverter.runTab(ProtoConverter.typedExprToProto(expr)).flatMap {
-      case (ss, idx) =>
-        val decodedExpr = for {
-          rootExprProto <- ss.expressions.inOrder.lift(idx - 1) match {
-            case Some(exprProto) => Success(exprProto)
-            case None =>
-              Failure(new Exception(s"missing root expression at index $idx"))
-          }
-          matchProto <- rootExprProto.value match {
-            case proto.TypedExpr.Value.MatchExpr(m) => Success(m)
-            case other =>
-              Failure(new Exception(s"expected encoded match expr, got $other"))
-          }
-          mutatedRoot = rootExprProto.copy(
-            value = proto.TypedExpr.Value.MatchExpr(
-              matchProto.copy(
-                branches = matchProto.branches.updated(
-                  0,
-                  matchProto.branches.head.copy(
-                    guardExpr = 1,
-                    matchGuard = Some(proto.MatchGuard())
+    val decoded =
+      ProtoConverter.runTab(ProtoConverter.typedExprToProto(expr)).flatMap {
+        case (ss, idx) =>
+          val decodedExpr = for {
+            rootExprProto <- ss.expressions.inOrder.lift(idx - 1) match {
+              case Some(exprProto) => Success(exprProto)
+              case None            =>
+                Failure(new Exception(s"missing root expression at index $idx"))
+            }
+            matchProto <- rootExprProto.value match {
+              case proto.TypedExpr.Value.MatchExpr(m) => Success(m)
+              case other                              =>
+                Failure(
+                  new Exception(s"expected encoded match expr, got $other")
+                )
+            }
+            mutatedRoot = rootExprProto.copy(
+              value = proto.TypedExpr.Value.MatchExpr(
+                matchProto.copy(
+                  branches = matchProto.branches.updated(
+                    0,
+                    matchProto.branches.head.copy(
+                      guardExpr = 1,
+                      matchGuard = Some(proto.MatchGuard())
+                    )
                   )
                 )
               )
             )
-          )
-          mutatedExprs = ss.expressions.inOrder.updated(idx - 1, mutatedRoot)
-          ds = ProtoConverter.DecodeState.init(ss.strings.inOrder)
-          res <- {
-            for {
-              tps <- ProtoConverter.buildTypes(ss.types.inOrder)
-              pats = ProtoConverter.buildPatterns(ss.patterns.inOrder)
-              patTab <- pats.local[ProtoConverter.DecodeState](_.withTypes(tps))
-              res <- ProtoConverter
-                .buildExprs(mutatedExprs)
-                .map(_(idx - 1))
-                .local[ProtoConverter.DecodeState](
-                  _.withTypes(tps).withPatterns(patTab)
+            mutatedExprs = ss.expressions.inOrder.updated(idx - 1, mutatedRoot)
+            ds = ProtoConverter.DecodeState.init(ss.strings.inOrder)
+            res <- {
+              for {
+                tps <- ProtoConverter.buildTypes(ss.types.inOrder)
+                pats = ProtoConverter.buildPatterns(ss.patterns.inOrder)
+                patTab <- pats.local[ProtoConverter.DecodeState](
+                  _.withTypes(tps)
                 )
-            } yield res
-          }.run(ds)
-        } yield res
+                res <- ProtoConverter
+                  .buildExprs(mutatedExprs)
+                  .map(_(idx - 1))
+                  .local[ProtoConverter.DecodeState](
+                    _.withTypes(tps).withPatterns(patTab)
+                  )
+              } yield res
+            }.run(ds)
+          } yield res
 
-        decodedExpr
-    }
+          decodedExpr
+      }
 
     decoded match {
       case Failure(err) =>
@@ -932,7 +958,8 @@ main = dep_value
   }
 
   test("interface proto decodes missing constructor default field as None") {
-    val iface = interfaceWithConstructorDefault(Some(Identifier.Name("default")))
+    val iface =
+      interfaceWithConstructorDefault(Some(Identifier.Name("default")))
     val protoIface = ProtoConverter.interfaceToProto(iface) match {
       case Success(p)   => p
       case Failure(err) => fail(s"failed to encode interface: $err")
@@ -973,7 +1000,10 @@ main = dep_value
 
     val encodedDefaultTypeIdx =
       protoIface.definedTypes.head.constructors.head.params.head.defaultTypeOf
-    assert(encodedDefaultTypeIdx > 0, s"expected non-zero proto default type index")
+    assert(
+      encodedDefaultTypeIdx > 0,
+      s"expected non-zero proto default type index"
+    )
 
     val decoded = ProtoConverter.interfaceFromProto(protoIface) match {
       case Success(i)   => i
@@ -982,7 +1012,9 @@ main = dep_value
     assertEquals(firstConstructorDefaultType(decoded), expectedType)
   }
 
-  test("interface proto decodes missing constructor default type field as None") {
+  test(
+    "interface proto decodes missing constructor default type field as None"
+  ) {
     val iface = interfaceWithConstructorDefault(
       Some(Identifier.Name("default")),
       Some(Type.IntType)

@@ -236,7 +236,7 @@ object Shape {
       }
       .map(_.reverse)
 
-  private final class Solver[E: IsShapeEnv](
+  final private class Solver[E: IsShapeEnv](
       imports: E,
       typeDecl: TypeDecl[Option[Kind.Arg]],
       allowSelfReference: Boolean
@@ -261,7 +261,7 @@ object Shape {
           lst.foldRight(Shape.Type: Shape) {
             case ((_, Right(k)), res) =>
               Shape.cons(ShapeOf(k), res)
-            case ((_, Left(s)), res)  =>
+            case ((_, Left(s)), res) =>
               Shape.cons(s, res)
           }
         }
@@ -272,7 +272,9 @@ object Shape {
           t match {
             case rankn.Type.TyVar(v @ rankn.Type.Var.Bound(_)) => smap.get(v)
             case rankn.Type.TyConst(const)                     =>
-              if (allowSelfReference && (const == (typeDecl.toTypeConst: rankn.Type.Const)))
+              if (
+                allowSelfReference && (const == (typeDecl.toTypeConst: rankn.Type.Const))
+              )
                 selfShape
               else IsShapeEnv[E].getShape(imports, const)
             case _ =>
@@ -508,7 +510,9 @@ object Shape {
       s1 match {
         case Type =>
           RefSpace.pure(
-            Validated.invalidNec(ShapeMismatch(typeDecl, source, outer, inner, s2))
+            Validated.invalidNec(
+              ShapeMismatch(typeDecl, source, outer, inner, s2)
+            )
           )
         case Cons(arg, res) =>
           unifyShape(arg, s2)(mkErr).map(_.as(res))
@@ -610,7 +614,7 @@ object Shape {
         }.toMap
 
       tpes
-        .traverse { tpe => shapeOfType(source, scope, local, tpe) }
+        .traverse(tpe => shapeOfType(source, scope, local, tpe))
         .flatMap {
           _.sequence match {
             case Validated.Valid(shapeList) =>
@@ -640,9 +644,11 @@ object Shape {
 
     def knownParam(
         item: (rankn.Type.Var.Bound, Either[Shape, Kind.Arg])
-    ): RefSpace[ValidatedNec[Error, (rankn.Type.Var.Bound, Either[KnownShape, Kind.Arg])]] =
+    ): RefSpace[
+      ValidatedNec[Error, (rankn.Type.Var.Bound, Either[KnownShape, Kind.Arg])]
+    ] =
       item match {
-        case (v, Left(s))   =>
+        case (v, Left(s)) =>
           shapeToKnown(s).map(_.map(k => (v, Left(k))))
         case (v, Right(ka)) =>
           RefSpace.pure(Validated.valid((v, Right(ka))))

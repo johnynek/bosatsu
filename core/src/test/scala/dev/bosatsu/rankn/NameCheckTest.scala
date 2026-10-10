@@ -96,7 +96,9 @@ class NameCheckTest extends munit.FunSuite {
     assertEquals(errors.map(_.toNonEmptyList.length), Some(1))
   }
 
-  test("dependency blocking is transitive and surviving lets keep source order") {
+  test(
+    "dependency blocking is transitive and surviving lets keep source order"
+  ) {
     val lets = List(
       let("keep1", Expr.Literal(Lit(1L), ())),
       let("root", local("missing")),
@@ -117,7 +119,13 @@ class NameCheckTest extends munit.FunSuite {
       result.typecheckLets.map(_._1),
       List(bn("keep1"), bn("keep2"), bn("keep3"))
     )
-    assertEquals(result.samePackageDeps.getOrElse(bn("dep1"), Set.empty), Set(bn("root")))
-    assertEquals(result.samePackageDeps.getOrElse(bn("dep2"), Set.empty), Set(bn("dep1")))
+    assertEquals(
+      result.samePackageDeps.getOrElse(bn("dep1"), Set.empty),
+      Set(bn("root"))
+    )
+    assertEquals(
+      result.samePackageDeps.getOrElse(bn("dep2"), Set.empty),
+      Set(bn("dep1"))
+    )
   }
 }

@@ -52,8 +52,9 @@ class VendoredDepsTest extends munit.ScalaCheckSuite {
     )
 
   private def cFlagsArg(args: List[String]): Option[String] =
-    args.collectFirst { case arg if arg.startsWith("-DCMAKE_C_FLAGS=") =>
-      arg.stripPrefix("-DCMAKE_C_FLAGS=")
+    args.collectFirst {
+      case arg if arg.startsWith("-DCMAKE_C_FLAGS=") =>
+        arg.stripPrefix("-DCMAKE_C_FLAGS=")
     }
 
   test("staticLibFileName follows vendored recipe naming") {
@@ -77,7 +78,9 @@ class VendoredDepsTest extends munit.ScalaCheckSuite {
     )
   }
 
-  test("bdwgc runtime requirements carry GC_THREADS for runtime and generated code") {
+  test(
+    "bdwgc runtime requirements carry GC_THREADS for runtime and generated code"
+  ) {
     val dep =
       dependency(
         "bdwgc",
@@ -167,7 +170,9 @@ class VendoredDepsTest extends munit.ScalaCheckSuite {
     )
   }
 
-  property("BuildInputs link flags reverse topological dependency order within each flag class") {
+  property(
+    "BuildInputs link flags reverse topological dependency order within each flag class"
+  ) {
     val nameGen =
       Gen
         .choose(2, 6)
@@ -201,7 +206,9 @@ class VendoredDepsTest extends munit.ScalaCheckSuite {
     }
   }
 
-  test("bdwgc configure args add the Darwin-only define and keep common switches") {
+  test(
+    "bdwgc configure args add the Darwin-only define and keep common switches"
+  ) {
     val macosArgs =
       VendoredDeps.bdwgcConfigureArgs(
         normalizedHostOs = "macos",
@@ -243,7 +250,9 @@ class VendoredDepsTest extends munit.ScalaCheckSuite {
     assertEquals(cFlagsArg(linuxArgs), None)
   }
 
-  test("bdwgc configure args use the expected CMake build type for debug and release") {
+  test(
+    "bdwgc configure args use the expected CMake build type for debug and release"
+  ) {
     val debugArgs =
       VendoredDeps.bdwgcConfigureArgs(
         normalizedHostOs = "macos",
@@ -267,7 +276,9 @@ class VendoredDepsTest extends munit.ScalaCheckSuite {
     assert(releaseArgs.contains("-DCMAKE_BUILD_TYPE=Release"))
   }
 
-  test("bdwgc configure args emit a valid Darwin CFLAGS entry when inherited flags are empty") {
+  test(
+    "bdwgc configure args emit a valid Darwin CFLAGS entry when inherited flags are empty"
+  ) {
     val args =
       VendoredDeps.bdwgcConfigureArgs(
         normalizedHostOs = "macos",
@@ -281,7 +292,9 @@ class VendoredDepsTest extends munit.ScalaCheckSuite {
     assertEquals(cFlagsArg(args), Some(noDescCatchExceptionRaise))
   }
 
-  test("bdwgc configure args do not duplicate the Darwin define when it is already inherited") {
+  test(
+    "bdwgc configure args do not duplicate the Darwin define when it is already inherited"
+  ) {
     val args =
       VendoredDeps.bdwgcConfigureArgs(
         normalizedHostOs = "macos",
@@ -323,7 +336,9 @@ class VendoredDepsTest extends munit.ScalaCheckSuite {
     )
   }
 
-  test("libuv configure args use the expected CMake build type for debug and release") {
+  test(
+    "libuv configure args use the expected CMake build type for debug and release"
+  ) {
     val debugArgs =
       VendoredDeps.libuvConfigureArgs(
         profile = "debug",
@@ -385,7 +400,9 @@ class VendoredDepsTest extends munit.ScalaCheckSuite {
       "-luserenv"
     )
 
-  property("Darwin bdwgc configure args retain inherited CFLAGS tokens and inject the define once") {
+  property(
+    "Darwin bdwgc configure args retain inherited CFLAGS tokens and inject the define once"
+  ) {
     forAll(Gen.listOf(safeCFlagTokenGen)) { tokens =>
       val inherited =
         Option.when(tokens.nonEmpty)(tokens.mkString(" "))
@@ -405,7 +422,9 @@ class VendoredDepsTest extends munit.ScalaCheckSuite {
     }
   }
 
-  property("libuv configure args preserve inherited CFLAGS once without GC flags") {
+  property(
+    "libuv configure args preserve inherited CFLAGS once without GC flags"
+  ) {
     forAll(Gen.nonEmptyListOf(safeCFlagTokenGen)) { tokens =>
       val inherited = tokens.mkString(" ")
       val args =
@@ -428,7 +447,9 @@ class VendoredDepsTest extends munit.ScalaCheckSuite {
     }
   }
 
-  property("pkg-config parsing preserves distinct system flags and filters self libraries") {
+  property(
+    "pkg-config parsing preserves distinct system flags and filters self libraries"
+  ) {
     val flagGen =
       for {
         staticLib <- Gen.oneOf("libgc.a", "libuv.a")

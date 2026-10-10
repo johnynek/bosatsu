@@ -55,14 +55,14 @@ class Int64Laws extends munit.ScalaCheckSuite {
   private def int64Value(value: Value): Long =
     value match {
       case Value.ExternalValue(v: java.lang.Long) => v.longValue
-      case other                                  => fail(s"expected Int64 value, found: $other")
+      case other => fail(s"expected Int64 value, found: $other")
     }
 
   private def int64OptionValue(value: Value): Option[Long] =
     value match {
       case Value.VOption(Some(v)) => Some(int64Value(v))
       case Value.VOption(None)    => None
-      case other                  => fail(s"expected Option[Int64], found: $other")
+      case other => fail(s"expected Option[Int64], found: $other")
     }
 
   private def valueInt64(v: Long): Value =
@@ -77,7 +77,9 @@ class Int64Laws extends munit.ScalaCheckSuite {
     if (!java.lang.Double.isFinite(value)) None
     else {
       val rounded = java.lang.Math.rint(value)
-      if ((rounded < Int64LowerInclusiveDouble) || (rounded >= Int64UpperExclusiveDouble))
+      if (
+        (rounded < Int64LowerInclusiveDouble) || (rounded >= Int64UpperExclusiveDouble)
+      )
         None
       else Some(rounded.toLong)
     }
@@ -88,7 +90,8 @@ class Int64Laws extends munit.ScalaCheckSuite {
       fn: (Value, Value) => Value,
       model: (BigInteger, BigInteger) => BigInteger
   ): Unit = {
-    val expected = model(BigInteger.valueOf(left), BigInteger.valueOf(right)).longValue()
+    val expected =
+      model(BigInteger.valueOf(left), BigInteger.valueOf(right)).longValue()
     val actual = int64Value(fn(valueInt64(left), valueInt64(right)))
     assertEquals(actual, expected)
   }
@@ -97,7 +100,9 @@ class Int64Laws extends munit.ScalaCheckSuite {
     forAll(genBigInt) { value =>
       val actual = int64OptionValue(PredefImpl.int_to_Int64(valueInt(value)))
       val expected =
-        if ((value.compareTo(LongMinBI) >= 0) && (value.compareTo(LongMaxBI) <= 0))
+        if (
+          (value.compareTo(LongMinBI) >= 0) && (value.compareTo(LongMaxBI) <= 0)
+        )
           Some(value.longValue())
         else None
       assertEquals(actual, expected)
@@ -106,68 +111,96 @@ class Int64Laws extends munit.ScalaCheckSuite {
 
   test("int_low_bits_to_Int64 matches low-bit truncation and is idempotent") {
     forAll(genBigInt, Arbitrary.arbitrary[Long]) { (value, seed) =>
-      val truncated = int64Value(PredefImpl.int_low_bits_to_Int64(valueInt(value)))
+      val truncated =
+        int64Value(PredefImpl.int_low_bits_to_Int64(valueInt(value)))
       assertEquals(truncated, value.longValue())
 
       val roundTripped =
-        PredefImpl.int_low_bits_to_Int64(PredefImpl.int64_to_Int(valueInt64(seed)))
+        PredefImpl.int_low_bits_to_Int64(
+          PredefImpl.int64_to_Int(valueInt64(seed))
+        )
       assertEquals(int64Value(roundTripped), seed)
     }
   }
 
   test("add_Int64 matches Int addition followed by truncation") {
-    forAll(Arbitrary.arbitrary[Long], Arbitrary.arbitrary[Long]) { (left, right) =>
-      assertBinaryLaw(left, right, PredefImpl.add_Int64, (a, b) => a.add(b))
+    forAll(Arbitrary.arbitrary[Long], Arbitrary.arbitrary[Long]) {
+      (left, right) =>
+        assertBinaryLaw(left, right, PredefImpl.add_Int64, (a, b) => a.add(b))
     }
   }
 
   test("sub_Int64 matches Int subtraction followed by truncation") {
-    forAll(Arbitrary.arbitrary[Long], Arbitrary.arbitrary[Long]) { (left, right) =>
-      assertBinaryLaw(left, right, PredefImpl.sub_Int64, (a, b) => a.subtract(b))
+    forAll(Arbitrary.arbitrary[Long], Arbitrary.arbitrary[Long]) {
+      (left, right) =>
+        assertBinaryLaw(
+          left,
+          right,
+          PredefImpl.sub_Int64,
+          (a, b) => a.subtract(b)
+        )
     }
   }
 
   test("mul_Int64 matches Int multiplication followed by truncation") {
-    forAll(Arbitrary.arbitrary[Long], Arbitrary.arbitrary[Long]) { (left, right) =>
-      assertBinaryLaw(left, right, PredefImpl.mul_Int64, (a, b) => a.multiply(b))
+    forAll(Arbitrary.arbitrary[Long], Arbitrary.arbitrary[Long]) {
+      (left, right) =>
+        assertBinaryLaw(
+          left,
+          right,
+          PredefImpl.mul_Int64,
+          (a, b) => a.multiply(b)
+        )
     }
   }
 
   test("div_Int64 matches Int division followed by truncation") {
-    forAll(Arbitrary.arbitrary[Long], Arbitrary.arbitrary[Long]) { (left, right) =>
-      assertBinaryLaw(left, right, PredefImpl.div_Int64, PredefImpl.divBigInteger)
+    forAll(Arbitrary.arbitrary[Long], Arbitrary.arbitrary[Long]) {
+      (left, right) =>
+        assertBinaryLaw(
+          left,
+          right,
+          PredefImpl.div_Int64,
+          PredefImpl.divBigInteger
+        )
     }
   }
 
   test("div_Int64 and mod_Int64 satisfy the Int64 divmod law") {
-    forAll(Arbitrary.arbitrary[Long], Arbitrary.arbitrary[Long]) { (left, right) =>
-      val quot = int64Value(PredefImpl.div_Int64(valueInt64(left), valueInt64(right)))
-      val rem = int64Value(PredefImpl.mod_Int64(valueInt64(left), valueInt64(right)))
-      val recomposed =
-        int64Value(
-          PredefImpl.add_Int64(
-            PredefImpl.mul_Int64(valueInt64(quot), valueInt64(right)),
-            valueInt64(rem)
+    forAll(Arbitrary.arbitrary[Long], Arbitrary.arbitrary[Long]) {
+      (left, right) =>
+        val quot =
+          int64Value(PredefImpl.div_Int64(valueInt64(left), valueInt64(right)))
+        val rem =
+          int64Value(PredefImpl.mod_Int64(valueInt64(left), valueInt64(right)))
+        val recomposed =
+          int64Value(
+            PredefImpl.add_Int64(
+              PredefImpl.mul_Int64(valueInt64(quot), valueInt64(right)),
+              valueInt64(rem)
+            )
           )
-        )
-      assertEquals(recomposed, left)
+        assertEquals(recomposed, left)
     }
   }
 
-  test("bitwise Int64 functions match Int bitwise operations followed by truncation") {
-    forAll(Arbitrary.arbitrary[Long], Arbitrary.arbitrary[Long]) { (left, right) =>
-      assertEquals(
-        int64Value(PredefImpl.and_Int64(valueInt64(left), valueInt64(right))),
-        left & right
-      )
-      assertEquals(
-        int64Value(PredefImpl.or_Int64(valueInt64(left), valueInt64(right))),
-        left | right
-      )
-      assertEquals(
-        int64Value(PredefImpl.xor_Int64(valueInt64(left), valueInt64(right))),
-        left ^ right
-      )
+  test(
+    "bitwise Int64 functions match Int bitwise operations followed by truncation"
+  ) {
+    forAll(Arbitrary.arbitrary[Long], Arbitrary.arbitrary[Long]) {
+      (left, right) =>
+        assertEquals(
+          int64Value(PredefImpl.and_Int64(valueInt64(left), valueInt64(right))),
+          left & right
+        )
+        assertEquals(
+          int64Value(PredefImpl.or_Int64(valueInt64(left), valueInt64(right))),
+          left | right
+        )
+        assertEquals(
+          int64Value(PredefImpl.xor_Int64(valueInt64(left), valueInt64(right))),
+          left ^ right
+        )
     }
   }
 
@@ -181,13 +214,19 @@ class Int64Laws extends munit.ScalaCheckSuite {
 
   test("Int64 shifts match the Int shift model followed by truncation") {
     forAll(Arbitrary.arbitrary[Long], genShiftCount) { (value, shift) =>
-      val leftExpected = PredefImpl.shiftLeft(BigInteger.valueOf(value), shift).longValue()
-      val rightExpected = PredefImpl.shiftRight(BigInteger.valueOf(value), shift).longValue()
+      val leftExpected =
+        PredefImpl.shiftLeft(BigInteger.valueOf(value), shift).longValue()
+      val rightExpected =
+        PredefImpl.shiftRight(BigInteger.valueOf(value), shift).longValue()
 
       val leftActual =
-        int64Value(PredefImpl.shift_left_Int64(valueInt64(value), valueInt(shift)))
+        int64Value(
+          PredefImpl.shift_left_Int64(valueInt64(value), valueInt(shift))
+        )
       val rightActual =
-        int64Value(PredefImpl.shift_right_Int64(valueInt64(value), valueInt(shift)))
+        int64Value(
+          PredefImpl.shift_right_Int64(valueInt64(value), valueInt(shift))
+        )
 
       assertEquals(leftActual, leftExpected)
       assertEquals(rightActual, rightExpected)
@@ -208,7 +247,12 @@ class Int64Laws extends munit.ScalaCheckSuite {
         }
 
       val actual =
-        int64Value(PredefImpl.shift_right_unsigned_Int64(valueInt64(value), valueInt(shift)))
+        int64Value(
+          PredefImpl.shift_right_unsigned_Int64(
+            valueInt64(value),
+            valueInt(shift)
+          )
+        )
 
       assertEquals(actual, expected)
     }
@@ -224,24 +268,28 @@ class Int64Laws extends munit.ScalaCheckSuite {
   }
 
   test("eq_Int64 matches signed Long equality") {
-    forAll(Arbitrary.arbitrary[Long], Arbitrary.arbitrary[Long]) { (left, right) =>
-      assertEquals(
-        PredefImpl.eq_Int64(valueInt64(left), valueInt64(right)),
-        if (left == right) Value.True else Value.False
-      )
+    forAll(Arbitrary.arbitrary[Long], Arbitrary.arbitrary[Long]) {
+      (left, right) =>
+        assertEquals(
+          PredefImpl.eq_Int64(valueInt64(left), valueInt64(right)),
+          if (left == right) Value.True else Value.False
+        )
     }
   }
 
   test("cmp_Int64 matches signed Long ordering") {
-    forAll(Arbitrary.arbitrary[Long], Arbitrary.arbitrary[Long]) { (left, right) =>
-      assertEquals(
-        PredefImpl.cmp_Int64(valueInt64(left), valueInt64(right)),
-        Value.Comparison.fromInt(java.lang.Long.compare(left, right))
-      )
+    forAll(Arbitrary.arbitrary[Long], Arbitrary.arbitrary[Long]) {
+      (left, right) =>
+        assertEquals(
+          PredefImpl.cmp_Int64(valueInt64(left), valueInt64(right)),
+          Value.Comparison.fromInt(java.lang.Long.compare(left, right))
+        )
     }
   }
 
-  test("float64_to_Int64 matches the documented rounding and signed-range contract") {
+  test(
+    "float64_to_Int64 matches the documented rounding and signed-range contract"
+  ) {
     forAll(Arbitrary.arbitrary[Long]) { bits =>
       val input = java.lang.Double.longBitsToDouble(bits)
       val floatValue = Value.VFloat(input)
@@ -253,11 +301,15 @@ class Int64Laws extends munit.ScalaCheckSuite {
 
   test("float64_to_Int64 rejects 2^63 and accepts -2^63") {
     assertEquals(
-      int64OptionValue(PredefImpl.float64_to_Int64(Value.VFloat(Int64UpperExclusiveDouble))),
+      int64OptionValue(
+        PredefImpl.float64_to_Int64(Value.VFloat(Int64UpperExclusiveDouble))
+      ),
       None
     )
     assertEquals(
-      int64OptionValue(PredefImpl.float64_to_Int64(Value.VFloat(Int64LowerInclusiveDouble))),
+      int64OptionValue(
+        PredefImpl.float64_to_Int64(Value.VFloat(Int64LowerInclusiveDouble))
+      ),
       Some(Long.MinValue)
     )
   }
