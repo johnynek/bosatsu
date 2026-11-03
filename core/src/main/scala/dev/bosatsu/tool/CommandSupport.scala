@@ -98,7 +98,8 @@ object CommandSupport {
       next_version = Version.zero,
       previous = None,
       exported_packages = Nil,
-      all_packages = LibConfig.PackageFilter.Regex(Pattern.compile(".*")) :: Nil,
+      all_packages =
+        LibConfig.PackageFilter.Regex(Pattern.compile(".*")) :: Nil,
       public_deps = pub.map(_.toDep),
       private_deps = priv.map(_.toDep),
       default_main = None

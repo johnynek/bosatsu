@@ -61,9 +61,14 @@ class LibConfigTest extends munit.FunSuite {
 
   private def typeCheckAll(srcs: List[String]): PackageMap.Compiled =
     Par.noParallelism {
-      val parsed = cats.data.NonEmptyList.fromList(srcs.zipWithIndex.map { case (src, idx) =>
-        ((idx.toString, LocationMap(src)), dev.bosatsu.Parser.unsafeParse(Package.parser, src))
-      }).getOrElse(fail("expected at least one source"))
+      val parsed = cats.data.NonEmptyList
+        .fromList(srcs.zipWithIndex.map { case (src, idx) =>
+          (
+            (idx.toString, LocationMap(src)),
+            dev.bosatsu.Parser.unsafeParse(Package.parser, src)
+          )
+        })
+        .getOrElse(fail("expected at least one source"))
 
       PackageMap
         .typeCheckParsed(parsed, Nil, "<predef>", CompileOptions.Default)
@@ -217,7 +222,9 @@ class LibConfigTest extends munit.FunSuite {
     assertEquals(decoded.docBaseUrl, conf.docBaseUrl)
   }
 
-  test("lib config default_main json round-trips via PackageName companion codecs") {
+  test(
+    "lib config default_main json round-trips via PackageName companion codecs"
+  ) {
     val conf = LibConfig
       .init(Name("root"), "repo", Version(0, 0, 1))
       .copy(default_main = Some(PackageName.parts("My", "Main")))
@@ -226,7 +233,9 @@ class LibConfigTest extends munit.FunSuite {
     assertEquals(decoded.defaultMain, conf.defaultMain)
   }
 
-  test("lib config dep lists omit empty fields and decode missing fields as nil") {
+  test(
+    "lib config dep lists omit empty fields and decode missing fields as nil"
+  ) {
     val conf = LibConfig.init(Name("root"), "repo", Version(0, 0, 1))
     val encoded = Json.Writer.write(conf).render
 
@@ -238,7 +247,9 @@ class LibConfigTest extends munit.FunSuite {
     assertEquals(decoded.privateDeps, Nil)
   }
 
-  test("lib config dep list serde omits nil fields but preserves non-empty deps") {
+  test(
+    "lib config dep list serde omits nil fields but preserves non-empty deps"
+  ) {
     val privateDep = Library.dep("dep-lib", Version(1, 2, 3))
     val conf = LibConfig
       .init(Name("root"), "repo", Version(0, 0, 1))
@@ -285,7 +296,7 @@ class LibConfigTest extends munit.FunSuite {
       unusedTrans = Nil
     ) match {
       case Right(value) => value
-      case Left(err)    => fail(show"failed to assemble library: ${err.toString}")
+      case Left(err) => fail(show"failed to assemble library: ${err.toString}")
     }
 
     assertEquals(assembled.docBaseUrl, conf.docBaseUrl)

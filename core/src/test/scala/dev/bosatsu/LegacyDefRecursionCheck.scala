@@ -189,8 +189,8 @@ object LegacyDefRecursionCheck {
     sealed abstract class InDefState extends State {
       final def inDef: InDef =
         this match {
-          case id @ InDef(_, _, _, _)                    => id
-          case InDefRecurred(ir, _, _, _, _)             => ir.inDef
+          case id @ InDef(_, _, _, _)                                => id
+          case InDefRecurred(ir, _, _, _, _)                         => ir.inDef
           case InRecurBranch(InDefRecurred(ir, _, _, _, _), _, _, _) =>
             ir.inDef
         }
@@ -297,16 +297,13 @@ object LegacyDefRecursionCheck {
     private def getRecurTargetItemsByName(
         args: NonEmptyList[NonEmptyList[Pattern.Parsed]]
     ): Map[Bindable, RecurTargetItem] =
-      args.iterator
-        .zipWithIndex
-        .flatMap { case (group, gidx) =>
-          group.iterator.zipWithIndex.flatMap { case (item, idx) =>
-            item.topNames.iterator.map { topName =>
-              topName -> RecurTargetItem(gidx, idx, topName)
-            }
+      args.iterator.zipWithIndex.flatMap { case (group, gidx) =>
+        group.iterator.zipWithIndex.flatMap { case (item, idx) =>
+          item.topNames.iterator.map { topName =>
+            topName -> RecurTargetItem(gidx, idx, topName)
           }
         }
-        .toMap
+      }.toMap
 
     private def resolveRecurTargetItem(
         fnname: Bindable,
@@ -353,7 +350,11 @@ object LegacyDefRecursionCheck {
                 if (seen(item.paramName))
                   (
                     seen,
-                    RecurTargetDuplicate(fnname, item.paramName, sourceDecl) :: errs
+                    RecurTargetDuplicate(
+                      fnname,
+                      item.paramName,
+                      sourceDecl
+                    ) :: errs
                   )
                 else (seen + item.paramName, errs)
             }
@@ -441,11 +442,15 @@ object LegacyDefRecursionCheck {
         callArgsByTarget: NonEmptyList[Declaration],
         region: Region
     ): Res =
-      if (isLexicographicallySmaller(target, allowedPerTarget, callArgsByTarget))
+      if (
+        isLexicographicallySmaller(target, allowedPerTarget, callArgsByTarget)
+      )
         unitValid
       else {
         val targetParams = target.map(_.paramName)
-        Validated.invalidNel(RecursionNotLexicographic(fnname, targetParams, region))
+        Validated.invalidNel(
+          RecursionNotLexicographic(fnname, targetParams, region)
+        )
       }
 
     @annotation.tailrec
@@ -470,7 +475,9 @@ object LegacyDefRecursionCheck {
             case Pattern.PositionalStruct(kind, parts)
                 if parts.length == target.length &&
                   ((kind == Pattern.StructKind.Tuple) ||
-                    kind.namedStyle.contains(Pattern.StructKind.Style.TupleLike)) =>
+                    kind.namedStyle.contains(
+                      Pattern.StructKind.Style.TupleLike
+                    )) =>
               NonEmptyList.fromListUnsafe(parts.map(_.substructures.toSet))
             case _ =>
               target.map(_ => Set.empty[Bindable])
@@ -609,7 +616,8 @@ object LegacyDefRecursionCheck {
     private def unionNames[A](newNames: Iterable[Bindable])(in: St[A]): St[A] =
       withTemporaryRecurBranchNames(
         in,
-        notRecur => sys.error(s"called setNames on $notRecur with names: $newNames")
+        notRecur =>
+          sys.error(s"called setNames on $notRecur with names: $newNames")
       ) { (allowed, names) =>
         // Single-target recursion keeps the old behavior where lambda args
         // from reachable substructures are also considered recursive args.
@@ -766,43 +774,44 @@ object LegacyDefRecursionCheck {
             case InDef(_, defname, args, locals) =>
               toSt(getRecurTarget(defname, args, recur, locals)).flatMap {
                 target =>
-                // on all these branchs, use the the same
-                // parent state
-                def beginBranch(pat: Pattern.Parsed): St[Unit] =
-                  getSt.flatMap {
-                    case ir @ InDef(_, _, _, _) =>
-                      val rec = ir.setRecur(target, recur)
-                      setSt(rec) *> beginBranch(pat)
-                    case irr @ InDefRecurred(_, _, _, _, _) =>
-                      val allowed = allowedByTarget(irr.target, pat)
-                      val reachable = allowed.iterator.flatMap(_.iterator).toSet
-                      setSt(
-                        InRecurBranch(irr, pat, allowed, reachable)
-                      )
-                    case illegal =>
-                      // $COVERAGE-OFF$ this should be unreachable
-                      sys.error(s"unreachable: $pat -> $illegal")
-                    // $COVERAGE-ON$
-                  }
+                  // on all these branchs, use the the same
+                  // parent state
+                  def beginBranch(pat: Pattern.Parsed): St[Unit] =
+                    getSt.flatMap {
+                      case ir @ InDef(_, _, _, _) =>
+                        val rec = ir.setRecur(target, recur)
+                        setSt(rec) *> beginBranch(pat)
+                      case irr @ InDefRecurred(_, _, _, _, _) =>
+                        val allowed = allowedByTarget(irr.target, pat)
+                        val reachable =
+                          allowed.iterator.flatMap(_.iterator).toSet
+                        setSt(
+                          InRecurBranch(irr, pat, allowed, reachable)
+                        )
+                      case illegal =>
+                        // $COVERAGE-OFF$ this should be unreachable
+                        sys.error(s"unreachable: $pat -> $illegal")
+                      // $COVERAGE-ON$
+                    }
 
-                val endBranch: St[Unit] =
-                  getSt.flatMap {
-                    case InRecurBranch(irr, _, _, _) => setSt(irr)
-                    case illegal                  =>
-                      // $COVERAGE-OFF$ this should be unreachable
-                      sys.error(s"unreachable end state: $illegal")
-                    // $COVERAGE-ON$
-                  }
+                  val endBranch: St[Unit] =
+                    getSt.flatMap {
+                      case InRecurBranch(irr, _, _, _) => setSt(irr)
+                      case illegal                     =>
+                        // $COVERAGE-OFF$ this should be unreachable
+                        sys.error(s"unreachable end state: $illegal")
+                      // $COVERAGE-ON$
+                    }
 
-                cases.get.parTraverse_ { case MatchBranch(pat, guard, next) =>
-                  for {
-                    _ <- checkForIllegalBindsSt(pat.names, decl)
-                    _ <- beginBranch(pat)
-                    _ <- guard.parTraverse_(checkDecl)
-                    _ <- checkDecl(next.get)
-                    _ <- endBranch
-                  } yield ()
-                }
+                  cases.get.parTraverse_ { case MatchBranch(pat, guard, next) =>
+                    for {
+                      _ <- checkForIllegalBindsSt(pat.names, decl)
+                      _ <- beginBranch(pat)
+                      _ <- guard.parTraverse_(checkDecl)
+                      _ <- checkDecl(next.get)
+                      _ <- endBranch
+                    } yield ()
+                  }
               }
           }
         case Matches(a, pat, guard) =>

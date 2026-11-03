@@ -4,9 +4,8 @@ import cats.{Eval, Monad, Monoid, Semigroup}
 
 type Writer[M, +A] = Writer.Tpe[M, A]
 
-/**
- * An optimized Writer without the WriterT cost from cats
- */
+/** An optimized Writer without the WriterT cost from cats
+  */
 object Writer {
   opaque type Tpe[M, +A] = (M, A)
 
@@ -19,7 +18,9 @@ object Writer {
     inline def map[B](inline fn: A => B): Tpe[M, B] =
       (written, fn(value))
 
-    inline def flatMap[B](inline fn: A => Tpe[M, B])(using Semigroup[M]): Tpe[M, B] = {
+    inline def flatMap[B](
+        inline fn: A => Tpe[M, B]
+    )(using Semigroup[M]): Tpe[M, B] = {
       val tpeB = fn(value)
       (Semigroup[M].combine(written, tpeB._1), tpeB._2)
     }
@@ -42,13 +43,17 @@ object Writer {
       (m, b)
     }
 
-    override def map2[A, B, C](fa: (M, A), fb: (M, B))(fn: (A, B) => C): (M, C) = {
+    override def map2[A, B, C](fa: (M, A), fb: (M, B))(
+        fn: (A, B) => C
+    ): (M, C) = {
       val m = Semigroup[M].combine(fa._1, fb._1)
       val c = fn(fa._2, fb._2)
       (m, c)
     }
 
-    override def map2Eval[A, B, C](fa: (M, A), efb: Eval[(M, B)])(fn: (A, B) => C): Eval[(M, C)] =
+    override def map2Eval[A, B, C](fa: (M, A), efb: Eval[(M, B)])(
+        fn: (A, B) => C
+    ): Eval[(M, C)] =
       efb.map { fb =>
         val m = Semigroup[M].combine(fa._1, fb._1)
         val c = fn(fa._2, fb._2)
@@ -64,7 +69,7 @@ object Writer {
         val (m1, either) = fn(a)
         val mnext = Semigroup[M].combine(m, m1)
         either match {
-          case Left(a) => loop(mnext, a)
+          case Left(a)  => loop(mnext, a)
           case Right(b) => (mnext, b)
         }
 

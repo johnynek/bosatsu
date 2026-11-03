@@ -118,7 +118,9 @@ enum MyNat: Z, S(prev: MyNat)
     toDoc(Value.Str("ab")) match {
       case Left(_)    => ()
       case Right(doc) =>
-        fail(s"expected ill-typed char rendering failure, got ${doc.render(80)}")
+        fail(
+          s"expected ill-typed char rendering failure, got ${doc.render(80)}"
+        )
     }
   }
 
@@ -200,7 +202,8 @@ enum MyNat: Z, S(prev: MyNat)
       ),
       Type.UnitType
     )
-    val progValue = Value.SumValue(0, Value.ProductValue.single(Value.UnitValue))
+    val progValue =
+      Value.SumValue(0, Value.ProductValue.single(Value.UnitValue))
 
     conv.toDoc(progType)(progValue) match {
       case Right(doc) => assertEquals(doc.render(80), "Prog(...)")

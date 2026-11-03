@@ -105,7 +105,10 @@ main = Main(0)
         fail(s"expected failure, got output: $out")
       case Left(err) =>
         val msg = errMsg(err)
-        assert(msg.contains("invalid main package `MyLib/Fbi`: unknown package."), msg)
+        assert(
+          msg.contains("invalid main package `MyLib/Fbi`: unknown package."),
+          msg
+        )
         assert(msg.contains("Did you mean: MyLib/Fib ?"), msg)
         assert(
           msg.matches(
@@ -135,7 +138,9 @@ main = Main(0)
       case Left(err) =>
         val msg = errMsg(err)
         assert(
-          msg.contains("invalid main package `Does/NotExist`: unknown package."),
+          msg.contains(
+            "invalid main package `Does/NotExist`: unknown package."
+          ),
           msg
         )
         assert(
@@ -184,7 +189,7 @@ main = Main(0)
       )
 
     module.run(cmd) match {
-      case Right(_)  => ()
+      case Right(_)   => ()
       case Left(help) =>
         fail(s"expected parse success with -e only, got help: $help")
     }

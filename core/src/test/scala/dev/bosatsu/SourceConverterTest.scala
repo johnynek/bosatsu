@@ -100,7 +100,7 @@ class SourceConverterTest extends munit.ScalaCheckSuite {
   private def localName(expr: Expr[Declaration]): String =
     stripWrapperExpr(expr) match {
       case Expr.Local(Identifier.Name(name), _) => name
-      case other =>
+      case other                                =>
         fail(s"expected local name expression, got: $other")
     }
 
@@ -155,16 +155,18 @@ class SourceConverterTest extends munit.ScalaCheckSuite {
         assertEquals(branch.isEffectivelyUnguarded, pattern.definitelyTotal)
         val _ = guard.patternRegion
       case other =>
-        fail(s"expected MatchGuard local $expectedArg/$expectedBound, got: $other")
+        fail(
+          s"expected MatchGuard local $expectedArg/$expectedBound, got: $other"
+        )
     }
 
   private def genericBinders(
       expr: Expr[Declaration]
   ): List[NonEmptyList[(rankn.Type.Var.Bound, Kind)]] =
     expr match {
-      case Expr.Annotation(in, _, _) => genericBinders(in)
-      case Expr.Local(_, _)          => Nil
-      case Expr.Global(_, _, _)      => Nil
+      case Expr.Annotation(in, _, _)  => genericBinders(in)
+      case Expr.Local(_, _)           => Nil
+      case Expr.Global(_, _, _)       => Nil
       case Expr.Generic(typeVars, in) =>
         typeVars :: genericBinders(in)
       case Expr.App(fn, args, _) =>
@@ -177,8 +179,10 @@ class SourceConverterTest extends munit.ScalaCheckSuite {
         Nil
       case Expr.Match(arg, branches, _) =>
         genericBinders(arg) ::: branches.toList.flatMap { b =>
-          b.foldGuardExpr(Nil: List[NonEmptyList[(rankn.Type.Var.Bound, Kind)]]) {
-            (acc, guardExpr) => acc ::: genericBinders(guardExpr)
+          b.foldGuardExpr(
+            Nil: List[NonEmptyList[(rankn.Type.Var.Bound, Kind)]]
+          ) { (acc, guardExpr) =>
+            acc ::: genericBinders(guardExpr)
           } ::: genericBinders(b.expr)
         }
     }
@@ -194,7 +198,9 @@ class SourceConverterTest extends munit.ScalaCheckSuite {
       case Expr.Generic(_, in) =>
         firstMatchGuard(in)
       case Expr.App(fn, args, _) =>
-        firstMatchGuard(fn).orElse(args.toList.collectFirstSome(firstMatchGuard))
+        firstMatchGuard(fn).orElse(
+          args.toList.collectFirstSome(firstMatchGuard)
+        )
       case Expr.Lambda(_, in, _) =>
         firstMatchGuard(in)
       case Expr.Let(_, ex, in, _, _) =>
@@ -202,14 +208,18 @@ class SourceConverterTest extends munit.ScalaCheckSuite {
       case Expr.Match(arg, branches, _) =>
         firstMatchGuard(arg).orElse {
           branches.toList.collectFirstSome { branch =>
-            branch.guardNode.collect { case guard: Expr.MatchGuard[Declaration] =>
-              guard
-            }.orElse(
-              branch.foldGuardExpr(None: Option[Expr.MatchGuard[Declaration]]) {
-                (acc, guardExpr) =>
-                  acc.orElse(firstMatchGuard(guardExpr))
+            branch.guardNode
+              .collect { case guard: Expr.MatchGuard[Declaration] =>
+                guard
               }
-            ).orElse(firstMatchGuard(branch.expr))
+              .orElse(
+                branch.foldGuardExpr(
+                  None: Option[Expr.MatchGuard[Declaration]]
+                ) { (acc, guardExpr) =>
+                  acc.orElse(firstMatchGuard(guardExpr))
+                }
+              )
+              .orElse(firstMatchGuard(branch.expr))
           }
         }
     }
@@ -274,7 +284,10 @@ class SourceConverterTest extends munit.ScalaCheckSuite {
 
     forAll(genLets) { lets =>
       val p1 = SourceConverter.makeLetsUnique(lets) { (b, idx) =>
-        (Identifier.Backticked(b.sourceCodeRepr + s"____${idx}"), identity[Unit])
+        (
+          Identifier.Backticked(b.sourceCodeRepr + s"____${idx}"),
+          identity[Unit]
+        )
       }
 
       val p1sz = p1.size
@@ -301,9 +314,12 @@ class SourceConverterTest extends munit.ScalaCheckSuite {
 
     forAll(genLets) { lets =>
       val p1 = SourceConverter.makeLetsUnique(lets) { (b, idx) =>
-        (Identifier.Backticked(b.sourceCodeRepr + s"____${idx}"), { _ =>
-          -idx
-        })
+        (
+          Identifier.Backticked(b.sourceCodeRepr + s"____${idx}"),
+          { _ =>
+            -idx
+          }
+        )
       }
 
       assert(p1 eq lets)
@@ -485,7 +501,9 @@ else:
     assertEquals(localName(branchList(3).expr), "e")
   }
 
-  test("plain boolean match guards lower as BoolGuard while unguarded branches stay empty") {
+  test(
+    "plain boolean match guards lower as BoolGuard while unguarded branches stay empty"
+  ) {
     val branchList = mainBranches(
       """main = match foo:
         |  case x if cond:
@@ -553,7 +571,9 @@ else:
     )
   }
 
-  test("mixed boolean and conditional chains lower with a nested fallback match") {
+  test(
+    "mixed boolean and conditional chains lower with a nested fallback match"
+  ) {
     assertMainDesugarsAs(
       """main = if c1:
         |  t1
@@ -590,7 +610,9 @@ else:
     )
   }
 
-  test("conditional matches ternary and guarded forms desugar like explicit matches") {
+  test(
+    "conditional matches ternary and guarded forms desugar like explicit matches"
+  ) {
     assertMainDesugarsAs(
       """main = fn(a) if foo matches (a, _) else h""",
       """main = match foo:
@@ -1489,7 +1511,9 @@ main = MyCons { head: 1 }
     )
   }
 
-  test("nested def reuses outer type parameter instead of introducing inner generic") {
+  test(
+    "nested def reuses outer type parameter instead of introducing inner generic"
+  ) {
     val code = """#
 def foo[a](lst: List[a]) -> Int:
   def loop(list: List[a], acc: Int) -> Int:
@@ -1535,7 +1559,9 @@ main = foo([1, 2, 3])
     assertEquals(generics.head.map(_._1.name).toList, List("a"))
   }
 
-  test("nested def with explicit inner type parameter introduces a second generic") {
+  test(
+    "nested def with explicit inner type parameter introduces a second generic"
+  ) {
     val code = """#
 def foo(lst: List[a]) -> Int:
   def loop[a](list: List[a], acc: Int) -> Int:
@@ -1554,7 +1580,10 @@ main = foo([1, 2, 3])
 
     val generics = genericBinders(fooExpr)
     assertEquals(generics.length, 2)
-    assertEquals(generics.map(_.map(_._1.name).toList), List(List("a"), List("a")))
+    assertEquals(
+      generics.map(_.map(_._1.name).toList),
+      List(List("a"), List("a"))
+    )
   }
 
   test(
@@ -1629,7 +1658,9 @@ main = foo(1)
           ) =>
         assertEquals(a.name, "a")
       case other =>
-        fail(s"expected MatchGuard with annotated wildcard pattern, got: $other")
+        fail(
+          s"expected MatchGuard with annotated wildcard pattern, got: $other"
+        )
     }
   }
 }

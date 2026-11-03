@@ -158,7 +158,9 @@ class SmtExprNormalizeAndPathImpliesTest extends munit.ScalaCheckSuite {
   private val envGen: Gen[Map[String, BigInt]] =
     Gen
       .listOfN(varNames.size, Gen.chooseNum(-20, 20))
-      .map(values => varNames.iterator.zip(values.iterator.map(BigInt(_))).toMap)
+      .map(values =>
+        varNames.iterator.zip(values.iterator.map(BigInt(_))).toMap
+      )
 
   private def evalInt(expr: IntExpr, env: Map[String, BigInt]): BigInt =
     expr match {
@@ -169,7 +171,8 @@ class SmtExprNormalizeAndPathImpliesTest extends munit.ScalaCheckSuite {
         args.toList match {
           case Nil          => BigInt(0)
           case head :: Nil  => -evalInt(head, env)
-          case head :: tail => tail.foldLeft(evalInt(head, env))(_ - evalInt(_, env))
+          case head :: tail =>
+            tail.foldLeft(evalInt(head, env))(_ - evalInt(_, env))
         }
       case Mul(args) =>
         args.toList match {
@@ -187,23 +190,26 @@ class SmtExprNormalizeAndPathImpliesTest extends munit.ScalaCheckSuite {
 
   private def evalBool(expr: BoolExpr, env: Map[String, BigInt]): Boolean =
     expr match {
-      case BoolConst(v)     => v
-      case EqInt(l, r)      => evalInt(l, env) == evalInt(r, env)
-      case EqBool(l, r)     => evalBool(l, env) == evalBool(r, env)
-      case Lt(l, r)         => evalInt(l, env) < evalInt(r, env)
-      case Lte(l, r)        => evalInt(l, env) <= evalInt(r, env)
-      case Gt(l, r)         => evalInt(l, env) > evalInt(r, env)
-      case Gte(l, r)        => evalInt(l, env) >= evalInt(r, env)
-      case Not(inner)       => !evalBool(inner, env)
-      case And(args)        => args.forall(evalBool(_, env))
-      case Or(args)         => args.exists(evalBool(_, env))
-      case Xor(l, r)        => evalBool(l, env) ^ evalBool(r, env)
-      case Implies(l, r)    => !evalBool(l, env) || evalBool(r, env)
-      case Ite(c, t, f)     => if (evalBool(c, env)) evalBool(t, env) else evalBool(f, env)
-      case Var(name)        =>
+      case BoolConst(v)  => v
+      case EqInt(l, r)   => evalInt(l, env) == evalInt(r, env)
+      case EqBool(l, r)  => evalBool(l, env) == evalBool(r, env)
+      case Lt(l, r)      => evalInt(l, env) < evalInt(r, env)
+      case Lte(l, r)     => evalInt(l, env) <= evalInt(r, env)
+      case Gt(l, r)      => evalInt(l, env) > evalInt(r, env)
+      case Gte(l, r)     => evalInt(l, env) >= evalInt(r, env)
+      case Not(inner)    => !evalBool(inner, env)
+      case And(args)     => args.forall(evalBool(_, env))
+      case Or(args)      => args.exists(evalBool(_, env))
+      case Xor(l, r)     => evalBool(l, env) ^ evalBool(r, env)
+      case Implies(l, r) => !evalBool(l, env) || evalBool(r, env)
+      case Ite(c, t, f)  =>
+        if (evalBool(c, env)) evalBool(t, env) else evalBool(f, env)
+      case Var(name) =>
         throw new IllegalArgumentException(s"unexpected bool var: $name")
-      case App(name, _)     =>
-        throw new IllegalArgumentException(s"generator excludes bool App: $name")
+      case App(name, _) =>
+        throw new IllegalArgumentException(
+          s"generator excludes bool App: $name"
+        )
     }
 
   private def isNegatedTerm(expr: IntExpr): Boolean =
@@ -211,7 +217,7 @@ class SmtExprNormalizeAndPathImpliesTest extends munit.ScalaCheckSuite {
       case Mul(args) =>
         args.toList match {
           case IntConst(n) :: _ :: Nil if n == BigInt(-1) => true
-          case _                                           => false
+          case _                                          => false
         }
       case IntConst(n) if n < 0 =>
         true
@@ -239,7 +245,9 @@ class SmtExprNormalizeAndPathImpliesTest extends munit.ScalaCheckSuite {
       case Mod(num, den) =>
         hasNegAddPair(num) || hasNegAddPair(den)
       case Ite(cond, ifTrue, ifFalse) =>
-        hasNegAddPairInBool(cond) || hasNegAddPair(ifTrue) || hasNegAddPair(ifFalse)
+        hasNegAddPairInBool(cond) || hasNegAddPair(ifTrue) || hasNegAddPair(
+          ifFalse
+        )
       case _ =>
         false
     }
@@ -258,8 +266,10 @@ class SmtExprNormalizeAndPathImpliesTest extends munit.ScalaCheckSuite {
       case Xor(l, r)     => hasNegAddPairInBool(l) || hasNegAddPairInBool(r)
       case Implies(l, r) => hasNegAddPairInBool(l) || hasNegAddPairInBool(r)
       case Ite(c, t, f)  =>
-        hasNegAddPairInBool(c) || hasNegAddPairInBool(t) || hasNegAddPairInBool(f)
-      case _             => false
+        hasNegAddPairInBool(c) || hasNegAddPairInBool(t) || hasNegAddPairInBool(
+          f
+        )
+      case _ => false
     }
 
   private def varsInExpr(expr: SmtExpr[?]): Set[String] =
@@ -328,7 +338,7 @@ class SmtExprNormalizeAndPathImpliesTest extends munit.ScalaCheckSuite {
     Z3Api.run(script, parseModel = false, liveRunner) match {
       case Right(res) =>
         res.status == Z3Api.Status.Unsat
-      case Left(err)  =>
+      case Left(err) =>
         val showSmt2 = err.message.toLowerCase.contains("trap")
         val detail =
           if (showSmt2) s"\nSMT-LIB sent to z3:\n$smt2"
@@ -446,21 +456,27 @@ class SmtExprNormalizeAndPathImpliesTest extends munit.ScalaCheckSuite {
     }
   }
 
-  test("normalizeBoolForSolver removes two-term add-with-negative patterns from Int subterms") {
+  test(
+    "normalizeBoolForSolver removes two-term add-with-negative patterns from Int subterms"
+  ) {
     forAll(boolExprGen(5)) { expr =>
       val normalized = normalizeBoolForSolver(expr)
       assert(!hasNegAddPairInBool(normalized))
     }
   }
 
-  test("normalizeIntForSolver preserves evaluation semantics on generated Int expressions") {
+  test(
+    "normalizeIntForSolver preserves evaluation semantics on generated Int expressions"
+  ) {
     forAll(intExprGen(5), envGen) { (expr, env) =>
       val normalized = normalizeIntForSolver(expr)
       assertEquals(evalInt(normalized, env), evalInt(expr, env))
     }
   }
 
-  test("normalizeBoolForSolver preserves evaluation semantics on generated Bool expressions") {
+  test(
+    "normalizeBoolForSolver preserves evaluation semantics on generated Bool expressions"
+  ) {
     forAll(boolExprGen(5), envGen) { (expr, env) =>
       val normalized = normalizeBoolForSolver(expr)
       assertEquals(evalBool(normalized, env), evalBool(expr, env))
@@ -484,7 +500,9 @@ class SmtExprNormalizeAndPathImpliesTest extends munit.ScalaCheckSuite {
     }
   }
 
-  test("pathImplies proves decrement non-negativity from lower bounds for both canonical and legacy forms") {
+  test(
+    "pathImplies proves decrement non-negativity from lower bounds for both canonical and legacy forms"
+  ) {
     forAll(Gen.oneOf(varNames), Gen.chooseNum(1, 20)) { (name, by) =>
       val base = Var[SmtSort.IntSort](name)
       val byConst = IntConst(BigInt(by))
@@ -522,7 +540,9 @@ class SmtExprNormalizeAndPathImpliesTest extends munit.ScalaCheckSuite {
     }
   }
 
-  test("pathImplies proves subtraction non-negativity from variable lower-bound facts") {
+  test(
+    "pathImplies proves subtraction non-negativity from variable lower-bound facts"
+  ) {
     forAll(Gen.oneOf(varNames), Gen.oneOf(varNames)) { (baseName, byName) =>
       val base = Var[SmtSort.IntSort](baseName)
       val by = Var[SmtSort.IntSort](byName)
@@ -538,7 +558,9 @@ class SmtExprNormalizeAndPathImpliesTest extends munit.ScalaCheckSuite {
     }
   }
 
-  test("pathImplies proves strict decrease from positive variable decrement facts") {
+  test(
+    "pathImplies proves strict decrease from positive variable decrement facts"
+  ) {
     forAll(Gen.oneOf(varNames), Gen.oneOf(varNames)) { (baseName, byName) =>
       val base = Var[SmtSort.IntSort](baseName)
       val by = Var[SmtSort.IntSort](byName)
@@ -546,14 +568,25 @@ class SmtExprNormalizeAndPathImpliesTest extends munit.ScalaCheckSuite {
 
       val directPositive = List(Gt(by, IntConst(BigInt(0))))
       val fallthroughPositive =
-        List(Not(Or(Vector(Lt(by, IntConst(BigInt(0))), EqInt(by, IntConst(BigInt(0)))))))
+        List(
+          Not(
+            Or(
+              Vector(
+                Lt(by, IntConst(BigInt(0))),
+                EqInt(by, IntConst(BigInt(0)))
+              )
+            )
+          )
+        )
 
       assert(pathImplies(goal, directPositive))
       assert(pathImplies(goal, fallthroughPositive))
     }
   }
 
-  test("pathImplies understands disjunctive and negated guard encodings of comparisons") {
+  test(
+    "pathImplies understands disjunctive and negated guard encodings of comparisons"
+  ) {
     forAll(Gen.oneOf(varNames), Gen.oneOf(varNames)) { (leftName, rightName) =>
       val left = Var[SmtSort.IntSort](leftName)
       val right = Var[SmtSort.IntSort](rightName)

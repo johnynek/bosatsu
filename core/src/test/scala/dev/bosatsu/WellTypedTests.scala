@@ -64,7 +64,10 @@ class WellTypedTests extends munit.ScalaCheckSuite with ParTest {
       case Ior.Both(errs, _) =>
         val sourceMap = Map(
           packageName -> (LocationMap(source), "<generated>"),
-          PackageName.PredefName -> (LocationMap(Predef.predefString), "<predef>")
+          PackageName.PredefName -> (
+            LocationMap(Predef.predefString),
+            "<predef>"
+          )
         )
         val msg = errs.toList
           .map(_.message(sourceMap, LocationMap.Colorize.None))
@@ -72,10 +75,13 @@ class WellTypedTests extends munit.ScalaCheckSuite with ParTest {
         fail(
           s"typecheck produced partial errors (Ior.Both) for:\n$source\n\n$msg"
         )
-      case Ior.Left(errs)                =>
+      case Ior.Left(errs) =>
         val sourceMap = Map(
           packageName -> (LocationMap(source), "<generated>"),
-          PackageName.PredefName -> (LocationMap(Predef.predefString), "<predef>")
+          PackageName.PredefName -> (
+            LocationMap(Predef.predefString),
+            "<predef>"
+          )
         )
         val msg = errs.toList
           .map(_.message(sourceMap, LocationMap.Colorize.None))
@@ -90,7 +96,11 @@ class WellTypedTests extends munit.ScalaCheckSuite with ParTest {
       // Step 1: parse generated source
       val parsedStatements = parseStatements(source)
       // Step 2: source conversion must succeed for all generated programs
-      assertSourceConverterSuccess(program.packageName, parsedStatements, source)
+      assertSourceConverterSuccess(
+        program.packageName,
+        parsedStatements,
+        source
+      )
       // Step 3: package typechecking must succeed
       assertTypecheckSuccess(program.packageName, parsedStatements, source)
     }

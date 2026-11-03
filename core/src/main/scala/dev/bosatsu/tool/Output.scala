@@ -248,7 +248,7 @@ sealed abstract class Output[+Path] {
       case Output.Many(items) =>
         items.foldM[F, ExitCode](ExitCode.Success) {
           case (code, item) if code.toInt == 0 => item.report(platformIO)
-          case (err, _)                         => moduleIOMonad.pure(err)
+          case (err, _)                        => moduleIOMonad.pure(err)
         }
     }
   }

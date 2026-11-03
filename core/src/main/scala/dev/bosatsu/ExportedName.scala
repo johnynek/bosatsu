@@ -43,7 +43,8 @@ sealed abstract class ExportedName[+T] { self: Product =>
           }
           .orElse(
             typeAlias.map { ta =>
-              NonEmptyList.one(ExportedName.TypeName(nm, Referant.TypeAliasT(ta)))
+              NonEmptyList
+                .one(ExportedName.TypeName(nm, Referant.TypeAliasT(ta)))
             }
           )
       case ExportedName.Constructor(nm, _) =>

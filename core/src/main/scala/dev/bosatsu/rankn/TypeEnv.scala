@@ -276,9 +276,13 @@ object TypeEnv {
     val attrs =
       List(
         if (exists.isEmpty) None
-        else Some(Doc.text("(exists") + Doc.line + listDoc(exists) + Doc.char(')')),
+        else
+          Some(
+            Doc.text("(exists") + Doc.line + listDoc(exists) + Doc.char(')')
+          ),
         if (fields.isEmpty) None
-        else Some(Doc.text("(fields") + Doc.line + listDoc(fields) + Doc.char(')'))
+        else
+          Some(Doc.text("(fields") + Doc.line + listDoc(fields) + Doc.char(')'))
       ).flatten
 
     block(
@@ -299,7 +303,10 @@ object TypeEnv {
     val attrs =
       List(
         if (typeParams.isEmpty) None
-        else Some(Doc.text("(params") + Doc.line + listDoc(typeParams) + Doc.char(')')),
+        else
+          Some(
+            Doc.text("(params") + Doc.line + listDoc(typeParams) + Doc.char(')')
+          ),
         Some(
           Doc.text("(constructors") + Doc.line + listDoc(constructors) + Doc
             .char(')')
@@ -326,7 +333,10 @@ object TypeEnv {
     val attrs =
       List(
         if (typeParams.isEmpty) None
-        else Some(Doc.text("(params") + Doc.line + listDoc(typeParams) + Doc.char(')')),
+        else
+          Some(
+            Doc.text("(params") + Doc.line + listDoc(typeParams) + Doc.char(')')
+          ),
         Some(
           Doc.text("(rhs") + Doc.line + tyDoc.document(ta.rhs) + Doc.char(')')
         )

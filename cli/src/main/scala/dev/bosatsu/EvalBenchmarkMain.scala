@@ -75,7 +75,7 @@ object EvalBenchmarkMain extends IOApp {
 
   private val benchmarkPackage: PackageName = PackageName.parts("EvalBench")
 
-  private final case class Config(
+  final private case class Config(
       loop: Boolean = true,
       iterations: Int = 200,
       warmupIterations: Int = 100,
@@ -84,7 +84,7 @@ object EvalBenchmarkMain extends IOApp {
       reportEvery: Int = 200
   )
 
-  private final case class BenchFns(
+  final private case class BenchFns(
       functionCalls: Value,
       tailLoop: Value,
       nonTailRecursion: Value,
@@ -92,7 +92,11 @@ object EvalBenchmarkMain extends IOApp {
       stringOps: Value
   )
 
-  private final case class RunStats(iterations: Int, elapsedNanos: Long, digest: Long) {
+  final private case class RunStats(
+      iterations: Int,
+      elapsedNanos: Long,
+      digest: Long
+  ) {
     val itersPerSecond: Double =
       if (elapsedNanos <= 0L) Double.PositiveInfinity
       else iterations.toDouble * 1000000000.0d / elapsedNanos.toDouble
@@ -130,33 +134,33 @@ object EvalBenchmarkMain extends IOApp {
     @annotation.tailrec
     def loop(rest: List[String], config: Config): Either[String, Config] =
       rest match {
-        case Nil => Right(config)
-        case "--help" :: _ => Left(usage)
+        case Nil              => Right(config)
+        case "--help" :: _    => Left(usage)
         case "--loop" :: tail => loop(tail, config.copy(loop = true))
         case "--once" :: tail => loop(tail, config.copy(loop = false))
         case "--iterations" :: value :: tail =>
           parsePositiveInt(value, "--iterations") match {
-            case Right(n) => loop(tail, config.copy(iterations = n))
+            case Right(n)  => loop(tail, config.copy(iterations = n))
             case Left(err) => Left(err)
           }
         case "--warmup" :: value :: tail =>
           parsePositiveInt(value, "--warmup") match {
-            case Right(n) => loop(tail, config.copy(warmupIterations = n))
+            case Right(n)  => loop(tail, config.copy(warmupIterations = n))
             case Left(err) => Left(err)
           }
         case "--work" :: value :: tail =>
           parsePositiveInt(value, "--work") match {
-            case Right(n) => loop(tail, config.copy(work = n))
+            case Right(n)  => loop(tail, config.copy(work = n))
             case Left(err) => Left(err)
           }
         case "--non-tail-depth" :: value :: tail =>
           parsePositiveInt(value, "--non-tail-depth") match {
-            case Right(n) => loop(tail, config.copy(nonTailDepth = n))
+            case Right(n)  => loop(tail, config.copy(nonTailDepth = n))
             case Left(err) => Left(err)
           }
         case "--report-every" :: value :: tail =>
           parsePositiveInt(value, "--report-every") match {
-            case Right(n) => loop(tail, config.copy(reportEvery = n))
+            case Right(n)  => loop(tail, config.copy(reportEvery = n))
             case Left(err) => Left(err)
           }
         case flag :: Nil if flag.startsWith("--") =>
@@ -168,7 +172,8 @@ object EvalBenchmarkMain extends IOApp {
     loop(args, Config())
   }
 
-  private def compileBenchmarkEvaluation(): Either[String, Evaluation[Region]] = {
+  private def compileBenchmarkEvaluation()
+      : Either[String, Evaluation[Region]] = {
     val parsed = Parser.unsafeParse(Package.parser, benchmarkSource)
     val locMap = LocationMap(benchmarkSource)
 
@@ -181,19 +186,23 @@ object EvalBenchmarkMain extends IOApp {
       )
     }
 
-    result.toEither.left.map { errs =>
-      val srcMap = Map(parsed.name -> (locMap, "<eval-benchmark>"))
-      errs.toList
-        .map(_.message(srcMap, LocationMap.Colorize.None))
-        .mkString("\n\n")
-    }.map(pm => Evaluation(pm, Predef.jvmExternals))
+    result.toEither.left
+      .map { errs =>
+        val srcMap = Map(parsed.name -> (locMap, "<eval-benchmark>"))
+        errs.toList
+          .map(_.message(srcMap, LocationMap.Colorize.None))
+          .mkString("\n\n")
+      }
+      .map(pm => Evaluation(pm, Predef.jvmExternals))
   }
 
   private def expectFn(value: Value, idx: Int): Either[String, Value] =
     value match {
       case fn: Value.FnValue => Right(fn)
-      case other =>
-        Left(s"expected main tuple element $idx to be a function, found: $other")
+      case other             =>
+        Left(
+          s"expected main tuple element $idx to be a function, found: $other"
+        )
     }
 
   private def buildBenchFns(): Either[String, BenchFns] =
@@ -205,7 +214,7 @@ object EvalBenchmarkMain extends IOApp {
         .map(_._1.value)
       tuple <- mainValue match {
         case p: Value.ProductValue if p.values.length == 5 => Right(p.values)
-        case other =>
+        case other                                         =>
           Left(
             s"benchmark main must be a 5-element tuple of functions, found: $other"
           )
@@ -264,7 +273,11 @@ object EvalBenchmarkMain extends IOApp {
     mixed.longValue()
   }
 
-  private def runIterations(fns: BenchFns, config: Config, iterations: Int): RunStats = {
+  private def runIterations(
+      fns: BenchFns,
+      config: Config,
+      iterations: Int
+  ): RunStats = {
     val start = System.nanoTime()
     var idx = 0
     var digest = 0L
@@ -305,21 +318,23 @@ object EvalBenchmarkMain extends IOApp {
         totalElapsedNanos: Long,
         digest: Long
     ): IO[ExitCode] =
-      IO.blocking(runIterations(fns, config, config.reportEvery)).flatMap { stats =>
-        val nextBlock = block + 1L
-        val nextTotalIterations = totalIterations + stats.iterations.toLong
-        val nextElapsed = totalElapsedNanos + stats.elapsedNanos
-        val nextDigest = digest ^ stats.digest
-        val totalItersPerSec =
-          if (nextElapsed <= 0L) Double.PositiveInfinity
-          else nextTotalIterations.toDouble * 1000000000.0d / nextElapsed.toDouble
+      IO.blocking(runIterations(fns, config, config.reportEvery)).flatMap {
+        stats =>
+          val nextBlock = block + 1L
+          val nextTotalIterations = totalIterations + stats.iterations.toLong
+          val nextElapsed = totalElapsedNanos + stats.elapsedNanos
+          val nextDigest = digest ^ stats.digest
+          val totalItersPerSec =
+            if (nextElapsed <= 0L) Double.PositiveInfinity
+            else
+              nextTotalIterations.toDouble * 1000000000.0d / nextElapsed.toDouble
 
-        IO.blocking {
-          val sec = stats.elapsedNanos.toDouble / 1000000000.0d
-          println(
-            f"block=${nextBlock}%d blockIters=${stats.iterations}%d blockTime=${sec}%.3fs blockIters/s=${stats.itersPerSecond}%.2f totalIters=${nextTotalIterations}%d totalIters/s=${totalItersPerSec}%.2f digest=${nextDigest}%d"
-          )
-        } *> go(nextBlock, nextTotalIterations, nextElapsed, nextDigest)
+          IO.blocking {
+            val sec = stats.elapsedNanos.toDouble / 1000000000.0d
+            println(
+              f"block=${nextBlock}%d blockIters=${stats.iterations}%d blockTime=${sec}%.3fs blockIters/s=${stats.itersPerSecond}%.2f totalIters=${nextTotalIterations}%d totalIters/s=${totalItersPerSec}%.2f digest=${nextDigest}%d"
+            )
+          } *> go(nextBlock, nextTotalIterations, nextElapsed, nextDigest)
       }
 
     IO.blocking {

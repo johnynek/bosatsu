@@ -44,8 +44,7 @@ object CompilerApi {
 
     // Errors and lint render in separate blocks, so each block gets its own
     // category ordering instead of trying to share a single cross-kind index.
-    case UnusedValue
-        extends ErrorCategory("unused value", "unused values", 0)
+    case UnusedValue extends ErrorCategory("unused value", "unused values", 0)
     case TypeError extends ErrorCategory("type error", "type errors", 1)
     case RecursionError
         extends ErrorCategory("recursion error", "recursion errors", 2)
@@ -72,8 +71,7 @@ object CompilerApi {
     def title(count: Int): String =
       if (count == 1) singularLabel else s"$count $pluralLabel"
 
-    case UnusedValue
-        extends LintCategory("unused value", "unused values", 0)
+    case UnusedValue extends LintCategory("unused value", "unused values", 0)
     case ShadowedBinding
         extends LintCategory("shadowed binding", "shadowed bindings", 1)
     case UnreachableBranch
@@ -86,27 +84,27 @@ object CompilerApi {
         extends LintCategory("exposes mismatch", "exposes mismatches", 6)
   }
 
-  private sealed trait RenderedDiagnostic {
+  sealed private trait RenderedDiagnostic {
     def title: String
     def summaryCount: Int
     def body: Doc
   }
 
-  private final case class RenderedError(
+  final private case class RenderedError(
       category: ErrorCategory,
       title: String,
       summaryCount: Int,
       body: Doc
   ) extends RenderedDiagnostic
 
-  private final case class RenderedLint(
+  final private case class RenderedLint(
       category: LintCategory,
       title: String,
       summaryCount: Int,
       body: Doc
   ) extends RenderedDiagnostic
 
-  private final case class TypeCheckDiagnostics[Path](
+  final private case class TypeCheckDiagnostics[Path](
       packages: Option[PackageMap.Compiled],
       sourcePaths: NonEmptyList[(Path, PackageName)],
       sourceMap: PackageMap.SourceMap,
@@ -115,7 +113,7 @@ object CompilerApi {
       lintDiagnostics: List[PackageError]
   )
 
-  private final case class PartitionedErrors(
+  final private case class PartitionedErrors(
       postponable: List[PackageError],
       errors: List[PackageError]
   )
@@ -143,7 +141,7 @@ object CompilerApi {
 
   private def typeErrorCount(err: PackageError.TypeErrorIn): Int =
     err.tpeErr match {
-      case _: Infer.Error.Single => 1
+      case _: Infer.Error.Single  => 1
       case c: Infer.Error.Combine => c.flatten.length.toInt
     }
 
@@ -161,7 +159,8 @@ object CompilerApi {
       case e: PackageError.UnusedLets =>
         val count = e.unusedLets.length
         val title =
-          if (count == 1) s"unused value '${e.unusedLets.head._1.sourceCodeRepr}'"
+          if (count == 1)
+            s"unused value '${e.unusedLets.head._1.sourceCodeRepr}'"
           else s"$count unused values"
         RenderedError(ErrorCategory.UnusedValue, title, count, body)
       case e: PackageError.TypeErrorIn =>
@@ -228,7 +227,8 @@ object CompilerApi {
       case e: PackageError.UnusedLets =>
         val count = e.unusedLets.length
         val title =
-          if (count == 1) s"unused value '${e.unusedLets.head._1.sourceCodeRepr}'"
+          if (count == 1)
+            s"unused value '${e.unusedLets.head._1.sourceCodeRepr}'"
           else s"$count unused values"
         RenderedLint(LintCategory.UnusedValue, title, count, body)
       case e: PackageError.UnusedImport =>
@@ -273,7 +273,9 @@ object CompilerApi {
       .sortBy { case (category, _) => category.order }
     val totalDiagnostics = grouped.iterator.map(_._2).sum
     val parts = grouped.map { case (category, count) =>
-      Doc.text(pluralizedLabel(count, category.singularLabel, category.pluralLabel))
+      Doc.text(
+        pluralizedLabel(count, category.singularLabel, category.pluralLabel)
+      )
     }
     val summaryWord =
       if (totalDiagnostics == 1) "error" else "errors"
@@ -290,7 +292,9 @@ object CompilerApi {
       .sortBy { case (category, _) => category.order }
     val totalDiagnostics = grouped.iterator.map(_._2).sum
     val parts = grouped.map { case (category, count) =>
-      Doc.text(pluralizedLabel(count, category.singularLabel, category.pluralLabel))
+      Doc.text(
+        pluralizedLabel(count, category.singularLabel, category.pluralLabel)
+      )
     }
     val summaryWord =
       if (totalDiagnostics == 1) "warning" else "warnings"
@@ -362,7 +366,7 @@ object CompilerApi {
     val shadowedBindings =
       ShadowedBindingTypeCheck
         .checkLets(pack.name, pack.lets) match {
-        case Validated.Valid(_)     =>
+        case Validated.Valid(_) =>
           Nil
         case Validated.Invalid(errs) =>
           val localNames = localTypeNames(pack)
@@ -379,12 +383,13 @@ object CompilerApi {
       pack.lets.traverse_ { case (_, _, expr) =>
         TotalityCheck(pack.types).checkExprReplay(expr)
       } match {
-        case Validated.Valid(_)   =>
+        case Validated.Valid(_) =>
           Nil
         case Validated.Invalid(errs) =>
-          errs
-            .toNonEmptyList
-            .map(err => PackageError.TotalityCheckError(pack.name, err): PackageError)
+          errs.toNonEmptyList
+            .map(err =>
+              PackageError.TotalityCheckError(pack.name, err): PackageError
+            )
             .toList
             .filter(PackageError.isPostponable)
       }
@@ -401,7 +406,7 @@ object CompilerApi {
       .traverse_ { case (_, _, expr) =>
         UnusedLetCheck.check(expr)
       } match {
-      case Validated.Valid(_)     =>
+      case Validated.Valid(_) =>
         Nil
       case Validated.Invalid(errs) =>
         List(PackageError.UnusedLetError(packName, errs.toNonEmptyList))
@@ -430,7 +435,7 @@ object CompilerApi {
         resolvedImports,
         parsed.program
       ) match {
-      case Ior.Left(_)         =>
+      case Ior.Left(_) =>
         Nil
       case Ior.Right(program0) =>
         (
@@ -440,13 +445,13 @@ object CompilerApi {
               parsed.exports,
               parsed.exposes
             ) :::
-          PackageCustoms.lintDiagnosticsFromSource(
-            pack.name,
-            roots,
-            sourceImports,
-            parsed.exports,
-            program0
-          ) :::
+            PackageCustoms.lintDiagnosticsFromSource(
+              pack.name,
+              roots,
+              sourceImports,
+              parsed.exports,
+              program0
+            ) :::
             (if (includeTodoUsageWarnings)
                PackageCustoms.todoUsageLintFromSource(pack.name, program0)
              else Nil) :::
@@ -460,13 +465,13 @@ object CompilerApi {
               parsed.exports,
               parsed.exposes
             ) :::
-          PackageCustoms.lintDiagnosticsFromSource(
-            pack.name,
-            roots,
-            sourceImports,
-            parsed.exports,
-            program0
-          ) :::
+            PackageCustoms.lintDiagnosticsFromSource(
+              pack.name,
+              roots,
+              sourceImports,
+              parsed.exports,
+              program0
+            ) :::
             (if (includeTodoUsageWarnings)
                PackageCustoms.todoUsageLintFromSource(pack.name, program0)
              else Nil) :::
@@ -491,13 +496,17 @@ object CompilerApi {
       .filter(sf => allowedPackages(sf.packageName))
       .traverse { sourceFile =>
         packMap.get(sourceFile.packageName) match {
-          case None       =>
+          case None =>
             moduleIOMonad.pure(Nil)
           case Some(pack) =>
             sourceFile.loadParsed
               .flatMap(parsed0 => fromParse(platformIO, parsed0, errColor))
               .map(parsed =>
-                  replaySourceLintDiagnostics(pack, parsed, includeTodoUsageWarnings) :::
+                replaySourceLintDiagnostics(
+                  pack,
+                  parsed,
+                  includeTodoUsageWarnings
+                ) :::
                   replayTypedLintDiagnostics(pack)
               )
         }
@@ -511,7 +520,7 @@ object CompilerApi {
     val base = InferPhases.default
     def lintModeCacheKey(lm: LintMode): String =
       lm match {
-        case LintMode.Strict          => "strict"
+        case LintMode.Strict              => "strict"
         case LintMode.Warn | LintMode.Lax => "warn_or_lax"
       }
 
@@ -604,7 +613,9 @@ object CompilerApi {
       sources = sourceFiles.map { source =>
         source.toSourceUnit(
           platformIO.pathToString(source.path),
-          source.loadParsed.flatMap(parsed => fromParse(platformIO, parsed, errColor))
+          source.loadParsed.flatMap(parsed =>
+            fromParse(platformIO, parsed, errColor)
+          )
         )
       }
       effectiveSources =
@@ -639,9 +650,9 @@ object CompilerApi {
           compileOptions.mode == CompileOptions.Mode.TypeCheckOnly &&
           effectiveSources.usesInternalPredefSource
       (compileDiagnostics, compiled) = checked match {
-        case Ior.Left(errs)      => (errs.toList, None)
-        case Ior.Right(packs)    => (Nil, Some(packs))
-        case Ior.Both(errs, pm)  => (errs.toList, Some(pm))
+        case Ior.Left(errs)     => (errs.toList, None)
+        case Ior.Right(packs)   => (Nil, Some(packs))
+        case Ior.Both(errs, pm) => (errs.toList, Some(pm))
       }
       partitionedDiagnostics = partitionDiagnostics(compileDiagnostics)
       hardDiagnostics0 = partitionedDiagnostics.errors
@@ -793,7 +804,7 @@ object CompilerApi {
       diagnostics.packages match {
         case Some(packs) =>
           moduleIOMonad.pure((packs, diagnostics.sourcePaths))
-        case None        =>
+        case None =>
           moduleIOMonad.raiseError(
             CliException.Basic(
               "internal compiler error: missing compiled packages after successful typecheck"
@@ -807,7 +818,9 @@ object CompilerApi {
       NonEmptyList
         .fromList(diagnostics.lintDiagnostics)
         .traverse_(warnings =>
-          platformIO.writeError(WarningDoc(diagnostics.sourceMap, warnings, errColor))
+          platformIO.writeError(
+            WarningDoc(diagnostics.sourceMap, warnings, errColor)
+          )
         )
 
     def hardFailure(
@@ -841,10 +854,10 @@ object CompilerApi {
               moduleIOMonad.raiseError(
                 PackageErrors(diagnostics.sourceMap, errs, errColor)
               )
-            case None       =>
+            case None =>
               compiledOrError(diagnostics)
           }
-        case LintMode.Warn   =>
+        case LintMode.Warn =>
           diagnostics.hardDiagnostics match {
             case _ :: _ =>
               NonEmptyList.fromList(diagnostics.lintDiagnostics) match {
@@ -857,14 +870,14 @@ object CompilerApi {
                       errColor
                     )
                   )
-                case None           =>
+                case None =>
                   hardFailure(diagnostics, diagnostics.hardDiagnostics)
               }
-            case Nil    =>
+            case Nil =>
               warningsIfAny(diagnostics) *>
                 compiledOrError(diagnostics)
           }
-        case LintMode.Lax    =>
+        case LintMode.Lax =>
           diagnostics.hardDiagnostics match {
             case _ :: _ => hardFailure(diagnostics, diagnostics.hardDiagnostics)
             case Nil    => compiledOrError(diagnostics)

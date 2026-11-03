@@ -34,7 +34,8 @@ sealed abstract class PackageResolver[IO[_], Path] {
         moduleIOMonad.attempt(platformIO.readBytes(path)).flatMap {
           case Left(err) =>
             moduleIOMonad.pure(
-              cats.data.Validated.invalidNel(PathParseError.FileError(path, err))
+              cats.data.Validated
+                .invalidNel(PathParseError.FileError(path, err))
             )
           case Right(bytes) =>
             // Decoding, raw hashing, and header parsing can add up across many
@@ -42,12 +43,13 @@ sealed abstract class PackageResolver[IO[_], Path] {
             canPromiseF.compute {
               val source = new String(bytes, StandardCharsets.UTF_8)
               val rawHash = Algo.hashBytes[Algo.Blake3](bytes)
-              PathParseError.parseString(
-                PackageResolver.headerParserIgnoreRest,
-                path,
-                source
-              ).map {
-                case (lm, (packageName, imports, exports, exposes)) =>
+              PathParseError
+                .parseString(
+                  PackageResolver.headerParserIgnoreRest,
+                  path,
+                  source
+                )
+                .map { case (lm, (packageName, imports, exports, exposes)) =>
                   PackageResolver.SourceFile(
                     path = path,
                     locationMap = lm,
@@ -65,7 +67,7 @@ sealed abstract class PackageResolver[IO[_], Path] {
                           .map(_._2)
                       }
                   )
-              }
+                }
             }
         }
       }

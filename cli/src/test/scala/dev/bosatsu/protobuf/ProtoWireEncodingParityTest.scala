@@ -154,10 +154,12 @@ class ProtoWireEncodingParityTest extends munit.FunSuite {
 
   private lazy val javaSimpleConfigBytes: List[Int] = {
     val message =
-      DescriptorProto.newBuilder()
+      DescriptorProto
+        .newBuilder()
         .setName("SimpleConfig")
         .addField(
-          FieldDescriptorProto.newBuilder()
+          FieldDescriptorProto
+            .newBuilder()
             .setName("name")
             .setNumber(1)
             .setLabel(FieldDescriptorProto.Label.LABEL_OPTIONAL)
@@ -165,7 +167,8 @@ class ProtoWireEncodingParityTest extends munit.FunSuite {
             .build()
         )
         .addField(
-          FieldDescriptorProto.newBuilder()
+          FieldDescriptorProto
+            .newBuilder()
             .setName("replicas")
             .setNumber(2)
             .setLabel(FieldDescriptorProto.Label.LABEL_OPTIONAL)
@@ -173,7 +176,8 @@ class ProtoWireEncodingParityTest extends munit.FunSuite {
             .build()
         )
         .addField(
-          FieldDescriptorProto.newBuilder()
+          FieldDescriptorProto
+            .newBuilder()
             .setName("weights")
             .setNumber(3)
             .setLabel(FieldDescriptorProto.Label.LABEL_REPEATED)
@@ -182,7 +186,8 @@ class ProtoWireEncodingParityTest extends munit.FunSuite {
             .build()
         )
         .addField(
-          FieldDescriptorProto.newBuilder()
+          FieldDescriptorProto
+            .newBuilder()
             .setName("ratio")
             .setNumber(4)
             .setLabel(FieldDescriptorProto.Label.LABEL_OPTIONAL)
@@ -190,7 +195,8 @@ class ProtoWireEncodingParityTest extends munit.FunSuite {
             .build()
         )
         .addField(
-          FieldDescriptorProto.newBuilder()
+          FieldDescriptorProto
+            .newBuilder()
             .setName("epsilon")
             .setNumber(5)
             .setLabel(FieldDescriptorProto.Label.LABEL_OPTIONAL)
@@ -200,7 +206,8 @@ class ProtoWireEncodingParityTest extends munit.FunSuite {
         .build()
 
     val file =
-      FileDescriptorProto.newBuilder()
+      FileDescriptorProto
+        .newBuilder()
         .setName("config_v1.proto")
         .setPackage("config.v1")
         .setSyntax("proto3")

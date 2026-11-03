@@ -190,7 +190,7 @@ object MemoryMain {
       type F[A] = StateT[G, State, A]
       type Path = Chain[String]
 
-      private sealed trait PromiseState[+A]
+      sealed private trait PromiseState[+A]
       private object PromiseState {
         final case class Empty[A]() extends PromiseState[A]
         final case class Pending[A](run: F[A]) extends PromiseState[A]
@@ -198,7 +198,7 @@ object MemoryMain {
             extends PromiseState[A]
       }
 
-      private final class PromiseBox[A] {
+      final private class PromiseBox[A] {
         private var state: PromiseState[A] = PromiseState.Empty()
         def setPending(run: F[A]): Unit =
           state = PromiseState.Pending(run)
