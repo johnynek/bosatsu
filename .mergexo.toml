@@ -1,0 +1,17 @@
+# Repository-owned MergeXO settings, refreshed from the default branch.
+# Backend, credentials, repository identity and permissions stay in service config.
+trigger_label = "agent:design"
+roadmap_label = "agent:roadmap"
+roadmap_docs_dir = "docs/roadmap"
+roadmap_recommended_node_count = 7
+roadmap_child_pr_automerge = false
+coding_guidelines_path = "coding_style.md"
+design_docs_dir = "docs/design"
+required_tests = "scripts/test_basic.sh"
+required_tests_timeout_seconds = 2400
+tests_max_repair_rounds = 15
+tests_max_total_repair_rounds = 45
+pre_pr_review_guidance_path = "pre_pr_review_guidance.md"
+pre_pr_review_max_review_rounds = 12
+environment_setup = "scripts/container_setup.sh"
+environment_setup_timeout_seconds = 1800

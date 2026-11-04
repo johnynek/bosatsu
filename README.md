@@ -70,3 +70,19 @@ For local parser workflows and Neovim setup (`:TSInstall bosatsu`,
 
 ## Release
 See [release.md](release.md) for the release workflow and tagging steps.
+
+## MergeXO container setup
+
+`.mergexo.toml` holds repository-owned policy and selects
+`scripts/container_setup.sh`. MergeXO captures that standalone script before
+checkout and runs it as root inside each disposable worker container. Do not run
+it on your workstation. The setup installs the CI JDK (Temurin 17); downloaded
+tool archives are version- and checksum-pinned.
+
+The service still owns the worker backend, credentials and permissions. Enabling
+containers requires a service configuration change and restart; later repo
+policy or setup changes are picked up for newly captured work. A host-native
+service rejects setup-bearing overlays and retains its startup baseline.
+
+The required test command remains `scripts/test_basic.sh`. The setup also installs
+the sbt launcher; the project selects its sbt version in `project/build.properties`.
