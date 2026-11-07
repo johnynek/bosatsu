@@ -8,8 +8,8 @@
 - Flow: `implementation`
 - Issue: `#2248` Suppress 'unknown export' follow-on errors for definitions that already failed to compile
 - Source design doc: `docs/design/2248-suppress-unknown-export-follow-on-errors-for-definitions-that-already-failed-to-compile.md`
-- Pending steps: `2`
-- Completed steps: `1`
+- Pending steps: `1`
+- Completed steps: `2`
 - Total steps: `3`
 
 ## Summary
@@ -69,7 +69,7 @@ Run `sbt "coreJVM/test:compile"` and `sbt "coreJVM/testOnly dev.bosatsu.ErrorMes
 
 Added `UncompiledExport` as a hard package error and classified unresolved exports against same-kind declarations retained in `Program.from`; successful export construction and `Ior.Left` assembly failure behavior remain unchanged. The minimal repro retains its source-conversion and kind-inference diagnostics, reports the accurate export error, and the direct assembly test confirms no typed package is returned. `sbt "coreJVM/test:compile"` and `sbt "coreJVM/testOnly dev.bosatsu.ErrorMessageTest"` passed; all 93 suite tests passed.
 
-2. [ ] `step_2` Cover recovery and export-kind classification contracts
+2. [x] `step_2` Cover recovery and export-kind classification contracts
 
 Extend `core/src/test/scala/dev/bosatsu/ErrorMessageTest.scala` with a small deterministic fixture matrix using `compileErrors`; reuse the nearby failed-local-type and shape-failed-alias syntax. Keep fixtures and expected export classifications together so each case identifies its root failure, exported declaration names, and genuinely absent names. No new generator framework or production tracking mechanism is needed.
 
@@ -102,6 +102,10 @@ Run `sbt "coreJVM/testOnly dev.bosatsu.ErrorMessageTest"`. Completion means ever
 - Focused boundary cases establish that imported and nested names do not count as local source declarations.
 - A genuinely absent binding retains its existing suggestion text and candidate location; the existing missing-binding-plus-name-error regression remains passing.
 - A known-type shape failure preserves the original root error ownership while exported dependents receive UncompiledExport.
+
+#### Completion Notes
+
+Expanded `ErrorMessageTest` with a deterministic matrix for failed structs, enums, aliases, direct and transitive dependents, and recovered values, with and without an absent type export. Added export-kind, imported/nested-name, external-declaration, missing-binding suggestion, and successful referant controls. `sbt "coreJVM/testOnly dev.bosatsu.ErrorMessageTest"` passed all 98 tests.
 
 3. [ ] `step_3` Verify CLI rendering and hard-error behavior
 

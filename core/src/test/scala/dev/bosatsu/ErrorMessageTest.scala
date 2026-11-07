@@ -71,6 +71,25 @@ class ErrorMessageTest extends munit.FunSuite with ParTest {
     (errs, PackageMap.buildSourceMap(withPre))
   }
 
+  private def exportSourceForm(exportName: ExportedName[?]): String =
+    exportName match {
+      case ExportedName.Binding(name, _) => s"binding:${name.sourceCodeRepr}"
+      case ExportedName.TypeName(name, _) => s"type:${name.sourceCodeRepr}"
+      case ExportedName.Constructor(name, _) =>
+        s"constructor:${name.sourceCodeRepr}()"
+    }
+
+  private def exportClassifications(
+      diagnostics: List[PackageError]
+  ): List[(String, String, String)] =
+    diagnostics.flatMap {
+      case PackageError.UncompiledExport(exportName, pack) =>
+        ("uncompiled", exportSourceForm(exportName), pack.asString) :: Nil
+      case PackageError.UnknownExport(exportName, pack, _) =>
+        ("unknown", exportSourceForm(exportName), pack.asString) :: Nil
+      case _ => Nil
+    }.sorted
+
   private def circularCycles(errs: NonEmptyList[PackageError]): List[List[String]] =
     errs.toList.collect { case circular: PackageError.CircularDependency[?, ?, ?] =>
       (circular.from :: circular.path.toList).map(_.asString)
@@ -2930,6 +2949,338 @@ struct Module(a: Missing)
       case Ior.Right(pack) =>
         fail(s"expected assembly failure, got typed package: $pack")
     }
+  }
+
+  test("export recovery classifications follow declared kind and dependencies") {
+    case class Fixture(
+        packageName: String,
+        sourceExports: List[String],
+        declarations: String,
+        expectedUncompiled: List[String],
+        rootFailure: String
+    )
+
+    val fixtures = List(
+      Fixture(
+        "MatrixStruct",
+        List("Broken", "Broken()"),
+        "struct Broken(value: Missing)",
+        List("type:Broken", "constructor:Broken()"),
+        "missing"
+      ),
+      Fixture(
+        "MatrixEnum",
+        List("Broken", "Broken()"),
+        "enum Broken:\n  First(value: Missing)",
+        List("type:Broken", "constructor:Broken()"),
+        "missing"
+      ),
+      Fixture(
+        "MatrixAlias",
+        List("Broken"),
+        "type Broken = Missing",
+        List("type:Broken"),
+        "missing"
+      ),
+      Fixture(
+        "MatrixDependents",
+        List("Bad", "UsesBad", "UsesUsesBad"),
+        """struct Bad(value: Missing)
+          |struct UsesBad(value: Bad)
+          |struct UsesUsesBad(value: UsesBad)""".stripMargin,
+        List("type:Bad", "type:UsesBad", "type:UsesUsesBad"),
+        "missing"
+      ),
+      Fixture(
+        "MatrixShapeAliases",
+        List("Bad", "UsesBad", "UsesUsesBad"),
+        """type Bad = Int[Int]
+          |type UsesBad = Bad
+          |type UsesUsesBad = UsesBad""".stripMargin,
+        List("type:Bad", "type:UsesBad", "type:UsesUsesBad"),
+        "shape"
+      ),
+      Fixture(
+        "MatrixValues",
+        List(
+          "Bad",
+          "Bad()",
+          "topLevel",
+          "patterned",
+          "patternOther",
+          "direct",
+          "dependent",
+          "externalValue"
+        ),
+        """enum Bad:
+          |  Make(value: Missing)
+          |def topLevel():
+          |  Make(1)
+          |(patterned, patternOther) = (Make(2), 3)
+          |direct = Make(4)
+          |dependent = direct
+          |external externalValue: Int""".stripMargin,
+        List(
+          "type:Bad",
+          "constructor:Bad()",
+          "binding:topLevel",
+          "binding:patterned",
+          "binding:patternOther",
+          "binding:direct",
+          "binding:dependent"
+        ),
+        "missing"
+      )
+    )
+
+    fixtures.foreach { fixture =>
+      List(false, true).foreach { includeAbsentType =>
+        val exports =
+          fixture.sourceExports :::
+            (if (includeAbsentType) "Absent" :: Nil else Nil)
+        val source =
+          s"package ${fixture.packageName}\n" +
+            s"export ${exports.mkString(", ")}\n\n" +
+            fixture.declarations + "\n"
+        val (errors, _) = compileErrors(List(source))
+        val diagnostics = errors.toList
+        val packageName = PackageName.parts(fixture.packageName)
+        val expected =
+          fixture.expectedUncompiled.map(name =>
+            ("uncompiled", name, fixture.packageName)
+          ) :::
+            (if (includeAbsentType)
+               List(("unknown", "type:Absent", fixture.packageName))
+             else Nil)
+
+        assertEquals(
+          exportClassifications(diagnostics),
+          expected.sorted,
+          s"${fixture.packageName}: ${diagnostics.mkString("\n")}"
+        )
+        assert(
+          diagnostics.exists {
+            case PackageError.SourceConverterErrorsIn(_, sourceErrors, pack)
+                if fixture.rootFailure == "missing" && pack == packageName =>
+              sourceErrors.toList.exists {
+                case SourceConverter.UnknownTypeName(name, _) =>
+                  name.sourceCodeRepr == "Missing"
+                case _ => false
+              }
+            case PackageError.KindInferenceError(
+                  pack,
+                  KindFormula.Error.FromShapeError(shapeError),
+                  _
+                ) if fixture.rootFailure == "shape" && pack == packageName =>
+              shapeError.typeDecl.name.asString == "Bad"
+            case _ => false
+          },
+          s"root ${fixture.rootFailure} failure missing for ${fixture.packageName}: ${diagnostics.mkString("\n")}"
+        )
+        diagnostics.collect {
+          case error: PackageError.UncompiledExport[?] => error
+        }.foreach { error =>
+          assertEquals(error.in, packageName)
+          assert(!PackageError.isPostponable(error))
+        }
+      }
+    }
+  }
+
+  test("alias constructors and enum branch type exports stay unknown") {
+    val aliasSource = """
+package AliasConstructorExport
+export Alias()
+
+type Alias = Missing
+"""
+    val (aliasErrors, _) = compileErrors(List(aliasSource))
+    assertEquals(
+      exportClassifications(aliasErrors.toList),
+      List(("unknown", "constructor:Alias()", "AliasConstructorExport"))
+    )
+
+    val branchSource = """
+package EnumBranchTypeExport
+export Branch
+
+enum Broken:
+  Branch(value: Missing)
+"""
+    val (branchErrors, _) = compileErrors(List(branchSource))
+    assertEquals(
+      exportClassifications(branchErrors.toList),
+      List(("unknown", "type:Branch", "EnumBranchTypeExport"))
+    )
+  }
+
+  test("imported and nested declarations are not local assembly matches") {
+    val importedSource = """
+package ImportedExportDependency
+export ImportedType
+struct ImportedType
+"""
+    val importingSource = """
+package ImportedExportConsumer
+from ImportedExportDependency import ImportedType
+export ImportedType
+"""
+    val (importErrors, _) =
+      compileErrors(List(importedSource, importingSource))
+    assertEquals(
+      exportClassifications(importErrors.toList),
+      List(("unknown", "type:ImportedType", "ImportedExportConsumer"))
+    )
+
+    val nested = Parser.parse(
+      Package.parser,
+      """package NestedExportBoundary
+         |export inner
+         |
+         |def outer():
+         |  inner = 1
+         |  inner
+         |""".stripMargin
+    ) match {
+      case Validated.Valid((_, parsed)) => parsed
+      case Validated.Invalid(errors) => fail(s"parse failed: $errors")
+    }
+    val program: Program[
+      rankn.TypeEnv[Kind.Arg],
+      TypedExpr[Declaration],
+      List[Statement]
+    ] = Program(rankn.TypeEnv.empty, Nil, Nil, nested.program)
+
+    PackageCustoms.assemble(
+      nested.name,
+      Nil,
+      ImportMap.empty,
+      nested.exports,
+      program,
+      Nil
+    ) match {
+      case Ior.Left(errors) =>
+        assertEquals(
+          exportClassifications(errors.toList),
+          List(("unknown", "binding:inner", "NestedExportBoundary"))
+        )
+      case Ior.Both(errors, _) =>
+        fail(s"expected assembly failure for nested name, got: $errors")
+      case Ior.Right(pack) =>
+        fail(s"expected nested binding to remain unknown, got package: $pack")
+    }
+
+    val external = Parser.parse(
+      Package.parser,
+      """package ExternalExportBoundary
+         |export externalValue
+         |
+         |external externalValue: Int
+         |""".stripMargin
+    ) match {
+      case Validated.Valid((_, parsed)) => parsed
+      case Validated.Invalid(errors) => fail(s"parse failed: $errors")
+    }
+    val externalProgram: Program[
+      rankn.TypeEnv[Kind.Arg],
+      TypedExpr[Declaration],
+      List[Statement]
+    ] = Program(rankn.TypeEnv.empty, Nil, Nil, external.program)
+
+    PackageCustoms.assemble(
+      external.name,
+      Nil,
+      ImportMap.empty,
+      external.exports,
+      externalProgram,
+      Nil
+    ) match {
+      case Ior.Left(errors) =>
+        assertEquals(
+          exportClassifications(errors.toList),
+          List(("uncompiled", "binding:externalValue", "ExternalExportBoundary"))
+        )
+      case Ior.Both(errors, _) =>
+        fail(s"expected assembly failure for external declaration, got: $errors")
+      case Ior.Right(pack) =>
+        fail(s"expected external declaration without recovery to be unresolved: $pack")
+    }
+  }
+
+  test("successful exports retain type alias constructor and binding referants") {
+    val source = """
+package SuccessfulExportControl
+export Shape, Choice(), Number, topLevel, patternValue, patternOther, externalValue
+
+struct Shape(value)
+enum Choice: Left, Right
+type Number = Int
+def topLevel():
+  1
+(patternValue, patternOther) = (2, 3)
+external def externalValue(value: Int) -> Int
+"""
+
+    Par.withEC {
+      testInferred(List(source), "SuccessfulExportControl", { (compiled, packName) =>
+        val pack = compiled.toMap.getOrElse(
+          packName,
+          fail(s"compiled package missing: $packName")
+        )
+        val actual = pack.exports.map {
+          case ExportedName.TypeName(name, Referant.DefinedT(_)) =>
+            ("type", name.sourceCodeRepr, "defined")
+          case ExportedName.TypeName(name, Referant.TypeAliasT(_)) =>
+            ("type", name.sourceCodeRepr, "alias")
+          case ExportedName.Constructor(name, Referant.Constructor(_, _)) =>
+            ("constructor", name.sourceCodeRepr, "constructor")
+          case ExportedName.Binding(name, Referant.Value(_)) =>
+            ("binding", name.sourceCodeRepr, "value")
+          case unexpected =>
+            throw new AssertionError(
+              s"unexpected referant for export ${exportSourceForm(unexpected)}: $unexpected"
+            )
+        }.sorted
+
+        assertEquals(
+          actual,
+          List(
+            ("type", "Shape", "defined"),
+            ("type", "Choice", "defined"),
+            ("constructor", "Left", "constructor"),
+            ("constructor", "Right", "constructor"),
+            ("type", "Number", "alias"),
+            ("binding", "topLevel", "value"),
+            ("binding", "patternValue", "value"),
+            ("binding", "patternOther", "value"),
+            ("binding", "externalValue", "value")
+          ).sorted
+        )
+      })
+    }
+  }
+
+  test("missing exported binding suggestion points to a surviving binding") {
+    val source = """
+package ExportSuggestion
+export mian
+
+main = 1
+"""
+    val (errors, sourceMap) = compileErrors(List(source))
+    val unknown = errors.toList.collectFirst {
+      case error @ PackageError.UnknownExport(
+            ExportedName.Binding(name, _),
+            pack,
+            candidates
+          ) if name.sourceCodeRepr == "mian" &&
+            pack == PackageName.parts("ExportSuggestion") =>
+        assert(candidates.exists(_._1.sourceCodeRepr == "main"))
+        error
+    }.getOrElse(fail(s"expected unknown exported binding, got: $errors"))
+    val message = unknown.message(sourceMap, Colorize.None)
+    assert(message.contains("perhaps you meant:"), message)
+    assert(message.contains("main:5:8"), message)
   }
 
   test("shape-failed aliases suppress dependent package inference errors") {
