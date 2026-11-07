@@ -8,8 +8,8 @@
 - Flow: `implementation`
 - Issue: `#2249` Kind inference should suppress dependent 'unknown type' errors after earlier type-definition failures
 - Source design doc: `docs/design/2249-kind-inference-should-suppress-dependent-unknown-type-errors-after-earlier-type-definition-failures.md`
-- Pending steps: `3`
-- Completed steps: `0`
+- Pending steps: `2`
+- Completed steps: `1`
 - Total steps: `3`
 
 ## Summary
@@ -28,7 +28,7 @@ The issue reports misleading unknown-type cascades when a local type definition 
 
 ## Steps
 
-1. [ ] `step_1` Pin solver failure ownership and partial-result recovery
+1. [x] `step_1` Pin solver failure ownership and partial-result recovery
 
 Add case-based regressions in `core/src/test/scala/dev/bosatsu/KindFormulaTest.scala` that call `KindFormula.solveShapesAndKinds(predefTypeEnv, parsedTypeEnv)` directly. Build inputs with `TestUtils.parsedTypeEnvOf`, and pattern-match `Ior.Both` to retain both diagnostics and the partial solved environment; fail explicitly on unexpected result variants. Keep `makeTE` unchanged for existing callers. Any small local assertion helper must retain concrete types and use ordinary ADT matching.
 
@@ -57,6 +57,10 @@ The enforcing boundary is the existing guarded ordered fold in `KindFormula.scal
 - Shape-failing aliases and failed definition-to-alias and alias-to-definition chains retain root errors and exclude failed/skipped statements from every solved collection.
 - Interleaved valid definitions and aliases survive in source order, while independent invalid declarations retain their own errors.
 - A skipped dependent's additional missing name adds no solver error; the same genuinely missing name in an independent declaration still produces UnknownConst.
+
+#### Completion Notes
+
+Added direct solver regressions for shape and kind failures, mixed definition/alias dependents, independent errors, and partial-result ordering. `sbt "coreJVM/test:compile"` and `sbt "coreJVM/testOnly dev.bosatsu.KindFormulaTest"` passed; `git diff --check` passed.
 
 2. [ ] `step_2` Check transitive suppression across bounded mixed chains
 

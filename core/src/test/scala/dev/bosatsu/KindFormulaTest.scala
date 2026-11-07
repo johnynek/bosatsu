@@ -1,6 +1,8 @@
 package dev.bosatsu
 
-import dev.bosatsu.rankn.TypeEnv
+import cats.data.Ior
+import cats.syntax.all._
+import dev.bosatsu.rankn.{ParsedTypeEnv, Type => RankNType, TypeEnv}
 class KindFormulaTest extends munit.FunSuite {
   private val predefTypeEnv: TypeEnv[Kind.Arg] =
     Package.interfaceOf(PackageMap.predefCompiled).exportedTypeEnv
@@ -64,6 +66,57 @@ class KindFormulaTest extends munit.FunSuite {
 
   def testIllKinded(teStr: String) =
     assertEquals(makeTE(teStr).left.map(_ => ()), Left(()))
+
+  private case class SolverPartial(
+      errors: List[KindFormula.Error],
+      solved: ParsedTypeEnv[Kind.Arg]
+  )
+
+  private def solveWithErrors(teStr: String): SolverPartial =
+    KindFormula.solveShapesAndKinds(
+      predefTypeEnv,
+      TestUtils.parsedTypeEnvOf(PackageName.PredefName, teStr)
+    ) match {
+      case Ior.Both(errors, solved) => SolverPartial(errors.toList, solved)
+      case Ior.Left(errors) =>
+        fail(s"expected partial solver result, got only errors: $errors")
+      case Ior.Right(solved) =>
+        fail(s"expected solver errors, got successful result: $solved")
+    }
+
+  private def typeConst(name: String): RankNType.Const.Defined =
+    RankNType.Const.predef(name)
+
+  private def hasUnknown(
+      result: SolverPartial,
+      owner: String,
+      unknown: String
+  ): Boolean =
+    result.errors.exists {
+      case KindFormula.Error.FromShapeError(
+            Shape.UnknownConst(typeDecl, _, const)
+          ) =>
+        typeDecl.name.asString == owner && const == typeConst(unknown)
+      case _ => false
+    }
+
+  private def hasUnsatisfiable(
+      result: SolverPartial,
+      owner: String
+  ): Boolean =
+    result.errors.exists {
+      case error: KindFormula.Error.Unsatisfiable =>
+        error.typeDecl.name.asString == owner
+      case _ => false
+    }
+
+  private def statementNames(
+      statements: List[ParsedTypeEnv.TypeStatement[Kind.Arg]]
+  ): List[String] =
+    statements.map {
+      case ParsedTypeEnv.TypeStatement.Defined(dt) => s"D:${dt.name.asString}"
+      case ParsedTypeEnv.TypeStatement.Alias(ta)   => s"A:${ta.name.asString}"
+    }
 
   def allowed(teStr: String) = testKind(teStr, Map.empty)
   def disallowed(teStr: String) = testIllKinded(teStr)
@@ -381,6 +434,98 @@ struct Bar[a](foo: Foo[a])
 struct Bar[a](foo: Foo[a])
 
 """)
+  }
+
+  test("failed declarations suppress dependent shape and kind errors") {
+    val result = solveWithErrors(
+      """#
+struct GoodBefore
+type GoodAliasBefore = GoodBefore
+external type Cell[a]
+
+enum Bad:
+  Bad(x: Missing)
+struct GoodBetween
+type GoodAliasBetween = GoodBetween
+type AliasAfterBad = Bad
+struct DefAfterAliasBad(value: AliasAfterBad)
+struct UsesBadAndMissing(value: Bad, other: ExtraMissing)
+type AliasAfterBadAndMissing = UsesBadAndMissing
+
+type BadAlias = MissingAlias
+struct DefAfterBadAlias(value: BadAlias)
+type AliasAfterDefBadAlias = DefAfterBadAlias
+
+struct BadKind[a: +*](value: Cell[a])
+type AliasAfterBadKind = BadKind[Int]
+struct DefAfterAliasBadKind(value: AliasAfterBadKind)
+
+type BadAliasKind[a: +*] = Cell[a]
+struct DefAfterBadAliasKind(value: BadAliasKind[Int])
+type AliasAfterDefBadAliasKind = DefAfterBadAliasKind
+
+type IndependentInvalid = ExtraMissing
+struct GoodAfter
+type GoodAliasAfter = GoodAfter
+"""
+    )
+
+    val expectedErrorOwners = Set(
+      typeConst("Bad"),
+      typeConst("BadAlias"),
+      typeConst("BadKind"),
+      typeConst("BadAliasKind"),
+      typeConst("IndependentInvalid")
+    )
+    assertEquals(result.errors.size, expectedErrorOwners.size)
+    assertEquals(
+      result.errors.map(_.typeDecl.toTypeConst).toSet,
+      expectedErrorOwners
+    )
+
+    assert(hasUnknown(result, "Bad", "Missing"))
+    assert(hasUnknown(result, "BadAlias", "MissingAlias"))
+    assert(hasUnknown(result, "IndependentInvalid", "ExtraMissing"))
+    assert(hasUnsatisfiable(result, "BadKind"))
+    assert(hasUnsatisfiable(result, "BadAliasKind"))
+
+    val dependentNames = Set(
+      "AliasAfterBad",
+      "DefAfterAliasBad",
+      "UsesBadAndMissing",
+      "AliasAfterBadAndMissing",
+      "DefAfterBadAlias",
+      "AliasAfterDefBadAlias",
+      "AliasAfterBadKind",
+      "DefAfterAliasBadKind",
+      "DefAfterBadAliasKind",
+      "AliasAfterDefBadAliasKind"
+    )
+    assert(
+      result.errors.forall(error => !dependentNames(error.typeDecl.name.asString)),
+      "dependent declarations should not own solver errors"
+    )
+
+    assertEquals(
+      result.solved.allDefinedTypes.map(_.name.asString),
+      List("GoodBefore", "Cell", "GoodBetween", "GoodAfter")
+    )
+    assertEquals(
+      result.solved.typeAliases.map(_.name.asString),
+      List("GoodAliasBefore", "GoodAliasBetween", "GoodAliasAfter")
+    )
+    assertEquals(
+      statementNames(result.solved.orderedTypes),
+      List(
+        "D:GoodBefore",
+        "A:GoodAliasBefore",
+        "D:Cell",
+        "D:GoodBetween",
+        "A:GoodAliasBetween",
+        "D:GoodAfter",
+        "A:GoodAliasAfter"
+      )
+    )
   }
 
   test("free-functor is covariant") {
