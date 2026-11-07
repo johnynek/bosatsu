@@ -1,6 +1,8 @@
 package dev.bosatsu
 
-import dev.bosatsu.rankn.TypeEnv
+import cats.data.Ior
+import cats.syntax.all._
+import dev.bosatsu.rankn.{ParsedTypeEnv, Type => RankNType, TypeEnv}
 class KindFormulaTest extends munit.FunSuite {
   private val predefTypeEnv: TypeEnv[Kind.Arg] =
     Package.interfaceOf(PackageMap.predefCompiled).exportedTypeEnv
@@ -64,6 +66,175 @@ class KindFormulaTest extends munit.FunSuite {
 
   def testIllKinded(teStr: String) =
     assertEquals(makeTE(teStr).left.map(_ => ()), Left(()))
+
+  private case class SolverPartial(
+      errors: List[KindFormula.Error],
+      solved: ParsedTypeEnv[Kind.Arg]
+  )
+
+  private case class DiagnosticIdentity(
+      owner: String,
+      category: String,
+      detail: Option[RankNType.Const]
+  )
+
+  private case class ChainRoot(
+      name: String,
+      declaration: String,
+      firstUse: String,
+      expectedError: DiagnosticIdentity
+  )
+
+  private def solveWithErrors(teStr: String): SolverPartial =
+    KindFormula.solveShapesAndKinds(
+      predefTypeEnv,
+      TestUtils.parsedTypeEnvOf(PackageName.PredefName, teStr)
+    ) match {
+      case Ior.Both(errors, solved) => SolverPartial(errors.toList, solved)
+      case Ior.Left(errors) =>
+        fail(s"expected partial solver result, got only errors: $errors")
+      case Ior.Right(solved) =>
+        fail(s"expected solver errors, got successful result: $solved")
+    }
+
+  private def typeConst(name: String): RankNType.Const.Defined =
+    RankNType.Const.predef(name)
+
+  private def hasUnknown(
+      result: SolverPartial,
+      owner: String,
+      unknown: String
+  ): Boolean =
+    result.errors.exists {
+      case KindFormula.Error.FromShapeError(
+            Shape.UnknownConst(typeDecl, _, const)
+          ) =>
+        typeDecl.name.asString == owner && const == typeConst(unknown)
+      case _ => false
+    }
+
+  private def hasUnsatisfiable(
+      result: SolverPartial,
+      owner: String
+  ): Boolean =
+    result.errors.exists {
+      case error: KindFormula.Error.Unsatisfiable =>
+        error.typeDecl.name.asString == owner
+      case _ => false
+    }
+
+  private def statementNames(
+      statements: List[ParsedTypeEnv.TypeStatement[Kind.Arg]]
+  ): List[String] =
+    statements.map {
+      case ParsedTypeEnv.TypeStatement.Defined(dt) => s"D:${dt.name.asString}"
+      case ParsedTypeEnv.TypeStatement.Alias(ta)   => s"A:${ta.name.asString}"
+    }
+
+  private def diagnosticIdentities(
+      errors: List[KindFormula.Error]
+  ): List[DiagnosticIdentity] =
+    errors.map {
+      case KindFormula.Error.FromShapeError(
+            Shape.UnknownConst(typeDecl, _, const)
+          ) =>
+        DiagnosticIdentity(
+          typeDecl.name.asString,
+          "shape unknown constant",
+          Some(const)
+        )
+      case KindFormula.Error.FromShapeError(shapeError) =>
+        DiagnosticIdentity(
+          shapeError.typeDecl.name.asString,
+          "shape error",
+          None
+        )
+      case error: KindFormula.Error.Unsatisfiable =>
+        DiagnosticIdentity(
+          error.typeDecl.name.asString,
+          "kind unsatisfiable",
+          None
+        )
+    }
+
+  private def chainChoices(length: Int): List[List[Boolean]] =
+    (1 to length).foldLeft(List(List.empty[Boolean])) { (prefixes, _) =>
+      prefixes.flatMap(prefix => List(false :: prefix, true :: prefix))
+    }
+
+  private def chainFixture(root: ChainRoot, choices: List[Boolean]): String = {
+    val chain = choices.iterator.zipWithIndex.map { case (alias, idx) =>
+      val name = s"Dependent${idx + 1}"
+      val previous = if (idx == 0) root.firstUse else s"Dependent$idx"
+      if (alias) s"type $name = $previous"
+      else s"struct $name(value: $previous)"
+    }.mkString("\n")
+
+    s"""#
+struct Prerequisite
+external type Cell[a]
+${root.declaration}
+struct Independent
+$chain
+"""
+  }
+
+  private def dependentNames(length: Int): Set[String] =
+    (1 to length).iterator.map(idx => s"Dependent$idx").toSet
+
+  private def assertChainSuppressed(
+      root: ChainRoot,
+      choices: List[Boolean]
+  ): Unit = {
+    val chain = chainFixture(root, choices)
+    val links = choices.map(alias => if (alias) "alias" else "definition")
+    val clue = s"root=${root.name}, links=${links.mkString(" -> ")}"
+    val baseline = solveWithErrors(chainFixture(root, Nil))
+    val result = solveWithErrors(chain)
+
+    assertEquals(
+      diagnosticIdentities(baseline.errors),
+      List(root.expectedError),
+      s"root-only baseline: $clue"
+    )
+    assertEquals(
+      diagnosticIdentities(result.errors),
+      diagnosticIdentities(baseline.errors),
+      clue
+    )
+
+    val generated = dependentNames(choices.length)
+    val solvedNames = result.solved.allDefinedTypes.map(_.name.asString) ++
+      result.solved.typeAliases.map(_.name.asString) ++
+      result.solved.orderedTypes.flatMap {
+        case ParsedTypeEnv.TypeStatement.Defined(dt) => List(dt.name.asString)
+        case ParsedTypeEnv.TypeStatement.Alias(ta)   => List(ta.name.asString)
+      }
+    assert(
+      solvedNames.forall(name => !generated(name)),
+      s"generated links should be absent from every solved collection: $clue"
+    )
+
+    assertEquals(
+      result.solved.allDefinedTypes.map(_.name.asString),
+      baseline.solved.allDefinedTypes.map(_.name.asString),
+      s"successful definitions and their order: $clue"
+    )
+    assertEquals(
+      result.solved.typeAliases.map(_.name.asString),
+      baseline.solved.typeAliases.map(_.name.asString),
+      s"successful aliases and their order: $clue"
+    )
+    assertEquals(
+      statementNames(result.solved.orderedTypes),
+      statementNames(baseline.solved.orderedTypes),
+      s"successful statements and their order: $clue"
+    )
+    assert(
+      result.solved.allDefinedTypes.exists(_.name.asString == "Independent"),
+      clue
+    )
+  }
 
   def allowed(teStr: String) = testKind(teStr, Map.empty)
   def disallowed(teStr: String) = testIllKinded(teStr)
@@ -381,6 +552,144 @@ struct Bar[a](foo: Foo[a])
 struct Bar[a](foo: Foo[a])
 
 """)
+  }
+
+  test("failed declarations suppress dependent shape and kind errors") {
+    val result = solveWithErrors(
+      """#
+struct GoodBefore
+type GoodAliasBefore = GoodBefore
+external type Cell[a]
+
+enum Bad:
+  Bad(x: Missing)
+struct GoodBetween
+type GoodAliasBetween = GoodBetween
+type AliasAfterBad = Bad
+struct DefAfterAliasBad(value: AliasAfterBad)
+struct UsesBadAndMissing(value: Bad, other: ExtraMissing)
+type AliasAfterBadAndMissing = UsesBadAndMissing
+
+type BadAlias = MissingAlias
+struct DefAfterBadAlias(value: BadAlias)
+type AliasAfterDefBadAlias = DefAfterBadAlias
+
+struct BadKind[a: +*](value: Cell[a])
+type AliasAfterBadKind = BadKind[Int]
+struct DefAfterAliasBadKind(value: AliasAfterBadKind)
+
+type BadAliasKind[a: +*] = Cell[a]
+struct DefAfterBadAliasKind(value: BadAliasKind[Int])
+type AliasAfterDefBadAliasKind = DefAfterBadAliasKind
+
+type IndependentInvalid = ExtraMissing
+struct GoodAfter
+type GoodAliasAfter = GoodAfter
+"""
+    )
+
+    val expectedErrorOwners = Set(
+      typeConst("Bad"),
+      typeConst("BadAlias"),
+      typeConst("BadKind"),
+      typeConst("BadAliasKind"),
+      typeConst("IndependentInvalid")
+    )
+    assertEquals(result.errors.size, expectedErrorOwners.size)
+    assertEquals(
+      result.errors.map(_.typeDecl.toTypeConst).toSet,
+      expectedErrorOwners
+    )
+
+    assert(hasUnknown(result, "Bad", "Missing"))
+    assert(hasUnknown(result, "BadAlias", "MissingAlias"))
+    assert(hasUnknown(result, "IndependentInvalid", "ExtraMissing"))
+    assert(hasUnsatisfiable(result, "BadKind"))
+    assert(hasUnsatisfiable(result, "BadAliasKind"))
+
+    val dependentNames = Set(
+      "AliasAfterBad",
+      "DefAfterAliasBad",
+      "UsesBadAndMissing",
+      "AliasAfterBadAndMissing",
+      "DefAfterBadAlias",
+      "AliasAfterDefBadAlias",
+      "AliasAfterBadKind",
+      "DefAfterAliasBadKind",
+      "DefAfterBadAliasKind",
+      "AliasAfterDefBadAliasKind"
+    )
+    assert(
+      result.errors.forall(error => !dependentNames(error.typeDecl.name.asString)),
+      "dependent declarations should not own solver errors"
+    )
+
+    assertEquals(
+      result.solved.allDefinedTypes.map(_.name.asString),
+      List("GoodBefore", "Cell", "GoodBetween", "GoodAfter")
+    )
+    assertEquals(
+      result.solved.typeAliases.map(_.name.asString),
+      List("GoodAliasBefore", "GoodAliasBetween", "GoodAliasAfter")
+    )
+    assertEquals(
+      statementNames(result.solved.orderedTypes),
+      List(
+        "D:GoodBefore",
+        "A:GoodAliasBefore",
+        "D:Cell",
+        "D:GoodBetween",
+        "A:GoodAliasBetween",
+        "D:GoodAfter",
+        "A:GoodAliasAfter"
+      )
+    )
+  }
+
+  test("failed dependency suppression is transitive across bounded mixed chains") {
+    val roots = List(
+      ChainRoot(
+        "Bad",
+        """enum Bad:
+  Bad(x: Missing)""",
+        "Bad",
+        DiagnosticIdentity(
+          "Bad",
+          "shape unknown constant",
+          Some(typeConst("Missing"))
+        )
+      ),
+      ChainRoot(
+        "BadAlias",
+        "type BadAlias = MissingAlias",
+        "BadAlias",
+        DiagnosticIdentity(
+          "BadAlias",
+          "shape unknown constant",
+          Some(typeConst("MissingAlias"))
+        )
+      ),
+      ChainRoot(
+        "BadKind",
+        "struct BadKind[a: +*](value: Cell[a])",
+        "BadKind[Int]",
+        DiagnosticIdentity("BadKind", "kind unsatisfiable", None)
+      ),
+      ChainRoot(
+        "BadAliasKind",
+        "type BadAliasKind[a: +*] = Cell[a]",
+        "BadAliasKind[Int]",
+        DiagnosticIdentity("BadAliasKind", "kind unsatisfiable", None)
+      )
+    )
+
+    roots.foreach { root =>
+      (1 to 4).foreach { length =>
+        chainChoices(length).foreach { choices =>
+          assertChainSuppressed(root, choices)
+        }
+      }
+    }
   }
 
   test("free-functor is covariant") {
