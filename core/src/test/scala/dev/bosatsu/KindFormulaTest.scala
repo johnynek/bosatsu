@@ -159,11 +159,11 @@ class KindFormulaTest extends munit.FunSuite {
 
   private def chainChoices(length: Int): List[List[Boolean]] =
     (1 to length).foldLeft(List(List.empty[Boolean])) { (prefixes, _) =>
-      prefixes.flatMap(prefix => List(prefix :+ false, prefix :+ true))
+      prefixes.flatMap(prefix => List(false :: prefix, true :: prefix))
     }
 
   private def chainFixture(root: ChainRoot, choices: List[Boolean]): String = {
-    val chain = choices.zipWithIndex.map { case (alias, idx) =>
+    val chain = choices.iterator.zipWithIndex.map { case (alias, idx) =>
       val name = s"Dependent${idx + 1}"
       val previous = if (idx == 0) root.firstUse else s"Dependent$idx"
       if (alias) s"type $name = $previous"
@@ -180,7 +180,7 @@ $chain
   }
 
   private def dependentNames(length: Int): Set[String] =
-    (1 to length).map(idx => s"Dependent$idx").toSet
+    (1 to length).iterator.map(idx => s"Dependent$idx").toSet
 
   private def assertChainSuppressed(
       root: ChainRoot,
