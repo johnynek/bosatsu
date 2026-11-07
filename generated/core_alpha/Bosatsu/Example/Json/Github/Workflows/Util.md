@@ -55,6 +55,7 @@ public dependencies: [`Bosatsu/Json`](../../../../Json.html)
 [`run_publish_bosatsu_libs`](#value-run-publish-bosatsu-libs),
 [`run_python_tests_cmd`](#value-run-python-tests-cmd), [`runner_macos_14`](#value-runner-macos-14),
 [`runner_macos_latest`](#value-runner-macos-latest),
+[`runner_ubuntu_24_04`](#value-runner-ubuntu-24-04),
 [`runner_ubuntu_latest`](#value-runner-ubuntu-latest),
 [`sbt_cache_fetch_step`](#value-sbt-cache-fetch-step), [`setup_java_step`](#value-setup-java-step),
 [`setup_sbt_step`](#value-setup-sbt-step), [`setup_sbt_title_step`](#value-setup-sbt-title-step),
@@ -713,6 +714,16 @@ references: [`String`](../../../../Predef.html#type-string)
 
 ```bosatsu
 runner_macos_latest: String
+```
+
+<a id="value-runner-ubuntu-24-04"></a>
+
+### `runner_ubuntu_24_04`
+
+references: [`String`](../../../../Predef.html#type-string)
+
+```bosatsu
+runner_ubuntu_24_04: String
 ```
 
 <a id="value-runner-ubuntu-latest"></a>
