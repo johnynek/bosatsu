@@ -90,7 +90,8 @@ jobs:
     timeout-minutes: 30
   testPY:
     needs: test
-    runs-on: ubuntu-latest
+    # Python 3.9 builds are available for Ubuntu 24.04, but not newer runner images.
+    runs-on: ubuntu-24.04
     steps:
       - uses: "actions/checkout@v2.1.0"
       - name: "Cache sbt directories"
@@ -112,7 +113,7 @@ jobs:
       - name: "install sbt"
         uses: "sbt/setup-sbt@v1"
       - name: "python setup"
-        uses: "actions/setup-python@v2"
+        uses: "actions/setup-python@v6"
         with:
           python-version: "${{matrix.python}}"
       - name: "build assembly"
