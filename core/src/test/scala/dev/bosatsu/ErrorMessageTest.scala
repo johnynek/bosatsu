@@ -3,7 +3,7 @@ package dev.bosatsu
 import Value._
 
 import cats.Show
-import cats.data.{NonEmptyList, Validated}
+import cats.data.{Ior, NonEmptyList, Validated}
 import cats.syntax.all._
 import dev.bosatsu.LocationMap.Colorize
 import dev.bosatsu.rankn.{Type => RankNType}
@@ -2814,6 +2814,122 @@ enum UsesUsesBad:
       ),
       renderedKindErrors.mkString("\n")
     )
+  }
+
+  test(
+    "exports of declarations that failed to compile are reported accurately"
+  ) {
+    val source =
+      """
+package Repro
+export Module
+
+struct Module(a: Missing)
+"""
+
+    val (errs, sourceMap) = compileErrors(List(source))
+    val diagnostics = errs.toList
+    val rendered = diagnostics.map(_.message(sourceMap, Colorize.None))
+    val packageName = PackageName.parts("Repro")
+    val uncompiled = diagnostics.collect {
+      case error: PackageError.UncompiledExport[?] => error
+    }
+
+    assertEquals(diagnostics.length, 3, diagnostics.mkString("\n"))
+    assertEquals(uncompiled.length, 1, diagnostics.mkString("\n"))
+    assertEquals(uncompiled.head.ex.name.sourceCodeRepr, "Module")
+    assertEquals(uncompiled.head.in, packageName)
+    assert(!PackageError.isPostponable(uncompiled.head))
+    assertEquals(
+      rendered.find(_.contains("cannot export Module")),
+      sourceMap.get(packageName).map { case (_, sourceName) =>
+        s"in $sourceName cannot export Module because its definition did not compile"
+      }
+    )
+    assert(
+      !uncompiled.head.message(sourceMap, Colorize.None).contains("perhaps you meant")
+    )
+    assert(
+      !diagnostics.exists {
+        case PackageError.UnknownExport(ex, _, _) => ex.name.sourceCodeRepr == "Module"
+        case _                                    => false
+      },
+      diagnostics.mkString("\n")
+    )
+    assert(
+      diagnostics.exists {
+        case PackageError.SourceConverterErrorsIn(_, sourceErrors, pack) =>
+          pack == packageName && sourceErrors.toList.exists {
+            case SourceConverter.UnknownTypeName(name, _) =>
+              name.sourceCodeRepr == "Missing"
+            case _ => false
+          }
+        case _ => false
+      },
+      diagnostics.mkString("\n")
+    )
+    assert(
+      diagnostics.exists {
+        case PackageError.KindInferenceError(
+              pack,
+              KindFormula.Error.FromShapeError(
+                Shape.UnknownConst(typeDecl, _, missing)
+              ),
+              _
+            ) =>
+          pack == packageName &&
+            typeDecl.name.asString == "Module" &&
+            missing == RankNType.Const.Defined(
+              packageName,
+              TypeName("Missing")
+            )
+        case _ => false
+      },
+      diagnostics.mkString("\n")
+    )
+  }
+
+  test("unresolved source declarations keep export assembly unsuccessful") {
+    val parsed = Parser.parse(
+      Package.parser,
+      """package ReproAssembly
+         |export Module
+         |
+         |struct Module(a: Int)
+         |""".stripMargin
+    ) match {
+      case Validated.Valid((_, package0)) => package0
+      case Validated.Invalid(errors)      => fail(s"parse failed: $errors")
+    }
+    val program: Program[
+      rankn.TypeEnv[Kind.Arg],
+      TypedExpr[Declaration],
+      List[Statement]
+    ] = Program(rankn.TypeEnv.empty, Nil, Nil, parsed.program)
+
+    val assembled = PackageCustoms.assemble(
+      parsed.name,
+      Nil,
+      ImportMap.empty,
+      parsed.exports,
+      program,
+      Nil
+    )
+
+    assembled match {
+      case Ior.Left(errors) =>
+        assertEquals(
+          errors.toList.collect {
+            case error: PackageError.UncompiledExport[?] =>
+              error.ex.name.sourceCodeRepr
+          },
+          List("Module")
+        )
+      case Ior.Both(errors, _) =>
+        fail(s"expected assembly failure without a typed package: $errors")
+      case Ior.Right(pack) =>
+        fail(s"expected assembly failure, got typed package: $pack")
+    }
   }
 
   test("shape-failed aliases suppress dependent package inference errors") {

@@ -8,8 +8,8 @@
 - Flow: `implementation`
 - Issue: `#2248` Suppress 'unknown export' follow-on errors for definitions that already failed to compile
 - Source design doc: `docs/design/2248-suppress-unknown-export-follow-on-errors-for-definitions-that-already-failed-to-compile.md`
-- Pending steps: `3`
-- Completed steps: `0`
+- Pending steps: `2`
+- Completed steps: `1`
 - Total steps: `3`
 
 ## Summary
@@ -34,7 +34,7 @@ A declared type can fail compilation and disappear from the recovered type envir
 
 ## Steps
 
-1. [ ] `step_1` Classify unresolved exports using retained local declarations
+1. [x] `step_1` Classify unresolved exports using retained local declarations
 
 Implement the complete production change together with the minimal regression in the existing files.
 
@@ -64,6 +64,10 @@ Run `sbt "coreJVM/test:compile"` and `sbt "coreJVM/testOnly dev.bosatsu.ErrorMes
 - Render the minimal repro through its source map and assert the accurate replacement text and absence of spelling suggestions on UncompiledExport.
 - At the assembly boundary, an unresolved export matching retained source returns Ior.Left containing UncompiledExport and no typed package.
 - Assert PackageError.isPostponable is false for the new diagnostic.
+
+#### Completion Notes
+
+Added `UncompiledExport` as a hard package error and classified unresolved exports against same-kind declarations retained in `Program.from`; successful export construction and `Ior.Left` assembly failure behavior remain unchanged. The minimal repro retains its source-conversion and kind-inference diagnostics, reports the accurate export error, and the direct assembly test confirms no typed package is returned. `sbt "coreJVM/test:compile"` and `sbt "coreJVM/testOnly dev.bosatsu.ErrorMessageTest"` passed; all 93 suite tests passed.
 
 2. [ ] `step_2` Cover recovery and export-kind classification contracts
 

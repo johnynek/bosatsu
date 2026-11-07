@@ -196,6 +196,8 @@ object CompilerApi {
         renderedError(ErrorCategory.ImportError, 1, body)
       case _: PackageError.UnknownExport[?] =>
         renderedError(ErrorCategory.PackageError, 1, body)
+      case _: PackageError.UncompiledExport[?] =>
+        renderedError(ErrorCategory.PackageError, 1, body)
       case _: PackageError.CircularDependency[?, ?, ?] =>
         renderedError(ErrorCategory.PackageError, 1, body)
       case e: PackageError.VarianceInferenceFailure =>
