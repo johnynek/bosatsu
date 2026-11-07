@@ -8,8 +8,8 @@
 - Flow: `implementation`
 - Issue: `#2249` Kind inference should suppress dependent 'unknown type' errors after earlier type-definition failures
 - Source design doc: `docs/design/2249-kind-inference-should-suppress-dependent-unknown-type-errors-after-earlier-type-definition-failures.md`
-- Pending steps: `1`
-- Completed steps: `2`
+- Pending steps: `0`
+- Completed steps: `3`
 - Total steps: `3`
 
 ## Summary
@@ -89,7 +89,7 @@ Use a small local enumeration in the existing suite; no new generator framework,
 
 Added bounded mixed-chain coverage for 120 generated chains across shape- and kind-failure definition and alias roots. The tests verify stable root diagnostics, absence of generated dependents from solved collections, and unchanged independent successes and ordering. `sbt "coreJVM/test:compile"`, `sbt "coreJVM/testOnly dev.bosatsu.KindFormulaTest"`, and `git diff --check` passed.
 
-3. [ ] `step_3` Verify suppression through package compilation and rendered diagnostics
+3. [x] `step_3` Verify suppression through package compilation and rendered diagnostics
 
 Add two package regressions in `core/src/test/scala/dev/bosatsu/ErrorMessageTest.scala` using its existing `compileErrors` helper. First compile the issue's `package Repro` example with `Bad` referencing `Missing`, `UsesBad` referencing `Bad`, and a third declaration referencing `UsesBad`. Retain the example's exports as appropriate. Collect `PackageError.KindInferenceError` values using ADT matching and inspect their `kindError` categories, owning declaration constants, and unknown constants. Require the root inference error for Missing in Bad, retain the source-conversion diagnostic for the genuinely missing name, and reject inference errors owned by either dependent.
 
@@ -115,3 +115,7 @@ Compile and run `sbt "coreJVM/testOnly dev.bosatsu.KindFormulaTest dev.bosatsu.E
 - The three-declaration missing-name package reports the root UnknownConst for Missing in Bad, retains its source-conversion error, and has no kind/shape errors owned by UsesBad or its dependent.
 - The Int[Int] alias package reports a root shape failure and suppresses errors for its alias and definition dependents.
 - Rendered inference diagnostics show the original failure and contain no unknown-type diagnostic for failed or skipped local constants.
+
+#### Completion Notes
+
+Added package regressions that verify the original Missing and known-name shape errors, retain the source-conversion diagnostic, suppress inference errors for dependent declarations, and check rendered diagnostics. `sbt "coreJVM/testOnly dev.bosatsu.KindFormulaTest dev.bosatsu.ErrorMessageTest"` passed (117 tests); `sbt "coverage; clean; coreJVM/test; cli/test; coverageReport"` passed (2,134 core tests, 74 CLI tests; 84.57% statement and 80.49% branch coverage). The coverage report confirms execution of package inference and the solver’s failed-dependency guard. `git diff --check` passed.

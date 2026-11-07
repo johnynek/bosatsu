@@ -6,6 +6,7 @@ import cats.Show
 import cats.data.{NonEmptyList, Validated}
 import cats.syntax.all._
 import dev.bosatsu.LocationMap.Colorize
+import dev.bosatsu.rankn.{Type => RankNType}
 import scala.concurrent.duration.DurationInt
 
 class ErrorMessageTest extends munit.FunSuite with ParTest {
@@ -2743,6 +2744,119 @@ enum Bad:
 
     assert(rendered.contains("recursive occurrences must be covariant"), rendered)
     assert(!rendered.contains("Unknown type"), rendered)
+  }
+
+  test("failed local types do not render dependent unknown-type errors") {
+    val testCode = """
+package Repro
+export Bad, UsesBad
+
+enum Bad:
+  Bad(x: Missing)
+
+enum UsesBad:
+  UsesBad(x: Bad)
+
+enum UsesUsesBad:
+  UsesUsesBad(x: UsesBad)
+"""
+
+    val (errs, sourceMap) = compileErrors(List(testCode))
+    val kindErrors = errs.toList.collect {
+      case kie: PackageError.KindInferenceError => kie
+    }
+    val renderedKindErrors = kindErrors.map(_.message(sourceMap, Colorize.None))
+    val rootUnknown = kindErrors.exists {
+      case PackageError.KindInferenceError(
+            _,
+            KindFormula.Error.FromShapeError(
+              Shape.UnknownConst(typeDecl, _, missing)
+            ),
+            _
+        ) =>
+        typeDecl.name.asString == "Bad" &&
+          missing == RankNType.Const.Defined(
+            PackageName.parts("Repro"),
+            TypeName("Missing")
+          )
+      case _ => false
+    }
+    val dependentOwners = Set("UsesBad", "UsesUsesBad")
+
+    assert(rootUnknown, errs.toList.mkString("\n"))
+    assert(
+      kindErrors.forall(kie =>
+        !dependentOwners(kie.kindError.typeDecl.name.asString)
+      ),
+      kindErrors.mkString("\n")
+    )
+    assert(
+      errs.toList.exists {
+        case PackageError.SourceConverterErrorsIn(_, sourceErrors, _) =>
+          sourceErrors.toList.exists {
+            case SourceConverter.UnknownTypeName(name, _) =>
+              name.sourceCodeRepr == "Missing"
+            case _ => false
+          }
+        case _ => false
+      },
+      errs.toList.mkString("\n")
+    )
+    assert(
+      renderedKindErrors.exists(_.contains("in type Bad unknown type")),
+      renderedKindErrors.mkString("\n")
+    )
+    assert(
+      renderedKindErrors.forall(message =>
+        !message.contains("unknown type Bad") &&
+          !message.contains("unknown type UsesBad") &&
+          !message.contains("unknown type UsesUsesBad")
+      ),
+      renderedKindErrors.mkString("\n")
+    )
+  }
+
+  test("shape-failed aliases suppress dependent package inference errors") {
+    val testCode = """
+package ReproShape
+
+type Bad = Int[Int]
+type UsesBad = Bad
+
+enum UsesUsesBad:
+  UsesUsesBad(x: UsesBad)
+"""
+
+    val (errs, sourceMap) = compileErrors(List(testCode))
+    val kindErrors = errs.toList.collect {
+      case kie: PackageError.KindInferenceError => kie
+    }
+    val renderedKindErrors = kindErrors.map(_.message(sourceMap, Colorize.None))
+    val hasRootShapeError = kindErrors.exists {
+      case PackageError.KindInferenceError(
+            _,
+            KindFormula.Error.FromShapeError(shapeError),
+            _
+          ) => shapeError.typeDecl.name.asString == "Bad"
+      case _ => false
+    }
+    val dependentOwners = Set("UsesBad", "UsesUsesBad")
+
+    assert(hasRootShapeError, errs.toList.mkString("\n"))
+    assert(
+      kindErrors.forall(kie =>
+        !dependentOwners(kie.kindError.typeDecl.name.asString)
+      ),
+      kindErrors.mkString("\n")
+    )
+    assert(
+      renderedKindErrors.exists(_.contains("shape error")),
+      renderedKindErrors.mkString("\n")
+    )
+    assert(
+      renderedKindErrors.forall(!_.contains("unknown type")),
+      renderedKindErrors.mkString("\n")
+    )
   }
 
   test(
