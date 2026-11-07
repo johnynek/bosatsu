@@ -8,8 +8,8 @@
 - Flow: `implementation`
 - Issue: `#2248` Suppress 'unknown export' follow-on errors for definitions that already failed to compile
 - Source design doc: `docs/design/2248-suppress-unknown-export-follow-on-errors-for-definitions-that-already-failed-to-compile.md`
-- Pending steps: `1`
-- Completed steps: `2`
+- Pending steps: `0`
+- Completed steps: `3`
 - Total steps: `3`
 
 ## Summary
@@ -107,7 +107,7 @@ Run `sbt "coreJVM/testOnly dev.bosatsu.ErrorMessageTest"`. Completion means ever
 
 Expanded `ErrorMessageTest` with a deterministic matrix for failed structs, enums, aliases, direct and transitive dependents, and recovered values, with and without an absent type export. Added export-kind, imported/nested-name, external-declaration, missing-binding suggestion, and successful referant controls. `sbt "coreJVM/testOnly dev.bosatsu.ErrorMessageTest"` passed all 98 tests.
 
-3. [ ] `step_3` Verify CLI rendering and hard-error behavior
+3. [x] `step_3` Verify CLI rendering and hard-error behavior
 
 In `core/src/test/scala/dev/bosatsu/ToolAndLibCommandTest.scala`, add a `runWithFiles` regression invoking `tool check --color none --input <fixture>` on the minimal Module repro. Match the normal CLI exception and inspect its diagnostic document. Assert that the root compilation diagnostic and the accurate replacement appear, the replacement is classified as a package error, and `unknown export Module` is absent.
 
@@ -133,3 +133,7 @@ MergeXO independently runs the supervised `scripts/test_basic.sh` required-tests
 - The tool check minimal repro fails with both the original root diagnostic and a package-error replacement, without `unknown export Module`.
 - Warning and lax invocations retain the replacement in hard-error output rather than merely failing because of the root error.
 - The focused suites, CLI regression script, and repository coverage entry point pass after the change.
+
+#### Completion Notes
+
+Added CLI coverage for normal `tool check` rendering and repository `check` in strict, `--warn`, and `--lax` modes. `sbt "coreJVM/test:compile"` and the focused suites passed (270 tests). `bash ./test_cli.sh` passed, including 6,118 Bosatsu workspace tests; the literal `./test_cli.sh` invocation stopped because the environment lacks the external `time` command. `sbt "coverage; clean; coreJVM/test; cli/test; coverageReport"` passed: core coverage was 84.56% statements and 80.50% branches, below the 95% team goal. The changed export classification, replacement diagnostic, and package-error classification lines were covered.

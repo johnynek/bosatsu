@@ -6197,6 +6197,46 @@ main = depBox
     }
   }
 
+  test("tool check renders uncompiled export diagnostics") {
+    val src =
+      """package QA/UncompiledExport
+        |export Module
+        |
+        |struct Module(a: Missing)
+        |""".stripMargin
+    val files = List(
+      Chain("tmp", "UncompiledExport.bosatsu") -> src
+    )
+
+    runWithFiles(files)(
+      List(
+        "tool",
+        "check",
+        "--color",
+        "none",
+        "--input",
+        "tmp/UncompiledExport.bosatsu"
+      )
+    ) match {
+      case Right(out) =>
+        fail(s"expected uncompiled-export failure, got: $out")
+      case Left(err: CliException) =>
+        val rendered = err.errDoc.render(120)
+        assert(rendered.contains("type error"), rendered)
+        assert(rendered.contains("unknown type Missing"), rendered)
+        assert(rendered.contains("package error"), rendered)
+        assert(
+          rendered.contains(
+            "cannot export Module because its definition did not compile"
+          ),
+          rendered
+        )
+        assert(!rendered.contains("unknown export Module"), rendered)
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+  }
+
   test("tool check rejects todo and tool show still rejects it") {
     val src =
       """package Todo/Foo
@@ -7004,6 +7044,41 @@ main = depBox
         assert(rendered.contains("non-total match"), rendered)
       case Left(err) =>
         fail(err.getMessage)
+    }
+  }
+
+  test("check keeps uncompiled exports fatal in strict, warn, and lax modes") {
+    val src =
+      """package MyLib/Foo
+        |export Module
+        |
+        |struct Module(a: Missing)
+        |""".stripMargin
+    val modes = List(
+      "strict" -> Nil,
+      "warn" -> List("--warn"),
+      "lax" -> List("--lax")
+    )
+
+    modes.foreach { case (mode, flags) =>
+      runWithFiles(baseLibFiles(src))(
+        List("check", "--repo_root", "repo") ::: flags
+      ) match {
+        case Right(out) =>
+          fail(s"expected uncompiled-export failure in $mode mode, got: $out")
+        case Left(err: CliException) =>
+          val rendered = err.errDoc.render(120)
+          assert(rendered.contains("unknown type Missing"), rendered)
+          assert(
+            rendered.contains(
+              "cannot export Module because its definition did not compile"
+            ),
+            rendered
+          )
+          assert(!rendered.contains("unknown export Module"), rendered)
+        case Left(err) =>
+          fail(err.getMessage)
+      }
     }
   }
 
