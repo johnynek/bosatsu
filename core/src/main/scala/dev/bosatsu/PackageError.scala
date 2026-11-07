@@ -478,6 +478,20 @@ object PackageError {
     }
   }
 
+  case class UncompiledExport[A](
+      ex: ExportedName[A],
+      in: PackageName
+  ) extends PackageError {
+    def message(
+        sourceMap: Map[PackageName, (LocationMap, String)],
+        errColor: Colorize
+    ) = {
+      val (_, sourceName) = sourceMap.getMapSrc(in)
+      s"in $sourceName cannot export ${ex.name.sourceCodeRepr} " +
+        "because its definition did not compile"
+    }
+  }
+
   case class PrivateTypeEscape[A](
       ex: ExportedName[A],
       exType: Type,

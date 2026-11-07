@@ -123,7 +123,7 @@ object PackageCustoms {
       exposesDecls: List[List[PackageName]]
   ): Ior[NonEmptyList[PackageError], Package.Typed[Declaration]] = {
 
-    val Program(types, lets, _, _) = program
+    val Program(types, lets, _, statements) = program
     val letRegions = letBindableRegions(lets)
     ExportedName
       .buildExports(nm, exports, types, lets) match {
@@ -145,10 +145,27 @@ object PackageCustoms {
         }
       case Validated.Invalid(unknowns) =>
         Ior.left(unknowns.map { n =>
-          PackageError.UnknownExport(n, nm, letRegions): PackageError
+          // Recovery can remove declarations from the typed environment while
+          // retaining their source statements.
+          if (hasLocalDeclarationForExport(n, statements))
+            PackageError.UncompiledExport(n, nm): PackageError
+          else PackageError.UnknownExport(n, nm, letRegions): PackageError
         })
     }
   }
+
+  private def hasLocalDeclarationForExport(
+      exported: ExportedName[?],
+      statements: List[Statement]
+  ): Boolean =
+    exported match {
+      case ExportedName.TypeName(name, _) =>
+        Statement.typeStatementsOf(statements).exists(_.name == name)
+      case ExportedName.Constructor(name, _) =>
+        Statement.definitionsOf(statements).exists(_.name == name)
+      case ExportedName.Binding(name, _) =>
+        Statement.valuesOf(statements).exists(_.names.contains(name))
+    }
 
   private def normalizeDeclaredExposes(
       deps: List[PackageName]
