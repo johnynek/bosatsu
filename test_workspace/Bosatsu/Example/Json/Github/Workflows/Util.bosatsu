@@ -37,6 +37,7 @@ export (
   python_version_3_9,
   runner_macos_14,
   runner_macos_latest,
+  runner_ubuntu_24_04,
   runner_ubuntu_latest,
   Step(),
   JavaWith(),
@@ -134,6 +135,7 @@ struct JavaStrategyMatrix(java: List[String])
 struct JavaStrategy(matrix: JavaStrategyMatrix)
 
 runner_ubuntu_latest = "ubuntu-latest"
+runner_ubuntu_24_04 = "ubuntu-24.04"
 runner_macos_latest = "macos-latest"
 runner_macos_14 = "macos-14"
 
@@ -144,7 +146,7 @@ action_cache_v4 = "actions/cache@v4"
 action_codecov = "codecov/codecov-action@v5"
 action_setup_java = "actions/setup-java@v5"
 action_setup_sbt = "sbt/setup-sbt@v1"
-action_setup_python = "actions/setup-python@v2"
+action_setup_python = "actions/setup-python@v6"
 action_upload_artifact = "actions/upload-artifact@v4"
 
 java_distribution_temurin = "temurin"

@@ -25,6 +25,7 @@ from Bosatsu/Example/Json/Github/Workflows/Util import (
   python_version_matrix,
   python_version_3_9,
   runner_macos_latest,
+  runner_ubuntu_24_04,
   runner_ubuntu_latest,
   run_python_tests_cmd,
   run_publish_bosatsu_libs,
@@ -248,7 +249,8 @@ workflow =
       ),
       WorkflowJobsTestPY(
         needs_test,
-        runner_ubuntu_latest,
+        # Python 3.9 builds are unavailable on newer Ubuntu runner images.
+        runner_ubuntu_24_04,
         [
           *py_bootstrap_steps,
           Step {
