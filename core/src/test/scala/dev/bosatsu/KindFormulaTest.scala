@@ -72,6 +72,19 @@ class KindFormulaTest extends munit.FunSuite {
       solved: ParsedTypeEnv[Kind.Arg]
   )
 
+  private case class DiagnosticIdentity(
+      owner: String,
+      category: String,
+      detail: Option[RankNType.Const]
+  )
+
+  private case class ChainRoot(
+      name: String,
+      declaration: String,
+      firstUse: String,
+      expectedError: DiagnosticIdentity
+  )
+
   private def solveWithErrors(teStr: String): SolverPartial =
     KindFormula.solveShapesAndKinds(
       predefTypeEnv,
@@ -117,6 +130,111 @@ class KindFormulaTest extends munit.FunSuite {
       case ParsedTypeEnv.TypeStatement.Defined(dt) => s"D:${dt.name.asString}"
       case ParsedTypeEnv.TypeStatement.Alias(ta)   => s"A:${ta.name.asString}"
     }
+
+  private def diagnosticIdentities(
+      errors: List[KindFormula.Error]
+  ): List[DiagnosticIdentity] =
+    errors.map {
+      case KindFormula.Error.FromShapeError(
+            Shape.UnknownConst(typeDecl, _, const)
+          ) =>
+        DiagnosticIdentity(
+          typeDecl.name.asString,
+          "shape unknown constant",
+          Some(const)
+        )
+      case KindFormula.Error.FromShapeError(shapeError) =>
+        DiagnosticIdentity(
+          shapeError.typeDecl.name.asString,
+          "shape error",
+          None
+        )
+      case error: KindFormula.Error.Unsatisfiable =>
+        DiagnosticIdentity(
+          error.typeDecl.name.asString,
+          "kind unsatisfiable",
+          None
+        )
+    }
+
+  private def chainChoices(length: Int): List[List[Boolean]] =
+    (1 to length).foldLeft(List(List.empty[Boolean])) { (prefixes, _) =>
+      prefixes.flatMap(prefix => List(prefix :+ false, prefix :+ true))
+    }
+
+  private def chainFixture(root: ChainRoot, choices: List[Boolean]): String = {
+    val chain = choices.zipWithIndex.map { case (alias, idx) =>
+      val name = s"Dependent${idx + 1}"
+      val previous = if (idx == 0) root.firstUse else s"Dependent$idx"
+      if (alias) s"type $name = $previous"
+      else s"struct $name(value: $previous)"
+    }.mkString("\n")
+
+    s"""#
+struct Prerequisite
+external type Cell[a]
+${root.declaration}
+struct Independent
+$chain
+"""
+  }
+
+  private def dependentNames(length: Int): Set[String] =
+    (1 to length).map(idx => s"Dependent$idx").toSet
+
+  private def assertChainSuppressed(
+      root: ChainRoot,
+      choices: List[Boolean]
+  ): Unit = {
+    val chain = chainFixture(root, choices)
+    val links = choices.map(alias => if (alias) "alias" else "definition")
+    val clue = s"root=${root.name}, links=${links.mkString(" -> ")}"
+    val baseline = solveWithErrors(chainFixture(root, Nil))
+    val result = solveWithErrors(chain)
+
+    assertEquals(
+      diagnosticIdentities(baseline.errors),
+      List(root.expectedError),
+      s"root-only baseline: $clue"
+    )
+    assertEquals(
+      diagnosticIdentities(result.errors),
+      diagnosticIdentities(baseline.errors),
+      clue
+    )
+
+    val generated = dependentNames(choices.length)
+    val solvedNames = result.solved.allDefinedTypes.map(_.name.asString) ++
+      result.solved.typeAliases.map(_.name.asString) ++
+      result.solved.orderedTypes.flatMap {
+        case ParsedTypeEnv.TypeStatement.Defined(dt) => List(dt.name.asString)
+        case ParsedTypeEnv.TypeStatement.Alias(ta)   => List(ta.name.asString)
+      }
+    assert(
+      solvedNames.forall(name => !generated(name)),
+      s"generated links should be absent from every solved collection: $clue"
+    )
+
+    assertEquals(
+      result.solved.allDefinedTypes.map(_.name.asString),
+      baseline.solved.allDefinedTypes.map(_.name.asString),
+      s"successful definitions and their order: $clue"
+    )
+    assertEquals(
+      result.solved.typeAliases.map(_.name.asString),
+      baseline.solved.typeAliases.map(_.name.asString),
+      s"successful aliases and their order: $clue"
+    )
+    assertEquals(
+      statementNames(result.solved.orderedTypes),
+      statementNames(baseline.solved.orderedTypes),
+      s"successful statements and their order: $clue"
+    )
+    assert(
+      result.solved.allDefinedTypes.exists(_.name.asString == "Independent"),
+      clue
+    )
+  }
 
   def allowed(teStr: String) = testKind(teStr, Map.empty)
   def disallowed(teStr: String) = testIllKinded(teStr)
@@ -526,6 +644,52 @@ type GoodAliasAfter = GoodAfter
         "A:GoodAliasAfter"
       )
     )
+  }
+
+  test("failed dependency suppression is transitive across bounded mixed chains") {
+    val roots = List(
+      ChainRoot(
+        "Bad",
+        """enum Bad:
+  Bad(x: Missing)""",
+        "Bad",
+        DiagnosticIdentity(
+          "Bad",
+          "shape unknown constant",
+          Some(typeConst("Missing"))
+        )
+      ),
+      ChainRoot(
+        "BadAlias",
+        "type BadAlias = MissingAlias",
+        "BadAlias",
+        DiagnosticIdentity(
+          "BadAlias",
+          "shape unknown constant",
+          Some(typeConst("MissingAlias"))
+        )
+      ),
+      ChainRoot(
+        "BadKind",
+        "struct BadKind[a: +*](value: Cell[a])",
+        "BadKind[Int]",
+        DiagnosticIdentity("BadKind", "kind unsatisfiable", None)
+      ),
+      ChainRoot(
+        "BadAliasKind",
+        "type BadAliasKind[a: +*] = Cell[a]",
+        "BadAliasKind[Int]",
+        DiagnosticIdentity("BadAliasKind", "kind unsatisfiable", None)
+      )
+    )
+
+    roots.foreach { root =>
+      (1 to 4).foreach { length =>
+        chainChoices(length).foreach { choices =>
+          assertChainSuppressed(root, choices)
+        }
+      }
+    }
   }
 
   test("free-functor is covariant") {

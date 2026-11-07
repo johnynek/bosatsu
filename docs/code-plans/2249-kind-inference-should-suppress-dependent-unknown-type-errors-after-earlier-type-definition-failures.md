@@ -8,8 +8,8 @@
 - Flow: `implementation`
 - Issue: `#2249` Kind inference should suppress dependent 'unknown type' errors after earlier type-definition failures
 - Source design doc: `docs/design/2249-kind-inference-should-suppress-dependent-unknown-type-errors-after-earlier-type-definition-failures.md`
-- Pending steps: `2`
-- Completed steps: `1`
+- Pending steps: `1`
+- Completed steps: `2`
 - Total steps: `3`
 
 ## Summary
@@ -62,7 +62,7 @@ The enforcing boundary is the existing guarded ordered fold in `KindFormula.scal
 
 Added direct solver regressions for shape and kind failures, mixed definition/alias dependents, independent errors, and partial-result ordering. `sbt "coreJVM/test:compile"` and `sbt "coreJVM/testOnly dev.bosatsu.KindFormulaTest"` passed; `git diff --check` passed.
 
-2. [ ] `step_2` Check transitive suppression across bounded mixed chains
+2. [x] `step_2` Check transitive suppression across bounded mixed chains
 
 Extend `core/src/test/scala/dev/bosatsu/KindFormulaTest.scala` with a deterministic property-style test over the existing solver boundary. Enumerate one through four dependent links and every definition/alias choice for those links. Exercise both shape-failure and kind-failure roots, including the definition and alias root fixtures established in step_1. Each dependent must reference exactly its predecessor: emit a monomorphic struct containing the predecessor or a monomorphic alias of it. Apply parameterized kind-failure roots to `Int` in the first link; later links reference the preceding monomorphic name.
 
@@ -84,6 +84,10 @@ Use a small local enumeration in the existing suite; no new generator framework,
 #### Assertion Tests
 
 - None recorded.
+
+#### Completion Notes
+
+Added bounded mixed-chain coverage for 120 generated chains across shape- and kind-failure definition and alias roots. The tests verify stable root diagnostics, absence of generated dependents from solved collections, and unchanged independent successes and ordering. `sbt "coreJVM/test:compile"`, `sbt "coreJVM/testOnly dev.bosatsu.KindFormulaTest"`, and `git diff --check` passed.
 
 3. [ ] `step_3` Verify suppression through package compilation and rendered diagnostics
 
