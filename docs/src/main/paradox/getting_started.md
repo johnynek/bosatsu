@@ -157,6 +157,30 @@ library workflows now live at the top level, for example: `./bosatsu check`,
 `./bosatsu test`, and `./bosatsu eval`. Use `./bosatsu tool ...` for the
 lower-level file-based compiler commands such as `./bosatsu tool transpile`.
 
+### Read package headers for a build
+
+`tool headers` reads explicit source files using the Bosatsu header parser.
+It can scan sources whose imports have not been built yet. A body can still be
+under edit when you run it.
+
+```sh
+./bosatsu tool headers --src src/Api.bosatsu --src src/Types.bosatsu --out gen/headers.json
+```
+
+The JSON object has `schema_version: 1` and a `packages` array ordered by
+source path. Each entry records the path, declared package name, imports and
+explicit exposures. For example, `from Demo/Types import Token as Item`
+produces the following import entry:
+
+```json
+{"package":"Demo/Types","names":[{"original":"Token","local":"Item"}]}
+```
+
+Paths supplied relative to the working directory stay relative. Reordering
+`--src` arguments or changing only a body preserves the output bytes. A scan
+reports missing files and header parse errors with their paths and exits with
+a failure status. On the JVM a failed scan preserves an existing index.
+
 ## 11) Run tests
 
 From the repo root:

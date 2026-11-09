@@ -77,28 +77,28 @@ sealed abstract class PackageResolver[IO[_], Path] {
   )(
       platformIO: PlatformIO[IO, Path]
   ): IO[ValidatedNel[PathParseError[Path], List[(Path, Package.Header)]]] = {
-    import platformIO.{canPromiseF, moduleIOMonad}
-    // we use IO(traverse) so we can accumulate all the errors in parallel easily
-    // if do this with parseFile returning an IO, we need to do IO.Par[Validated[...]]
-    // and use the composed applicative... too much work for the same result
+    import platformIO.moduleIOMonad
     paths
       .traverse { path =>
-        platformIO.readUtf8(path).flatMap { str =>
-          // Deps/header scans may parse a large number of files, so run the
-          // header parse on the compute pool.
-          canPromiseF.compute {
-            PathParseError
-              .parseString(PackageResolver.headerParserIgnoreRest, path, str)
-              .map { case (_, pp) => (path, pp) }
-          }
-        }
+        PathParseError
+          .parseFile(PackageResolver.headerParserIgnoreRest, path, platformIO)
+          .map(_.map { case (_, header) => (path, header) })
       }
       .map(_.sequence)
   }
 }
 
 object PackageResolver {
-  val headerParserIgnoreRest = Package.headerParser <* P.anyChar.rep0
+  // A header-only scan must not quietly turn a misplaced import into body
+  // text: that would generate a BUILD file with a missing dependency. At
+  // the first body position, recognize declarations using the same grammar
+  // as the full parser. Ordinary bodies are never parsed by this scanner.
+  private val anotherHeader =
+    Package.headerImportsParser.filter(_.nonEmpty).void
+      .orElse(Package.headerExportsParser.filter(_.nonEmpty).void)
+      .orElse(Package.headerPackageNameParser.void)
+  val headerParserIgnoreRest =
+    Package.headerParser <* !anotherHeader <* P.anyChar.rep0.void
 
   final case class SourceFile[IO[_], Path](
       path: Path,
