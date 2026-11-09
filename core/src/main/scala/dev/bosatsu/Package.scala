@@ -1058,7 +1058,6 @@ object Package {
         val lm = LocationMap(Predef.predefString)
         val errorMsg =
           s"couldn't parse predef:\n\n${lm.showContext(idx, 2, LocationMap.Colorize.None)}\n\nwith errs: ${err}"
-        System.err.println(errorMsg)
         sys.error(errorMsg)
     }
 

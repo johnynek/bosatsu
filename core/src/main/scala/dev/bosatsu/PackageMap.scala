@@ -1106,10 +1106,8 @@ object PackageMap {
               "<predef>"
             )
           )
-          errs.iterator.foreach { err =>
-            println(err.message(map, LocationMap.Colorize.None))
-          }
-          sys.error("expected no errors")
+          val diagnostics = errs.iterator.map(_.message(map, LocationMap.Colorize.None))
+          sys.error(diagnostics.mkString("failed to compile Predef:\n", "\n", ""))
       }
     }
 
