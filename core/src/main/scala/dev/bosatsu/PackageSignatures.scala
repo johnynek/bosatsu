@@ -12,26 +12,40 @@ import scala.util.{Failure, Success, Try}
   * bundles keep their full-fidelity codec.
   */
 object PackageSignatures {
-  def canonical(iface: Package.Interface): Package.Interface = {
-    val publicConstructors = iface.exports.iterator.collect {
-      case ExportedName.Constructor(_, Referant.Constructor(dt, _)) =>
-        dt.toTypeConst
+  private val exportOrder = Ordering.by[ExportedName[Referant[Kind.Arg]], (Identifier, String)](
+    e => (e.name, e.nameKind)
+  )
+
+  private def publicConstructors(iface: Package.Interface): Set[Type.Const] =
+    iface.exports.iterator.collect {
+      case ExportedName.Constructor(_, Referant.Constructor(dt, _)) => dt.toTypeConst
     }.toSet
+
+  private[bosatsu] def isCanonical(iface: Package.Interface): Boolean = {
+    val exports = iface.exports
+    lazy val public = publicConstructors(iface)
+    exports.iterator.zip(exports.iterator.drop(1)).forall(exportOrder.lteq) &&
+      exports.forall {
+        case ExportedName.TypeName(_, Referant.DefinedT(dt)) => dt.isOpaque || public(dt.toTypeConst)
+        case _ => true
+      }
+  }
+
+  def canonical(iface: Package.Interface): Package.Interface = {
+    val public = publicConstructors(iface)
     val exports = iface.exports.map {
       case ExportedName.TypeName(n, Referant.DefinedT(dt))
-          if !dt.isOpaque && !publicConstructors(dt.toTypeConst) =>
+          if !dt.isOpaque && !public(dt.toTypeConst) =>
         ExportedName.TypeName(n, Referant.DefinedT(dt.toOpaque))
       case other => other
     }
     // Export declarations are a set. Constructor order *inside* a type
     // determines its runtime tags and must survive serialization.
-    iface.copy(exports = exports.sortBy(e => (e.name, e.nameKind)))
+    iface.copy(exports = exports.sorted(using exportOrder))
   }
 
   private[bosatsu] lazy val predef: Package.Interface =
     Package.interfaceOf(PackageMap.predefCompiled)
-
-  private lazy val predefTypes = ExportedName.typeEnvFromExports(predef.name, predef.exports)
 
   def encode(interfaces: List[Package.Interface]): Try[proto.Interfaces] =
     interfaces.sortBy(_.name).traverse { iface =>
@@ -49,11 +63,11 @@ object PackageSignatures {
   ): Package.Interface =
     if (entry.signatureDependencies.isDefined) canonical(iface) else iface
 
-  private def hasLocalDefinitions(entry: proto.Interface, owner: PackageName): Boolean = {
+  private def hasLocalDefinitions(entry: proto.Interface, owner: String): Boolean = {
     val names = entry.strings.toIndexedSeq
     val declarations = entry.definedTypes.iterator.map(_.typeConst) ++
       entry.typeAliases.iterator.map(_.typeConst)
-    declarations.forall(_.flatMap(tc => names.lift(tc.packageName - 1)).contains(owner.asString))
+    declarations.forall(_.flatMap(tc => names.lift(tc.packageName - 1)).contains(owner))
   }
 
   private[bosatsu] def checkedView(
@@ -63,161 +77,225 @@ object PackageSignatures {
     entry.signatureDependencies match {
       case None => Success(iface)
       case Some(index) =>
-        if (!hasLocalDefinitions(entry, iface.name))
+        if (!hasLocalDefinitions(entry, iface.name.asString))
           Failure(CliException.Basic(s"invalid definition owner in ${iface.name.asString}"))
         else if (index.exposes.toList != iface.exposedDepPackages.map(_.asString))
           Failure(CliException.Basic(s"incorrect exposure index for ${iface.name.asString}"))
         else Success(canonical(iface))
     }
 
-  // Older signatures have no index. Only these three forms need a foreign
-  // definition to decode an export. Type constants themselves are symbolic.
-  private[bosatsu] def foreignOwners(entry: proto.Interface): List[String] = {
-    val names = entry.strings.toIndexedSeq
-    entry.exports.iterator.flatMap(_.referant).flatMap { ref =>
+  // Old writers sometimes used local table pointers for re-exports. Translate
+  // those pointers to identities before looking up types, even in the whole-file
+  // reader. Only the owning package can supply their current definitions.
+  private[bosatsu] def symbolicReferences(entry: proto.Interface): proto.Interface =
+    if (entry.signatureDependencies.isDefined || hasLocalDefinitions(entry, ProtoConverter.iname(entry)))
+      entry
+    else {
+      val strings = entry.strings.toIndexedSeq
+      val dts = entry.definedTypes.toIndexedSeq
+      val aliases = entry.typeAliases.toIndexedSeq
+      val owner = strings.lift(entry.packageName - 1)
+      def foreign(tc: proto.TypeConst): Boolean = strings.lift(tc.packageName - 1) != owner
+
+      def symbolic(ref: proto.Referant): Option[proto.Referant] =
+        ref.referant match {
+          case proto.Referant.Referant.DefinedType(dt) =>
+            for {
+              i <- dt.value.localDefinedTypePtr
+              tc <- dts.lift(i - 1).flatMap(_.typeConst) if foreign(tc)
+            } yield ref.withDefinedType(dt.withImportedDefinedType(tc))
+          case proto.Referant.Referant.TypeAlias(alias) =>
+            for {
+              i <- alias.value.localTypeAliasPtr
+              tc <- aliases.lift(i - 1).flatMap(_.typeConst) if foreign(tc)
+            } yield ref.withTypeAlias(alias.withImportedTypeAlias(tc))
+          case proto.Referant.Referant.Constructor(ctor) =>
+            for {
+              ptr <- ctor.value.localConstructor
+              dt <- dts.lift(ptr.definedTypePtr - 1)
+              tc <- dt.typeConst if foreign(tc)
+              cf <- dt.constructors.lift(ptr.constructorPtr - 1)
+            } yield ref.withConstructor(ctor.withImportedConstructor(
+              proto.ImportedConstructor(tc.packageName, tc.typeName, cf.name)
+            ))
+          case _ => None
+        }
+
+      entry.withExports(entry.exports.map { exp =>
+        exp.referant.flatMap(symbolic).fold(exp)(exp.withReferant)
+      })
+    }
+
+  private def foreignOwner(strings: IndexedSeq[String], exp: proto.ExportedName): Option[String] =
+    exp.referant.flatMap { ref =>
       val sum = ref.referant
       sum.definedType.flatMap(_.value.importedDefinedType).map(_.packageName)
         .orElse(sum.typeAlias.flatMap(_.value.importedTypeAlias).map(_.packageName))
         .orElse(sum.constructor.flatMap(_.value.importedConstructor).map(_.packageName))
-    }.map { i =>
-      names.lift(i - 1).getOrElse(throw CliException.Basic(s"invalid foreign package index $i"))
-    }.toList.distinct.sorted
+    }.map(i => strings.lift(i - 1).getOrElse(
+      throw CliException.Basic(s"invalid foreign package index $i")
+    ))
+
+  private[bosatsu] def foreignOwners(entry: proto.Interface): List[String] = {
+    val strings = entry.strings.toIndexedSeq
+    entry.exports.iterator.flatMap(foreignOwner(strings, _)).toList.distinct.sorted
   }
 
-  /** Select before semantic decoding. Each source contributes its own direct
-    * requirements, including every local member even if another member imports
-    * it. Retain the source filename of each provider for diagnostics.
-    */
-  def decodeRequired[P: Show](
-      bundles: List[(P, proto.Interfaces)],
-      requirements: List[(PackageName, List[PackageName])]
-  ): Try[List[Package.Interface]] = Try {
-    def name(s: String, file: P): PackageName =
-      PackageName.parse(s).getOrElse {
-        throw CliException.Basic(s"invalid signature package name '$s' in ${file.show}")
+  private[bosatsu] final class PublicInterface(publicView: => Package.Interface) {
+    lazy val iface: Package.Interface = publicView
+    lazy val types: TypeEnv[Kind.Arg] = ExportedName.typeEnvFromExports(iface.name, iface.exports)
+  }
+  private[bosatsu] type Providers = Map[PackageName, PublicInterface]
+  private[bosatsu] lazy val implicitProviders: Providers =
+    Map(predef.name -> PublicInterface(canonical(predef)))
+
+  private def decode(entry: proto.Interface, providers: Providers): Try[Package.Interface] = {
+    def types(tc: Type.Const) = providers.get(tc.toDefined.packageName).map(_.types)
+    ProtoConverter.interfaceFromProto0(
+      tc => types(tc).flatMap(_.toDefinedType(tc)).toRight(
+        CliException.Basic(s"missing exported type $tc")).toTry,
+      tc => types(tc).flatMap(_.toTypeAlias(tc)).toRight(
+        CliException.Basic(s"missing exported type alias $tc")).toTry,
+      entry
+    )
+  }
+
+  private final case class Root(name: PackageName, file: String, wire: proto.Interface) {
+    // Unselected siblings are indexed by name only, including legacy entries.
+    private lazy val entry = symbolicReferences(wire)
+
+    // A re-export's remaining requirements are reachable through its owner,
+    // including the RHS of an authoritative alias. Without symbolic re-exports
+    // the decoded local exports are already the complete legacy interface.
+    private lazy val inspection: (List[String], Option[Package.Interface]) =
+      entry.signatureDependencies match {
+        case Some(index) => (index.exposes.toList, None)
+        case None =>
+          val strings = entry.strings.toIndexedSeq
+          val (foreign, local) = entry.exports.toList.partitionMap { exp =>
+            foreignOwner(strings, exp).toLeft(exp)
+          }
+          val partial = decode(entry.withExports(local), Map.empty).get
+          val deps = (foreign ::: partial.exposedDepPackages.map(_.asString)).distinct.sorted
+          (deps, Option.when(foreign.isEmpty)(partial))
       }
 
-    val providers = bundles.iterator.flatMap { case (file, bundle) =>
-      bundle.interfaces.iterator.map { entry =>
+    def dependencies: List[String] = inspection._1
+
+    def bind(providers: Providers): PublicInterface = {
+      val raw = inspection._2.getOrElse {
+        decode(entry, providers).recover { case e =>
+          throw CliException.Basic(s"cannot decode ${name.asString} in $file: ${e.getMessage}")
+        }.get
+      }
+      val iface = if (entry.signatureDependencies.isDefined) raw else canonical(raw)
+      iface.exports.foreach { exp =>
+        exp.tag.publicTypeConstants.foreach { tc =>
+          val owner = tc.toDefined.packageName
+          if (owner != name && !providers.get(owner).exists(_.types.hasTypeConst(tc)))
+            throw CliException.Basic(s"${name.asString} in $file needs missing exported type $tc")
+        }
+        exp.tag match {
+          case Referant.Constructor(dt, cf) if dt.packageName != name =>
+            val exported = providers.get(dt.packageName).flatMap(
+              _.types.getConstructor(dt.packageName, cf.name)
+            )
+            if (!exported.exists(_._1.toTypeConst == dt.toTypeConst))
+              throw CliException.Basic(
+                s"${name.asString} in $file needs missing exported constructor " +
+                  s"${dt.packageName.asString}::${cf.name.asString}"
+              )
+          case _ => ()
+        }
+      }
+      PublicInterface(iface)
+    }
+  }
+
+  /** Within a stage, materialize external interfaces in dependency order, then
+    * compile the sources together. Only an external interface referring back
+    * to a source requires a stage boundary. Its actual owner must finish first.
+    */
+  private[bosatsu] final class Stage private[PackageSignatures] (
+      roots: List[Root],
+      val sources: List[PackageName]
+  ) {
+    def bind(available: Providers): Try[Providers] = Try {
+      roots.foldLeft(available)((acc, root) => acc.updated(root.name, root.bind(acc)))
+    }
+  }
+
+  private[bosatsu] def plan[P: Show](
+      bundles: List[(P, proto.Interfaces)],
+      sources: List[(PackageName, List[PackageName])],
+      builtinPredef: Boolean
+  ): Try[List[Stage]] = Try {
+    val providers = bundles.flatMap { case (file, bundle) =>
+      bundle.interfaces.toList.map { entry =>
         val pn = entry.strings.lift(entry.packageName - 1).flatMap(PackageName.parse)
           .getOrElse(throw CliException.Basic(s"invalid root package name in ${file.show}"))
-        (pn, (file, entry))
+        pn -> Root(pn, file.show, entry)
       }
-    }.toList.groupMap(_._1)(_._2)
-    val local = requirements.iterator.map(_._1).toSet
+    }.groupMap(_._1)(_._2)
+    val locals = sources.toMap
     val active = mutable.Set.empty[PackageName]
-    val decoded = mutable.Map.empty[PackageName, (Package.Interface, TypeEnv[Kind.Arg])]
-
-    def typesOf(tc: Type.Const): Try[TypeEnv[Kind.Arg]] = tc match {
-      case Type.Const.Defined(p, _) if p.isPredef => Success(predefTypes)
-      case Type.Const.Defined(p, _) =>
-        decoded.get(p).map(_._2).toRight(
-          CliException.Basic(s"missing declared interface for ${p.asString}")
-        ).toTry
-    }
-
-    // An explicit stack keeps long re-export chains stack safe. Finish a
-    // root only after its providers are available for foreign references.
+    val stages = mutable.Map.empty[PackageName, Int]
+    val rootsByStage = mutable.Map.empty[Int, mutable.ListBuffer[Root]]
+    val sourcesByStage = mutable.Map.empty[Int, mutable.ListBuffer[PackageName]]
     sealed trait Work
-    case class Visit(p: PackageName, parents: List[PackageName]) extends Work
-    case class Decode(path: List[PackageName], file: P, entry: proto.Interface) extends Work
-    case class Finish(iface: Package.Interface, file: P) extends Work
-
-    var todo: List[Work] = requirements.flatMap { case (p, deps) =>
-      deps.map(Visit(_, p :: Nil))
-    }
+    case class Visit(p: PackageName, path: List[PackageName]) extends Work
+    case class Finish(p: PackageName, deps: List[PackageName], root: Option[Root]) extends Work
+    var todo: List[Work] = sources.map { case (p, _) => Visit(p, Nil) }
     while (todo.nonEmpty) {
-      val work = todo.head
+      val head = todo.head
       todo = todo.tail
-      work match {
-        case Visit(p, parents) =>
-          if (!local(p) && !p.isPredef && !decoded.contains(p)) {
-            val path = p :: parents
-            def route = path.reverseIterator.map(_.asString).mkString(" -> ")
-            if (!active.add(p))
-              throw CliException.Basic(s"cyclic interface dependencies: $route")
-            val (file, entry) = providers.get(p) match {
-              case Some(pair :: Nil) => pair
-              case Some(many) =>
-                val files = many.map(_._1.show).sorted.mkString(", ")
-                throw CliException.Basic(s"ambiguous interface $route in $files")
-              case None => throw CliException.Basic(s"missing interface: $route")
-            }
-            val before = entry.signatureDependencies match {
-              case Some(index) => index.exposes.iterator.map(name(_, file)).toList
-              case None =>
-                foreignOwners(entry).map(name(_, file))
-            }
-            todo = before.map(Visit(_, path)) ::: Decode(path, file, entry) :: todo
-          }
-        case Decode(path, file, entry) =>
-          val result = ProtoConverter.interfaceFromProto0(
-            tc => typesOf(tc).flatMap { env =>
-              env.toDefinedType(tc).toRight(CliException.Basic(s"missing exported type $tc")).toTry
-            },
-            tc => typesOf(tc).flatMap { env =>
-              env.toTypeAlias(tc)
-                .toRight(CliException.Basic(s"missing exported type alias $tc")).toTry
-            },
-            entry
-          )
-          val iface = result match {
-            case Success(i) =>
-              if (entry.signatureDependencies.isDefined) i else canonical(i)
-            case Failure(e) =>
-              val route = path.reverseIterator.map(_.asString).mkString(" -> ")
-              throw CliException.Basic(s"cannot decode $route in ${file.show}: ${e.getMessage}")
-          }
-          if (entry.signatureDependencies.isEmpty && !hasLocalDefinitions(entry, iface.name)) {
-            // Older encodings can point a local table index at a foreign
-            // definition. Re-encode the selected root using symbolic foreign
-            // references, then bind those references against their real owners.
-            // The encoder emits only locally owned tables, so this runs once.
-            val symbolic = ProtoConverter.interfaceToProto(iface).fold(
-              e => throw CliException.Basic(s"invalid legacy signature in ${file.show}: ${e.getMessage}"),
-              identity
-            )
-            val owners = foreignOwners(symbolic).map(name(_, file))
-            todo = owners.map(Visit(_, path)) ::: Decode(path, file, symbolic) :: todo
-          } else {
-            // An unindexed entry needs its foreign referants first. Recover
-            // its other exposures from the authoritative typed exports.
-            val remaining =
-              if (entry.signatureDependencies.isEmpty) iface.exposedDepPackages else Nil
-            todo = remaining.map(Visit(_, path)) ::: Finish(iface, file) :: todo
-          }
-        case Finish(iface, file) =>
-          val p = iface.name
-          // Value schemes and alias RHSs carry nominal constants rather than
-          // referant pointers. Verify that the supplied owner exports them too.
-          iface.exports.foreach { exp =>
-            exp.tag.publicTypeConstants.foreach { tc =>
-              val owner = tc.toDefined.packageName
-              if (owner != p && !owner.isPredef && !local(owner) &&
-                  !decoded.get(owner).exists(_._2.hasTypeConst(tc)))
-                throw CliException.Basic(
-                  s"${p.asString} in ${file.show} needs missing exported type $tc"
-                )
-            }
-            exp.tag match {
-              case Referant.Constructor(dt, cf) if dt.packageName != p =>
-                // The family describes all ABI tags, including any constructor
-                // the owning interface did not export as a callable name.
-                val exported = typesOf(dt.toTypeConst).toOption.flatMap(
-                  _.getConstructor(dt.packageName, cf.name)
-                )
-                if (!exported.exists(_._1.toTypeConst == dt.toTypeConst))
-                  throw CliException.Basic(
-                    s"${p.asString} in ${file.show} needs missing exported constructor " +
-                      s"${dt.packageName.asString}::${cf.name.asString}"
-                  )
-              case _ => ()
+      head match {
+        case Visit(p, path) if !stages.contains(p) =>
+          val route = p :: path
+          def display = route.reverseIterator.map(_.asString).mkString(" -> ")
+          if (!active.add(p))
+            throw CliException.Basic(s"cyclic interface dependencies: $display")
+          val (deps, root) = locals.get(p) match {
+            case Some(ds) => (ds, None)
+            case None => providers.get(p) match {
+              case Some(r :: Nil) =>
+                val ds = Try(r.dependencies.map { dep =>
+                  PackageName.parse(dep).getOrElse(throw CliException.Basic(s"invalid package '$dep'"))
+                }).recover { case e =>
+                  throw CliException.Basic(s"cannot decode $display in ${r.file}: ${e.getMessage}")
+                }.get
+                (ds, Some(r))
+              case Some(rs) =>
+                throw CliException.Basic(s"ambiguous interface $display in ${rs.map(_.file).sorted.mkString(", ")}")
+              case None => throw CliException.Basic(s"missing interface: $display")
             }
           }
-          decoded.update(p, (iface, ExportedName.typeEnvFromExports(p, iface.exports)))
+          // An explicitly supplied Predef owns the built-in type constants.
+          // Build signatures omit this implicit edge from their exposure index.
+          val edges =
+            if (builtinPredef) deps.filterNot(_.isPredef)
+            else if (p.isPredef) deps
+            else (PackageName.PredefName :: deps).distinct
+          todo = edges.map(Visit(_, route)) ::: Finish(p, edges, root) :: todo
+        case Visit(_, _) => ()
+        case Finish(p, deps, root) =>
+          val stage = deps.foldLeft(0) { (level, dep) =>
+            val boundary = if (root.isDefined && locals.contains(dep)) 1 else 0
+            level.max(stages(dep) + boundary)
+          }
+          root match {
+            case Some(r) => rootsByStage.getOrElseUpdate(stage, mutable.ListBuffer.empty) += r
+            case None => sourcesByStage.getOrElseUpdate(stage, mutable.ListBuffer.empty) += p
+          }
+          stages.update(p, stage)
           val _ = active.remove(p)
       }
     }
-    decoded.valuesIterator.map(_._1).toList.sortBy(_.name)
+    (0 to stages.valuesIterator.maxOption.getOrElse(-1)).toList.map { i =>
+      new Stage(
+        rootsByStage.get(i).fold(List.empty[Root])(_.toList),
+        sourcesByStage.get(i).fold(List.empty[PackageName])(_.toList)
+      )
+    }
   }
 }

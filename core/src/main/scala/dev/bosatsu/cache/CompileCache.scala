@@ -31,7 +31,7 @@ object CompileCache {
         String
     )
 
-  private val schemaVersion = 4
+  private val schemaVersion = 5
   private val sentinelRegion = Region(0, 0)
   private val utf8 = StandardCharsets.UTF_8
   private val blake3 = Algo.blake3Algo
@@ -60,7 +60,7 @@ object CompileCache {
 
   def interfaceHash(iface: Package.Interface): Try[HashValue[Algo.Blake3]] =
     ProtoConverter
-      .interfaceToProto(iface)
+      .encodeInterface(iface, includeForeignDefinitions = true)
       .map(p => Algo.hashBytes[Algo.Blake3](p.toByteArray))
 
   def keyHashHex(key: FsKey): String =

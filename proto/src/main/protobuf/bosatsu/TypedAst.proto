@@ -160,7 +160,9 @@ message Interface {
   int32 packageName = 4;
   repeated ExportedName exports = 5;
   repeated TypeAlias typeAliases = 6;
-  // Present even when empty on build signatures. Absent on legacy interfaces.
+  // Build signatures store this index, even when empty, so readers can select
+  // required packages before decoding exports. When absent (as in legacy
+  // interfaces), readers can derive the same dependencies from the decoded exports.
   InterfaceDependencies signatureDependencies = 7;
 }
 
@@ -182,6 +184,9 @@ message ImportedName {
 message Imports {
   int32 packageName = 1;
   repeated ImportedName names = 2;
+  // Reconstruct the canonical public view used to compile this import.
+  // Older packages omit this and retain the provider's full interface.
+  bool canonicalInterface = 3;
 }
 
 enum RecursionKind {

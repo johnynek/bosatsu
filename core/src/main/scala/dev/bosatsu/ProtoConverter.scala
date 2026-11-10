@@ -11,6 +11,7 @@ import dev.bosatsu.tool.CliException
 import scala.util.{Failure, Success, Try}
 import scala.reflect.ClassTag
 import scala.collection.immutable.SortedMap
+import scala.collection.mutable
 import scala.annotation.unused
 
 import Identifier.{Bindable, Constructor}
@@ -1760,21 +1761,23 @@ object ProtoConverter {
     (dts ::: imps).distinct.sorted.filterNot(_ == thisPack)
   }
 
-  def interfaceToProto(iface: Package.Interface): Try[proto.Interface] = {
+  def interfaceToProto(iface: Package.Interface): Try[proto.Interface] =
+    encodeInterface(iface, includeForeignDefinitions = false)
+
+  // A cache also accepts decoded interfaces from library/in-memory callers.
+  // Hash the actual types consumed by inference, including re-exported facts.
+  private[bosatsu] def encodeInterface(
+      iface: Package.Interface,
+      includeForeignDefinitions: Boolean
+  ): Try[proto.Interface] = {
     val allDts = DefinedType
       .listToMap(iface.exports.flatMap { ex =>
-        /*
-         * allDts are the locally defined types to this package
-         * so we need to filter those outside this package
-         */
-        ex.tag.definedType
-          .filter(_.packageName == iface.name)
+        ex.tag.definedType.filter(dt => includeForeignDefinitions || dt.packageName == iface.name)
       })
       .mapWithIndex((dt, idx) => (dt, idx))
     val allAliases = TypeAlias
       .listToMap(iface.exports.flatMap { ex =>
-        ex.tag.typeAlias
-          .filter(_.packageName == iface.name)
+        ex.tag.typeAlias.filter(ta => includeForeignDefinitions || ta.packageName == iface.name)
       })
       .mapWithIndex((ta, idx) => (ta, idx))
 
@@ -1785,7 +1788,24 @@ object ProtoConverter {
       .traverse { case (ta, _) => typeAliasToProto(ta) }
       .map(_.iterator.map(_._2).toList)
 
-    val tryExports = iface.exports.traverse(expNameToProto(allDts, allAliases, _))
+    val tryExports = iface.exports.traverse { exp =>
+      // A table has one row per nominal identity. If a typed caller supplied
+      // conflicting copies, that row cannot fingerprint both inference inputs.
+      val conflict = includeForeignDefinitions && (exp.tag match {
+        case Referant.DefinedT(dt) =>
+          !allDts.get((dt.packageName, dt.name)).map(_._1).contains(dt)
+        case Referant.TypeAliasT(ta) =>
+          !allAliases.get((ta.packageName, ta.name)).map(_._1).contains(ta)
+        case Referant.Constructor(dt, cf) =>
+          !allDts.get((dt.packageName, dt.name)).map(_._1).contains(dt) ||
+            !dt.constructors.find(_.name == cf.name).contains(cf)
+        case Referant.Value(_) => false
+      })
+      if (conflict) tabFail(CliException.Basic(
+        show"conflicting definition in ${iface.name} export ${exp.name}"
+      ))
+      else expNameToProto(allDts, allAliases, exp)
+    }
 
     val packageId = getId(iface.name.asString)
 
@@ -1945,9 +1965,7 @@ object ProtoConverter {
       for {
         packageName <- lookup(protoIface.packageName, protoIface.toString)
         pn <- ReaderT.liftF(parsePack(packageName, s"interface: $protoIface"))
-        exports <- protoIface.exports.toList.traverse(
-          exportedNameFromProto(loadDT, loadTA, _)
-        )
+        exports <- protoIface.exports.toList.traverse(exportedNameFromProto(loadDT, loadTA, _))
         iface = Package(pn, Nil, exports, ())
         view <- ReaderT.liftF(PackageSignatures.checkedView(protoIface, iface))
       } yield view
@@ -2009,7 +2027,7 @@ object ProtoConverter {
     for {
       nm <- getId(i.pack.name.asString)
       imps <- i.items.toList.traverse(importedNameToProto(allDts, allAliases, _))
-    } yield proto.Imports(nm, imps)
+    } yield proto.Imports(nm, imps, PackageSignatures.isCanonical(i.pack))
 
   def letToProto[A: HasRegion](
       l: (Bindable, RecursionKind, TypedExpr[A])
@@ -2239,7 +2257,7 @@ object ProtoConverter {
           }
       }
 
-    val ifaceNodes: List[Node] = ifaces.map(Left(_)).toList
+    val ifaceNodes: List[Node] = ifaces.iterator.map(i => Left(PackageSignatures.symbolicReferences(i))).toList
     val packNodes: List[Node] = packs.map(Right(_)).toList
     val nodesByName: Map[String, List[Node]] =
       (ifaceNodes ::: packNodes).groupBy(nodeName)
@@ -2298,7 +2316,10 @@ object ProtoConverter {
     def dependsOn(n: Node): List[Node] =
       n match {
         case Left(i)  => ifaceDeps(i).flatMap(dep => getNodes(dep, n))
-        case Right(p) => packageDeps(p).flatMap(dep => getNodes(dep, n))
+        case Right(p) =>
+          // When both artifacts exist, loading the node also checks its interface.
+          val paired = ifacePackMap(pname(p))._1.toList.flatMap(ifaceDeps)
+          (packageDeps(p) ::: paired).distinct.flatMap(dep => getNodes(dep, n))
       }
 
     if (dupNames.nonEmpty) {
@@ -2375,6 +2396,8 @@ object ProtoConverter {
            * We will need a list of these an memoize loading them all
            */
 
+          val publicImports = mutable.Map.empty[PackageName, Package.Interface]
+
           def packFromProtoUncached(
               pack: proto.Package,
               load: String => Try[Either[
@@ -2382,12 +2405,19 @@ object ProtoConverter {
                 Package.Compiled
               ]]
           ): Try[Package.Compiled] = {
-            val loadIface: PackageName => Try[Package.Interface] = { p =>
-              load(p.asString).map {
-                case Left((iface, _)) => iface
-                case Right(pack)      => Package.interfaceOf(pack)
+            def loadIface(p: PackageName): Try[Package.Interface] =
+              load(p.asString).map(_.fold(_._1, Package.interfaceOf(_)))
+
+            def loadPublic(p: PackageName): Try[Package.Interface] =
+              publicImports.get(p) match {
+                case Some(iface) => Success(iface)
+                case None =>
+                  loadIface(p).map { raw =>
+                    val iface = PackageSignatures.canonical(raw)
+                    publicImports.update(p, iface)
+                    iface
+                  }
               }
-            }
 
             val loadDT = makeLoadDT(load)
             val loadTA = makeLoadTA(load)
@@ -2398,9 +2428,9 @@ object ProtoConverter {
                 packageName <- ReaderT.liftF(
                   parsePack(packageNameStr, pack.toString)
                 )
-                imps <- pack.imports.toList.traverse(
-                  importsFromProto(_, loadIface, loadDT, loadTA)
-                )
+                imps <- pack.imports.toList.traverse { imp =>
+                  importsFromProto(imp, if (imp.canonicalInterface) loadPublic else loadIface, loadDT, loadTA)
+                }
                 impMap <- ReaderT.liftF(
                   ImportMap.fromImports(imps)((_, _) =>
                     ImportMap.Unify.Error
@@ -2436,7 +2466,7 @@ object ProtoConverter {
             tab1.run(DecodeState.init(pack.strings))
           }
 
-          val predefIface = {
+          lazy val predefIface = {
             val iface = Package.interfaceOf(PackageMap.predefCompiled)
             (iface, ExportedName.typeEnvFromExports(iface.name, iface.exports))
           }
@@ -2486,9 +2516,6 @@ object ProtoConverter {
                       s"missing interface or compiled: $pack"
                     )
                   )
-                case None if pack == PackageName.PredefName.asString =>
-                  // if we haven't replaced explicitly, use the built in predef
-                  Success(Left(predefIface))
                 case None =>
                   depIfaceByName.get(pack) match {
                     case Some(iface) =>
@@ -2503,6 +2530,10 @@ object ProtoConverter {
                           )
                         )
                       )
+                    // Cache decoding must use the exact Predef view from its
+                    // key, including when the caller supplies a custom Predef.
+                    case None if pack == PackageName.PredefName.asString =>
+                      Success(Left(predefIface))
                     case None =>
                       Failure(
                         new Exception(
@@ -2531,11 +2562,14 @@ object ProtoConverter {
             }
           }
 
-          // use the cached versions down here
-          (
-            ifaces.toList.traverse(deserIface),
-            packs.toList.traverse(deserPack)
-          ).tupled
+          // Populate the memo in dependency order. Asking for a root first
+          // would recursively decode its entire chain on the JVM stack.
+          sorted.layers.toList.traverse_(_.traverse_(n => load(nodeName(n)))).flatMap { _ =>
+            (
+              ifaces.toList.traverse(deserIface),
+              packs.toList.traverse(deserPack)
+            ).tupled
+          }
         }
       }
     }

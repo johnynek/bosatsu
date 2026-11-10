@@ -1,6 +1,7 @@
 package dev.bosatsu
 
 import _root_.bosatsu.{TypedAst => proto}
+import dev.bosatsu.cache.CompileCache
 import dev.bosatsu.Identifier.{Constructor, Name}
 import dev.bosatsu.rankn.{ConstructorFn, ConstructorParam, DataRepr, DefinedType, Type, TypeAlias}
 import scala.util.Try
@@ -46,8 +47,18 @@ class PackageSignaturesTest extends munit.FunSuite {
   private def signature(ifaces: Package.Interface*): proto.Interfaces =
     success(PackageSignatures.encode(ifaces.toList))
 
+  private def decodeRequired(
+      bundles: List[(String, proto.Interfaces)], requirements: List[(PackageName, List[PackageName])]
+  ): Try[List[Package.Interface]] =
+    for {
+      stages <- PackageSignatures.plan(bundles, requirements, builtinPredef = true)
+      providers <- stages.foldLeft(Try(PackageSignatures.implicitProviders))(
+        (acc, stage) => acc.flatMap(stage.bind)
+      )
+    } yield providers.valuesIterator.map(_.iface).filterNot(_.name.isPredef).toList.sortBy(_.name)
+
   private def read(bundles: (String, proto.Interfaces)*): Try[List[Package.Interface]] =
-    PackageSignatures.decodeRequired(bundles.toList, List(client -> List(facade)))
+    decodeRequired(bundles.toList, List(client -> List(facade)))
 
   test("external types, constructors and aliases use their owning provider") {
     val front = signature(facadeIface)
@@ -126,6 +137,21 @@ class PackageSignaturesTest extends munit.FunSuite {
     assertEquals(roots.head.exports.flatMap(_.tag.typeAlias), List(authoritative))
   }
 
+  test("the compiler cache fingerprints resolved foreign definitions supplied by typed callers") {
+    val changed = facadeIface.copy(exports = facadeIface.exports.map {
+      case ExportedName.TypeName(n, Referant.TypeAliasT(ta)) =>
+        ExportedName.TypeName(n, Referant.TypeAliasT(ta.copy(rhs = Type.StrType)))
+      case e => e
+    })
+    // The distributable signature deliberately records only the symbolic owner.
+    assertEquals(signature(facadeIface), signature(changed))
+    assertNotEquals(success(CompileCache.interfaceHash(facadeIface)), success(CompileCache.interfaceHash(changed)))
+    val conflicting = facadeIface.copy(exports = ExportedName.TypeName(
+      Constructor("OtherAlias"), Referant.TypeAliasT(alias.copy(rhs = Type.StrType))
+    ) :: facadeIface.exports)
+    assert(CompileCache.interfaceHash(conflicting).failed.get.getMessage.contains("conflicting definition"))
+  }
+
   test("public changes affect bytes and constructor tag order survives export reordering") {
     val normal = signature(ownerIface, facadeIface)
     val reversedExports = ownerIface.copy(exports = ownerIface.exports.reverse)
@@ -162,6 +188,27 @@ class PackageSignaturesTest extends munit.FunSuite {
     assert(ambiguous.failed.get.getMessage.contains("a.sig, b.sig"))
   }
 
+  test("whole-file and selected readers handle a deep legacy re-export chain in either order") {
+    val depth = 3000
+    val own = TypeName(Constructor("Own"))
+    def dt(i: Int) = DefinedType(PackageName.parts(f"P$i%04d"), own, Nil, Nil)
+    val entries = (0 until depth).toList.map { i =>
+      val current = dt(i)
+      val local = ExportedName.TypeName(own.ident, Referant.DefinedT(current))
+      val next = Option.when(i + 1 < depth)(
+        ExportedName.TypeName(Constructor("Next"), Referant.DefinedT(dt(i + 1)))
+      )
+      success(ProtoConverter.interfaceToProto(interface(current.packageName, local :: next.toList)))
+    }
+    for (ordered <- List(entries, entries.reverse)) {
+      val chain = proto.Interfaces(ordered)
+      val whole = success(ProtoConverter.interfacesFromProto(chain))
+      val selected = success(decodeRequired(List("chain" -> chain), List(client -> List(dt(0).packageName))))
+      assertEquals(selected, whole.map(PackageSignatures.canonical).sortBy(_.name))
+      assertEquals(selected.size, depth)
+    }
+  }
+
   test("index traversal is stack safe and diagnoses exposure cycles") {
     val depth = 3000
     def name(i: Int): PackageName = PackageName.parts(s"P$i")
@@ -178,7 +225,7 @@ class PackageSignaturesTest extends munit.FunSuite {
       root(i, Option.when(i + 1 < depth)(name(i + 1)))
     }
     def decode(bundle: proto.Interfaces) =
-      PackageSignatures.decodeRequired(List("chain" -> bundle), List(client -> List(name(0))))
+      decodeRequired(List("chain" -> bundle), List(client -> List(name(0))))
     assertEquals(success(decode(success(PackageSignatures.encode(roots)))).size, depth)
     val cycle = signature(root(0, Some(name(1))), root(1, Some(name(0))))
     assert(decode(cycle).failed.get.getMessage.contains("Client -> P0 -> P1 -> P0"))

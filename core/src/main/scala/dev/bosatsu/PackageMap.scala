@@ -591,9 +591,10 @@ object PackageMap {
   // immediate exposed edges are retained. A diamond visits its shared node
   // once, and neither a private dependency nor its hash enters a consumer key.
   private final class InterfaceNode(
-      val iface: Package.Interface,
+      input: Package.Interface,
       edges: => List[InterfaceNode]
   ) {
+    val iface: Package.Interface = PackageSignatures.canonical(input)
     lazy val exposed: List[InterfaceNode] = edges
     lazy val types: TypeEnv[Kind.Arg] = iface.exportedTypeEnv
   }
@@ -693,99 +694,27 @@ object PackageMap {
 
               IorT(depResultsF)
                 .flatMap { depResults =>
-                  def depPackResult(depPack: ResolvedU): ErrorOr[Package.Compiled] =
-                    Ior.right(depResults.get(depPack.name).expect {
-                      s"invariant violation: missing dependency result for ${depPack.name}"
-                    }.compiled)
-
-                  def depPackMeta(
-                      depPack: ResolvedU
-                  ): ErrorOr[CompiledPack] =
-                    Ior.right(depResults.get(depPack.name).expect {
-                      s"invariant violation: missing dependency result for ${depPack.name}"
-                    })
-
-                  def directNodes: ErrorOr[List[InterfaceNode]] =
-                    imports.traverse { imp =>
-                      Package.unfix(imp.pack) match {
-                        case Right(depPack) => depPackMeta(depPack).map(_.api)
-                        case Left(iface)    => Ior.right(externalByName(iface.name))
-                      }
+                  def directNode(resolved: ResolvedFix): InterfaceNode =
+                    Package.unfix(resolved) match {
+                      case Left(iface) => externalByName(iface.name)
+                      case Right(p)    => depResults(p.name).api
                     }
 
                   def inferOnMiss(
                       depIfaces: SortedMap[PackageName, Package.Interface],
                       scope: SortedMap[PackageName, InterfaceNode]
                   ): F[ErrorOr[Package.Compiled]] = {
-                    def resolvedName(resolved: ResolvedFix): PackageName =
-                      Package.unfix(resolved) match {
-                        case Left(iface) => iface.name
-                        case Right(pack) => pack.name
+                    // Import exactly the view that was hashed, including for a source
+                    // in this group. Its implementation is only used to explain a
+                    // missing private name; it cannot supply a successful import.
+                    val inferImports = imps.parTraverse { (from, item) =>
+                      val iface = depIfaces(from)
+                      val resolved = iface.getImportIface(nm, item).leftMap { err =>
+                        depResults.get(from).flatMap(
+                          _.compiled.getImport(nm, item).left.toOption
+                        ).getOrElse(err)
                       }
-
-                    def importResolvedName[F2[_], T](
-                        resolved: ResolvedFix,
-                        fromPackage: PackageName,
-                        item: ImportedName[Unit]
-                    )(recurse: ResolvedU => F2[Package.Typed[T]])(implicit
-                        F2: Applicative[F2]
-                    ): F2[Either[
-                      PackageError,
-                      (
-                          Package.Interface,
-                          ImportedName[
-                            NonEmptyList[Referant[Kind.Arg]]
-                          ]
-                      )
-                    ]] =
-                      Package.unfix(resolved) match {
-                        case Right(p) =>
-                          recurse(p).map { packF =>
-                            val packInterface = Package.interfaceOf(packF)
-                            packF
-                              .getImport(fromPackage, item)
-                              .map((packInterface, _))
-                          }
-                        case Left(iface) =>
-                          F2.pure(
-                            iface
-                              .getImportIface(fromPackage, item)
-                              .map((iface, _))
-                          )
-                      }
-
-                    val nameToRes: Map[PackageName, ResolvedFix] = imports.iterator
-                      .map { i =>
-                        val resolved = i.pack
-                        (resolvedName(resolved), resolved)
-                      }
-                      .toMap
-
-                    val resolvedImports: ImportMap[ResolvedFix, Unit] =
-                      imps.traverse[cats.Id, ResolvedFix, Unit] { (p, i) =>
-                        (nameToRes(p), i)
-                      }
-
-                    val inferImports
-                        : ErrorOr[
-                          ImportMap[
-                            Package.Interface,
-                            NonEmptyList[Referant[Kind.Arg]]
-                          ]
-                        ] = {
-                      val rec1: ResolvedU => ErrorOr[Package.Compiled] =
-                        depPack => depPackResult(depPack)
-                      resolvedImports.parTraverse {
-                        (fixpack: ResolvedFix, item: ImportedName[Unit]) =>
-                          importResolvedName[[A1] =>> ErrorOr[A1], Region](
-                            fixpack,
-                            nm,
-                            item
-                          )(rec1)
-                            .flatMap { either =>
-                              Ior.fromEither(either.left.map(NonEmptyList.one(_)))
-                            }
-                      }
+                      Ior.fromEither(resolved.map((iface, _)).leftMap(NonEmptyList.one))
                     }
 
                     source.loadParsed.flatMap { parsed =>
@@ -818,12 +747,12 @@ object PackageMap {
                     }
                   }
 
-                  import IorT.{fromIor, liftF}
+                  import IorT.liftF
+
+                  val scope = exposureClosure(imports.map(i => directNode(i.pack)))
+                  val depIfaces = scope.map { case (pn, node) => pn -> node.iface }
 
                   (for {
-                    direct <- fromIor[F](directNodes)
-                    scope = exposureClosure(direct)
-                    depIfaces = scope.map { case (pn, node) => pn -> node.iface }
                     key <- liftF(
                       cache.generateKey(
                         (
@@ -840,11 +769,13 @@ object PackageMap {
                     res <- getRes match {
                       case Some(hit) =>
                         IorT.rightT[F, NonEmptyList[PackageError]](hit)
-                      case None      =>
-                        for {
-                          compiled <- IorT(inferOnMiss(depIfaces, scope))
-                          _ <- liftF(cache.put(key, compiled))
-                        } yield compiled
+                      case None =>
+                        // Cache entries store a compiled package only. Writing a
+                        // partial success here would erase its diagnostics on a hit.
+                        IorT(inferOnMiss(depIfaces, scope).flatTap {
+                          case Ior.Right(compiled) => cache.put(key, compiled)
+                          case _                   => Monad[F].unit
+                        })
                     }
                     api = phases.dependencyInterface(res)
                     // Warn/lax inference may return a package with an invalid

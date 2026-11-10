@@ -223,6 +223,179 @@ class CompilePackagesCommandTest extends FileCommandFixtures {
     }
   }
 
+  test("compiled imports restore their public view and older packages retain the full provider") {
+    withRunner { (root, runner) =>
+      for {
+        _ <- write(root, "Owner.bosatsu", "package Owner\nexport value, Hidden\nstruct Hidden(n: Int)\nvalue = 1\n")
+        _ <- write(root, "Use.bosatsu", "package Use\nfrom Owner import value\nmain = value\n")
+        original <- runner.run(root, List("check", "--input", "Owner.bosatsu", "--interface_out", "owner.sig"))
+        _ = success(original)
+        compiled <- compile(runner, root, "use", List("Use"), List("owner"))
+        _ = success(compiled)
+        bundle <- IOPlatformIO.readInterfaceBundle(root.resolve("owner.sig"))
+        full <- IOPlatformIO.read[proto.Packages](root.resolve("use.pkg"))
+        pack = full.packages.head
+        _ = assert(pack.imports.forall(_.canonicalInterface))
+        legacy = pack.withImports(pack.imports.map(_.withCanonicalInterface(false)))
+        decoded <- IO.fromTry(ProtoConverter.packagesFromProto(bundle.interfaces, List(pack)))
+        old <- IO.fromTry(ProtoConverter.packagesFromProto(bundle.interfaces, List(legacy)))
+        owner <- IO.fromTry(ProtoConverter.interfaceFromProto(bundle.interfaces.head))
+        name = owner.name
+        _ = assertEquals(decoded._2.head.imports.find(_.pack.name == name).map(_.pack),
+          Some(PackageSignatures.canonical(owner)))
+        _ = assertEquals(old._2.head.imports.find(_.pack.name == name).map(_.pack), Some(owner))
+        _ = assertNotEquals(owner, PackageSignatures.canonical(owner))
+      } yield ()
+    }
+  }
+
+  test("a cache hit cannot discard strict diagnostics") {
+    withRunner { (root, runner) =>
+      val args = List("check", "--input", "Bad.bosatsu", "--cache_dir", "cache")
+      for {
+        _ <- write(root, "Bad.bosatsu", "package Bad\nexport main\nunused = 42\nmain = 1\n")
+        cold <- runner.run(root, args)
+        warm <- runner.run(root, args)
+        _ = failure(cold)
+        _ = assert(cold.stderr.contains("unused value"), cold.stderr)
+        _ = assertEquals(warm, cold)
+      } yield ()
+    }
+  }
+
+  test("legacy embedded aliases cannot override the owner on a warm or cold check") {
+    withRunner { (root, runner) =>
+      val owner = PackageName.parts("AOwner")
+      val payload = TypeName(Constructor("Payload"))
+      val client = "package Client\nfrom ZFacade import item\nmain = add(item, 1)\n"
+      // Historical writers used a local table pointer to a foreign definition.
+      // Keep that wire shape independent of the current interface encoder.
+      def save(rhs: Type, facade: Boolean): IO[Unit] = {
+        val alias = TypeAlias(owner, payload, Nil, rhs)
+        val typ = ExportedName.TypeName(payload.ident, Referant.TypeAliasT(alias))
+        val value = ExportedName.Binding(Name("item"), Referant.Value(Type.const(owner, payload)))
+        val exports = if (facade) List(typ, value) else List(typ)
+        val iface: Package.Interface = Package(owner, Nil, exports, ())
+        IO.fromTry(ProtoConverter.interfaceToProto(iface)).flatMap { encoded =>
+          val entry = if (facade) encoded.copy(strings = encoded.strings :+ "ZFacade",
+            packageName = encoded.strings.size + 1) else encoded
+          IOPlatformIO.writeInterfaceBundle(proto.Interfaces(List(entry)),
+            root.resolve(if (facade) "facade.sig" else "owner.sig"))
+        }
+      }
+      def check(cache: String) = runner.run(root, List("check", "--input", "Client.bosatsu",
+        "--cache_dir", cache, "--interface", "facade.sig", "--interface", "owner.sig"))
+      for {
+        _ <- write(root, "Client.bosatsu", client)
+        _ <- save(Type.IntType, facade = true)
+        _ <- save(Type.IntType, facade = false)
+        initial <- check("warm")
+        _ = success(initial)
+        keys <- IO.blocking(listPaths(root.resolve("warm/keys")))
+        _ <- save(Type.StrType, facade = true)
+        same <- check("warm")
+        fresh <- check("fresh-valid")
+        _ = success(same)
+        _ = success(fresh)
+        _ = assertEquals(listPaths(root.resolve("warm/keys")), keys)
+        _ <- save(Type.StrType, facade = false)
+        _ <- save(Type.IntType, facade = true)
+        warm <- check("warm")
+        cold <- check("fresh-invalid")
+        _ = failure(warm)
+        _ = assertEquals(warm, cold)
+        _ = assert(warm.stderr.contains("found: String"), warm.stderr)
+        // A symbolic re-export can also bind to a source in this invocation.
+        // Use the same cache across owner edits and retain the old embedded RHS.
+        localArgs = List("check", "--input", "Client.bosatsu", "--input", "AOwner.bosatsu",
+          "--cache_dir", "local", "--interface", "facade.sig")
+        local = "package AOwner\nexport Payload\ntype Payload = "
+        _ <- write(root, "AOwner.bosatsu", local + "Int\n")
+        goodLocal <- runner.run(root, localArgs)
+        _ = success(goodLocal)
+        _ <- write(root, "AOwner.bosatsu", local + "String\n")
+        badLocal <- runner.run(root, localArgs)
+        freshLocal <- runner.run(root, localArgs.map(s => if (s == "local") "fresh-local" else s))
+        _ = failure(badLocal)
+        _ = assertEquals(badLocal, freshLocal)
+      } yield ()
+    }
+  }
+
+  test("a private change to an exposed legacy owner leaves the consumer cache key stable") {
+    withRunner { (root, runner) =>
+      val owner = "package Y\nexport Token, token\nstruct Token(number: Int)\ntoken = Token(1)\n"
+      val emit = List("check", "--input", "Y.bosatsu", "--interface_out", "y.sig")
+      val check = List("check", "--input", "Client.bosatsu", "--cache_dir", "cache",
+        "--interface", "mid.sig", "--interface", "y.sig", "--output", "client.pkg")
+      for {
+        _ <- write(root, "Y.bosatsu", owner)
+        _ <- write(root, "Mid.bosatsu",
+          "package Mid\nfrom Y import token\nexport shared\nexposes Y\nshared = token\n")
+        _ <- write(root, "Client.bosatsu", "package Client\nfrom Mid import shared\nmain = [shared]\n")
+        first <- runner.run(root, emit)
+        _ = success(first)
+        original = bytes(root, "y.sig")
+        middle <- compile(runner, root, "mid", List("Mid"), List("y"))
+        _ = success(middle)
+        initial <- runner.run(root, check)
+        _ = success(initial)
+        keys = listPaths(root.resolve("cache/keys"))
+        artifact = bytes(root, "client.pkg")
+        _ <- write(root, "Y.bosatsu", owner.replace("number:", "private_field:"))
+        edited <- runner.run(root, emit)
+        _ = success(edited)
+        _ = assertNotEquals(bytes(root, "y.sig"), original)
+        warm <- runner.run(root, check)
+        _ = success(warm)
+        _ = assertEquals(listPaths(root.resolve("cache/keys")), keys)
+        _ = assertEquals(bytes(root, "client.pkg"), artifact)
+        cold <- runner.run(root, check.map(s => if (s == "cache") "cold" else s))
+        _ = success(cold)
+        _ = assertEquals(bytes(root, "client.pkg"), artifact)
+      } yield ()
+    }
+  }
+
+  test("an external exposure resolves to the actual source owner in the group") {
+    withRunner { (root, runner) =>
+      val client = "package Client\nfrom X import shared\nexport main\nexposes Y\nmain = [shared]\n"
+      for {
+        _ <- write(root, "Y.bosatsu",
+          "package Y\nexport Token, token\nstruct Token(number: Int)\ntoken = Token(1)\n")
+        _ <- write(root, "X.bosatsu",
+          "package X\nfrom Y import token\nexport shared\nexposes Y\nshared = token\n")
+        _ <- write(root, "Client.bosatsu", client)
+        owner <- compile(runner, root, "y", List("Y"), Nil)
+        _ = success(owner)
+        facade <- compile(runner, root, "x", List("X"), List("y"))
+        _ = success(facade)
+        external <- compile(runner, root, "external", List("Client"), List("x", "y"))
+        _ = success(external)
+        mixed <- compile(runner, root, "mixed", List("Client", "Y"), List("x"))
+        _ = success(mixed)
+        expected <- IOPlatformIO.readInterfaceBundle(root.resolve("external.sig"))
+        actual <- IOPlatformIO.readInterfaceBundle(root.resolve("mixed.sig"))
+        _ = assertEquals(actual.interfaces.filter(i => ProtoConverter.iname(i) == "Client"), expected.interfaces)
+        checkArgs = List("check", "--input", "Client.bosatsu", "--input", "Y.bosatsu",
+          "--interface", "x.sig", "--cache_dir", "warm")
+        checked <- runner.run(root, checkArgs)
+        _ = success(checked)
+        _ <- write(root, "Y.bosatsu", "package Y\nexport other\nother = 1\n")
+        _ <- write(root, "Client.bosatsu", client.replace("[shared]", "shared"))
+        bad <- compile(runner, root, "mixed", List("Y", "Client"), List("x"))
+        _ = failure(bad)
+        _ = assert(bad.stderr.contains("missing exported type") && bad.stderr.contains("Token"), bad.stderr)
+        invalidWarm <- runner.run(root, checkArgs)
+        invalidCold <- runner.run(root, checkArgs.map(a => if (a == "warm") "cold" else a))
+        _ = failure(invalidWarm)
+        _ = assertEquals(invalidWarm, invalidCold)
+        preserved <- IOPlatformIO.readInterfaceBundle(root.resolve("mixed.sig"))
+        _ = assertEquals(preserved, actual)
+      } yield ()
+    }
+  }
+
   test("implementation roundtrip preserves the order of private ProgTest and Test entries") {
     withRunner { (root, runner) =>
       val prog = """package Bosatsu/Prog

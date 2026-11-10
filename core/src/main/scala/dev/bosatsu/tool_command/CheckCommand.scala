@@ -45,18 +45,21 @@ object CheckCommand {
         privateDependencies
       )
       ifacePaths <- ifaces.read
-      interfaces <- platformIO.readInterfaces(ifacePaths)
       inputs <- inNel
-      packPath <- CompilerApi.typeCheck(
-        platformIO,
-        inputs,
-        interfaces ::: CommandSupport.dependencyInterfaces(dependencies),
-        errColor,
-        packageResolver,
-        CompileOptions.NoOptimize,
-        compileCacheDirOpt
-      )
-    } yield packPath._1
+      packs <- if (ifacePaths.isEmpty)
+        CompilerApi.typeCheck(platformIO, inputs, CommandSupport.dependencyInterfaces(dependencies),
+          errColor, packageResolver, CompileOptions.NoOptimize, compileCacheDirOpt).map(_._1)
+      else {
+        val libraries = (dependencies._1 ::: dependencies._2).map { case (path, lib) =>
+          path -> lib.interfaces
+        }
+        CompilerApi.loadSources(platformIO, inputs, packageResolver, errColor).flatMap { sources =>
+          CompilerApi.compileWithSignatures(platformIO, sources, ifacePaths, libraries,
+            useExplicitPredef = true, errColor, CompileOptions.NoOptimize, compileCacheDirOpt)
+            .map(PackageMap.fromIterable(_))
+        }
+      }
+    } yield packs
   }
 
   def opts[F[_], Path](
