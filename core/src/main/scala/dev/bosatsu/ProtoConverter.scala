@@ -2241,6 +2241,7 @@ object ProtoConverter {
   ): Try[(List[Package.Interface], List[Package.Compiled])] = {
 
     type Node = Either[proto.Interface, proto.Package]
+    type Loaded = Either[(Package.Interface, TypeEnv[Kind.Arg]), Package.Compiled]
     def nodeName(n: Node): String =
       n match {
         case Left(i)  => iname(i)
@@ -2348,10 +2349,7 @@ object ProtoConverter {
           Failure(new Exception(s"circular dependencies in packages: $loopStr"))
         } else {
           def makeLoadDT(
-              load: String => Try[Either[
-                (Package.Interface, TypeEnv[Kind.Arg]),
-                Package.Compiled
-              ]]
+              load: String => Try[Loaded]
           ): Type.Const => Try[DefinedType[Kind.Arg]] = {
             case tc @ Type.Const.Defined(p, _) =>
               val res = load(p.asString).map {
@@ -2369,10 +2367,7 @@ object ProtoConverter {
           }
 
           def makeLoadTA(
-              load: String => Try[Either[
-                (Package.Interface, TypeEnv[Kind.Arg]),
-                Package.Compiled
-              ]]
+              load: String => Try[Loaded]
           ): Type.Const => Try[TypeAlias[Kind.Arg]] = {
             case tc @ Type.Const.Defined(p, _) =>
               val res = load(p.asString).map {
@@ -2397,13 +2392,20 @@ object ProtoConverter {
            */
 
           val publicImports = mutable.Map.empty[PackageName, Package.Interface]
+          val compiledExports = mutable.Map.empty[PackageName, TypeEnv[Kind.Arg]]
+
+          def decodeInterface(iface: proto.Interface, load: String => Try[Loaded]): Try[Package.Interface] =
+            PackageSignatures.decode(iface, pn => load(pn.asString).map {
+              case Left((_, types)) => types
+              // Read only exported names. The legacy interface codec retains
+              // their original definitions even when the owner is a full package.
+              case Right(pack) => compiledExports.getOrElseUpdate(pn,
+                ExportedName.typeEnvFromExports(pn, pack.exports))
+            })
 
           def packFromProtoUncached(
               pack: proto.Package,
-              load: String => Try[Either[
-                (Package.Interface, TypeEnv[Kind.Arg]),
-                Package.Compiled
-              ]]
+              load: String => Try[Loaded]
           ): Try[Package.Compiled] = {
             def loadIface(p: PackageName): Try[Package.Interface] =
               load(p.asString).map(_.fold(_._1, Package.interfaceOf(_)))
@@ -2471,17 +2473,11 @@ object ProtoConverter {
             (iface, ExportedName.typeEnvFromExports(iface.name, iface.exports))
           }
 
-          val load: String => Try[
-            Either[(Package.Interface, TypeEnv[Kind.Arg]), Package.Compiled]
-          ] =
-            Memoize.memoizeDagHashed[String, Try[
-              Either[(Package.Interface, TypeEnv[Kind.Arg]), Package.Compiled]
-            ]] { (pack, rec) =>
+          val load: String => Try[Loaded] =
+            Memoize.memoizeDagHashed[String, Try[Loaded]] { (pack, rec) =>
               ifacePackMap.get(pack) match {
                 case Some((Some(iface), Some(p))) =>
-                  val loadDT = makeLoadDT(rec)
-                  val loadTA = makeLoadTA(rec)
-                  val ifaceRes = interfaceFromProto0(loadDT, loadTA, iface)
+                  val ifaceRes = decodeInterface(iface, rec)
                   packFromProtoUncached(p, rec).flatMap { pack0 =>
                     ifaceRes.flatMap { iface0 =>
                       val derived = PackageSignatures.viewOf(iface, Package.interfaceOf(pack0))
@@ -2495,7 +2491,7 @@ object ProtoConverter {
                     }
                   }
                 case Some((Some(iface), None)) =>
-                  interfaceFromProto0(makeLoadDT(rec), makeLoadTA(rec), iface)
+                  decodeInterface(iface, rec)
                     .map { iface =>
                       Left(
                         (

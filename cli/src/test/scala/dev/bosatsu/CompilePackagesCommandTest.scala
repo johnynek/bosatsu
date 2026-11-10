@@ -322,6 +322,106 @@ class CompilePackagesCommandTest extends FileCommandFixtures {
     }
   }
 
+  test("legacy type re-exports retain the same definition with an interface or implementation owner") {
+    withRunner { (root, runner) =>
+      for {
+        _ <- write(root, "Owner.bosatsu", "package Owner\nexport Token\nstruct Token(n: Int)\n")
+        built <- runner.run(root, List("check", "--input", "Owner.bosatsu", "--output", "owner.pkg",
+          "--interface_out", "owner.sig"))
+        _ = success(built)
+        ifaces <- IOPlatformIO.readInterfaces(List(root.resolve("owner.sig")))
+        facade = ifaces.head.copy(name = PackageName.parts("Facade"))
+        wire <- IO.fromTry(ProtoConverter.interfacesToProto(List(facade)))
+        _ <- IOPlatformIO.writeInterfaceBundle(wire, root.resolve("facade.sig"))
+        fromSig <- IOPlatformIO.readInterfaces(List(root.resolve("facade.sig"), root.resolve("owner.sig")))
+        fromPack <- IOPlatformIO.readInterfacesAndPackages(List(root.resolve("facade.sig")), List(root.resolve("owner.pkg")))
+        _ = assertEquals(fromPack._1, fromSig.filter(_.name == facade.name))
+      } yield ()
+    }
+  }
+
+  test("an implementation cannot supply a private type to a foreign signature") {
+    withRunner { (root, runner) =>
+      val owner = PackageName.parts("Owner")
+      for {
+        _ <- write(root, "Owner.bosatsu",
+          "package Owner\nexport number\nstruct Secret(n: Int)\ndef get(Secret(n)): n\nnumber = get(Secret(1))\n")
+        built <- compile(runner, root, "owner", List("Owner"), Nil)
+        _ = success(built)
+        packs <- IOPlatformIO.readPackages(List(root.resolve("owner.pkg")))
+        secret = packs.head.types.getType(owner, TypeName(Constructor("Secret"))).get
+        facade: Package.Interface = Package(PackageName.parts("Facade"), Nil,
+          List(ExportedName.TypeName(secret.name.ident, Referant.DefinedT(secret))), ())
+        wire <- IO.fromTry(PackageSignatures.encode(List(facade)))
+        _ <- IOPlatformIO.writeInterfaceBundle(wire, root.resolve("facade.sig"))
+        result <- IOPlatformIO.readInterfacesAndPackages(
+          List(root.resolve("facade.sig")), List(root.resolve("owner.pkg"))).attempt
+        _ = assert(result.isLeft, "private Owner::Secret escaped through Facade")
+      } yield ()
+    }
+  }
+
+  test("library re-exports resolve foreign aliases against the supplied source or signature") {
+    withRunner { (root, runner) =>
+      val owner = PackageName.parts("Owner")
+      val payload = TypeName(Constructor("Payload"))
+      val facade: Package.Interface = Package(PackageName.parts("Facade"), Nil, List(
+        ExportedName.TypeName(payload.ident, Referant.TypeAliasT(TypeAlias(owner, payload, Nil, Type.IntType))),
+        ExportedName.Binding(Name("item"), Referant.Value(Type.const(owner, payload)))
+      ), ())
+      val check = List("check", "--input", "Client.bosatsu", "--pub_dep", "facade.bosatsu_lib")
+      for {
+        raw <- IO.fromTry(ProtoConverter.interfaceToProto(facade))
+        lib = proto.Library(name = "facade", exportedIfaces = List(raw),
+          descriptor = Some(proto.LibDescriptor(version = Some(proto.Version(minor = 1L)))))
+        _ <- IOPlatformIO.writeBytes(root.resolve("facade.bosatsu_lib"), lib.toByteArray)
+        _ <- write(root, "Client.bosatsu", "package Client\nfrom Facade import item\nmain = add(item, 1)\n")
+        _ <- write(root, "Owner.bosatsu", "package Owner\nexport Payload\ntype Payload = Int\n")
+        ownerGroup <- compile(runner, root, "owner", List("Owner"), Nil)
+        _ = success(ownerGroup)
+        fromSignature <- runner.run(root, check ::: List("--interface", "owner.sig"))
+        _ = success(fromSignature)
+        sourceArgs = check ::: List("--input", "Owner.bosatsu", "--cache_dir", "cache")
+        good <- runner.run(root, sourceArgs)
+        _ = success(good)
+        _ <- write(root, "Owner.bosatsu", "package Owner\nexport Payload\ntype Payload = String\n")
+        bad <- runner.run(root, sourceArgs)
+        _ = failure(bad)
+        _ = assert(bad.stderr.contains("found: String"), bad.stderr)
+      } yield ()
+    }
+  }
+
+  test("an old value signature cannot export an unapplied type constructor after its owner changes kind") {
+    withRunner { (root, runner) =>
+      for {
+        _ <- write(root, "Y.bosatsu", "package Y\nexport Token, token\nstruct Token(n: Int)\ntoken = Token(1)\n")
+        _ <- write(root, "X.bosatsu", "package X\nfrom Y import token\nexport value\nexposes Y\nvalue = token\n")
+        _ <- write(root, "Client.bosatsu", "package Client\nfrom X import value\nexport main\nexposes Y\nmain = value\n")
+        y <- compile(runner, root, "y", List("Y"), Nil)
+        _ = success(y)
+        x <- compile(runner, root, "x", List("X"), List("y"))
+        _ = success(x)
+        good <- compile(runner, root, "client", List("Client"), List("x", "y"))
+        _ = success(good)
+        signature = bytes(root, "client.sig")
+        check = (cache: String) => runner.run(root, List("check", "--input", "Y.bosatsu",
+          "--input", "Client.bosatsu", "--interface", "x.sig", "--cache_dir", cache))
+        cached <- check("warm")
+        _ = success(cached)
+        _ <- write(root, "Y.bosatsu", "package Y\nexport Token\nstruct Token[a](n: a)\n")
+        bad <- compile(runner, root, "client", List("Client", "Y"), List("x"))
+        _ = failure(bad)
+        _ = assert(bad.stderr.contains("X::value") && bad.stderr.contains("kind"), bad.stderr)
+        _ = assertEquals(bytes(root, "client.sig"), signature)
+        warm <- check("warm")
+        cold <- check("cold")
+        _ = failure(warm)
+        _ = assertEquals(warm, cold)
+      } yield ()
+    }
+  }
+
   test("a private change to an exposed legacy owner leaves the consumer cache key stable") {
     withRunner { (root, runner) =>
       val owner = "package Y\nexport Token, token\nstruct Token(number: Int)\ntoken = Token(1)\n"

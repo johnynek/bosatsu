@@ -1,5 +1,6 @@
 package dev.bosatsu.tool_command
 
+import _root_.bosatsu.{TypedAst => proto}
 import cats.data.NonEmptyList
 import cats.syntax.all._
 import com.monovore.decline.Opts
@@ -39,7 +40,7 @@ object CheckCommand {
       }
 
     for {
-      dependencies <- CommandSupport.readDepLibraries(
+      dependencies <- CommandSupport.readDepArtifacts(
         platformIO,
         publicDependencies,
         privateDependencies
@@ -51,13 +52,15 @@ object CheckCommand {
           errColor, packageResolver, CompileOptions.NoOptimize, compileCacheDirOpt).map(_._1)
       else {
         val libraries = (dependencies._1 ::: dependencies._2).map { case (path, lib) =>
-          path -> lib.interfaces
+          path -> proto.Interfaces(lib.arg.exportedIfaces)
         }
-        CompilerApi.loadSources(platformIO, inputs, packageResolver, errColor).flatMap { sources =>
-          CompilerApi.compileWithSignatures(platformIO, sources, ifacePaths, libraries,
-            useExplicitPredef = true, errColor, CompileOptions.NoOptimize, compileCacheDirOpt)
-            .map(PackageMap.fromIterable(_))
-        }
+        for {
+          sources <- CompilerApi.loadSources(platformIO, inputs, packageResolver, errColor)
+          resPacks <- CompilerApi.compileWithSignatures(
+            platformIO, sources, ifacePaths, libraries,
+            useExplicitPredef = true, errColor, CompileOptions.NoOptimize, compileCacheDirOpt
+          )
+        } yield PackageMap.fromIterable(resPacks)
       }
     } yield packs
   }

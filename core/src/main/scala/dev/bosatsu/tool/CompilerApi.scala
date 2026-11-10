@@ -1,5 +1,6 @@
 package dev.bosatsu.tool
 
+import _root_.bosatsu.{TypedAst => proto}
 import cats.data.{Ior, NonEmptyList, Validated, ValidatedNel}
 import dev.bosatsu.cache.{CompileCache, InferCache, InferPhases}
 import dev.bosatsu.{
@@ -760,7 +761,7 @@ object CompilerApi {
       platform: PlatformIO[F, Path],
       sources: NonEmptyList[PackageResolver.SourceFile[F, Path]],
       paths: List[Path],
-      libraries: List[(Path, List[Package.Interface])],
+      libraries: List[(Path, proto.Interfaces)],
       useExplicitPredef: Boolean,
       color: Colorize,
       options: CompileOptions,
@@ -777,12 +778,11 @@ object CompilerApi {
           CliException.Basic(show"cannot read signature $path: ${e.getMessage}")
         }.map(path -> _)
       }
-      explicitPredef = useExplicitPredef && (
-        libraries.exists(_._2.exists(_.name.isPredef)) ||
-        files.exists(_._2.interfaces.exists(i => ProtoConverter.iname(i) == PackageName.PredefName.asString))
-      )
+      bundles = files ::: libraries
+      explicitPredef = useExplicitPredef && bundles.exists(_._2.interfaces.exists(i =>
+        ProtoConverter.iname(i) == PackageName.PredefName.asString))
       builtin = !explicitPredef
-      stages <- platform.canPromiseF.compute(PackageSignatures.plan(files, libraries, requirements, builtin))
+      stages <- platform.canPromiseF.compute(PackageSignatures.plan(bundles, requirements, builtin))
         .flatMap(moduleIOMonad.fromTry)
       initial: PackageSignatures.Providers =
         if (builtin) PackageSignatures.implicitProviders else Map.empty

@@ -18,7 +18,7 @@ import dev.bosatsu.{
 }
 import dev.bosatsu.tool.CliException
 import dev.bosatsu.rankn.TypeEnv
-import dev.bosatsu.hashing.{HashValue, Algo}
+import dev.bosatsu.hashing.{HashValue, Hashed, Algo}
 import org.typelevel.paiges.{Doc, Document}
 import scala.util.{Failure, Success, Try}
 import scala.collection.immutable.SortedMap
@@ -161,12 +161,17 @@ case class LibConfig(
     */
   def validateDeps(
       deps: List[DecodedLibrary[Algo.Blake3]]
+  ): ValidatedNec[Error, ValidationResult] =
+    validateDepArtifacts(deps.map(_.toHashed))
+
+  private[bosatsu] def validateDepArtifacts(
+      deps: List[Hashed[Algo.Blake3, proto.Library]]
   ): ValidatedNec[Error, ValidationResult] = {
     import Error.inv
 
-    val nameToDep = deps.groupByNel(_.protoLib.name)
+    val nameToDep = deps.groupByNel(_.arg.name)
 
-    val publicDepLibs: List[DecodedLibrary[Algo.Blake3]] =
+    val publicDepLibs =
       publicDeps.flatMap { dep =>
         nameToDep.get(dep.name) match {
           case None =>
@@ -221,8 +226,8 @@ case class LibConfig(
           inv(
             Error.DuplicateDep(
               "argument dep",
-              e.protoLib.name,
-              e.protoLib.descriptor.getOrElse(proto.LibDescriptor())
+              e.arg.name,
+              e.arg.descriptor.getOrElse(proto.LibDescriptor())
             )
           )
         )
@@ -233,7 +238,7 @@ case class LibConfig(
           case None =>
             inv(Error.MissingDep(note = note, dep = dep))
           case Some(deps) =>
-            val hash = deps.head.hashValue.toIdent
+            val hash = deps.head.hash.toIdent
             if (dep.desc.exists(_.hashes.exists(_ == hash))) Validated.unit
             else {
               // the hash doesn't match
@@ -241,8 +246,8 @@ case class LibConfig(
                 Error.DepHashMismatch(
                   note,
                   dep,
-                  deps.head.hashValue,
-                  deps.head.protoLib
+                  deps.head.hash,
+                  deps.head.arg
                 )
               )
             }
@@ -256,7 +261,7 @@ case class LibConfig(
 
     // 9. there is a valid solution for transitive dependencies
     val prop9 =
-      LibConfig.unusedTransitiveDeps(publicDepLibs)
+      LibConfig.unusedTransitiveDepDescriptors(publicDepLibs.map(_.arg))
 
     prop7_8 *> prop9.map(ValidationResult(_))
   }
@@ -936,15 +941,20 @@ object LibConfig {
     */
   def unusedTransitiveDeps(
       publicDeps: List[DecodedLibrary[Algo.Blake3]]
+  ): ValidatedNec[Error, SortedMap[String, proto.LibDependency]] =
+    unusedTransitiveDepDescriptors(publicDeps.map(_.protoLib))
+
+  private def unusedTransitiveDepDescriptors(
+      publicDeps: List[proto.Library]
   ): ValidatedNec[Error, SortedMap[String, proto.LibDependency]] = {
     val usedDeps =
       publicDeps.iterator
-        .map(lib => (lib.protoLib.name, lib.protoLib.descriptor))
+        .map(lib => (lib.name, lib.descriptor))
         .toMap
 
     val allTransitiveDeps = (
-      publicDeps.map(_.protoLib.toDep) :::
-        publicDeps.flatMap(_.protoLib.unusedTransitivePublicDependencies)
+      publicDeps.map(_.toDep) :::
+        publicDeps.flatMap(_.unusedTransitivePublicDependencies)
     )
       .groupByNel(_.name)
 

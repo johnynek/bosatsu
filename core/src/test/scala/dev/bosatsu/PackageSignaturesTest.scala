@@ -1,6 +1,7 @@
 package dev.bosatsu
 
 import _root_.bosatsu.{TypedAst => proto}
+import cats.data.NonEmptyList
 import dev.bosatsu.cache.CompileCache
 import dev.bosatsu.Identifier.{Constructor, Name}
 import dev.bosatsu.rankn.{ConstructorFn, ConstructorParam, DataRepr, DefinedType, Type, TypeAlias}
@@ -51,7 +52,7 @@ class PackageSignaturesTest extends munit.FunSuite {
       bundles: List[(String, proto.Interfaces)], requirements: List[(PackageName, List[PackageName])]
   ): Try[List[Package.Interface]] =
     for {
-      stages <- PackageSignatures.plan(bundles, Nil, requirements, builtinPredef = true)
+      stages <- PackageSignatures.plan(bundles, requirements, builtinPredef = true)
       providers <- stages.foldLeft(Try(PackageSignatures.implicitProviders))(
         (acc, stage) => acc.flatMap(stage.bind)
       )
@@ -91,6 +92,14 @@ class PackageSignaturesTest extends munit.FunSuite {
     val partial = ownerIface.copy(exports = ownerIface.exports.filterNot(_.name == zero.name))
     val hidden = read("owner.sig" -> signature(partial), "front.sig" -> front)
     assert(hidden.failed.get.getMessage.contains("missing exported constructor Owner::Zero"))
+  }
+
+  test("whole-file signature decoding rejects a foreign re-export of a hidden constructor") {
+    val partial = ownerIface.copy(exports = ownerIface.exports.filterNot(_.name == zero.name))
+    val bundle = signature(partial, facadeIface)
+    val result = ProtoConverter.interfacesFromProto(bundle)
+    assert(result.isFailure, "the whole-file reader exposed Owner::Zero")
+    assert(result.failed.get.getMessage.contains("Owner::Zero"))
   }
 
   test("constructor default-helper types participate in exposure checking") {
@@ -138,13 +147,13 @@ class PackageSignaturesTest extends munit.FunSuite {
   }
 
   test("an explicitly supplied Predef can expose an independent type owner") {
-    val publicType = flag.toOpaque
+    val publicType = flag.toOpaque.copy(annotatedTypeParams = Nil)
     val owned = interface(owner, List(ExportedName.TypeName(publicType.name.ident, Referant.DefinedT(publicType))))
     val predef = interface(PackageName.PredefName, List(
       ExportedName.Binding(Name("provided"), Referant.Value(publicType.toTypeTyConst))
     ))
     val stages = success(PackageSignatures.plan(
-      List("custom.sig" -> signature(predef, owned)), Nil, List(client -> Nil), builtinPredef = false
+      List("custom.sig" -> signature(predef, owned)), List(client -> Nil), builtinPredef = false
     ))
     val restored = stages.foldLeft(Map.empty[PackageName, PackageSignatures.PublicInterface])(
       (providers, stage) => success(stage.bind(providers))
@@ -202,6 +211,45 @@ class PackageSignaturesTest extends munit.FunSuite {
     assert(impersonation.failed.get.getMessage.contains("definition owner"))
     val ambiguous = read("a.sig" -> single, "b.sig" -> single)
     assert(ambiguous.failed.get.getMessage.contains("a.sig, b.sig"))
+  }
+
+  test("a private constructor field type does not mask a stale kind in a sibling argument") {
+    val hidden = Type.const(facade, TypeName(Constructor("Hidden")))
+    def wrapper(result: Type): proto.Interfaces = {
+      val field = ConstructorParam(Name("apply"), Type.Fun(NonEmptyList.one(hidden), result), None)
+      val ctor = ConstructorFn(Constructor("Wrap"), field :: Nil, Nil)
+      val dt = DefinedType(facade, TypeName(ctor.name), Nil, ctor :: Nil)
+      signature(interface(facade, List(
+        ExportedName.TypeName(ctor.name, Referant.DefinedT(dt)),
+        ExportedName.Constructor(ctor.name, Referant.Constructor(dt, ctor))
+      )))
+    }
+    val owningSignature = signature(ownerIface)
+    assert(read("wrap" -> wrapper(alias.rhs), "owner" -> owningSignature).isSuccess)
+    assert(read("wrap" -> wrapper(flag.toTypeTyConst), "owner" -> owningSignature).isFailure)
+  }
+
+  test("checking the kind of a deeply nested public value is stack safe") {
+    val depth = 6000
+    // Build the table in wire order so the fixture does not recursively encode
+    // the nested type while testing the reader.
+    val leaves = Vector(
+      proto.Type().withTypeConst(proto.TypeConst(2, 3)),
+      proto.Type().withTypeConst(proto.TypeConst(2, 4))
+    )
+    val applications = Vector.tabulate(depth)(i =>
+      proto.Type().withTypeApply(proto.TypeApply(left = 1, right = 2 + i)))
+    val entry = proto.Interface(
+      strings = Vector("Facade", "Bosatsu/Predef", "List", "Int", "deep"),
+      packageName = 1,
+      types = leaves ++ applications,
+      exports = List(proto.ExportedName(name = 5, referant = Some(proto.Referant().withValue(2 + depth)))),
+      signatureDependencies = Some(proto.InterfaceDependencies())
+    )
+    val result =
+      try read("deep.sig" -> proto.Interfaces(List(entry)))
+      catch { case _: StackOverflowError => fail("stack overflow validating nested List applications") }
+    assertEquals(success(result).map(_.name), List(facade))
   }
 
   test("whole-file and selected readers handle a deep legacy re-export chain in either order") {
