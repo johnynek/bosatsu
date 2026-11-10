@@ -1,5 +1,6 @@
 package dev.bosatsu.tool
 
+import _root_.bosatsu.{TypedAst => proto}
 import cats.data.{Ior, NonEmptyList, Validated, ValidatedNel}
 import dev.bosatsu.cache.{CompileCache, InferCache, InferPhases}
 import dev.bosatsu.{
@@ -12,6 +13,8 @@ import dev.bosatsu.{
   PackageError,
   PackageMap,
   PackageName,
+  PackageSignatures,
+  ProtoConverter,
   Par,
   PlatformIO,
   RecursionKind,
@@ -585,12 +588,21 @@ object CompilerApi {
   ): Doc =
     diagnosticDoc(sourceMap, warnings, color, DiagnosticKind.Warning)
 
+  private[bosatsu] def loadSources[F[_], Path](
+      platform: PlatformIO[F, Path],
+      inputs: NonEmptyList[Path],
+      resolver: PackageResolver[F, Path],
+      errColor: Colorize
+  ): F[NonEmptyList[PackageResolver.SourceFile[F, Path]]] = {
+    import platform.moduleIOMonad
+    resolver.loadSourceFiles(inputs)(platform).flatMap(fromParse(platform, _, errColor))
+  }
+
   private def typeCheckDiagnostics[IO[_], Path](
       platformIO: PlatformIO[IO, Path],
-      inputs: NonEmptyList[Path],
+      sourceFiles: NonEmptyList[PackageResolver.SourceFile[IO, Path]],
       ifs: List[Package.Interface],
       errColor: Colorize,
-      packRes: PackageResolver[IO, Path],
       compileOptions: CompileOptions,
       lintMode: LintMode,
       replaySuccessfulLint: Boolean,
@@ -600,28 +612,20 @@ object CompilerApi {
   ): IO[TypeCheckDiagnostics[Path]] = {
     import platformIO.{canPromiseF, moduleIOMonad, parallelF}
 
-    for {
-      ins <- packRes.loadSourceFiles(inputs)(platformIO)
-      sourceFiles <- fromParse(platformIO, ins, errColor)
-      sources = sourceFiles.map { source =>
-        source.toSourceUnit(
-          platformIO.pathToString(source.path),
-          source.loadParsed.flatMap(parsed => fromParse(platformIO, parsed, errColor))
-        )
+    val sources = sourceFiles.map { source =>
+      source.toSourceUnit(
+        platformIO.pathToString(source.path),
+        source.loadParsed.flatMap(parsed => fromParse(platformIO, parsed, errColor))
+      )
+    }
+    val effectiveSources =
+      PackageMap.effectivePredefSources(sources, ifs, "predef", compileOptions.mode)
+    val cache: InferCache[IO, CompileCache.GenerateKeyInput, Package.Compiled] =
+      compileCacheDirOpt match {
+        case Some(cacheDir) => CompileCache.filesystem(cacheDir, platformIO)
+        case None => InferCache.noop[IO, CompileCache.GenerateKeyInput, Package.Compiled]
       }
-      effectiveSources =
-        PackageMap.effectivePredefSources(
-          sources,
-          ifs,
-          "predef",
-          compileOptions.mode
-        )
-      cache: InferCache[IO, CompileCache.GenerateKeyInput, Package.Compiled] =
-        compileCacheDirOpt match {
-          case Some(cacheDir) => CompileCache.filesystem(cacheDir, platformIO)
-          case None           =>
-            InferCache.noop[IO, CompileCache.GenerateKeyInput, Package.Compiled]
-        }
+    for {
       checked <- PackageMap.typeCheckSources[IO, String](
         sources,
         ifs,
@@ -746,14 +750,77 @@ object CompilerApi {
       ec: Par.EC
   ): IO[(PackageMap.Compiled, NonEmptyList[(Path, PackageName)])] = {
     import platformIO.moduleIOMonad
+    loadSources(platformIO, inputs, packRes, errColor).flatMap(
+      typeCheckLoaded(platformIO, _, ifs, errColor, compileOptions, compileCacheDirOpt)
+    )
+  }
+
+  // A local owner may have to be compiled before a foreign re-export can be
+  // decoded. Read each source and signature once across all stages.
+  private[bosatsu] def compileWithSignatures[F[_], Path](
+      platform: PlatformIO[F, Path],
+      sources: NonEmptyList[PackageResolver.SourceFile[F, Path]],
+      paths: List[Path],
+      libraries: List[(Path, proto.Interfaces)],
+      useExplicitPredef: Boolean,
+      color: Colorize,
+      options: CompileOptions,
+      cache: Option[Path]
+  )(using Par.EC): F[List[Package.Compiled]] = {
+    import platform.{moduleIOMonad, showPath}
+    val byName = sources.toList.groupBy(_.packageName)
+    val requirements = sources.toList.map { src =>
+      src.packageName -> (src.imports.map(_.pack) ::: src.exposes.flatten).distinct
+    }
+    for {
+      files <- paths.traverse { path =>
+        platform.readInterfaceBundle(path).adaptError { case e =>
+          CliException.Basic(show"cannot read signature $path: ${e.getMessage}")
+        }.map(path -> _)
+      }
+      bundles = files ::: libraries
+      explicitPredef = useExplicitPredef && bundles.exists(_._2.interfaces.exists(i =>
+        ProtoConverter.iname(i) == PackageName.PredefName.asString))
+      builtin = !explicitPredef
+      stages <- platform.canPromiseF.compute(PackageSignatures.plan(bundles, requirements, builtin))
+        .flatMap(moduleIOMonad.fromTry)
+      initial: PackageSignatures.Providers =
+        if (builtin) PackageSignatures.implicitProviders else Map.empty
+      result <- stages.foldLeftM((initial, List.empty[Package.Compiled])) {
+        case ((available, members), stage) =>
+          for {
+            bound <- platform.canPromiseF.compute(stage.bind(available)).flatMap(moduleIOMonad.fromTry)
+            batch = NonEmptyList.fromList(stage.sources.flatMap(byName))
+            compiled <- batch.toList.flatTraverse { inputs =>
+              typeCheckLoaded(platform, inputs, bound.valuesIterator.map(_.iface).toList,
+                color, options, cache).map(_._1.toMap.valuesIterator.toList)
+            }
+            next = compiled.foldLeft(bound) { (acc, pack) =>
+              acc.updated(pack.name, PackageSignatures.PublicInterface(
+                PackageSignatures.canonical(Package.interfaceOf(pack))
+              ))
+            }
+          } yield (next, compiled ::: members)
+      }
+    } yield result._2.sortBy(_.name)
+  }
+
+  private def typeCheckLoaded[IO[_], Path](
+      platformIO: PlatformIO[IO, Path],
+      sources: NonEmptyList[PackageResolver.SourceFile[IO, Path]],
+      ifs: List[Package.Interface],
+      errColor: Colorize,
+      compileOptions: CompileOptions,
+      compileCacheDirOpt: Option[Path]
+  )(implicit ec: Par.EC): IO[(PackageMap.Compiled, NonEmptyList[(Path, PackageName)])] = {
+    import platformIO.moduleIOMonad
 
     for {
       diagnostics <- typeCheckDiagnostics(
         platformIO,
-        inputs,
+        sources,
         ifs,
         errColor,
-        packRes,
         compileOptions,
         LintMode.Strict,
         replaySuccessfulLint = false,
@@ -825,12 +892,12 @@ object CompilerApi {
       )
 
     for {
+      sources <- loadSources(platformIO, inputs, packRes, errColor)
       diagnostics <- typeCheckDiagnostics(
         platformIO,
-        inputs,
+        sources,
         ifs,
         errColor,
-        packRes,
         compileOptions,
         lintMode,
         replaySuccessfulLint = true,

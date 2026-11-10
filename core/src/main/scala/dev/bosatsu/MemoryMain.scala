@@ -449,23 +449,17 @@ object MemoryMain {
               .map(_.flatten)
           }
 
-      def readInterfaces(paths: List[Path]): F[List[Package.Interface]] =
-        StateT
-          .get[G, MemoryMain.State]
-          .flatMap { files =>
-            paths
-              .traverse { path =>
-                files.get(path) match {
-                  case Some(Right(MemoryMain.FileContent.Interfaces(res))) =>
-                    moduleIOMonad.pure(res)
-                  case other =>
-                    moduleIOMonad.raiseError[List[Package.Interface]](
-                      new Exception(s"expect Interfaces content, found: $other")
-                    )
-                }
-              }
-              .map(_.flatten)
+      override def readInterfaces(paths: List[Path]): F[List[Package.Interface]] =
+        StateT.get[G, MemoryMain.State].flatMap { files =>
+          // In-memory fixtures can supply already decoded interfaces without
+          // their source artifacts. Keep that fast path for existing callers.
+          paths.traverse { path =>
+            files.get(path).collect { case Right(FileContent.Interfaces(ifs)) => ifs }
+          } match {
+            case Some(ready) => moduleIOMonad.pure(ready.flatten)
+            case None        => super.readInterfaces(paths)
           }
+        }
 
       def readLibrary(path: Path): F[Hashed[Algo.Blake3, proto.Library]] =
         StateT

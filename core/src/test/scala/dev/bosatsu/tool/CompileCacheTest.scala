@@ -392,7 +392,7 @@ class CompileCacheTest extends FunSuite {
     val key =
       compileKey(
         appParsed,
-        SortedMap(depIface.name -> depIface),
+        SortedMap.from(appCompiled.imports.map(i => i.pack.name -> i.pack)),
         compileOptions = CompileOptions.Default
       )
 

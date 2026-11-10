@@ -15,6 +15,7 @@ import dev.bosatsu.{
   Import,
   Package,
   PackageName,
+  PackageSignatures,
   PlatformIO,
   PredefImpl,
   Referant,
@@ -84,6 +85,13 @@ sealed abstract class Output[+Path] {
           .sortBy(_._1)(using platformIO.pathOrdering)
           .traverse_ { case (_, w) => w }
           .as(ExitCode.Success)
+
+      case Output.PackageGroup(packages, implementation, signature) =>
+        for {
+          bundle <- moduleIOMonad.fromTry(PackageSignatures.encode(packages.map(Package.interfaceOf(_))))
+          _ <- writeInterfaceBundle(bundle, signature)
+          _ <- writePackages(packages, implementation)
+        } yield ExitCode.Success
 
       case Output.CompileOut(packList, ifout, output) =>
         val ifres = ifout match {
@@ -317,6 +325,12 @@ object Output {
 
   case class JsonOutput[Path](json: Json, output: Option[Path])
       extends Output[Path]
+
+  final case class PackageGroup[Path](
+      packages: List[Package.Compiled],
+      implementation: Path,
+      signature: Path
+  ) extends Output[Path]
 
   case class CompileOut[Path](
       packList: List[Package.Compiled],

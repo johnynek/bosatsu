@@ -52,12 +52,17 @@ case class DecodedLibrary[A](
 
   lazy val toHashed: Hashed[A, proto.Library] = Hashed(hashValue, protoLib)
 
-  def toDep(using algo: Algo[A]): proto.LibDependency = {
-    val desc0 = protoLib.descriptor.getOrElse(proto.LibDescriptor())
+  def toDep(using Algo[A]): proto.LibDependency =
+    DecodedLibrary.toDep(toHashed, version)
+}
+
+object DecodedLibrary {
+  private[bosatsu] def toDep[A: Algo](lib: Hashed[A, proto.Library], version: Version): proto.LibDependency = {
+    val desc0 = lib.arg.descriptor.getOrElse(proto.LibDescriptor())
     val depVersion = desc0.version.orElse(Some(version.toProto))
-    val depHashes = (hashValue.toIdent :: desc0.hashes.toList).distinct
+    val depHashes = (lib.hash.toIdent :: desc0.hashes.toList).distinct
     proto.LibDependency(
-      name = name.name,
+      name = lib.arg.name,
       desc = Some(
         proto.LibDescriptor(
           version = depVersion,
@@ -67,9 +72,7 @@ case class DecodedLibrary[A](
       )
     )
   }
-}
 
-object DecodedLibrary {
   def normalizeDocBaseUrl(raw: Option[String]): Option[String] =
     raw.flatMap(normalizeDocBaseUrl(_))
 

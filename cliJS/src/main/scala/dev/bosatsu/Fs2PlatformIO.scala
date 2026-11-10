@@ -250,17 +250,11 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
       }
       .map(_.flatten)
 
-  def readInterfaces(paths: List[Path]): IO[List[Package.Interface]] =
-    paths
-      .parTraverse { path =>
-        for {
-          pifaces <- read[proto.Interfaces](path)
-          ifaces <- IO.fromTry(
-            ProtoConverter.packagesFromProto(pifaces.interfaces, Nil)
-          )
-        } yield ifaces._1
-      }
-      .map(_.flatten)
+  override def readInterfaceBundle(path: Path): IO[proto.Interfaces] =
+    read[proto.Interfaces](path)
+
+  override def writeInterfaceBundle(bundle: proto.Interfaces, path: Path): IO[Unit] =
+    write(bundle, path)
 
   def readLibrary(path: Path): IO[Hashed[Algo.Blake3, proto.Library]] =
     readHashed[proto.Library, Algo.Blake3](path)

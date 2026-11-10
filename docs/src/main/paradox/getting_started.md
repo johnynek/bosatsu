@@ -189,6 +189,26 @@ it cannot reproduce, such as an extended macOS ACL or a Linux security label.
 It can replace a write-only artifact and restore it if publishing a later
 output fails.
 
+### Compile a package group
+
+Build a group in one invocation. Pass its signature to a downstream group.
+
+```sh
+./bosatsu tool compile-packages --src src/Types.bosatsu --src src/Api.bosatsu \
+  --packages-out gen/api.bosatsu_package --sig-out gen/api.bosatsig
+./bosatsu tool compile-packages --src app/Main.bosatsu \
+  --direct-interface gen/api.bosatsig \
+  --packages-out gen/main.bosatsu_package --sig-out gen/main.bosatsig
+```
+
+Both outputs are required. The implementation contains just the listed packages,
+including their private test entries. The compiler supplies Predef implicitly.
+Use a `--direct-interface` for each provider required by imports and their
+public exposures. A multi-package signature can contain other roots whose
+dependencies are unavailable. The compiler decodes only the roots this group
+needs. A private body or opaque field edit can change the implementation while
+preserving the signature bytes.
+
 ## 11) Run tests
 
 From the repo root:

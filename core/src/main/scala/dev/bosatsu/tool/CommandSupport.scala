@@ -1,9 +1,10 @@
 package dev.bosatsu.tool
 
+import _root_.bosatsu.{TypedAst => proto}
 import cats.data.{NonEmptyList, Validated, ValidatedNel}
 import cats.syntax.all._
 import dev.bosatsu.LocationMap.Colorize
-import dev.bosatsu.hashing.Algo
+import dev.bosatsu.hashing.{Algo, Hashed}
 import dev.bosatsu.library.{DecodedLibrary, LibConfig, Name, Version}
 import dev.bosatsu.{Package, PackageName, PlatformIO}
 import org.typelevel.paiges.Doc
@@ -73,38 +74,44 @@ object CommandSupport {
     )
   }
 
-  private def readDep[F[_], Path](
-      platformIO: PlatformIO[F, Path],
-      path: Path
-  ): F[DecodedLibrary[Algo.Blake3]] = {
-    import platformIO.{canPromiseF, moduleIOMonad}
+  type DepArtifact[Path] = (Path, Hashed[Algo.Blake3, proto.Library])
 
-    for {
-      lib <- platformIO.readLibrary(path)
-      decLib <- DecodedLibrary.decode(lib)
-    } yield decLib
-  }
-
-  private def validateDepSet[F[_], Path](
+  // A type-check action needs library descriptors, file hashes and raw
+  // exported entries. Symbolic re-exports can only bind after their owners
+  // have been selected from all source, signature and library inputs.
+  def readDepArtifacts[F[_], Path](
       platformIO: PlatformIO[F, Path],
-      pub: List[DecodedLibrary[Algo.Blake3]],
-      priv: List[DecodedLibrary[Algo.Blake3]]
-  ): F[Unit] = {
+      publicPaths: List[Path],
+      privatePaths: List[Path]
+  ): F[(List[DepArtifact[Path]], List[DepArtifact[Path]])] = {
     import platformIO.moduleIOMonad
 
-    val conf = LibConfig(
-      name = Name("_tool"),
-      repo_uri = "",
-      next_version = Version.zero,
-      previous = None,
-      exported_packages = Nil,
-      all_packages = LibConfig.PackageFilter.Regex(Pattern.compile(".*")) :: Nil,
-      public_deps = pub.map(_.toDep),
-      private_deps = priv.map(_.toDep),
-      default_main = None
-    )
-    val validated = conf.validateDeps(pub ::: priv)
-    moduleIOMonad.fromTry(LibConfig.Error.toTry(validated)).void
+    def read(paths: List[Path]) =
+      paths.traverse(path => platformIO.readLibrary(path).map(path -> _))
+    def descriptors(artifacts: List[DepArtifact[Path]]) =
+      artifacts.traverse { case (_, lib) =>
+        DecodedLibrary.versionOf(lib).map(DecodedLibrary.toDep(lib, _))
+      }
+
+    for {
+      pub <- read(publicPaths)
+      priv <- read(privatePaths)
+      publicDeps <- moduleIOMonad.fromEither(descriptors(pub))
+      privateDeps <- moduleIOMonad.fromEither(descriptors(priv))
+      conf = LibConfig(
+        name = Name("_tool"),
+        repo_uri = "",
+        next_version = Version.zero,
+        previous = None,
+        exported_packages = Nil,
+        all_packages = LibConfig.PackageFilter.Regex(Pattern.compile(".*")) :: Nil,
+        public_deps = publicDeps,
+        private_deps = privateDeps,
+        default_main = None
+      )
+      validated = conf.validateDepArtifacts((pub ::: priv).map(_._2))
+      _ <- moduleIOMonad.fromTry(LibConfig.Error.toTry(validated))
+    } yield (pub, priv)
   }
 
   def readDepLibraries[F[_], Path](
@@ -112,23 +119,14 @@ object CommandSupport {
       publicDependencyPaths: List[Path],
       privateDependencyPaths: List[Path]
   ): F[(List[DepDecode[Path]], List[DepDecode[Path]])] = {
-    import platformIO.moduleIOMonad
-
-    val publicReads =
-      publicDependencyPaths.traverse { path =>
-        for {
-          dep <- readDep(platformIO, path)
-        } yield (path, dep)
-      }
-    val privateReads =
-      privateDependencyPaths.traverse { path =>
-        for {
-          dep <- readDep(platformIO, path)
-        } yield (path, dep)
+    import platformIO.{canPromiseF, moduleIOMonad}
+    def decode(artifacts: List[DepArtifact[Path]]) =
+      artifacts.traverse { case (path, lib) =>
+        DecodedLibrary.decode(lib).map(path -> _)
       }
 
-    (publicReads, privateReads).flatMapN { (pub, priv) =>
-      validateDepSet(platformIO, pub.map(_._2), priv.map(_._2)).as((pub, priv))
+    readDepArtifacts(platformIO, publicDependencyPaths, privateDependencyPaths).flatMap {
+      case (pub, priv) => (decode(pub), decode(priv)).tupled
     }
   }
 

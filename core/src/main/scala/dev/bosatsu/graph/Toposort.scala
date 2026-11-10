@@ -1,8 +1,8 @@
 package dev.bosatsu.graph
 
-import cats.Functor
+import cats.{Eval, Functor}
 import cats.data.NonEmptyList
-import cats.syntax.all._
+import scala.collection.immutable.SortedMap
 
 object Toposort {
 
@@ -70,20 +70,34 @@ object Toposort {
   def sort[A: Ordering](n: Iterable[A])(fn: A => List[A]): Result[A] =
     if (n.isEmpty) Success(Vector.empty)
     else {
-      // save this to avoid some realloations
-      val someZero: Option[Int] = Some(0)
-      val depth = Memoize.memoizeSorted[A, Int] { (n, rec) =>
-        fn(n) match {
-          case Nil      => someZero
-          case nonEmpty =>
-            nonEmpty.traverse(rec).map(_.max + 1)
+      // A pending node has no depth. Encountering it again marks the cycle
+      // and its dependents. Eval trampolines arbitrarily long dependency paths.
+      var depths = SortedMap.empty[A, Option[Int]]
+      def depth(node: A): Eval[Option[Int]] = Eval.defer {
+        depths.get(node) match {
+          case Some(cached) => Eval.now(cached)
+          case None =>
+            depths = depths.updated(node, None)
+            def children(todo: List[A], level: Int): Eval[Option[Int]] =
+              todo match {
+                case Nil => Eval.now(Some(level))
+                case child :: rest =>
+                  depth(child).flatMap {
+                    case None    => Eval.now(None)
+                    case Some(d) => children(rest, level.max(d + 1))
+                  }
+              }
+            children(fn(node), 0).map { result =>
+              depths = depths.updated(node, result)
+              result
+            }
         }
       }
       val res = n.toList
         // go through in a deterministic order
         .sorted
         .map { n =>
-          depth(n) match {
+          depth(n).value match {
             case None    => Left(n)
             case Some(d) => Right((d, n))
           }

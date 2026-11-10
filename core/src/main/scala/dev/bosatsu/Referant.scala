@@ -41,20 +41,22 @@ sealed abstract class Referant[+A] {
         te.addTypeAlias(ta)
     }
 
-  def depPackages: List[PackageName] =
+  /** Nominal types needed to use this export. A type-only export needs its
+    * identity and kind; the fields of its private constructors stay hidden.
+    */
+  def publicTypeConstants: List[Type.Const] =
     this match {
-      case Referant.Value(t) =>
-        // to use this value we need to be able to refer to the full type
-        Type.packageNamesIn(t)
-      case Referant.DefinedT(dt) =>
-        // what package is this type defined in
-        dt.packageName :: Nil
-      case Referant.TypeAliasT(ta) =>
-        ta.depPackages
-      case Referant.Constructor(_, c) =>
-        // what packages do we need in order to refer to this constructor
-        c.depPackages
+      case Referant.Value(t)       => Type.allConsts(t :: Nil).map(_.tpe)
+      case Referant.DefinedT(dt)   => dt.toTypeConst :: Nil
+      case Referant.TypeAliasT(ta) => ta.toTypeConst :: ta.dependsOn.map(_.tpe)
+      case Referant.Constructor(dt, c) =>
+        // Even a foreign nullary constructor needs its defining package.
+        dt.toTypeConst :: c.typeConstants
     }
+
+  def depPackages: List[PackageName] =
+    publicTypeConstants.map(_.toDefined.packageName).distinct
+
 }
 
 object Referant {

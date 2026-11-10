@@ -2,7 +2,7 @@ package dev.bosatsu.rankn
 
 import cats.data.NonEmptyList
 import cats.parse.{Parser => P, Numbers}
-import cats.{Applicative, Monad, Order, Show}
+import cats.{Applicative, Eval, Monad, Order, Show}
 import org.typelevel.paiges.{Doc, Document}
 import dev.bosatsu.{
   Kind,
@@ -1397,39 +1397,36 @@ object Type {
       invalidApply: TyApply => A,
       kindSubsumeError: (TyApply, Kind.Cons, Kind) => A,
       cons: TyConst => Either[A, Kind]
-  ): Type => Either[A, Kind] = {
-
-    val fn = memoizeDagHashedConcurrent[(Type, Map[Var.Bound, Kind]), Either[
-      A,
-      Kind
-    ]] { case ((tpe, locals), rec) =>
-      tpe match {
-        case Type.TyVar(b @ Type.Var.Bound(_)) =>
-          locals.get(b) match {
-            case Some(k) => Right(k)
-            // $COVERAGE-OFF$ this should be unreachable because all vars should have a known kind
-            case None => Left(unknownVar(b))
-            // $COVERAGE-ON$ this should be unreachable
-          }
-        case Type.TyVar(Type.Var.Skolem(_, kind, _, _)) => Right(kind)
-        case Type.TyMeta(Type.Meta(kind, _, _, _))      => Right(kind)
-        case tc @ Type.TyConst(_)                       => cons(tc)
-        case ap @ Type.TyApply(left, right)             =>
-          rec((left, locals))
-            .product(rec((right, locals)))
-            .flatMap { case (leftKind, rhs) =>
-              Kind.validApply[A](leftKind, rhs, invalidApply(ap))(
-                kindSubsumeError(ap, _, rhs)
-              )
-            }
-        case ForAll(vars, in) =>
-          rec((in, locals ++ vars.toList))
-        case Exists(vars, in) =>
-          rec((in, locals ++ vars.toList))
-      }
+  ): Type => Either[A, Kind] =
+    foldKinds[Either[A, Kind]](Right(_), b => Left(unknownVar(b)), cons) {
+      (ap, left, right) =>
+        (left, right).tupled.flatMap { case (fn, arg) =>
+          Kind.validApply[A](fn, arg, invalidApply(ap))(kindSubsumeError(ap, _, arg))
+        }
     }
 
-    { t => fn((t, Map.empty)) }
+  /** Evaluate kinds with lexical binders. The signature reader can also
+    * represent an undisclosed private kind. Cache each scoped subproblem and
+    * trampoline child visits so deeply nested serialized types are stack safe.
+    */
+  private[bosatsu] def foldKinds[A](
+      known: Kind => A, unbound: Var.Bound => A, const: TyConst => A
+  )(applyKind: (TyApply, A, A) => A): Type => A = {
+    val fn = memoizeDagHashedConcurrent[(Type, Map[Var.Bound, Kind]), Eval[A]] {
+      case ((tpe, locals), rec) => tpe match {
+        case TyVar(b @ Var.Bound(_)) => Eval.now(locals.get(b).fold(unbound(b))(known))
+        case TyVar(Var.Skolem(_, k, _, _)) => Eval.now(known(k))
+        case TyMeta(Meta(k, _, _, _)) => Eval.now(known(k))
+        case tc @ TyConst(_) => Eval.now(const(tc))
+        case ap @ TyApply(left, right) =>
+          Eval.defer(rec((left, locals))).flatMap { lk =>
+            rec((right, locals)).map(rk => applyKind(ap, lk, rk))
+          }.memoize
+        case ForAll(vars, in) => Eval.defer(rec((in, locals ++ vars.toList))).memoize
+        case Exists(vars, in) => Eval.defer(rec((in, locals ++ vars.toList))).memoize
+      }
+    }
+    t => fn((t, Map.empty)).value
   }
 
   /** These are upper-case to leverage scala's pattern matching on upper-cased

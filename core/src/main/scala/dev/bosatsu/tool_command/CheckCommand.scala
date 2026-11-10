@@ -1,5 +1,6 @@
 package dev.bosatsu.tool_command
 
+import _root_.bosatsu.{TypedAst => proto}
 import cats.data.NonEmptyList
 import cats.syntax.all._
 import com.monovore.decline.Opts
@@ -39,24 +40,29 @@ object CheckCommand {
       }
 
     for {
-      dependencies <- CommandSupport.readDepLibraries(
+      dependencies <- CommandSupport.readDepArtifacts(
         platformIO,
         publicDependencies,
         privateDependencies
       )
       ifacePaths <- ifaces.read
-      interfaces <- platformIO.readInterfaces(ifacePaths)
       inputs <- inNel
-      packPath <- CompilerApi.typeCheck(
-        platformIO,
-        inputs,
-        interfaces ::: CommandSupport.dependencyInterfaces(dependencies),
-        errColor,
-        packageResolver,
-        CompileOptions.NoOptimize,
-        compileCacheDirOpt
-      )
-    } yield packPath._1
+      packs <- if (ifacePaths.isEmpty && dependencies._1.isEmpty && dependencies._2.isEmpty)
+        CompilerApi.typeCheck(platformIO, inputs, Nil,
+          errColor, packageResolver, CompileOptions.NoOptimize, compileCacheDirOpt).map(_._1)
+      else {
+        val libraries = (dependencies._1 ::: dependencies._2).map { case (path, lib) =>
+          path -> proto.Interfaces(lib.arg.exportedIfaces)
+        }
+        for {
+          sources <- CompilerApi.loadSources(platformIO, inputs, packageResolver, errColor)
+          resPacks <- CompilerApi.compileWithSignatures(
+            platformIO, sources, ifacePaths, libraries,
+            useExplicitPredef = true, errColor, CompileOptions.NoOptimize, compileCacheDirOpt
+          )
+        } yield PackageMap.fromIterable(resPacks)
+      }
+    } yield packs
   }
 
   def opts[F[_], Path](
