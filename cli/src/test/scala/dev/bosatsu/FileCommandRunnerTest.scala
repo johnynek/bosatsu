@@ -2,6 +2,8 @@ package dev.bosatsu
 
 import cats.effect.{Deferred, IO}
 import cats.syntax.all._
+import dev.bosatsu.tool.{CliException, ExitCode}
+import org.typelevel.paiges.Doc
 import java.io.{ByteArrayOutputStream, PrintStream}
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.{Files, Path}
@@ -298,6 +300,49 @@ class FileCommandRunnerTest extends FileCommandFixtures {
         _ = failure(noCommand)
         _ = assert(noCommand.stderr.contains("<none>"))
       } yield ()
+    }
+  }
+
+  test("an overlong output path returns an error and the runner remains usable") {
+    withRunner { (root, runner) =>
+      assume(Files.getFileStore(root).supportsFileAttributeView("posix"))
+      val headers = List("headers", "--src", input, "--out")
+      for {
+        _ <- write(root, input, source("1"))
+        bad <- runner.run(root, headers :+ ("./" * 8000 + "out"))
+        _ = failure(bad)
+        _ = assert(bad.stderr.nonEmpty)
+        good <- runner.run(root, headers :+ "index.json")
+        _ = success(good)
+        _ = assert(Files.isRegularFile(root.resolve("index.json")))
+      } yield ()
+    }
+  }
+
+  test("a deferred empty diagnostic writes zero stdout bytes") {
+    withRunner { (root, runner) =>
+      val out = new ByteArrayOutputStream
+      val err = new ByteArrayOutputStream
+      runner
+        .requestPlatform(
+          root,
+          new PrintStream(out, false, UTF_8),
+          new PrintStream(err, false, UTF_8)
+        )
+        .use { platform =>
+          def report(stdout: Doc): IO[ExitCode] =
+            CliException("failed", Doc.text("problem"), stdout, ExitCode.Error)
+              .report(platform)
+
+          for {
+            code <- report(Doc.defer(Doc.empty))
+            _ = assertEquals(code, ExitCode.Error)
+            _ = assertEquals(out.size(), 0)
+            _ = assertEquals(err.toString(UTF_8), "problem" + System.lineSeparator())
+            _ <- report(Doc.defer(Doc.text("detail")))
+            _ = assertEquals(out.toString(UTF_8), "detail" + System.lineSeparator())
+          } yield ()
+        }
     }
   }
 

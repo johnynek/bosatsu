@@ -7,11 +7,20 @@ import java.nio.file.{
   DirectoryNotEmptyException,
   FileAlreadyExistsException,
   Files,
+  FileSystemLoopException,
   LinkOption,
+  NoSuchFileException,
+  NotDirectoryException,
   Path,
   StandardCopyOption
 }
-import java.nio.file.attribute.PosixFileAttributeView
+import java.nio.file.attribute.{
+  AclFileAttributeView,
+  BasicFileAttributes,
+  PosixFileAttributes,
+  PosixFileAttributeView
+}
+import scala.annotation.tailrec
 import scala.collection.mutable
 import scala.util.control.NonFatal
 
@@ -28,32 +37,54 @@ final private[bosatsu] class StagedOutputs private (
 
   private val createdDirectories = mutable.LinkedHashSet.empty[Path]
 
-  private def ensureDirectory(path: Path): Unit =
-    if (!Files.isDirectory(path)) {
-      Option(path.getParent).foreach(ensureDirectory)
+  // Probe with readAttributes: Files.isDirectory also returns false on I/O
+  // errors, which would walk every prefix of a path the OS already rejected.
+  private def ensureDirectory(path: Path): Unit = {
+    var missing = List.empty[Path]
+    var cursor = path
+    var found = false
+    while (!found) {
       try {
-        Files.createDirectory(path)
-        val _ = createdDirectories.add(path)
-        ()
+        if (!Files.readAttributes(cursor, classOf[BasicFileAttributes]).isDirectory)
+          throw new NotDirectoryException(cursor.toString)
+        found = true
       } catch {
-        case _: FileAlreadyExistsException if Files.isDirectory(path) => ()
+        case err: NoSuchFileException =>
+          missing = cursor :: missing
+          cursor = Option(cursor.getParent).getOrElse(throw err)
       }
     }
+    missing.foreach { dir =>
+      try {
+        Files.createDirectory(dir)
+        val _ = createdDirectories.add(dir)
+      } catch {
+        case _: FileAlreadyExistsException if Files.isDirectory(dir) => ()
+      }
+    }
+  }
 
-  def prepare(path: Path): IO[Path] = IO.blocking {
-    commitLock.synchronized {
-      val absolute = path.toAbsolutePath
-      val parent = Option(absolute.getParent).getOrElse {
+  private def destination(path: Path): Path = {
+    val links = mutable.Set.empty[Path]
+    @tailrec def follow(current: Path): Path = {
+      val parent = Option(current.getParent).getOrElse {
         throw new IOException(s"expected an output file: $path")
       }
       ensureDirectory(parent)
-      // Canonicalize existing parents and live output symlinks so relative
-      // aliases cannot cause two outputs to overwrite each other.
-      val leaf = parent.toRealPath().resolve(absolute.getFileName)
-      val target =
-        if (Files.isSymbolicLink(leaf)) leaf.toRealPath()
-        else leaf
+      // Resolve the parent before looking at the final link. Its target
+      // may be missing on the first build, and may itself be relative.
+      val leaf = parent.toRealPath().resolve(current.getFileName)
+      if (!Files.isSymbolicLink(leaf)) leaf
+      else if (links.add(leaf))
+        follow(leaf.resolveSibling(Files.readSymbolicLink(leaf)))
+      else throw new FileSystemLoopException(leaf.toString)
+    }
+    follow(path.toAbsolutePath)
+  }
 
+  def prepare(path: Path): IO[Path] = IO.blocking {
+    commitLock.synchronized {
+      val target = destination(path)
       if (entries.contains(target))
         throw new IOException(s"multiple outputs refer to the same file: $path")
 
@@ -65,11 +96,11 @@ final private[bosatsu] class StagedOutputs private (
   }
 
   def publish: IO[Unit] = IO.blocking {
-    // Compilations can run in parallel. Only make/restore backups and install
-    // results under the lock so a failed request cannot undo a later writer.
+    // Compilations can run in parallel. Compare, back up and install under
+    // one lock so a failed request cannot undo a later writer.
     commitLock.synchronized {
       val changed = entries.valuesIterator.filter(_.needsInstall).toList
-      changed.foreach(_.preserveMode())
+      changed.foreach(_.preserveAccess())
       // Only files installed before a later rename need a rollback copy.
       changed.dropRight(1).foreach(_.saveOriginal())
 
@@ -145,8 +176,13 @@ private[bosatsu] object StagedOutputs {
   private val commitLock = new Object
 
   def resource(
-      onCleanupError: Throwable => IO[Unit] = IO.raiseError(_),
-      install: (Path, Path) => Unit = replace
+      onCleanupError: Throwable => IO[Unit]
+  ): Resource[IO, StagedOutputs] =
+    withInstaller(onCleanupError, replace)
+
+  def withInstaller(
+      onCleanupError: Throwable => IO[Unit],
+      install: (Path, Path) => Unit
   ): Resource[IO, StagedOutputs] =
     Resource.make(IO(new StagedOutputs(install)))(
       _.cleanup.handleErrorWith(onCleanupError)
@@ -175,7 +211,8 @@ private[bosatsu] object StagedOutputs {
       if (Files.notExists(target, LinkOption.NOFOLLOW_LINKS)) true
       else if (!Files.isRegularFile(target, LinkOption.NOFOLLOW_LINKS))
         throw new IOException(s"expected a regular output file: $target")
-      else if (Files.mismatch(next, target) == -1L) false
+      else if (Files.isReadable(target) && Files.mismatch(next, target) == -1L)
+        false
       else if (!Files.isWritable(target))
         throw new AccessDeniedException(target.toString)
       else true
@@ -183,20 +220,46 @@ private[bosatsu] object StagedOutputs {
 
     def saveOriginal(): Unit =
       if (Files.exists(target)) {
-        Files.copy(target, backup, StandardCopyOption.COPY_ATTRIBUTES)
+        // Keep the original inode, including access controls. Linking it does
+        // not require opening its contents for reading.
+        Files.createLink(backup, target)
         ()
       }
 
-    def preserveMode(): Unit =
+    def preserveAccess(): Unit =
       if (Files.exists(target)) {
         val posix =
           Files.getFileAttributeView(target, classOf[PosixFileAttributeView])
-        if (posix != null) {
-          Files.setPosixFilePermissions(
-            next,
-            posix.readAttributes().permissions()
-          )
-          ()
+        val acl = Files.getFileAttributeView(target, classOf[AclFileAttributeView])
+        if (posix == null && acl == null)
+          throw new IOException(s"cannot preserve output access controls: $target")
+
+        val priorPosix = Option(posix).map { view =>
+          if (acl == null) PosixOutputAccess.preserve(target, next)
+          val expected = view.readAttributes()
+          val staged = Files.getFileAttributeView(next, classOf[PosixFileAttributeView])
+          val original = staged.readAttributes()
+          // Setting ownership can clear permission bits. Set the mode last.
+          if (!original.owner().equals(expected.owner())) staged.setOwner(expected.owner())
+          if (!original.group().equals(expected.group())) staged.setGroup(expected.group())
+          staged.setPermissions(expected.permissions())
+          expected
+        }
+        if (acl != null) {
+          val staged = Files.getFileAttributeView(next, classOf[AclFileAttributeView])
+          val owner = acl.getOwner
+          val expected = acl.getAcl
+          if (!staged.getOwner.equals(owner)) staged.setOwner(owner)
+          staged.setAcl(expected)
+          if (!staged.getAcl.equals(expected) || !staged.getOwner.equals(owner))
+            throw new IOException(s"cannot preserve output ACL: $target")
+        }
+        priorPosix.foreach { before =>
+          val after = Files.readAttributes(next, classOf[PosixFileAttributes])
+          if (!after.owner().equals(before.owner()) ||
+              !after.group().equals(before.group()) ||
+              !after.permissions().equals(before.permissions()))
+            throw new IOException(s"cannot preserve output permissions: $target")
         }
       }
 

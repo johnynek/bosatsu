@@ -1,6 +1,7 @@
 package dev.bosatsu
 
 import cats.effect.IO
+import cats.syntax.all._
 import java.nio.file.{Files, Path}
 
 class HeadersCommandTest extends FileCommandFixtures {
@@ -224,6 +225,47 @@ class HeadersCommandTest extends FileCommandFixtures {
         _ = assert(result.stderr.contains("Api.bosatsu:"), result.stderr)
         _ = assert(!Files.exists(root.resolve(output)))
       } yield ()
+    }
+  }
+
+  test("incomplete headers fail without replacing the last successful index") {
+    withRunner { (root, runner) =>
+      val src = "Api.bosatsu"
+      val badHeaders = List(
+        "from",
+        "# section break\n\nfrom",
+        "export run\nfrom Example/Ok import valok\nfrom Example/Broken import (\nrun = valok",
+        "exposes ()\nexport",
+        "exposes ()\npackage"
+      )
+      for {
+        _ <- write(root, src, apiSource)
+        good <- scan(runner, root, src)
+        _ = success(good)
+        previous <- read(root, output)
+        _ <- badHeaders.traverse_ { header =>
+          for {
+            _ <- write(root, src, s"package Example/Api\n$header\n")
+            invalid <- scan(runner, root, src)
+            _ = failure(invalid)
+            _ = assert(invalid.stderr.contains("Api.bosatsu:"), invalid.stderr)
+            retained <- read(root, output)
+            _ = assertEquals(retained, previous)
+          } yield ()
+        }
+      } yield ()
+    }
+  }
+
+  test("header keywords and their prefixes can start legal body bindings") {
+    withRunner { (root, runner) =>
+      List("fromage = 1", "exported = 1", "package = 1", "export: Int = 1", "from = 1")
+        .traverse_ { binding =>
+          val source = s"package Example/Api\nexposes ()\n# body\n$binding\n"
+          assert(Package.parser.parseAll(source).isRight, source)
+          write(root, "Api.bosatsu", source) *>
+            scan(runner, root, "Api.bosatsu").map(success)
+        }
     }
   }
 

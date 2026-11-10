@@ -12,7 +12,10 @@ import dev.bosatsu.{
   Package,
   PackageMap,
   PackageName,
-  PlatformIO
+  Padding,
+  Parser,
+  PlatformIO,
+  Statement
 }
 
 import java.nio.charset.StandardCharsets
@@ -89,16 +92,17 @@ sealed abstract class PackageResolver[IO[_], Path] {
 }
 
 object PackageResolver {
-  // A header-only scan must not quietly turn a misplaced import into body
-  // text: that would generate a BUILD file with a missing dependency. At
-  // the first body position, recognize declarations using the same grammar
-  // as the full parser. Ordinary bodies are never parsed by this scanner.
-  private val anotherHeader =
-    Package.headerImportsParser.filter(_.nonEmpty).void
-      .orElse(Package.headerExportsParser.filter(_.nonEmpty).void)
-      .orElse(Package.headerPackageNameParser.void)
+  // At the first body position a header keyword can still be a binding name.
+  // Check just its binding head. Parsing an entire header clause here would
+  // accept an incomplete or misplaced import as opaque body text.
+  private val headerKeyword =
+    Parser.lowerIdent.filter(Set("package", "from", "export", "exposes"))
+  private val unexpectedHeader = Padding.parser(
+    (headerKeyword.peek *> !Statement.bindingHead).with1 *> headerKeyword,
+    Package.headerSpaceCommentParser
+  )
   val headerParserIgnoreRest =
-    Package.headerParser <* !anotherHeader <* P.anyChar.rep0.void
+    Package.headerParser <* !unexpectedHeader <* P.anyChar.rep0.void
 
   final case class SourceFile[IO[_], Path](
       path: Path,

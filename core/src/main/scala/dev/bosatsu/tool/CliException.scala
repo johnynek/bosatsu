@@ -15,7 +15,7 @@ trait CliException { self: Exception =>
 
     val stdout = stdOutDoc
     val writeMessage =
-      if (stdout.equals(Doc.empty)) platform.moduleIOMonad.unit
+      if (stdout.isEmpty) platform.moduleIOMonad.unit
       else platform.writeStdout(stdout)
     writeMessage *> platform.writeError(errDoc).as(exitCode)
   }
