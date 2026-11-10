@@ -5,13 +5,14 @@ import cats.MonadError
 import cats.effect.{IO, Resource}
 import cats.effect.kernel.Deferred
 import com.monovore.decline.Argument
+import java.nio.charset.StandardCharsets
 import java.nio.file.{Paths, Path => JPath, Files}
 import java.io.{
   FileInputStream,
   FileOutputStream,
   BufferedInputStream,
   BufferedOutputStream,
-  PrintWriter
+  PrintStream
 }
 import org.typelevel.paiges.Doc
 import dev.bosatsu.graph.CanPromise
@@ -21,9 +22,19 @@ import scalapb.{GeneratedMessage, GeneratedMessageCompanion}
 
 import cats.syntax.all._
 
-object IOPlatformIO extends PlatformIO[IO, JPath] {
+object IOPlatformIO extends IOPlatformIO
+
+class IOPlatformIO extends PlatformIO[IO, JPath] {
   type F[A] = IO[A]
   type Path = JPath
+
+  // Keep compiler-visible paths independent of the machine running a request.
+  // Only translate them when crossing the filesystem boundary.
+  protected def diskPath(path: Path): Path = path
+  protected def outputPath(path: Path): IO[Path] = IO.pure(diskPath(path))
+
+  protected def stdout: PrintStream = System.out
+  protected def stderr: PrintStream = System.err
 
   def pathOrdering = Ordering.ordered[JPath]
 
@@ -107,11 +118,11 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
     cats.effect.IO.asyncForIO
 
   override def gitTopLevel: IO[Option[Path]] = {
-    val start = Paths.get(".").toAbsolutePath.normalize
+    val start = diskPath(Paths.get(".")).toAbsolutePath.normalize
     gitTopLevelFrom(start)
   }
 
-  private def deleteRecursively(path: Path): IO[Unit] =
+  private[bosatsu] def deleteRecursively(path: Path): IO[Unit] =
     IO.blocking {
       if (Files.exists(path)) {
         val stream = Files.walk(path)
@@ -125,20 +136,18 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
       }
     }
 
-  def withTempPrefix[A](name: String)(fn: Path => IO[A]): IO[A] = {
-    val baseDirF =
-      gitTopLevel.map(_.map(resolve(_, ".bosatsuc" :: "tmp" :: Nil)))
-
-    val tempDirF = baseDirF.flatMap {
-      case Some(base) =>
+  protected def newTempDirectory(name: String): IO[Path] =
+    gitTopLevel.flatMap {
+      case Some(root) =>
         IO.blocking {
-          Files.createDirectories(base)
+          val base =
+            Files.createDirectories(resolve(root, ".bosatsuc" :: "tmp" :: Nil))
           Files.createTempDirectory(base, name)
         }
-      case None =>
-        IO.blocking(Files.createTempDirectory(name))
+      case None => IO.blocking(Files.createTempDirectory(name))
     }
 
+  def withTempPrefix[A](name: String)(fn: Path => IO[A]): IO[A] = {
     def cleanup(path: Path): IO[Unit] =
       deleteRecursively(path).handleErrorWith { err =>
         errorln(
@@ -146,13 +155,10 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
         )
       }
 
-    tempDirF.flatMap { tempDir =>
-      fn(tempDir).attempt.flatMap {
-        case Right(a) => cleanup(tempDir).as(a)
-        case Left(e)  => cleanup(tempDir) *> IO.raiseError(e)
-      }
-    }
+    Resource.make(newTempDirectory(name))(cleanup).use(fn)
   }
+
+  protected def startPromise(action: IO[Unit]): IO[Unit] = action.start.void
 
   override val parallelF: cats.Parallel[IO] = IO.parallelForIO
   override val canPromiseF: CanPromise[IO] =
@@ -169,13 +175,13 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
         Deferred.unsafe[IO, Either[Throwable, A]]
 
       def completeWith[A](p: Promise[A], fa: IO[A]): IO[Unit] =
-        fa.attempt.flatMap(p.complete).void.start.void
+        startPromise(fa.attempt.flatMap(p.complete).void)
 
       def wait[A](p: Promise[A]): IO[A] =
         p.get.rethrow
     }
 
-  private val parResource: Resource[IO, Par.EC] =
+  private[bosatsu] val parResource: Resource[IO, Par.EC] =
     Resource
       .make(IO(Par.newService()))(es => IO(Par.shutdownService(es)))
       .map(Par.ecFromService(_))
@@ -184,14 +190,16 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
     parResource.use(ec => fn(using ec))
 
   def readUtf8(path: Path): IO[String] =
-    IO.blocking(new String(Files.readAllBytes(path), "utf-8"))
+    IO.blocking(
+      new String(Files.readAllBytes(diskPath(path)), StandardCharsets.UTF_8)
+    )
 
   def readBytes(path: Path): IO[Array[Byte]] =
-    IO.blocking(Files.readAllBytes(path))
+    IO.blocking(Files.readAllBytes(diskPath(path)))
 
   def fsDataType(p: Path): IO[Option[PlatformIO.FSDataType]] =
     IO.blocking {
-      val f = p.toFile()
+      val f = diskPath(p).toFile()
       if (f.exists()) Some {
         if (f.isDirectory()) PlatformIO.FSDataType.Dir
         else PlatformIO.FSDataType.File
@@ -214,7 +222,7 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
       path: Path
   )(implicit gmc: GeneratedMessageCompanion[A]): IO[A] =
     IO.blocking {
-      val f = path.toFile
+      val f = diskPath(path).toFile
       val ios = new BufferedInputStream(new FileInputStream(f))
       try gmc.parseFrom(ios)
       finally {
@@ -229,32 +237,28 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
       algo: Algo[H]
   ): IO[Hashed[H, A]] =
     IO.blocking {
-      val bytes = Files.readAllBytes(path)
+      val bytes = Files.readAllBytes(diskPath(path))
       val a = gmc.parseFrom(bytes)
       Hashed(Algo.hashBytes[H](bytes), a)
     }
 
-  def write(a: GeneratedMessage, path: Path): IO[Unit] =
-    IO.blocking {
-      val f = path.toFile
-      Option(f.getParentFile).foreach(_.mkdirs())
-      val os = new BufferedOutputStream(new FileOutputStream(f))
-      try a.writeTo(os)
-      finally {
-        os.close
+  private def writeStream(
+      path: Path
+  )(fn: BufferedOutputStream => Unit): IO[Unit] =
+    outputPath(path).flatMap { target =>
+      IO.blocking {
+        Option(target.getParent).foreach(Files.createDirectories(_))
+        val os = new BufferedOutputStream(new FileOutputStream(target.toFile))
+        try fn(os)
+        finally os.close()
       }
     }
 
+  def write(a: GeneratedMessage, path: Path): IO[Unit] =
+    writeStream(path)(a.writeTo(_))
+
   def writeBytes(path: Path, bytes: Array[Byte]): IO[Unit] =
-    IO.blocking {
-      val f = path.toFile
-      Option(f.getParentFile).foreach(_.mkdirs())
-      val os = new BufferedOutputStream(new FileOutputStream(f))
-      try os.write(bytes)
-      finally {
-        os.close
-      }
-    }
+    writeStream(path)(_.write(bytes))
 
   def readInterfacesAndPackages(
       ifacePaths: List[Path],
@@ -401,11 +405,11 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
 
   def unfoldDir(path: Path): IO[Option[IO[List[Path]]]] =
     IO.blocking {
-      val f = path.toFile
+      val f = diskPath(path).toFile
 
       if (f.isDirectory()) {
         Some(IO.blocking {
-          f.listFiles.iterator.map(_.toPath).toList
+          f.listFiles.iterator.map(child => path.resolve(child.getName)).toList
         })
       } else None
     }
@@ -415,48 +419,32 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
   }
 
   def writeDoc(p: Path, d: Doc): IO[Unit] =
-    IO.blocking {
-      Option(p.getParent).foreach(_.toFile.mkdirs)
-      val pw = new PrintWriter(p.toFile, "UTF-8")
-      try d.renderStream(100).foreach(pw.print(_))
-      finally {
-        pw.close
+    outputPath(p).flatMap { target =>
+      IO.blocking {
+        Option(target.getParent).foreach(Files.createDirectories(_))
+        val writer = Files.newBufferedWriter(target, StandardCharsets.UTF_8)
+        try d.renderStream(100).foreach(writer.write(_))
+        finally writer.close()
       }
     }
 
-  def println(str: String): IO[Unit] =
-    IO.println(str)
+  def println(str: String): IO[Unit] = IO.blocking(stdout.println(str))
+  def errorln(str: String): IO[Unit] = IO.blocking(stderr.println(str))
 
-  def errorln(str: String): IO[Unit] =
-    IO.consoleForIO.errorln(str)
-
-  def writeStdout(doc: Doc): IO[Unit] =
+  private def printDoc(doc: Doc, stream: PrintStream): IO[Unit] =
     IO.blocking {
-      doc
-        .renderStreamTrim(80)
-        .iterator
-        .foreach(System.out.print)
-
-      System.out.println("")
+      doc.renderStreamTrim(80).iterator.foreach(stream.print)
+      stream.println()
     }
 
-  def readStdinBytes: IO[Array[Byte]] =
-    IO.blocking(System.in.readAllBytes())
+  def writeStdout(doc: Doc): IO[Unit] = printDoc(doc, stdout)
+  def writeError(doc: Doc): IO[Unit] = printDoc(doc, stderr)
+
+  def readStdinBytes: IO[Array[Byte]] = IO.blocking(System.in.readAllBytes())
 
   def writeStdoutBytes(bytes: Array[Byte]): IO[Unit] =
     IO.blocking {
-      System.out.write(bytes)
-      System.out.flush()
+      stdout.write(bytes)
+      stdout.flush()
     }
-
-  def writeError(doc: Doc): IO[Unit] =
-    IO.blocking {
-      doc
-        .renderStreamTrim(80)
-        .iterator
-        .foreach(System.err.print)
-
-      System.out.println("")
-    }
-
 }

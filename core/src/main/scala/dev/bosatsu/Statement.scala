@@ -233,17 +233,17 @@ object Statement {
   case class Comment(comment: CommentStatement[Unit])(val region: Region)
       extends Statement
 
+  private[bosatsu] val bindingHead: P[Pattern.Parsed] =
+    Pattern.bindParser <* (maybeSpace *> Declaration.eqP *> maybeSpace)
+
   // Parse a single item
   final val parser1: P[Statement] = {
     import Declaration.NonBinding
 
     val bindingLike: Indy[(Pattern.Parsed, OptIndent[NonBinding])] = {
-      val pat = Pattern.bindParser
-      val patPart = pat <* (maybeSpace *> Declaration.eqP *> maybeSpace)
-
       // allow = to be like a block, we can continue on the next line indented
       OptIndent.blockLike(
-        Indy.lift(patPart),
+        Indy.lift(bindingHead),
         Declaration.nonBindingParser,
         P.unit
       )

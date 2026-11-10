@@ -210,13 +210,12 @@ object ProtoConverter {
   type Tab[A] = ProtoState[A]
 
   implicit class TabMethods[A](val self: Tab[A]) extends AnyVal {
-    inline def onFailPrint(inline message: => String): Tab[A] =
+    inline def withFailureContext(inline message: => String): Tab[A] =
       ProtoState { state =>
         Eval.defer(self.run(state)).map {
           case success @ Success(_) => success
-          case failure @ Failure(_) =>
-            System.err.println(message)
-            failure
+          case Failure(cause) =>
+            Failure(new IllegalArgumentException(message, cause))
         }
       }
   }
@@ -1396,7 +1395,7 @@ object ProtoConverter {
                 }
           }
       }
-      .onFailPrint(s"in typedExprToProto: $te")
+      .withFailureContext(s"in typedExprToProto: $te")
 
   def varianceToProto(v: Variance): proto.Variance =
     v match {

@@ -13,8 +13,11 @@ trait CliException { self: Exception =>
   def report[F[_], P](platform: PlatformIO[F, P]): F[ExitCode] = {
     import platform.moduleIOMonad
 
-    platform.writeStdout(stdOutDoc) *>
-      platform.writeError(errDoc).as(exitCode)
+    val stdout = stdOutDoc
+    val writeMessage =
+      if (stdout.isEmpty) platform.moduleIOMonad.unit
+      else platform.writeStdout(stdout)
+    writeMessage *> platform.writeError(errDoc).as(exitCode)
   }
 }
 

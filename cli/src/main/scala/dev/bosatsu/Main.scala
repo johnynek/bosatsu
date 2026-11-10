@@ -11,13 +11,5 @@ object Main extends IOApp {
     ExitCode(ec.toInt)
 
   def run(args: List[String]): IO[ExitCode] =
-    PathModule.runAndReport(args) match {
-      case Right(io)  =>
-        io.map(fromToolExit)
-      case Left(help) =>
-        IO.blocking {
-          System.err.println(help.toString)
-          ExitCode.Error
-        }
-    }
+    PathModule.runCli(args).map(fromToolExit)
 }

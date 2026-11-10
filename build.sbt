@@ -275,6 +275,7 @@ lazy val cli = (project in file("cli"))
     commonSettings,
     name := "bosatsu-cli",
     moduleName := "compiler-cli",
+    Compile / javacOptions ++= Seq("--release", "17"),
     assembly / test := {},
     assembly / assemblyMergeStrategy := {
       case PathList("module-info.class") =>
@@ -304,6 +305,8 @@ lazy val cli = (project in file("cli"))
         "us.bpsm" % "edn-java" % "0.7.1" % Test,
         jacksonYaml.value % Test,
         jython.value % Test,
+        jna.value,
+        nativeImageSdk.value,
         protobufJava.value,
         munit.value % Test,
         munitScalaCheck.value % Test

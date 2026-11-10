@@ -12,7 +12,10 @@ import dev.bosatsu.{
   Package,
   PackageMap,
   PackageName,
-  PlatformIO
+  Padding,
+  Parser,
+  PlatformIO,
+  Statement
 }
 
 import java.nio.charset.StandardCharsets
@@ -77,28 +80,29 @@ sealed abstract class PackageResolver[IO[_], Path] {
   )(
       platformIO: PlatformIO[IO, Path]
   ): IO[ValidatedNel[PathParseError[Path], List[(Path, Package.Header)]]] = {
-    import platformIO.{canPromiseF, moduleIOMonad}
-    // we use IO(traverse) so we can accumulate all the errors in parallel easily
-    // if do this with parseFile returning an IO, we need to do IO.Par[Validated[...]]
-    // and use the composed applicative... too much work for the same result
+    import platformIO.moduleIOMonad
     paths
       .traverse { path =>
-        platformIO.readUtf8(path).flatMap { str =>
-          // Deps/header scans may parse a large number of files, so run the
-          // header parse on the compute pool.
-          canPromiseF.compute {
-            PathParseError
-              .parseString(PackageResolver.headerParserIgnoreRest, path, str)
-              .map { case (_, pp) => (path, pp) }
-          }
-        }
+        PathParseError
+          .parseFile(PackageResolver.headerParserIgnoreRest, path, platformIO)
+          .map(_.map { case (_, header) => (path, header) })
       }
       .map(_.sequence)
   }
 }
 
 object PackageResolver {
-  val headerParserIgnoreRest = Package.headerParser <* P.anyChar.rep0
+  // At the first body position a header keyword can still be a binding name.
+  // Check just its binding head. Parsing an entire header clause here would
+  // accept an incomplete or misplaced import as opaque body text.
+  private val headerKeyword =
+    Parser.lowerIdent.filter(Set("package", "from", "export", "exposes"))
+  private val unexpectedHeader = Padding.parser(
+    (headerKeyword.peek *> !Statement.bindingHead).with1 *> headerKeyword,
+    Package.headerSpaceCommentParser
+  )
+  val headerParserIgnoreRest =
+    Package.headerParser <* !unexpectedHeader <* P.anyChar.rep0.void
 
   final case class SourceFile[IO[_], Path](
       path: Path,

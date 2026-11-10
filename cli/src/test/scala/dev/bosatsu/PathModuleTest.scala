@@ -158,6 +158,7 @@ class PathModuleTest extends munit.FunSuite {
       subcommands(helpText("tool", "--help")),
       List(
         "check",
+        "headers",
         "test",
         "transpile",
         "json",
