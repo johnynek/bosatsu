@@ -47,15 +47,15 @@ object PackageSignatures {
   private[bosatsu] lazy val predef: Package.Interface =
     Package.interfaceOf(PackageMap.predefCompiled)
 
+  private def encodeRoot(iface: Package.Interface): Try[proto.Interface] = {
+    val public = canonical(iface)
+    ProtoConverter.interfaceToProto(public).map(_.withSignatureDependencies(
+      proto.InterfaceDependencies(public.exposedDepPackages.map(_.asString))
+    ))
+  }
+
   def encode(interfaces: List[Package.Interface]): Try[proto.Interfaces] =
-    interfaces.sortBy(_.name).traverse { iface =>
-      val public = canonical(iface)
-      ProtoConverter.interfaceToProto(public).map(
-        _.withSignatureDependencies(
-          proto.InterfaceDependencies(public.exposedDepPackages.map(_.asString))
-        )
-      )
-    }.map(proto.Interfaces(_))
+    interfaces.sortBy(_.name).traverse(encodeRoot).map(proto.Interfaces(_))
 
   private[bosatsu] def viewOf(
       entry: proto.Interface,
@@ -160,7 +160,7 @@ object PackageSignatures {
     )
   }
 
-  private final case class Root(name: PackageName, file: String, wire: proto.Interface) {
+  private final class Root(val name: PackageName, val file: String, wire: => proto.Interface) {
     // Unselected siblings are indexed by name only, including legacy entries.
     private lazy val entry = symbolicReferences(wire)
 
@@ -227,16 +227,23 @@ object PackageSignatures {
 
   private[bosatsu] def plan[P: Show](
       bundles: List[(P, proto.Interfaces)],
+      libraries: List[(P, List[Package.Interface])],
       sources: List[(PackageName, List[PackageName])],
       builtinPredef: Boolean
   ): Try[List[Stage]] = Try {
-    val providers = bundles.flatMap { case (file, bundle) =>
+    val rawRoots = bundles.flatMap { case (file, bundle) =>
       bundle.interfaces.toList.map { entry =>
         val pn = entry.strings.lift(entry.packageName - 1).flatMap(PackageName.parse)
           .getOrElse(throw CliException.Basic(s"invalid root package name in ${file.show}"))
         pn -> Root(pn, file.show, entry)
       }
-    }.groupMap(_._1)(_._2)
+    }
+    // A decoded library can contain many unused packages. Only convert a
+    // selected root when binding it against the owners in this compilation.
+    val libraryRoots = libraries.flatMap { case (file, ifaces) =>
+      ifaces.map(i => i.name -> Root(i.name, file.show, encodeRoot(i).get))
+    }
+    val providers = (rawRoots ::: libraryRoots).groupMap(_._1)(_._2)
     val locals = sources.toMap
     val active = mutable.Set.empty[PackageName]
     val stages = mutable.Map.empty[PackageName, Int]
@@ -270,12 +277,13 @@ object PackageSignatures {
               case None => throw CliException.Basic(s"missing interface: $display")
             }
           }
-          // An explicitly supplied Predef owns the built-in type constants.
-          // Build signatures omit this implicit edge from their exposure index.
+          // Sources implicitly import Predef. Visit it first so its definitions
+          // are available to decode files, including files with unindexed types.
+          // A foreign interface that Predef itself exposes can bind first.
           val edges =
             if (builtinPredef) deps.filterNot(_.isPredef)
-            else if (p.isPredef) deps
-            else (PackageName.PredefName :: deps).distinct
+            else if (root.isEmpty && !p.isPredef) (PackageName.PredefName :: deps).distinct
+            else deps
           todo = edges.map(Visit(_, route)) ::: Finish(p, edges, root) :: todo
         case Visit(_, _) => ()
         case Finish(p, deps, root) =>

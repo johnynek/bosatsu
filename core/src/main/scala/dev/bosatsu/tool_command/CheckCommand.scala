@@ -46,8 +46,8 @@ object CheckCommand {
       )
       ifacePaths <- ifaces.read
       inputs <- inNel
-      packs <- if (ifacePaths.isEmpty)
-        CompilerApi.typeCheck(platformIO, inputs, CommandSupport.dependencyInterfaces(dependencies),
+      packs <- if (ifacePaths.isEmpty && dependencies._1.isEmpty && dependencies._2.isEmpty)
+        CompilerApi.typeCheck(platformIO, inputs, Nil,
           errColor, packageResolver, CompileOptions.NoOptimize, compileCacheDirOpt).map(_._1)
       else {
         val libraries = (dependencies._1 ::: dependencies._2).map { case (path, lib) =>

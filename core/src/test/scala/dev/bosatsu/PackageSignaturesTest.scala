@@ -51,7 +51,7 @@ class PackageSignaturesTest extends munit.FunSuite {
       bundles: List[(String, proto.Interfaces)], requirements: List[(PackageName, List[PackageName])]
   ): Try[List[Package.Interface]] =
     for {
-      stages <- PackageSignatures.plan(bundles, requirements, builtinPredef = true)
+      stages <- PackageSignatures.plan(bundles, Nil, requirements, builtinPredef = true)
       providers <- stages.foldLeft(Try(PackageSignatures.implicitProviders))(
         (acc, stage) => acc.flatMap(stage.bind)
       )
@@ -135,6 +135,22 @@ class PackageSignaturesTest extends munit.FunSuite {
     })
     val roots = success(read("legacy" -> bundle, "owner" -> signature(updated)))
     assertEquals(roots.head.exports.flatMap(_.tag.typeAlias), List(authoritative))
+  }
+
+  test("an explicitly supplied Predef can expose an independent type owner") {
+    val publicType = flag.toOpaque
+    val owned = interface(owner, List(ExportedName.TypeName(publicType.name.ident, Referant.DefinedT(publicType))))
+    val predef = interface(PackageName.PredefName, List(
+      ExportedName.Binding(Name("provided"), Referant.Value(publicType.toTypeTyConst))
+    ))
+    val stages = success(PackageSignatures.plan(
+      List("custom.sig" -> signature(predef, owned)), Nil, List(client -> Nil), builtinPredef = false
+    ))
+    val restored = stages.foldLeft(Map.empty[PackageName, PackageSignatures.PublicInterface])(
+      (providers, stage) => success(stage.bind(providers))
+    )
+    assertEquals(restored(PackageName.PredefName).iface, predef)
+    assertEquals(restored(owner).iface, owned)
   }
 
   test("the compiler cache fingerprints resolved foreign definitions supplied by typed callers") {

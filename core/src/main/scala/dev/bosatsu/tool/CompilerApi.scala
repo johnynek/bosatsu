@@ -777,13 +777,12 @@ object CompilerApi {
           CliException.Basic(show"cannot read signature $path: ${e.getMessage}")
         }.map(path -> _)
       }
-      libs <- libraries.traverse { case (path, interfaces) =>
-        moduleIOMonad.fromTry(PackageSignatures.encode(interfaces)).map(path -> _)
-      }
-      bundles = files ::: libs
-      builtin = !useExplicitPredef || !bundles.exists(_._2.interfaces.exists(i =>
-        ProtoConverter.iname(i) == PackageName.PredefName.asString))
-      stages <- platform.canPromiseF.compute(PackageSignatures.plan(bundles, requirements, builtin))
+      explicitPredef = useExplicitPredef && (
+        libraries.exists(_._2.exists(_.name.isPredef)) ||
+        files.exists(_._2.interfaces.exists(i => ProtoConverter.iname(i) == PackageName.PredefName.asString))
+      )
+      builtin = !explicitPredef
+      stages <- platform.canPromiseF.compute(PackageSignatures.plan(files, libraries, requirements, builtin))
         .flatMap(moduleIOMonad.fromTry)
       initial: PackageSignatures.Providers =
         if (builtin) PackageSignatures.implicitProviders else Map.empty
