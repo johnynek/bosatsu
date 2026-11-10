@@ -588,7 +588,7 @@ object CompilerApi {
   private def typeCheckDiagnostics[IO[_], Path](
       platformIO: PlatformIO[IO, Path],
       inputs: NonEmptyList[Path],
-      ifs: List[Package.Interface],
+      loadInterfaces: NonEmptyList[PackageResolver.SourceFile[IO, Path]] => IO[List[Package.Interface]],
       errColor: Colorize,
       packRes: PackageResolver[IO, Path],
       compileOptions: CompileOptions,
@@ -603,6 +603,7 @@ object CompilerApi {
     for {
       ins <- packRes.loadSourceFiles(inputs)(platformIO)
       sourceFiles <- fromParse(platformIO, ins, errColor)
+      ifs <- loadInterfaces(sourceFiles)
       sources = sourceFiles.map { source =>
         source.toSourceUnit(
           platformIO.pathToString(source.path),
@@ -745,13 +746,34 @@ object CompilerApi {
   )(implicit
       ec: Par.EC
   ): IO[(PackageMap.Compiled, NonEmptyList[(Path, PackageName)])] = {
+    typeCheckWithInterfaces(
+      platformIO,
+      inputs,
+      _ => platformIO.moduleIOMonad.pure(ifs),
+      errColor,
+      packRes,
+      compileOptions,
+      compileCacheDirOpt
+    )
+  }
+
+  // Resolve file dependencies from the same source snapshot we type-check.
+  private[bosatsu] def typeCheckWithInterfaces[IO[_], Path](
+      platformIO: PlatformIO[IO, Path],
+      inputs: NonEmptyList[Path],
+      loadInterfaces: NonEmptyList[PackageResolver.SourceFile[IO, Path]] => IO[List[Package.Interface]],
+      errColor: Colorize,
+      packRes: PackageResolver[IO, Path],
+      compileOptions: CompileOptions,
+      compileCacheDirOpt: Option[Path]
+  )(implicit ec: Par.EC): IO[(PackageMap.Compiled, NonEmptyList[(Path, PackageName)])] = {
     import platformIO.moduleIOMonad
 
     for {
       diagnostics <- typeCheckDiagnostics(
         platformIO,
         inputs,
-        ifs,
+        loadInterfaces,
         errColor,
         packRes,
         compileOptions,
@@ -828,7 +850,7 @@ object CompilerApi {
       diagnostics <- typeCheckDiagnostics(
         platformIO,
         inputs,
-        ifs,
+        _ => moduleIOMonad.pure(ifs),
         errColor,
         packRes,
         compileOptions,

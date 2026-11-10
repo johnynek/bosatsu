@@ -276,7 +276,13 @@ class IOPlatformIO extends PlatformIO[IO, JPath] {
       )
     }
 
-  def readInterfaces(paths: List[Path]): IO[List[Package.Interface]] =
+  override def readInterfaceBundle(path: Path): IO[proto.Interfaces] =
+    read[proto.Interfaces](path)
+
+  override def writeInterfaceBundle(bundle: proto.Interfaces, path: Path): IO[Unit] =
+    write(bundle, path)
+
+  override def readInterfaces(paths: List[Path]): IO[List[Package.Interface]] =
     readInterfacesAndPackages(paths, Nil).map(_._1)
 
   def readPackages(paths: List[Path]): IO[List[Package.Compiled]] =

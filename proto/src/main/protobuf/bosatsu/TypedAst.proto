@@ -160,6 +160,13 @@ message Interface {
   int32 packageName = 4;
   repeated ExportedName exports = 5;
   repeated TypeAlias typeAliases = 6;
+  // Present even when empty on build signatures. Absent on legacy interfaces.
+  InterfaceDependencies signatureDependencies = 7;
+}
+
+message InterfaceDependencies {
+  // Checked public dependencies, in canonical package-name order.
+  repeated string exposes = 1;
 }
 
 message Interfaces {

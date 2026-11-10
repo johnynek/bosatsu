@@ -17,6 +17,7 @@ object ToolCommand {
     MonoidK[Opts].combineAllK(
       CheckCommand.opts(platformIO, commonOpts) ::
         HeadersCommand.opts(platformIO) ::
+        CompilePackagesCommand.opts(platformIO) ::
         TestCommand.opts(platformIO, commonOpts) ::
         TranspileCommand.opts(platformIO, commonOpts) ::
         JsonCommand.opts(platformIO, commonOpts) ::

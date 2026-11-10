@@ -7,6 +7,7 @@ import cats.data.ValidatedNel
 import cats.parse.{Parser0 => P0}
 import com.monovore.decline.Argument
 import org.typelevel.paiges.Doc
+import scala.util.Try
 
 import cats.syntax.all._
 import cats.data.Validated.Invalid
@@ -62,7 +63,19 @@ trait PlatformIO[F[_], Path] {
     }
 
   def readPackages(paths: List[Path]): F[List[Package.Compiled]]
-  def readInterfaces(paths: List[Path]): F[List[Package.Interface]]
+  def readInterfaceBundle(path: Path): F[proto.Interfaces] =
+    readBytes(path).flatMap(bytes => moduleIOMonad.fromTry(Try(proto.Interfaces.parseFrom(bytes))))
+
+  def readInterfaces(paths: List[Path]): F[List[Package.Interface]] =
+    paths.parTraverse(readInterfaceBundle).flatMap { bundles =>
+      moduleIOMonad
+        .fromTry(ProtoConverter.packagesFromProto(bundles.flatMap(_.interfaces), Nil))
+        .map(_._1)
+    }
+
+  def writeInterfaceBundle(bundle: proto.Interfaces, path: Path): F[Unit] =
+    writeBytes(path, bundle.toByteArray)
+
   def readLibrary(path: Path): F[Hashed[Algo.Blake3, proto.Library]]
 
   /** Download an object to a given path with a given HashValue

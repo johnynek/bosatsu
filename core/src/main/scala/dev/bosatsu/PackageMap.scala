@@ -12,6 +12,7 @@ import cats.data.{
   ValidatedNel
 }
 import scala.collection.immutable.SortedMap
+import scala.collection.mutable.ArrayDeque
 
 import Identifier.Constructor
 import IorMethods.IorExtension
@@ -586,8 +587,38 @@ object PackageMap {
     (nuEr, check, res.toIor).parMapN((_, _, r) => r)
   }
 
+  // One node per interface, shared by packages in this compilation. Only the
+  // immediate exposed edges are retained. A diamond visits its shared node
+  // once, and neither a private dependency nor its hash enters a consumer key.
+  private final class InterfaceNode(
+      val iface: Package.Interface,
+      edges: => List[InterfaceNode]
+  ) {
+    lazy val exposed: List[InterfaceNode] = edges
+    lazy val types: TypeEnv[Kind.Arg] = iface.exportedTypeEnv
+  }
+
+  private def exposureClosure(
+      roots: List[InterfaceNode]
+  ): SortedMap[PackageName, InterfaceNode] = {
+    var result = SortedMap.empty[PackageName, InterfaceNode]
+    // Direct imports already resolved to a source must take precedence over
+    // a same-named interface encountered through an external exposure.
+    val todo = ArrayDeque.from(roots)
+    while (todo.nonEmpty) {
+      val node = todo.removeHead()
+      val name = node.iface.name
+      if (!result.contains(name)) {
+        result = result.updated(name, node)
+        val _ = todo.appendAll(node.exposed)
+      }
+    }
+    result
+  }
+
   private def inferAllSourceUnits[F[_]: Monad: Parallel: CanPromise, A](
       ps: ResolvedSource[F, A],
+      externalInterfaces: List[Package.Interface],
       compileOptions: CompileOptions,
       cache: InferCache[F, CompileCache.GenerateKeyInput, Package.Compiled],
       phases: InferPhases
@@ -604,7 +635,7 @@ object PackageMap {
 
     final case class CompiledPack(
         compiled: Package.Compiled,
-        depInterface: Package.Interface
+        api: InterfaceNode
     )
 
     val resolvedByName: SortedMap[PackageName, ResolvedU] = ps.toMap
@@ -624,8 +655,10 @@ object PackageMap {
       sys.error("invariant violation: resolved package graph has a cycle")
     }
 
-    def toCompiledPack(compiled: Package.Compiled): CompiledPack =
-      CompiledPack(compiled, phases.dependencyInterface(compiled))
+    lazy val externalByName: Map[PackageName, InterfaceNode] =
+      externalInterfaces.iterator.map { iface =>
+        iface.name -> new InterfaceNode(iface, iface.exposedDepPackages.flatMap(externalByName.get))
+      }.toMap
 
     val inferPack: PackageName => F[ErrorOr[CompiledPack]] =
       Memoize.memoizeDag[F, PackageName, ErrorOr[CompiledPack]] {
@@ -672,31 +705,17 @@ object PackageMap {
                       s"invariant violation: missing dependency result for ${depPack.name}"
                     })
 
-                  def depInterfaces
-                      : ErrorOr[SortedMap[PackageName, Package.Interface]] =
-                    imports.foldLeft(
-                      Ior.right[NonEmptyList[PackageError], SortedMap[
-                        PackageName,
-                        Package.Interface
-                      ]](SortedMap.empty)
-                    ) { (acc, imp) =>
-                      val next: ErrorOr[(PackageName, Package.Interface)] =
-                        Package.unfix(imp.pack) match {
-                          case Right(depPack) =>
-                            depPackMeta(depPack).map { inferredDep =>
-                              inferredDep.compiled.name -> inferredDep.depInterface
-                            }
-                          case Left(iface)    =>
-                            Ior.right(iface.name -> iface)
-                        }
-
-                      (acc, next).parMapN { (ifaces, iface) =>
-                        ifaces.updated(iface._1, iface._2)
+                  def directNodes: ErrorOr[List[InterfaceNode]] =
+                    imports.traverse { imp =>
+                      Package.unfix(imp.pack) match {
+                        case Right(depPack) => depPackMeta(depPack).map(_.api)
+                        case Left(iface)    => Ior.right(externalByName(iface.name))
                       }
                     }
 
                   def inferOnMiss(
-                      depIfaces: SortedMap[PackageName, Package.Interface]
+                      depIfaces: SortedMap[PackageName, Package.Interface],
+                      scope: SortedMap[PackageName, InterfaceNode]
                   ): F[ErrorOr[Package.Compiled]] = {
                     def resolvedName(resolved: ResolvedFix): PackageName =
                       Package.unfix(resolved) match {
@@ -780,7 +799,8 @@ object PackageMap {
                               nm,
                               ilist,
                               exports,
-                              parsed.program
+                              parsed.program,
+                              scope.valuesIterator.foldLeft(TypeEnv.empty: TypeEnv[Kind.Arg])(_ ++ _.types)
                             )
                             asm <- PackageCustoms.assemble(
                               nm,
@@ -801,7 +821,9 @@ object PackageMap {
                   import IorT.{fromIor, liftF}
 
                   (for {
-                    depIfaces <- fromIor[F](depInterfaces)
+                    direct <- fromIor[F](directNodes)
+                    scope = exposureClosure(direct)
+                    depIfaces = scope.map { case (pn, node) => pn -> node.iface }
                     key <- liftF(
                       cache.generateKey(
                         (
@@ -820,12 +842,21 @@ object PackageMap {
                         IorT.rightT[F, NonEmptyList[PackageError]](hit)
                       case None      =>
                         for {
-                          compiled <- IorT(inferOnMiss(depIfaces))
+                          compiled <- IorT(inferOnMiss(depIfaces, scope))
                           _ <- liftF(cache.put(key, compiled))
                         } yield compiled
                     }
-                    compiledPack = toCompiledPack(res)
-                  } yield compiledPack)
+                    api = phases.dependencyInterface(res)
+                    // Warn/lax inference may return a package with an invalid
+                    // exposes declaration. Such a source cannot grant types
+                    // to its consumers merely by leaking them in an export.
+                    publicDeps = exposes match {
+                      case declared :: Nil =>
+                        val names = declared.distinct.sorted
+                        if (names == api.exposedDepPackages) names.flatMap(scope.get) else Nil
+                      case _ => Nil
+                    }
+                  } yield CompiledPack(res, new InterfaceNode(api, publicDeps)))
                 }
                 .value
           }
@@ -894,7 +925,7 @@ object PackageMap {
       }
     )
       .flatMap(resolved =>
-        IorT(inferAllSourceUnits(resolved, compileOptions, cache, phases))
+        IorT(inferAllSourceUnits(resolved, ifs, compileOptions, cache, phases))
       )
       .value
 

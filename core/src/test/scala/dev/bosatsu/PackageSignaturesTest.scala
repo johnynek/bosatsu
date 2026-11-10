@@ -1,0 +1,186 @@
+package dev.bosatsu
+
+import _root_.bosatsu.{TypedAst => proto}
+import dev.bosatsu.Identifier.{Constructor, Name}
+import dev.bosatsu.rankn.{ConstructorFn, ConstructorParam, DataRepr, DefinedType, Type, TypeAlias}
+import scala.util.Try
+
+class PackageSignaturesTest extends munit.FunSuite {
+  private val owner = PackageName.parts("Owner")
+  private val facade = PackageName.parts("Facade")
+  private val client = PackageName.parts("Client")
+
+  private def interface(
+      name: PackageName, exports: List[ExportedName[Referant[Kind.Arg]]]
+  ): Package.Interface = Package(name, Nil, exports, ())
+
+  private val zero = ConstructorFn(Constructor("Zero"), Nil, Nil)
+  private val more = ConstructorFn(
+    Constructor("More"),
+    List(ConstructorParam(
+      Name("count"), Type.IntType, Some(Name("default_count")), Some(Type.IntType)
+    )),
+    List((Type.Var.Bound("element"), Kind.Type.co))
+  )
+  private val flag = DefinedType(
+    owner, TypeName(Constructor("Flag")), List((Type.Var.Bound("a"), Kind.Type.phantom)),
+    List(zero, more)
+  )
+  private val alias = TypeAlias(
+    owner, TypeName(Constructor("Flags")), Nil, Type.TyApply(flag.toTypeTyConst, Type.IntType)
+  )
+  private val ownerIface = interface(owner, List(
+    ExportedName.TypeName(flag.name.ident, Referant.DefinedT(flag)),
+    ExportedName.Constructor(zero.name, Referant.Constructor(flag, zero)),
+    ExportedName.Constructor(more.name, Referant.Constructor(flag, more)),
+    ExportedName.TypeName(alias.name.ident, Referant.TypeAliasT(alias))
+  ))
+  private val facadeIface = interface(facade, List(
+    ExportedName.TypeName(Constructor("ForeignFlag"), Referant.DefinedT(flag)),
+    ExportedName.Constructor(Constructor("ForeignZero"), Referant.Constructor(flag, zero)),
+    ExportedName.TypeName(Constructor("ForeignFlags"), Referant.TypeAliasT(alias))
+  ))
+  private def success[A](result: Try[A]): A =
+    result.fold(e => fail(e.toString), identity)
+
+  private def signature(ifaces: Package.Interface*): proto.Interfaces =
+    success(PackageSignatures.encode(ifaces.toList))
+
+  private def read(bundles: (String, proto.Interfaces)*): Try[List[Package.Interface]] =
+    PackageSignatures.decodeRequired(bundles.toList, List(client -> List(facade)))
+
+  test("external types, constructors and aliases use their owning provider") {
+    val front = signature(facadeIface)
+    val entry = front.interfaces.head
+    assertEquals(entry.definedTypes.size, 0)
+    assertEquals(entry.typeAliases.size, 0)
+    assertEquals(entry.getSignatureDependencies.exposes.toList, List("Owner"))
+    assert(read("front.sig" -> front).failed.get.getMessage.contains("Client -> Facade -> Owner"))
+
+    val original = signature(ownerIface)
+    val result = success(read("owner.sig" -> original, "front.sig" -> front))
+    assertEquals(result, List(facadeIface, ownerIface).map(PackageSignatures.canonical))
+    val ownerType = result.last.exports.flatMap(_.tag.definedType).head
+    assertEquals(ownerType.annotatedTypeParams, flag.annotatedTypeParams)
+    assertEquals(ownerType.constructors, List(zero, more))
+    assertEquals(ownerType.dataRepr(zero.name), DataRepr.Enum(0, 0, List(0, 1)))
+
+    // Changing the actual owner changes the decoded facts even when the
+    // re-exporting package's bytes stay the same. Removing an export fails.
+    val changedAlias = alias.copy(rhs = Type.IntType)
+    val changed = ownerIface.copy(exports = ownerIface.exports.map {
+      case ExportedName.TypeName(n, Referant.TypeAliasT(_)) =>
+        ExportedName.TypeName(n, Referant.TypeAliasT(changedAlias))
+      case exp => exp
+    })
+    val rebound = success(read("front.sig" -> front, "owner.sig" -> signature(changed)))
+    assertEquals(rebound.head.exports.flatMap(_.tag.typeAlias), List(changedAlias))
+    val incomplete = ownerIface.copy(exports = ownerIface.exports.filter(_.tag.typeAlias.isEmpty))
+    assert(read("owner.sig" -> signature(incomplete), "front.sig" -> front).isFailure)
+    val partial = ownerIface.copy(exports = ownerIface.exports.filterNot(_.name == zero.name))
+    val hidden = read("owner.sig" -> signature(partial), "front.sig" -> front)
+    assert(hidden.failed.get.getMessage.contains("missing exported constructor Owner::Zero"))
+  }
+
+  test("constructor default-helper types participate in exposure checking") {
+    val field = ConstructorParam(
+      Name("field"), Type.IntType, Some(Name("default_field")), Some(alias.rhs)
+    )
+    val ctor = ConstructorFn(Constructor("Wrapped"), List(field), Nil)
+    val dt = DefinedType(facade, TypeName(ctor.name), Nil, List(ctor))
+    val wrapper = interface(facade, List(
+      ExportedName.TypeName(ctor.name, Referant.DefinedT(dt)),
+      ExportedName.Constructor(ctor.name, Referant.Constructor(dt, ctor))
+    ))
+    val bundle = signature(wrapper)
+    assertEquals(bundle.interfaces.head.getSignatureDependencies.exposes.toList, List("Owner"))
+    assert(read("wrapper" -> bundle).isFailure)
+    val decoded = success(read("wrapper" -> bundle, "owner" -> signature(ownerIface)))
+    assertEquals(decoded.head, PackageSignatures.canonical(wrapper))
+  }
+
+  test("unindexed signatures recover exposures only for selected roots") {
+    val missingType = Type.const(PackageName.parts("Missing"), TypeName(Constructor("T")))
+    val unused = interface(PackageName.parts("Sibling"),
+      List(ExportedName.Binding(Name("unused"), Referant.Value(missingType))))
+    val old = success(ProtoConverter.interfacesToProto(List(facadeIface, unused)))
+    val owners = success(ProtoConverter.interfacesToProto(List(ownerIface)))
+    assert(old.interfaces.forall(_.signatureDependencies.isEmpty))
+    val selected = success(read("old.sig" -> old, "owner.sig" -> owners))
+    assertEquals(selected.map(_.name), List(facade, owner))
+  }
+
+  test("embedded foreign definitions in a legacy signature are rebound to the declared owner") {
+    val old = success(ProtoConverter.interfaceToProto(ownerIface))
+    val embedded = old.copy(strings = old.strings :+ facade.asString, packageName = old.strings.size + 1)
+    val bundle = proto.Interfaces(List(embedded))
+    assert(read("legacy" -> bundle).failed.get.getMessage.contains("Client -> Facade -> Owner"))
+
+    val authoritative = alias.copy(rhs = Type.StrType)
+    val updated = ownerIface.copy(exports = ownerIface.exports.map {
+      case ExportedName.TypeName(n, Referant.TypeAliasT(_)) =>
+        ExportedName.TypeName(n, Referant.TypeAliasT(authoritative))
+      case exp => exp
+    })
+    val roots = success(read("legacy" -> bundle, "owner" -> signature(updated)))
+    assertEquals(roots.head.exports.flatMap(_.tag.typeAlias), List(authoritative))
+  }
+
+  test("public changes affect bytes and constructor tag order survives export reordering") {
+    val normal = signature(ownerIface, facadeIface)
+    val reversedExports = ownerIface.copy(exports = ownerIface.exports.reverse)
+    assertEquals(signature(facadeIface, reversedExports), normal)
+
+    val reordered = flag.copy(constructors = flag.constructors.reverse)
+    val changed = ownerIface.copy(exports = ownerIface.exports.map {
+      case ExportedName.TypeName(n, Referant.DefinedT(_)) =>
+        ExportedName.TypeName(n, Referant.DefinedT(reordered))
+      case ExportedName.Constructor(n, Referant.Constructor(_, cf)) =>
+        ExportedName.Constructor(n, Referant.Constructor(reordered, cf))
+      case e => e
+    })
+    assertNotEquals(signature(changed), signature(ownerIface))
+  }
+
+  test("missing type definitions, forged local pointers and stale indexes fail") {
+    val value = interface(facade, List(ExportedName.Binding(Name("flags"), Referant.Value(alias.rhs))))
+    val single = signature(value)
+    val wrong = read("value.sig" -> single, "owner.sig" -> signature(interface(owner, Nil)))
+    assert(wrong.failed.get.getMessage.contains("missing exported type"))
+    val stale = single.copy(interfaces = single.interfaces.map(
+      _.withSignatureDependencies(proto.InterfaceDependencies())
+    ))
+    assert(read("stale.sig" -> stale).failed.get.getMessage.contains("incorrect exposure index"))
+    val own = signature(ownerIface).interfaces.head
+    val forged = own.copy(
+      strings = own.strings :+ facade.asString,
+      packageName = own.strings.size + 1
+    )
+    val impersonation = read("forged.sig" -> proto.Interfaces(List(forged)))
+    assert(impersonation.failed.get.getMessage.contains("definition owner"))
+    val ambiguous = read("a.sig" -> single, "b.sig" -> single)
+    assert(ambiguous.failed.get.getMessage.contains("a.sig, b.sig"))
+  }
+
+  test("index traversal is stack safe and diagnoses exposure cycles") {
+    val depth = 3000
+    def name(i: Int): PackageName = PackageName.parts(s"P$i")
+    def root(i: Int, next: Option[PackageName]): Package.Interface = {
+      val pn = name(i)
+      val dt = DefinedType(pn, TypeName(Constructor("T")), Nil, Nil)
+      val typ = ExportedName.TypeName(dt.name.ident, Referant.DefinedT(dt))
+      val binding = next.toList.map { dep =>
+        ExportedName.Binding(Name("next"), Referant.Value(Type.const(dep, dt.name)))
+      }
+      interface(pn, typ :: binding)
+    }
+    val roots = (0 until depth).toList.map { i =>
+      root(i, Option.when(i + 1 < depth)(name(i + 1)))
+    }
+    def decode(bundle: proto.Interfaces) =
+      PackageSignatures.decodeRequired(List("chain" -> bundle), List(client -> List(name(0))))
+    assertEquals(success(decode(success(PackageSignatures.encode(roots)))).size, depth)
+    val cycle = signature(root(0, Some(name(1))), root(1, Some(name(0))))
+    assert(decode(cycle).failed.get.getMessage.contains("Client -> P0 -> P1 -> P0"))
+  }
+}

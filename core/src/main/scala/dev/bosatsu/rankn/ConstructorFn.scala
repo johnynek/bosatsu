@@ -11,8 +11,10 @@ final case class ConstructorParam(
     defaultBinding: Option[Bindable],
     defaultType: Option[Type] = None
 ) derives CanEqual {
+  def signatureTypes: List[Type] = tpe :: defaultType.toList
+
   def depPackages: List[PackageName] =
-    Type.packageNamesIn(tpe)
+    signatureTypes.flatMap(Type.packageNamesIn).distinct
 }
 
 final case class ConstructorFn[+A](
@@ -33,8 +35,11 @@ final case class ConstructorFn[+A](
 
   def arity: Int = args.length
 
+  def typeConstants: List[Type.Const] =
+    Type.allConsts(args.flatMap(_.signatureTypes)).map(_.tpe)
+
   def depPackages: List[PackageName] =
-    args.flatMap(_.depPackages).distinct
+    typeConstants.map(_.toDefined.packageName).distinct
 }
 
 object ConstructorFn {

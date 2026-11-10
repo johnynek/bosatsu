@@ -757,8 +757,24 @@ object Package {
         TypeEnv[Kind.Arg],
         Program[TypeEnv[Kind.Arg], TypedExpr[Declaration], List[Statement]]
     )
-  ] = {
+  ] =
+    inferBodyUnopt(p, imps, exports, stmts, imps.foldMap(_.pack.exportedTypeEnv))
 
+  private[bosatsu] def inferBodyUnopt(
+      p: PackageName,
+      imps: List[Import[Package.Interface, NonEmptyList[Referant[Kind.Arg]]]],
+      exports: List[ExportedName[Unit]],
+      stmts: List[Statement],
+      dependencyTypeEnv: TypeEnv[Kind.Arg]
+  ): Ior[
+    NonEmptyList[
+      PackageError
+    ],
+    (
+        TypeEnv[Kind.Arg],
+        Program[TypeEnv[Kind.Arg], TypedExpr[Declaration], List[Statement]]
+    )
+  ] = {
     // here we make a pass to get all the local names
     val optProg = SourceConverter
       .toProgram(p, imps.map(i => i.copy(pack = i.pack.name)), stmts)
@@ -787,7 +803,7 @@ object Package {
         val inferVarianceParsed
             : Ior[NonEmptyList[PackageError], ParsedTypeEnv[Kind.Arg]] =
           KindFormula
-            .solveShapesAndKinds(importedTypeEnv, parsedTypeEnv0)
+            .solveShapesAndKinds(dependencyTypeEnv ++ importedTypeEnv, parsedTypeEnv0)
             .bimap(
               necError =>
                 necError
@@ -825,8 +841,7 @@ object Package {
           }
 
           val fullTypeEnv = importedTypeEnv ++ typeEnv
-          val dependencyTypeEnv: TypeEnv[Kind.Arg] =
-            imps.foldMap(_.pack.exportedTypeEnv)
+          val inferenceTypeEnv = fullTypeEnv ++ dependencyTypeEnv
 
           val theseExternals =
             parsedTypeEnv.externalDefs.collect {
@@ -906,8 +921,8 @@ object Package {
             .runFully(
               withFQN,
               Referant.typeConstructors(imps) ++ typeEnv.typeConstructors,
-              (fullTypeEnv ++ dependencyTypeEnv).toKindMap,
-              (fullTypeEnv ++ dependencyTypeEnv).allTypeAliases.iterator
+              inferenceTypeEnv.toKindMap,
+              inferenceTypeEnv.allTypeAliases.iterator
                 .map(ta => ta.toTypeConst -> ta)
                 .toMap
             )

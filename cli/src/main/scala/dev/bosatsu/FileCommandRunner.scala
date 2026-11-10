@@ -80,7 +80,7 @@ object FileCommandRunner {
   // execute native processes. They retain their normal interactive CLI path.
   private[bosatsu] def supports(command: String): Boolean =
     command match {
-      case "check" | "headers" | "deps" | "show" | "assemble" |
+      case "check" | "compile-packages" | "headers" | "deps" | "show" | "assemble" |
           "extract-iface" =>
         true
       case _ => false

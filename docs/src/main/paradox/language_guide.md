@@ -113,7 +113,10 @@ most_fav = mammals
 ```
 
 `exposes` is checked against the typed exported API. Omitting it is the same as
-writing `exposes ()`.
+writing `exposes ()`. If you import a value whose type mentions an exposed
+package, the compiler can infer that type using the exposed package’s
+interface. To write a type or constructor name in your own source, import the
+name in that package as usual.
 
 ## Literals
 

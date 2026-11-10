@@ -1744,10 +1744,9 @@ object ProtoConverter {
   private def ifaceDeps(iface: proto.Interface): List[String] = {
     val ary = iface.strings.toArray
     val thisPack = ary(iface.packageName - 1)
-    iface.definedTypes.toList
-      .flatMap(packageDeps(ary, _).filterNot(_ == thisPack))
-      .distinct
-      .sorted
+    val tableDeps = iface.definedTypes.toList.flatMap(packageDeps(ary, _))
+    val exportDeps = PackageSignatures.foreignOwners(iface)
+    (tableDeps ::: exportDeps).filterNot(_ == thisPack).distinct.sorted
   }
 
   // what package names does this full package depend on?
@@ -1937,7 +1936,7 @@ object ProtoConverter {
       s.foldRight(dtab)(_.finish(_))
   }
 
-  private def interfaceFromProto0(
+  private[bosatsu] def interfaceFromProto0(
       loadDT: Type.Const => Try[DefinedType[Kind.Arg]],
       loadTA: Type.Const => Try[TypeAlias[Kind.Arg]],
       protoIface: proto.Interface
@@ -1949,7 +1948,9 @@ object ProtoConverter {
         exports <- protoIface.exports.toList.traverse(
           exportedNameFromProto(loadDT, loadTA, _)
         )
-      } yield Package(pn, Nil, exports, ())
+        iface = Package(pn, Nil, exports, ())
+        view <- ReaderT.liftF(PackageSignatures.checkedView(protoIface, iface))
+      } yield view
 
     // build up the decoding state by decoding the tables in order
     Scoped
@@ -2453,7 +2454,7 @@ object ProtoConverter {
                   val ifaceRes = interfaceFromProto0(loadDT, loadTA, iface)
                   packFromProtoUncached(p, rec).flatMap { pack0 =>
                     ifaceRes.flatMap { iface0 =>
-                      val derived = Package.interfaceOf(pack0)
+                      val derived = PackageSignatures.viewOf(iface, Package.interfaceOf(pack0))
                       if (iface0.equals(derived)) Success(Right(pack0))
                       else
                         Failure(
@@ -2526,7 +2527,7 @@ object ProtoConverter {
           val deserIface: proto.Interface => Try[Package.Interface] = { p =>
             load(iname(p)).map {
               case Left((iface, _)) => iface
-              case Right(pack)      => Package.interfaceOf(pack)
+              case Right(pack)      => PackageSignatures.viewOf(p, Package.interfaceOf(pack))
             }
           }
 
