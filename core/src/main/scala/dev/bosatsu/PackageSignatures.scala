@@ -274,7 +274,7 @@ object PackageSignatures {
                 (ds, Some(r))
               case Some(rs) =>
                 throw CliException.Basic(s"ambiguous interface $display in ${rs.map(_.file).sorted.mkString(", ")}")
-              case None => throw CliException.Basic(s"missing interface: $display")
+              case None => throw CliException.Basic(s"unknown package ${p.asString}, missing interface: $display")
             }
           }
           // Sources implicitly import Predef. Visit it first so its definitions
