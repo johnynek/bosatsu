@@ -3,7 +3,7 @@ package dev.bosatsu.tool_command
 import cats.syntax.all._
 import com.monovore.decline.Opts
 import dev.bosatsu.{CompileOptions, LocationMap, PlatformIO}
-import dev.bosatsu.tool.{CliException, CompilerApi, Output, PackageResolver}
+import dev.bosatsu.tool.{CliException, CompilerApi, InterfaceLabels, Output, PackageResolver}
 
 object CompilePackagesCommand {
   def opts[F[_], Path](platform: PlatformIO[F, Path]): Opts[F[Output[Path]]] = {
@@ -12,11 +12,14 @@ object CompilePackagesCommand {
       (
         Opts.options[Path]("src", "Bosatsu source file (repeatable)"),
         Opts.options[Path]("direct-interface", "dependency signature (repeatable)").orEmpty,
+        Opts.option[Path]("interface-labels", "JSON map of declared signature files to labels").orNone,
+        Opts.flag("error-unused-interfaces", "reject any unused direct interface file").orFalse,
         Opts.option[Path]("packages-out", "compiled implementation bundle"),
         Opts.option[Path]("sig-out", "public package signature")
-      ).mapN { (srcs, deps, packagesOut, sigOut) =>
+      ).mapN { (srcs, deps, labelMap, strict, packagesOut, sigOut) =>
         platform.withEC {
           val color = LocationMap.Colorize.None
+          val paths = deps.distinct.sortBy(platform.pathToString)
           for {
             sources <- CompilerApi.loadSources(
               platform, srcs.distinctBy(platform.pathToString).sortBy(platform.pathToString),
@@ -25,9 +28,12 @@ object CompilePackagesCommand {
             _ <- moduleIOMonad.raiseWhen(sources.exists(_.packageName.isPredef))(
               CliException.Basic("Bosatsu/Predef is implicit in compile-packages")
             )
+            labels <- labelMap.fold(moduleIOMonad.pure(Map.empty[Path, String]))(
+              InterfaceLabels.read(platform, _, paths)
+            )
             members <- CompilerApi.compileWithSignatures(
-              platform, sources, deps.distinct.sortBy(platform.pathToString), Nil,
-              useExplicitPredef = false, color, CompileOptions.Default, None
+              platform, sources, paths.map(p => p -> labels.get(p)), Nil,
+              useExplicitPredef = false, errorUnusedInterfaces = strict, color, CompileOptions.Default, None
             )
           } yield Output.PackageGroup(members, packagesOut, sigOut): Output[Path]
         }

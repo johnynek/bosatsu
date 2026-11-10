@@ -198,6 +198,7 @@ Build a group in one invocation. Pass its signature to a downstream group.
   --packages-out gen/api.bosatsu_package --sig-out gen/api.bosatsig
 ./bosatsu tool compile-packages --src app/Main.bosatsu \
   --direct-interface gen/api.bosatsig \
+  --error-unused-interfaces \
   --packages-out gen/main.bosatsu_package --sig-out gen/main.bosatsig
 ```
 
@@ -208,6 +209,12 @@ public exposures. A multi-package signature can contain other roots whose
 dependencies are unavailable. The compiler decodes only the roots this group
 needs. A private body or opaque field edit can change the implementation while
 preserving the signature bytes.
+
+`--error-unused-interfaces` fails if a declared signature supplies none of
+the packages the group needs. For example, if the API exposes a type from a
+second provider, pass both signatures. A provider used only inside the API’s
+implementation can be omitted. Build tools can add `--interface-labels FILE`
+to include target labels in missing, ambiguous and unused dependency errors.
 
 ## 11) Run tests
 

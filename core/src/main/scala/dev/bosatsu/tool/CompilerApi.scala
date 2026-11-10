@@ -4,6 +4,7 @@ import _root_.bosatsu.{TypedAst => proto}
 import cats.data.{Ior, NonEmptyList, Validated, ValidatedNel}
 import dev.bosatsu.cache.{CompileCache, InferCache, InferPhases}
 import dev.bosatsu.{
+  CollectionUtils,
   CompileOptions,
   Declaration,
   Expr,
@@ -760,37 +761,51 @@ object CompilerApi {
   private[bosatsu] def compileWithSignatures[F[_], Path](
       platform: PlatformIO[F, Path],
       sources: NonEmptyList[PackageResolver.SourceFile[F, Path]],
-      paths: List[Path],
+      paths: List[(Path, Option[String])],
       libraries: List[(Path, proto.Interfaces)],
       useExplicitPredef: Boolean,
+      errorUnusedInterfaces: Boolean,
       color: Colorize,
       options: CompileOptions,
       cache: Option[Path]
   )(using Par.EC): F[List[Package.Compiled]] = {
     import platform.{moduleIOMonad, showPath}
-    val byName = sources.toList.groupBy(_.packageName)
+    // The planner indexes requirements by package name. A duplicate must be
+    // reported before one source's imports could replace the other's.
+    val unique = CollectionUtils.uniqueByKey(sources)(_.packageName)
+      .fold(Left(_), Right(_), (duplicates, _) => Left(duplicates))
     val requirements = sources.toList.map { src =>
       src.packageName -> (src.imports.map(_.pack) ::: src.exposes.flatten).distinct
     }
     for {
-      files <- paths.traverse { path =>
+      byName <- moduleIOMonad.fromEither(unique.leftMap { duplicates =>
+        val paths = duplicates.map { case (first, rest) => (first.path.show, rest.map(_.path.show)) }
+        PackageErrors(Map.empty, NonEmptyList.one(PackageError.DuplicatedPackageError(paths)), color)
+      })
+      files <- paths.traverse { case (path, label) =>
+        val input = PackageSignatures.Input(path, label)
         platform.readInterfaceBundle(path).adaptError { case e =>
-          CliException.Basic(show"cannot read signature $path: ${e.getMessage}")
-        }.map(path -> _)
+          CliException.Basic(s"cannot read signature ${input.display}: ${e.getMessage}")
+        }.map(input -> _)
       }
-      bundles = files ::: libraries
+      bundles = files ::: libraries.map { case (path, entries) =>
+        PackageSignatures.Input(path, None) -> entries
+      }
       explicitPredef = useExplicitPredef && bundles.exists(_._2.interfaces.exists(i =>
         ProtoConverter.iname(i) == PackageName.PredefName.asString))
       builtin = !explicitPredef
-      stages <- platform.canPromiseF.compute(PackageSignatures.plan(bundles, requirements, builtin))
+      resolution <- platform.canPromiseF.compute(PackageSignatures.plan(bundles, requirements, builtin))
         .flatMap(moduleIOMonad.fromTry)
+      _ <- moduleIOMonad.whenA(errorUnusedInterfaces)(
+        moduleIOMonad.fromTry(resolution.checkUsed(files.map(_._1)))
+      )
       initial: PackageSignatures.Providers =
         if (builtin) PackageSignatures.implicitProviders else Map.empty
-      result <- stages.foldLeftM((initial, List.empty[Package.Compiled])) {
+      result <- resolution.stages.foldLeftM((initial, List.empty[Package.Compiled])) {
         case ((available, members), stage) =>
           for {
             bound <- platform.canPromiseF.compute(stage.bind(available)).flatMap(moduleIOMonad.fromTry)
-            batch = NonEmptyList.fromList(stage.sources.flatMap(byName))
+            batch = NonEmptyList.fromList(stage.sources.map(byName.toSortedMap))
             compiled <- batch.toList.flatTraverse { inputs =>
               typeCheckLoaded(platform, inputs, bound.valuesIterator.map(_.iface).toList,
                 color, options, cache).map(_._1.toMap.valuesIterator.toList)

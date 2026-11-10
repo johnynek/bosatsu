@@ -20,7 +20,8 @@ import dev.bosatsu.{
   PackageName,
   Par,
   Parser,
-  Predef
+  Predef,
+  ProtoConverter
 }
 import scala.collection.immutable.SortedMap
 
@@ -134,6 +135,67 @@ class ClangGenLibraryDepsTest extends munit.FunSuite {
         case Left(err) =>
           fail(err.display.render(80))
       }
+    }
+  }
+
+  test("two private releases of one library resolve and emit distinct C globals") {
+    type Library = DecodedLibraryWithDeps[Algo.Blake3]
+    val predef = Package.interfaceOf(PackageMap.predefCompiled)
+    def library(name: String, version: Version, pack: PackageName, source: String, deps: List[Library]): Library = {
+      val ifaces = predef :: deps.flatMap(_.lib.interfaces)
+      val compiled = typeCheck(source, ifaces).toMap(pack)
+      val descriptor = proto.LibDescriptor(version = Some(version.toProto))
+      val raw = proto.Library(
+        name = name, descriptor = Some(descriptor),
+        exportedIfaces = List(ProtoConverter.interfaceToProto(Package.interfaceOf(compiled)).get),
+        internalPackages = List(ProtoConverter.packageToProto(compiled).get),
+        privateDependencies = deps.map(_.lib.toDep)
+      )
+      // A release decodes against its own dependencies. In particular the
+      // decoded wrapper on the right must never see the left wrapper's pick.
+      val bytes = raw.toByteArray
+      val artifact = proto.Library.parseFrom(bytes)
+      val (exports, packages) = ProtoConverter.packagesFromProto(
+        artifact.exportedIfaces, artifact.internalPackages, ifaces
+      ).get
+      val value = DecodedLibrary[Algo.Blake3](
+        Name(name), version, Algo.hashBytes[Algo.Blake3](bytes),
+        artifact, exports, PackageMap.fromIterable(packages)
+      )
+      DecodedLibraryWithDeps(value, SortedMap.from(deps.map(d => d.nameVersion -> d)))
+    }
+
+    val common = PackageName.parts("Shared", "Api")
+    val v1 = Version(1, 0, 0)
+    val v2 = Version(2, 0, 0)
+    val first = library("shared", v1, common,
+      "package Shared/Api\nexport pick\ndef pick(i: Int) -> Int: i\n", Nil)
+    val second = library("shared", v2, common,
+      "package Shared/Api\nexport pick\ndef pick(flag: Bool) -> Int: 2 if flag else 0\n", Nil)
+    def wrapper(name: String, arg: String, dep: Library): Library =
+      library(name, v1, PackageName.parts(name),
+        s"package $name\nfrom Shared/Api import pick\nexport answer\nanswer = pick($arg)\n", List(dep))
+    val left = wrapper("Left", "1", first)
+    val right = wrapper("Right", "True", second)
+    val rootName = PackageName.parts("App")
+    val root = library("app", v1, rootName,
+      "package App\nfrom Left import answer as one\nfrom Right import answer as two\nmain = (one, two)\n",
+      List(left, right))
+
+    Par.withEC {
+      val ns = CompilationSource.namespace(root)
+      assertEquals(ns.depFor(left.nameVersion, common), first.nameVersion)
+      assertEquals(ns.depFor(right.nameVersion, common), second.nameVersion)
+      assertEquals(root.depFor(common), None)
+      val gen = new ClangGen(ns)
+      val pick = Identifier.Name("pick")
+      val oldSymbol = gen.generatedName(first.nameVersion, common, pick).name
+      val newSymbol = gen.generatedName(second.nameVersion, common, pick).name
+      assertNotEquals(oldSymbol, newSymbol)
+      val rendered = gen.renderMain(rootName, Identifier.Name("main"), Code.Ident("run_main"))
+        .fold(e => fail(e.display.render(80)), _.render(120))
+      assert(rendered.contains(oldSymbol), oldSymbol)
+      assert(rendered.contains(newSymbol), newSymbol)
     }
   }
 
