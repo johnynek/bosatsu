@@ -34,6 +34,9 @@ object Algo {
   trait Blake3
   object Blake3 extends Blake3
 
+  trait Sha256
+  object Sha256 extends Sha256
+
   implicit def apply[A](implicit algo: Algo[A]): Algo[A] = algo
 
   implicit val blake3Algo: Algo[Blake3] =
@@ -56,6 +59,31 @@ object Algo {
         h.update(bytes, offset, len)
       def finishHash(h: Hasher): HashValue[Blake3] =
         HashValue(h.doneHex(64))
+    }
+
+  val sha256Algo: Algo[Sha256] =
+    new Algo[Sha256] {
+      def name: String = "sha256"
+      def hexLen: Int = 64
+      def hashBytes(bytes: Array[Byte]): HashValue[Sha256] = {
+        val hasher = newHasher()
+        val updated = hashBytes(hasher, bytes, 0, bytes.length)
+        finishHash(updated)
+      }
+
+      type Hasher = Sha256Hash.Hasher
+      def newHasher(): Hasher = new Sha256Hash.Hasher()
+      def hashBytes(
+          h: Hasher,
+          bytes: Array[Byte],
+          offset: Int,
+          len: Int
+      ): Hasher = {
+        h.update(bytes, offset, len)
+        h
+      }
+      def finishHash(h: Hasher): HashValue[Sha256] =
+        HashValue(h.finishHex())
     }
 
   sealed abstract class WithAlgo[F[_]] {
@@ -123,5 +151,7 @@ object Algo {
     }
 
   val parseIdent: Parser[WithAlgo[HashValue]] =
-    parseHashValue(blake3Algo).map(WithAlgo(blake3Algo, _))
+    parseHashValue(blake3Algo)
+      .map(WithAlgo(blake3Algo, _))
+      .orElse(parseHashValue(sha256Algo).map(WithAlgo(sha256Algo, _)))
 }

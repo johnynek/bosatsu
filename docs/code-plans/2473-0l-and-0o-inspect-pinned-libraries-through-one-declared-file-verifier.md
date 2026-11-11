@@ -8,8 +8,8 @@
 - Flow: `small_job`
 - Issue: `#2473` 0l and 0o: Inspect pinned libraries through one declared-file verifier
 - Pending steps: `5`
-- Completed steps: `0`
-- Total steps: `5`
+- Completed steps: `1`
+- Total steps: `6`
 
 ## Summary
 
@@ -31,7 +31,7 @@ Scope is limited to hashing support, the shared inspection verifier, its checked
 
 ## Steps
 
-1. [ ] `step_1` Extend the existing hash abstraction with portable incremental SHA-256
+1. [x] `step_1` Extend the existing hash abstraction with portable incremental SHA-256
 
 Extend `core/src/main/scala/dev/bosatsu/hashing/Algo.scala` with a SHA-256 algorithm marker, `Algo` instance, and `sha256:<64 lowercase hex digits>` parsing alongside BLAKE3. Implement the small SHA-256 compression/update/finalization engine in shared hashing code so JVM and Scala.js use identical synchronous behavior without host crypto processes or a JVM-only dependency. Keep hasher buffers encapsulated and return immutable `HashValue` results. Move the existing `Sha256Hash` compatibility helper into shared code and delegate its one-shot function to the new instance, removing the redundant JVM implementation. Preserve existing BLAKE3 identifier and hashing behavior. Add `AlgoTest` under the shared hashing tests and run it on both coreJVM and coreJS.
 
@@ -52,7 +52,28 @@ Extend `core/src/main/scala/dev/bosatsu/hashing/Algo.scala` with a SHA-256 algor
 - Reject unknown algorithms, uppercase or nonhex digits, wrong digest lengths, and trailing identifier text.
 - Check the retained Sha256Hash helper returns the new Algo instance's one-shot result.
 
-2. [ ] `step_2` Build the shared artifact verifier and immutable checked closure
+#### Completion Notes
+
+Added `Algo.Sha256`, portable shared incremental SHA-256, SHA-256 identifier parsing, and moved the `Sha256Hash` compatibility helper into shared code. Added `AlgoTest` with SHA-256 and BLAKE3 vectors, padding-boundary checks, incremental chunk/slice properties, and parser coverage. `sbt "coreJVM/testOnly dev.bosatsu.hashing.AlgoTest"` passed all 6 tests. The Scala.js build compiled the shared implementation and test sources, but could not execute the suite because `npm` is unavailable; the remaining cross-platform runtime check is recorded in `step_1_js_runtime`.
+
+2. [ ] `step_1_js_runtime` Run the hash suite on Scala.js
+
+Finish the cross-platform acceptance check for step_1 by running `sbt "coreJS/testOnly dev.bosatsu.hashing.AlgoTest"`. In this round, Scala.js compiled the shared core and test sources, but the task stopped at `npmInstallDependencies` because the worker has no `npm` executable. The same shared API and vectors must run on Scala.js, and the remaining verifier, projection, and command steps cannot cover that requirement. Run the command in a worker environment with Node.js and npm available; if it exposes a platform-specific defect in the shared hasher, fix it and rerun the suite. This step is complete when the command executes and all `AlgoTest` cases pass.
+
+#### Invariants
+
+- Scala.js uses the same shared implementation and hash vectors as JVM.
+- Existing BLAKE3 behavior and identifiers remain unchanged.
+
+#### Property Tests
+
+- The shared incremental and identifier properties pass under Scala.js.
+
+#### Assertion Tests
+
+- Run `sbt "coreJS/testOnly dev.bosatsu.hashing.AlgoTest"` successfully with all tests passing.
+
+3. [ ] `step_2` Build the shared artifact verifier and immutable checked closure
 
 Add `library/VerifiedLibrary.scala` with constructor-restricted immutable artifact, scoped edge, and complete graph values. Extend the existing `Algo`, `Library.getVersion`, and `DecodedLibrary` mechanisms rather than creating a second semantic decoder. The artifact verifier takes an immutable snapshot of original file bytes, an expected name/version, and nonempty external expected hashes. Verify all supplied hash identifiers before trusting the artifact's metadata, then parse its envelope and check embedded identity. Compute SHA-256 and BLAKE3 from that same snapshot for downstream descriptors; self-declared root hashes never replace the external pin.
 
@@ -81,7 +102,7 @@ The complete bounded edge inventory is `publicDependencies`, `privateDependencie
 - Show descriptor bootstrap succeeds with unavailable children and undecodable interfaces, while full inspection rejects incomplete context.
 - Use original-byte variants, including retained protobuf unknown fields, to ensure verification never hashes a reserialized message.
 
-3. [ ] `step_3` Project canonical signatures and scoped consumer metadata
+4. [ ] `step_3` Project canonical signatures and scoped consumer metadata
 
 Add `tool/LibraryInspection.scala` to project only from the checked values introduced in step 2. Reuse `PackageSignatures` canonical encoding and reader/binding helpers for exported interfaces; expose a small existing helper where needed instead of copying its legacy re-export logic. Resolve foreign owners in each verified library's own context, including its recorded public resolution dependencies, and derive old-release exposures from typed exports. Missing or ambiguous providers needed to interpret a typed reference must fail with the referring scope; do not choose the first matching package across the entire graph.
 
@@ -110,7 +131,7 @@ Keep signatures separate from scope/digest metadata so private implementation or
 - Check exported API edits change signatures, while implementation-only edits change implementation digests without changing signatures.
 - Check the external descriptor's hashes match original full-file bytes and descriptor-only output does not claim closure verification.
 
-4. [ ] `step_4` Expose inspection through the existing file-command lifecycle
+5. [ ] `step_4` Expose inspection through the existing file-command lifecycle
 
 Add `tool_command/InspectLibraryCommand.scala` and register it in `ToolCommand` and `FileCommandRunner.supports`. Use explicit `--input`, `--expected-name`, `--expected-version`, repeated `--expected-hash`, and optional `--dependency-map` arguments. Full inspection accepts independently optional `--sig-out`, `--exposures-out`, `--implementation-out`, `--membership-out`, and `--descriptor-out`, requiring at least one output. Even a single full-mode projection requires the verified closure. `--descriptors-only` requires `--descriptor-out`, rejects semantic projection options and a dependency map, and reads only the pinned input. An absent dependency map means an empty declared child set, allowing a leaf root.
 
@@ -141,7 +162,7 @@ Register `inspect-library` in the shared worker-safe operation classification if
 - Retain existing EmitC alias regressions and verify legacy extract-iface still retains its historical envelope behavior.
 - When the worker dispatcher exists, test inspection's safe registration through its existing dispatcher tests.
 
-5. [ ] `step_5` Qualify pinned offline inspection and complete the design tracker
+6. [ ] `step_5` Qualify pinned offline inspection and complete the design tracker
 
 Keep a released compatibility fixture at `cli/src/test/resources/library-inspection/core_alpha-v9.0.1.bosatsu_lib` with a sibling pin manifest recording its original release URI, identity, and BLAKE3 `098f5eff00611599b54b5e6bce8b7696c8fdf89f4e99f8bfbbec521764ed8927`, as supplied by `test_workspace/core_alpha_conf.json`. Acquisition during fixture preparation may download that exact release, but verify the pin before committing the binary; ordinary tests and command execution must use the committed declared file without fetching or skipping when unavailable. Keep these fixture artifacts in the PR.
 
