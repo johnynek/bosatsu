@@ -1374,6 +1374,9 @@ object Matchless {
       Let.bindNamed(captureTmpNames.zip(captures), withArgTmps)
     }
 
+    // only computed if we reach a LetMut
+    lazy val argMutIds: Set[Long] = args.foldMap(allLocalAnonMutIds)
+
     def loop(ex: Expr[A], aliases: Map[Bindable, Lambda[A]]): Expr[A] =
       resolveAlias(ex, aliases, Set.empty) match {
         case lam: Lambda[A] if lam.arity == args.length =>
@@ -1414,6 +1417,11 @@ object Matchless {
           // We stop when the let-bound name appears in any argument. Pushing would
           // risk changing which binder those argument references resolve to.
           else App(let, args)
+        case letMut @ LetMut(name, in) =>
+          // topLevelFunctionArity looks through LetMut, so we must push through
+          // it too, or recoverTopLevelLambda builds x => letMut(x).
+          if (!argMutIds(name.ident)) LetMut(name, loop(in, aliases))
+          else App(letMut, args)
         case other =>
           // No additional structure to push through; keep this as a regular call.
           App(other, args)
@@ -3350,6 +3358,20 @@ object Matchless {
             knownValue(fn1, env, Set.empty, Set.empty).getOrElse(fn1)
 
           recoverTopLevelLambda(resolvedFn) match {
+            case Lambda(Nil, None, lamArgs, App(body, bodyArgs))
+                if (body eq resolvedFn) &&
+                  bodyArgs.length == lamArgs.length &&
+                  bodyArgs.iterator.zip(lamArgs.iterator).forall {
+                    case (Local(n), a) => n == a
+                    case _             => false
+                  } =>
+              // recoverTopLevelLambda could not push the call inside, so this
+              // is just x => resolvedFn(x). Inlining it would rebuild the same
+              // call and loop until the stack overflows. applyArgs handles every
+              // shape topLevelFunctionArity accepts, so this is a safety net.
+              // $COVERAGE-OFF$
+              App(resolvedFn, args1)
+            // $COVERAGE-ON$
             case lam: Lambda[A] if lam.arity == args1.length =>
               recurExpr(inlineApplyArgs(lam, args1), env)
             case _ =>

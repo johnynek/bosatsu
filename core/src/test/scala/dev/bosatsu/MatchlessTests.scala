@@ -2289,6 +2289,79 @@ main = (cmp_guard, enum_guard)
     }
   }
 
+  test("Matchless.applyArgs pushes through LetMut unless an arg uses it") {
+    val mut = Matchless.LocalAnonMut(7L)
+    val k = Matchless.Local(Identifier.Name("k"))
+    val y = Matchless.Local(Identifier.Name("y"))
+    val letMutExpr: Matchless.Expr[Unit] = Matchless.LetMut(mut, k)
+
+    assertEquals(
+      Matchless.applyArgs(letMutExpr, NonEmptyList.one(y)),
+      Matchless.LetMut(mut, Matchless.App(k, NonEmptyList.one(y)))
+    )
+    assertEquals(
+      Matchless.applyArgs(letMutExpr, NonEmptyList.one(mut)),
+      Matchless.App(letMutExpr, NonEmptyList.one(mut))
+    )
+  }
+
+  // A function chosen by a match with mutable pattern slots lowers to
+  // LetMut(..., If(cond, lambda, lambda)). Applying it used to make
+  // simplifyKnownConditions inline x => letMut(x) forever (until the stack
+  // overflowed), which took minutes.
+  private def letMutFunction: Matchless.Expr[Unit] = {
+    val a = Identifier.Name("a")
+    val b = Identifier.Name("b")
+    def lam(arg: Bindable, fn: String): Matchless.Expr[Unit] =
+      Matchless.Lambda(
+        Nil,
+        None,
+        NonEmptyList.one(arg),
+        Matchless.App(
+          Matchless.Local(Identifier.Name(fn)),
+          NonEmptyList.one(Matchless.Local(arg))
+        )
+      )
+    Matchless.LetMut(
+      Matchless.LocalAnonMut(0L),
+      Matchless.If(
+        Matchless.CheckVariant(
+          Matchless.Local(Identifier.Name("c")),
+          0,
+          0,
+          List(0, 0)
+        ),
+        lam(a, "left"),
+        lam(b, "right")
+      )
+    )
+  }
+
+  test("Matchless.recoverTopLevelLambda pushes apply through LetMut") {
+    Matchless.recoverTopLevelLambda(letMutFunction) match {
+      case Matchless.Lambda(
+            Nil,
+            None,
+            _,
+            Matchless.LetMut(_, Matchless.If(_, _: Matchless.Let[Unit], _))
+          ) =>
+        ()
+      case other =>
+        fail(s"expected the apply pushed under LetMut, found: $other")
+    }
+  }
+
+  test("Matchless.simplifyKnownConditions inlines an applied LetMut function") {
+    val y = Matchless.Local(Identifier.Name("y"))
+    val expr = Matchless.App(letMutFunction, NonEmptyList.one(y))
+    val simplified = Matchless.simplifyKnownConditions(expr)
+    simplified match {
+      case Matchless.LetMut(_, Matchless.If(_, _, _)) => ()
+      case other                                      =>
+        fail(s"expected the function to be inlined, found: $other")
+    }
+  }
+
   test(
     "Matchless.recoverTopLevelLambda pushes apply into branches and beta-reduces"
   ) {
