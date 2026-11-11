@@ -1,6 +1,7 @@
 package dev.bosatsu
 
 import _root_.bosatsu.{TypedAst => proto}
+import cats.Show
 import cats.data.NonEmptyList
 import dev.bosatsu.cache.CompileCache
 import dev.bosatsu.Identifier.{Constructor, Name}
@@ -52,8 +53,11 @@ class PackageSignaturesTest extends munit.FunSuite {
       bundles: List[(String, proto.Interfaces)], requirements: List[(PackageName, List[PackageName])]
   ): Try[List[Package.Interface]] =
     for {
-      stages <- PackageSignatures.plan(bundles, requirements, builtinPredef = true)
-      providers <- stages.foldLeft(Try(PackageSignatures.implicitProviders))(
+      resolution <- PackageSignatures.plan(
+        bundles.map { case (path, bundle) => PackageSignatures.Input(path, None) -> bundle },
+        requirements, builtinPredef = true
+      )
+      providers <- resolution.stages.foldLeft(Try(PackageSignatures.implicitProviders))(
         (acc, stage) => acc.flatMap(stage.bind)
       )
     } yield providers.valuesIterator.map(_.iface).filterNot(_.name.isPredef).toList.sortBy(_.name)
@@ -119,6 +123,39 @@ class PackageSignaturesTest extends munit.FunSuite {
     assertEquals(decoded.head, PackageSignatures.canonical(wrapper))
   }
 
+  test("strict interface attribution counts the original file once for all selected roots") {
+    val packed = PackageSignatures.Input("packed.sig", Some("//:packed"))
+    val unused = PackageSignatures.Input("extra.sig", Some("//:extra"))
+    val sibling = PackageName.parts("Sibling")
+    val local = PackageName.parts("Local")
+    val bundles = List(
+      packed -> signature(facadeIface, ownerIface, interface(sibling, Nil)),
+      unused -> signature(interface(local, Nil), PackageSignatures.predef)
+    )
+    val sources = List(client -> List(local, facade, PackageName.PredefName), local -> Nil)
+    val selected = success(PackageSignatures.plan(bundles, sources, builtinPredef = true))
+    assertEquals(selected.origins, Map(facade -> packed, owner -> packed))
+    assertEquals(success(selected.checkUsed(List(packed))), ())
+    assertEquals(selected.checkUsed(List(packed, unused)).failed.get.getMessage,
+      "unused direct interfaces: extra.sig (//:extra)")
+    val reversed = success(PackageSignatures.plan(bundles.reverse, sources.reverse, builtinPredef = true))
+    assertEquals(reversed.origins, selected.origins)
+  }
+
+  test("strict interface checks use path identity even when diagnostic names coincide") {
+    final case class FileId(id: Int)
+    given Show[FileId] = Show.show(_ => "packages.sig")
+    val selected = PackageSignatures.Input(FileId(1), Some("//:group"))
+    val other = PackageSignatures.Input(FileId(2), Some("//:group"))
+    val resolution = success(PackageSignatures.plan(
+      List(selected -> signature(ownerIface), other -> signature()),
+      List(client -> List(owner)), builtinPredef = true
+    ))
+    assertEquals(resolution.origins, Map(owner -> selected))
+    assertEquals(resolution.checkUsed(List(selected, other)).failed.get.getMessage,
+      "unused direct interfaces: packages.sig (//:group)")
+  }
+
   test("unindexed signatures recover exposures only for selected roots") {
     val missingType = Type.const(PackageName.parts("Missing"), TypeName(Constructor("T")))
     val unused = interface(PackageName.parts("Sibling"),
@@ -152,10 +189,10 @@ class PackageSignaturesTest extends munit.FunSuite {
     val predef = interface(PackageName.PredefName, List(
       ExportedName.Binding(Name("provided"), Referant.Value(publicType.toTypeTyConst))
     ))
-    val stages = success(PackageSignatures.plan(
-      List("custom.sig" -> signature(predef, owned)), List(client -> Nil), builtinPredef = false
+    val resolution = success(PackageSignatures.plan(
+      List(PackageSignatures.Input("custom.sig", None) -> signature(predef, owned)), List(client -> Nil), builtinPredef = false
     ))
-    val restored = stages.foldLeft(Map.empty[PackageName, PackageSignatures.PublicInterface])(
+    val restored = resolution.stages.foldLeft(Map.empty[PackageName, PackageSignatures.PublicInterface])(
       (providers, stage) => success(stage.bind(providers))
     )
     assertEquals(restored(PackageName.PredefName).iface, predef)

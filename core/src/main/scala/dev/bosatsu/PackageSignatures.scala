@@ -175,6 +175,10 @@ object PackageSignatures {
       }.as(iface)
     }
 
+  private[bosatsu] final case class Input[P](path: P, label: Option[String]) {
+    def display(using Show[P]): String = label.fold(path.show)(l => show"$path ($l)")
+  }
+
   private final class Root(val name: PackageName, val file: String, wire: proto.Interface) {
     // Unselected siblings are indexed by name only, including legacy entries.
     private lazy val entry = symbolicReferences(wire)
@@ -270,18 +274,33 @@ object PackageSignatures {
     }
   }
 
+  /** The selected owner of each external package, before files are combined.
+    * Local members and implicit Predef have no entry. A physical file can
+    * supply several selected packages or just one root of a wide signature.
+    */
+  private[bosatsu] final case class Resolution[P](stages: List[Stage], origins: Map[PackageName, Input[P]]) {
+    def checkUsed(declared: List[Input[P]])(using Show[P]): Try[Unit] = {
+      val used = origins.valuesIterator.map(_.path).toSet
+      val extra = declared.filterNot(input => used(input.path)).map(_.display).sorted
+      if (extra.isEmpty) Success(())
+      else Failure(CliException.Basic(s"unused direct interfaces: ${extra.mkString(", ")}"))
+    }
+  }
+
   private[bosatsu] def plan[P: Show](
-      bundles: List[(P, proto.Interfaces)],
+      bundles: List[(Input[P], proto.Interfaces)],
       sources: List[(PackageName, List[PackageName])],
       builtinPredef: Boolean
-  ): Try[List[Stage]] = Try {
+  ): Try[Resolution[P]] = Try {
     val providers = bundles.flatMap { case (file, bundle) =>
+      val display = file.display
       bundle.interfaces.toList.map { entry =>
         val pn = entry.strings.lift(entry.packageName - 1).flatMap(PackageName.parse)
-          .getOrElse(throw CliException.Basic(s"invalid root package name in ${file.show}"))
-        pn -> Root(pn, file.show, entry)
+          .getOrElse(throw CliException.Basic(s"invalid root package name in $display"))
+        pn -> (file, Root(pn, display, entry))
       }
     }.groupMap(_._1)(_._2)
+    val origins = mutable.Map.empty[PackageName, Input[P]]
     val locals = sources.toMap
     val active = mutable.Set.empty[PackageName]
     val stages = mutable.Map.empty[PackageName, Int]
@@ -297,13 +316,20 @@ object PackageSignatures {
       head match {
         case Visit(p, path) if !stages.contains(p) =>
           val route = p :: path
-          def display = route.reverseIterator.map(_.asString).mkString(" -> ")
+          def display = {
+            val chain = route.reverseIterator.map(_.asString).mkString(" -> ")
+            val supplied = route.reverseIterator.flatMap { pn =>
+              origins.get(pn).map(input => s"${pn.asString} from ${input.display}")
+            }.mkString(", ")
+            if (supplied.isEmpty) chain else s"$chain [$supplied]"
+          }
           if (!active.add(p))
             throw CliException.Basic(s"cyclic interface dependencies: $display")
           val (deps, root) = locals.get(p) match {
             case Some(ds) => (ds, None)
             case None => providers.get(p) match {
-              case Some(r :: Nil) =>
+              case Some((input, r) :: Nil) =>
+                origins.update(p, input)
                 val ds = Try(r.dependencies.map { dep =>
                   PackageName.parse(dep).getOrElse(throw CliException.Basic(s"invalid package '$dep'"))
                 }).recover { case e =>
@@ -311,7 +337,7 @@ object PackageSignatures {
                 }.get
                 (ds, Some(r))
               case Some(rs) =>
-                throw CliException.Basic(s"ambiguous interface $display in ${rs.map(_.file).sorted.mkString(", ")}")
+                throw CliException.Basic(s"ambiguous interface $display in ${rs.map(_._1.display).sorted.mkString(", ")}")
               case None => throw CliException.Basic(s"unknown package ${p.asString}, missing interface: $display")
             }
           }
@@ -337,11 +363,12 @@ object PackageSignatures {
           val _ = active.remove(p)
       }
     }
-    (0 to stages.valuesIterator.maxOption.getOrElse(-1)).toList.map { i =>
+    val ordered = (0 to stages.valuesIterator.maxOption.getOrElse(-1)).toList.map { i =>
       new Stage(
         rootsByStage.get(i).fold(List.empty[Root])(_.toList),
         sourcesByStage.get(i).fold(List.empty[PackageName])(_.toList)
       )
     }
+    Resolution(ordered, origins.toMap)
   }
 }
