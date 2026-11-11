@@ -1,12 +1,14 @@
 package dev.bosatsu
 
 import _root_.bosatsu.{TypedAst => proto}
-import cats.MonadError
+import cats.{Eval, Hash, MonadError}
 import cats.effect.{IO, Resource}
 import cats.effect.kernel.Deferred
 import com.monovore.decline.Argument
 import java.nio.charset.StandardCharsets
 import java.nio.file.{Paths, Path => JPath, Files}
+import java.nio.file.{FileSystemLoopException, NoSuchFileException}
+import java.nio.file.attribute.BasicFileAttributes
 import java.io.{
   FileInputStream,
   FileOutputStream,
@@ -27,6 +29,42 @@ object IOPlatformIO extends IOPlatformIO
 class IOPlatformIO extends PlatformIO[IO, JPath] {
   type F[A] = IO[A]
   type Path = JPath
+  type FileKey = Either[JPath, JFileKey]
+  val fileKeyHash: Hash[FileKey] = {
+    given Hash[JPath] = Hash.fromUniversalHashCode
+    Hash[FileKey]
+  }
+
+  def pendingOutputPath(path: Path): IO[Path] = IO.blocking {
+    def target(p: Path, links: Set[Path]): Eval[Path] = Eval.defer {
+      try Eval.now(p.toRealPath())
+      catch { case err: NoSuchFileException =>
+        val parent = Option(p.getParent).getOrElse(throw err)
+        target(parent, links).flatMap { dir =>
+          // Resolve the parent before '..'. Publishing can create a missing
+          // directory or follow a dangling link before processing that segment.
+          val leaf = dir.resolve(p.getFileName).normalize()
+          if (!Files.isSymbolicLink(leaf)) Eval.now(leaf)
+          else if (links(leaf)) throw new FileSystemLoopException(leaf.toString)
+          else target(leaf.resolveSibling(Files.readSymbolicLink(leaf)), links + leaf)
+        }
+      }
+    }
+    target(diskPath(path).toAbsolutePath, Set.empty).value
+  }
+
+  def withTempDirectoryIn[A](parent: Path)(fn: Path => IO[A]): IO[A] =
+    Resource.make(IO.blocking(Files.createTempDirectory(diskPath(parent), ".bosatsu-probe-")))(
+      deleteRecursively
+    ).use(fn)
+
+  def existingFileKey(path: Path): IO[Option[FileKey]] = IO.blocking {
+    val target = diskPath(path)
+    try {
+      val attrs = Files.readAttributes(target, classOf[BasicFileAttributes])
+      Some(JFileKey.fromAttributes(attrs).toRight(target.toRealPath()))
+    } catch { case _: NoSuchFileException => None }
+  }
 
   // Keep compiler-visible paths independent of the machine running a request.
   // Only translate them when crossing the filesystem boundary.
@@ -404,7 +442,11 @@ class IOPlatformIO extends PlatformIO[IO, JPath] {
 
   def writePackages(packages: List[Package.Compiled], path: Path): IO[Unit] =
     IO.fromTry(ProtoConverter.packagesToProto(packages))
-      .flatMap(write(_, path))
+      .flatMap(writePackageBundle(_, path))
+
+  override def readPackageBundle(path: Path): IO[proto.Packages] = read[proto.Packages](path)
+
+  override def writePackageBundle(bundle: proto.Packages, path: Path): IO[Unit] = write(bundle, path)
 
   def writeLibrary(lib: proto.Library, path: Path): IO[Unit] =
     write(lib, path)

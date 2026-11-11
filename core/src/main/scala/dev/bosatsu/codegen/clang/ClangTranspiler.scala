@@ -117,14 +117,7 @@ case object ClangTranspiler extends Transpiler {
                 ns.testEntries.iterator.filter { case (p, _) => k(p) }.toList
             }).sortBy(_._1)
 
-            val errors =
-              filtered.collect { case (pn, Left(err)) => (pn, err) }
-            NonEmptyList.fromList(errors) match {
-              case Some(errs) =>
-                Left(InvalidTestDiscovery(errs))
-              case None       =>
-                Right(filtered.collect { case (pn, Right(entry)) => (pn, entry) })
-            }
+            discoveredTests(filtered)
           case Test.SelectionMode.ByValue(packageName, bindable) =>
             val knownPacks = ns.rootPackages.toList.sorted
             if (!ns.rootPackages.contains(packageName)) {
@@ -728,6 +721,14 @@ case object ClangTranspiler extends Transpiler {
     def stdOutDoc: Doc = Doc.empty
     def exitCode: ExitCode = ExitCode.Error
   }
+
+  private[bosatsu] def discoveredTests[A](
+      entries: List[(PackageName, Either[Package.TestDiscoveryError, Package.TestEntry[A]])]
+  ): Either[InvalidTestDiscovery, List[(PackageName, Package.TestEntry[A])]] =
+    NonEmptyList.fromList(entries.collect { case (pn, Left(err)) => (pn, err) }) match {
+      case Some(errors) => Left(InvalidTestDiscovery(errors))
+      case None => Right(entries.collect { case (pn, Right(entry)) => (pn, entry) })
+    }
 
   case class InvalidTestDiscovery(
       errors: NonEmptyList[(PackageName, Package.TestDiscoveryError)]

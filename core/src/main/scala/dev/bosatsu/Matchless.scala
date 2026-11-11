@@ -5404,6 +5404,17 @@ object Matchless {
       te: TypedExpr[A],
       variantOf: (PackageName, Constructor) => Option[DataRepr],
       makeAnon: F[Long]
+  ): F[Expr[B]] =
+    fromLetRaw(from, name, rec, te, variantOf, makeAnon, standardInt64Intrinsics = true)
+
+  private[bosatsu] def fromLetRaw[F[_]: Monad: Defer, A, B: Order](
+      from: B,
+      name: Bindable,
+      rec: RecursionKind,
+      te: TypedExpr[A],
+      variantOf: (PackageName, Constructor) => Option[DataRepr],
+      makeAnon: F[Long],
+      standardInt64Intrinsics: Boolean
   ): F[Expr[B]] = {
 
     type UnionMatch =
@@ -5530,7 +5541,7 @@ object Matchless {
         Some(BuiltinCompareDomain.IntDomain)
       else if ((pack == PackageName.PredefName) && (fnName == eqFloat64Name))
         Some(BuiltinCompareDomain.Float64Domain)
-      else if ((pack == int64PackageName) && (fnName == eqInt64Name))
+      else if (standardInt64Intrinsics && (pack == int64PackageName) && (fnName == eqInt64Name))
         Some(BuiltinCompareDomain.Int64Domain)
       else None
 
@@ -5542,7 +5553,7 @@ object Matchless {
         Some(BuiltinCompareDomain.IntDomain)
       else if ((pack == PackageName.PredefName) && (fnName == cmpFloat64Name))
         Some(BuiltinCompareDomain.Float64Domain)
-      else if ((pack == int64PackageName) && (fnName == cmpInt64Name))
+      else if (standardInt64Intrinsics && (pack == int64PackageName) && (fnName == cmpInt64Name))
         Some(BuiltinCompareDomain.Int64Domain)
       else None
 
@@ -5652,13 +5663,13 @@ object Matchless {
         case (
               TypedExpr.Global(pack, fnName, _, _),
               literalArg :: Nil
-            ) if (pack == int64PackageName) && (fnName == intLowBitsToInt64Name) =>
+            ) if standardInt64Intrinsics && (pack == int64PackageName) && (fnName == intLowBitsToInt64Name) =>
           maybeLiteralIntValue(literalArg).map(value => LitInt64(value.longValue))
 
         case (
               TypedExpr.Global(pack, fnName, _, _),
               literalArg :: Nil
-            ) if (pack == int64PackageName) && (fnName == intToInt64Name) =>
+            ) if standardInt64Intrinsics && (pack == int64PackageName) && (fnName == intToInt64Name) =>
           maybeLiteralIntValue(literalArg).map { value =>
             try optionSomeExpr(LitInt64(value.longValueExact()))
             catch {

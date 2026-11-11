@@ -349,6 +349,8 @@ jobs:
           assert "-DBSTS_CI=1" in conf["flags"] or "-DBSTS_CI=1" in conf["iflags"], conf
           print(f"validated {conf_path}")
           PY
+      - name: "link and run tests emitted from compiled package bundles"
+        run: 'python3 scripts/test_emit_c.py --jar cli/target/scala-*/bosatsu-cli-assembly-*.jar --cc-conf ".bosatsuc/$(./bosatsuj version -g)/cc_conf.json"'
       - name: "generate and compile c code"
         run: "./bosatsuj tool transpile --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu c --outdir c_out --test --exe_out test_exe --cc_flag=-O0 --cc_lib=-lm"
       - name: "run generated c code"
@@ -473,6 +475,8 @@ jobs:
           assert "-DBSTS_CI=1" in conf["flags"] or "-DBSTS_CI=1" in conf["iflags"], conf
           print(f"validated {conf_path}")
           PY
+      - name: "link and run tests emitted from compiled package bundles"
+        run: 'python3 scripts/test_emit_c.py --jar cli/target/scala-*/bosatsu-cli-assembly-*.jar --cc-conf ".bosatsuc/$(./bosatsuj version -g)/cc_conf.json"'
       - name: "generate and compile c code"
         run: "./bosatsuj tool transpile --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu c --outdir c_out --test --exe_out test_exe --cc_flag=-O0 --cc_lib=-lm"
       - name: "run generated c code"

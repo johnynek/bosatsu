@@ -1,6 +1,7 @@
 package dev.bosatsu
 
-import cats.Eq
+import cats.{Eq, Hash}
+import cats.collections.HashMap
 import cats.effect.{IO, Resource}
 import cats.implicits._
 import cats.effect.unsafe.implicits.global
@@ -56,6 +57,30 @@ class IOPlatformIOTest extends munit.ScalaCheckSuite {
     }
 
     tempRes.use(fn).unsafeRunSync()
+  }
+
+  test("file-key Hash preserves native identity across reads and aliases") {
+    withTempDir { root =>
+      val original = Files.writeString(root.resolve("original"), "contents")
+      val other = Files.writeString(root.resolve("other"), "contents")
+      val hard = Files.createLink(root.resolve("hard"), original)
+      val symbolic = Files.createSymbolicLink(root.resolve("symbolic"), original)
+      val paths = List(original, original, hard, symbolic, other)
+      val keys = paths.traverse(IOPlatformIO.existingFileKey).unsafeRunSync().flatten
+      assertEquals(keys.size, paths.size)
+      // This fixture must exercise native identities. A resolved-path fallback
+      // alone cannot equate distinct hard-link names.
+      assert(keys.forall(_.isRight))
+      given Hash[IOPlatformIO.FileKey] = IOPlatformIO.fileKeyHash
+      val identity = Hash[IOPlatformIO.FileKey]
+      keys.take(4).foreach { key =>
+        assert(identity.eqv(key, keys.head))
+        assertEquals(identity.hash(key), identity.hash(keys.head))
+      }
+      assert(!identity.eqv(keys.head, keys.last))
+      val index = HashMap.fromSeq(keys.map(_ -> ()))
+      assertEquals(index.size, 2)
+    }
   }
 
   test("we can roundtrip interfaces through file") {

@@ -31,11 +31,11 @@ object CompilePackagesCommand {
             labels <- labelMap.fold(moduleIOMonad.pure(Map.empty[Path, String]))(
               InterfaceLabels.read(platform, _, paths)
             )
-            members <- CompilerApi.compileWithSignatures(
+            group <- CompilerApi.compileWithSignatures(
               platform, sources, paths.map(p => p -> labels.get(p)), Nil,
               useExplicitPredef = false, errorUnusedInterfaces = strict, color, CompileOptions.Default, None
             )
-          } yield Output.PackageGroup(members, packagesOut, sigOut): Output[Path]
+          } yield Output.PackageGroup(group.members, group.dependencies, packagesOut, sigOut): Output[Path]
         }
       }
     }

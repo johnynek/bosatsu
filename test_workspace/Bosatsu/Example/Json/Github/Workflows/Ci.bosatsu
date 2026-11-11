@@ -43,6 +43,11 @@ from Bosatsu/Example/Json/Github/Workflows/Util import (
   verify_graalvm_native_image_pin_cmd,
 )
 
+emit_c_suite_step = Step {
+  name: Set("link and run tests emitted from compiled package bundles"),
+  run: Set('python3 scripts/test_emit_c.py --jar cli/target/scala-*/bosatsu-cli-assembly-*.jar --cc-conf ".bosatsuc/$(./bosatsuj version -g)/cc_conf.json"'),
+}
+
 struct WorkflowJobsTest(
   `runs-on`: String,
   steps: List[Step[FetchJavaWith]],
@@ -390,6 +395,7 @@ workflow =
             run: Set(install_vendored_c_runtime_cmd),
           },
           Step { name: Set("test runtime code"), run: Set(run_c_runtime_ci) },
+          emit_c_suite_step,
           Step { name: Set("generate and compile c code"), run: Set(transpile_c_cmd) },
           Step { name: Set("run generated c code"), run: Set("./c_out/test_exe") },
           Step {
@@ -457,6 +463,7 @@ workflow =
             run: Set(install_vendored_c_runtime_cmd),
           },
           Step { name: Set("test runtime code"), run: Set(run_c_runtime_ci) },
+          emit_c_suite_step,
           Step { name: Set("generate and compile c code"), run: Set(transpile_c_cmd) },
           Step { name: Set("run generated c code"), run: Set("./c_out/test_exe") },
           Step { name: Set("run test"), run: Set(run_lib_test_c) },

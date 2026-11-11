@@ -34,6 +34,19 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
         b: Bindable
     ): Option[(Code.Include, Code.Ident, Int)]
 
+    final def filter(keep: (K, PackageName, Bindable) => Boolean): ExternalResolver = {
+      val underlying = this
+      new ExternalResolver {
+        def names: Iterable[(K, PackageName, SortedSet[Bindable])] =
+          underlying.names.map { case (k, pack, values) =>
+            (k, pack, values.filter(keep(k, pack, _)))
+          }
+
+        def apply(k: K, pack: PackageName, name: Bindable): Option[(Code.Include, Code.Ident, Int)] =
+          if (keep(k, pack, name)) underlying(k, pack, name) else None
+      }
+    }
+
     final def generateExternalsStub: SortedMap[String, Doc] = {
       val includes = Code.Include.quote("bosatsu_runtime.h") :: Nil
 
@@ -192,9 +205,9 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
       }
   }
 
-  private def render(res: env.T[Unit]): Either[Error, Doc] = {
+  private def render(res: env.T[Unit], externals: ExternalResolver): Either[Error, Doc] = {
     import env.monadImpl
-    env.run(allValues, ExternalResolver.stdExternals, deps *> res)
+    env.run(allValues, externals, deps *> res)
   }
 
   // the Code.Ident should be a function with signature:
@@ -204,12 +217,18 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
       value: Bindable,
       runner: Code.Ident
   ): Either[Error, Doc] =
-    render(env.renderMain(pn, value, runner))
+    render(env.renderMain(pn, value, runner), ExternalResolver.stdExternals)
 
   def renderTests(
       values: List[(PackageName, Package.TestEntry[Any])]
   ): Either[Error, Doc] =
-    render(env.renderTests(values))
+    renderTests(values, ExternalResolver.stdExternals)
+
+  def renderTests(
+      values: List[(PackageName, Package.TestEntry[Any])],
+      externals: ExternalResolver
+  ): Either[Error, Doc] =
+    render(env.renderTests(values), externals)
 
   private def fullName(k: K, p: PackageName, b: Bindable): String =
     ns.identOf(k, p).mkString_("/") + "/" + b.sourceCodeRepr
@@ -834,7 +853,8 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
           fnName: Bindable,
           args: NonEmptyList[Expr[K]]
       ): Option[T[Code.ValueLike]] =
-        args match {
+        if (!ns.standardInt64Intrinsics) None
+        else args match {
           case NonEmptyList(Literal(Lit.Integer(value)), Nil)
               if pack == int64PackageName && fnName == intToInt64Name =>
             try Some(int64SomeLiteral(value.longValueExact()))

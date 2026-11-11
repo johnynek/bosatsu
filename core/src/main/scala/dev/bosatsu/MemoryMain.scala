@@ -1,7 +1,7 @@
 package dev.bosatsu
 
 import _root_.bosatsu.{TypedAst => proto}
-import cats.MonadError
+import cats.{Hash, MonadError}
 import cats.data.{Chain, StateT, Validated}
 import com.monovore.decline.Argument
 import java.nio.charset.StandardCharsets
@@ -189,6 +189,8 @@ object MemoryMain {
     new PlatformIO[StateF[G], Chain[String]] {
       type F[A] = StateT[G, State, A]
       type Path = Chain[String]
+      type FileKey = Chain[String]
+      val fileKeyHash: Hash[FileKey] = Hash[FileKey]
 
       private sealed trait PromiseState[+A]
       private object PromiseState {
@@ -405,6 +407,12 @@ object MemoryMain {
               case None           => None
             }
           }
+
+      def existingFileKey(p: Path): F[Option[FileKey]] =
+        StateT.inspect[G, State, Option[FileKey]](_.get(p).map(_ => p))
+      def pendingOutputPath(p: Path): F[Path] = moduleIOMonad.pure(p)
+      def withTempDirectoryIn[A](parent: Path)(fn: Path => F[A]): F[A] =
+        withTempPrefix("output-probe")(fn)
 
       def resolve(p: Chain[String], child: String): Chain[String] =
         p :+ child

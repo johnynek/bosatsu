@@ -2,7 +2,7 @@ package dev.bosatsu
 
 import _root_.bosatsu.{TypedAst => proto}
 
-import cats.{MonadError, Parallel, Show}
+import cats.{Hash, MonadError, Parallel, Show}
 import cats.data.ValidatedNel
 import cats.parse.{Parser0 => P0}
 import com.monovore.decline.Argument
@@ -63,6 +63,11 @@ trait PlatformIO[F[_], Path] {
     }
 
   def readPackages(paths: List[Path]): F[List[Package.Compiled]]
+  def readPackageBundle(path: Path): F[proto.Packages] =
+    readBytes(path).flatMap(bytes => canPromiseF.compute(proto.Packages.parseFrom(bytes)))
+
+  def writePackageBundle(bundle: proto.Packages, path: Path): F[Unit] =
+    writeBytes(path, bundle.toByteArray)
   def readInterfaceBundle(path: Path): F[proto.Interfaces] =
     readBytes(path).flatMap(bytes => moduleIOMonad.fromTry(Try(proto.Interfaces.parseFrom(bytes))))
 
@@ -88,6 +93,20 @@ trait PlatformIO[F[_], Path] {
   ): F[Either[PlatformIO.FetchHashFailure, Unit]]
 
   def fsDataType(p: Path): F[Option[PlatformIO.FSDataType]]
+
+  /** Filesystem identity after following links. Equal keys identify the same
+    * existing file, including hard links when the filesystem supplies native
+    * identities. Otherwise implementations fall back to the resolved path.
+    * Equality and hashing apply only within one operation on a static
+    * filesystem. Never use a key in an artifact or a compiler cache key.
+    */
+  type FileKey
+  def fileKeyHash: Hash[FileKey]
+  def existingFileKey(path: Path): F[Option[FileKey]]
+  /** Resolve a prospective output name without creating it. */
+  def pendingOutputPath(path: Path): F[Path]
+  /** Use the destination filesystem's naming rules when probing output aliases. */
+  def withTempDirectoryIn[A](parent: Path)(fn: Path => F[A]): F[A]
 
   def fileExists(p: Path): F[Boolean] =
     fsDataType(p).map {

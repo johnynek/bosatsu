@@ -60,7 +60,7 @@ object CheckCommand {
             platformIO, sources, ifacePaths.map(_ -> None), libraries,
             useExplicitPredef = true, errorUnusedInterfaces = false, errColor, CompileOptions.NoOptimize, compileCacheDirOpt
           )
-        } yield PackageMap.fromIterable(resPacks)
+        } yield PackageMap.fromIterable(resPacks.members)
       }
     } yield packs
   }
