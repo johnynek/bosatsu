@@ -1,7 +1,7 @@
 package dev.bosatsu.tool
 
 import _root_.bosatsu.{TypedAst => proto}
-import cats.Show
+import cats.{Order, Show}
 import cats.data.NonEmptyList
 import cats.syntax.all._
 import dev.bosatsu.{Identifier, Kind, Package, PackageMap, PackageName, PackageSignatures, PlatformIO, ProtoConverter, Referant}
@@ -14,7 +14,7 @@ import scala.util.Try
   */
 private[bosatsu] final class LocalRuntime[P] private (
     val packages: PackageMap.Compiled,
-    val members: Map[P, NonEmptyList[PackageName]],
+    val members: SortedMap[P, NonEmptyList[PackageName]],
     bindings: SortedMap[PackageName, SortedSet[Identifier.Bindable]]
 ) {
   def hasBinding(pack: PackageName, name: Identifier.Bindable): Boolean =
@@ -24,6 +24,7 @@ private[bosatsu] final class LocalRuntime[P] private (
 private[bosatsu] object LocalRuntime {
   def load[F[_], P](platform: PlatformIO[F, P], manifest: LocalRuntimeManifest[P]): F[LocalRuntime[P]] = {
     import platform.{moduleIOMonad, showPath}
+    given Order[P] = Order.fromOrdering(using platform.pathOrdering)
     for {
       bundles <- manifest.packages.traverse { path =>
         platform.readPackageBundle(path)
@@ -36,13 +37,14 @@ private[bosatsu] object LocalRuntime {
     } yield scope
   }
 
-  private def decode[P: Show](
+  private def decode[P: Show: Order](
       bundles: NonEmptyList[(P, proto.Packages)],
       bindings: SortedMap[PackageName, SortedSet[Identifier.Bindable]]
   ): Try[LocalRuntime[P]] = Try {
+    given Ordering[P] = Order[P].toOrdering
     val owners = mutable.Map.empty[PackageName, P]
     val encoded = List.newBuilder[proto.Package]
-    val members = bundles.toList.map { case (file, bundle) =>
+    val members = SortedMap.from(bundles.toList.map { case (file, bundle) =>
       val names = bundle.packages.iterator.map { pack =>
         val raw = ProtoConverter.pname(pack)
         val name = PackageName.parse(raw).getOrElse(
@@ -57,7 +59,7 @@ private[bosatsu] object LocalRuntime {
       }.toList.sorted
       file -> NonEmptyList.fromList(names).getOrElse(
         throw CliException.Basic(show"empty implementation bundle $file"))
-    }.toMap
+    })
 
     // Decode jointly so imports can bind to actual declarations across bundle
     // boundaries. The codec uses the compiler's implicit Predef interface.
@@ -110,7 +112,7 @@ private[bosatsu] object LocalRuntime {
 
   private def checkRequirements[P: Show](
       bundles: NonEmptyList[(P, proto.Packages)],
-      members: Map[P, NonEmptyList[PackageName]],
+      members: SortedMap[P, NonEmptyList[PackageName]],
       packages: PackageMap.Compiled
   ): Unit = {
     // Cache only inside this graph load. Several callers can share a wide

@@ -12,6 +12,7 @@ import dev.bosatsu.rankn.Type
 import dev.bosatsu.tool.{CliException, LocalRuntime, LocalRuntimeManifest, Output}
 import java.util.Locale
 import org.typelevel.paiges.Doc
+import scala.collection.immutable.SortedSet
 
 object EmitCCommand {
   private def fileName[F[_], P](platform: PlatformIO[F, P], path: P): String =
@@ -63,9 +64,9 @@ object EmitCCommand {
   }
 
   private def checkOutputFiles[F[_], P](
-      platform: PlatformIO[F, P], inputs: Set[P], outputs: List[P]
+      platform: PlatformIO[F, P], inputs: SortedSet[P], outputs: List[P]
   ): F[Unit] = {
-    import platform.{moduleIOMonad, showPath}
+    import platform.{moduleIOMonad, pathOrdering, showPath}
     given Hash[platform.FileKey] = platform.fileKeyHash
     type Key = Either[P, platform.FileKey]
     outputs.traverse { p =>
@@ -78,11 +79,11 @@ object EmitCCommand {
       val existing = files.collect { case (Right(key), path) => key -> path }
       val byKey = HashMap.fromSeq(existing)
       val pending = files.collect { case (Left(path), _) => path }
-      if (byKey.size != existing.size || pending.distinct.size != pending.size)
+      if (byKey.size != existing.size || SortedSet.from(pending).size != pending.size)
         moduleIOMonad.raiseError(CliException.Basic("multiple C outputs refer to the same file"))
       else {
         checkPendingNames(platform, pending) *> moduleIOMonad.whenA(byKey.nonEmpty) {
-          inputs.toList.traverse_ { p =>
+          inputs.traverse_ { p =>
             platform.existingFileKey(p).flatMap(_.flatMap(byKey.get).traverse_ { out =>
               moduleIOMonad.raiseError[Unit](CliException.Basic(show"output $out refers to runtime input $p"))
             })
@@ -172,7 +173,7 @@ object EmitCCommand {
   }
 
   def opts[F[_], P](platform: PlatformIO[F, P]): Opts[F[Output[P]]] = {
-    import platform.{moduleIOMonad, pathArg, showPath}
+    import platform.{moduleIOMonad, pathArg, pathOrdering, showPath}
     Opts.subcommand("emit-c", "emit C from declared compiled packages") {
       (
         Opts.option[P]("runtime-manifest", "local runtime graph JSON"),
@@ -183,11 +184,11 @@ object EmitCCommand {
         platform.withEC {
           for {
             manifest <- LocalRuntimeManifest.read(platform, file)
-            _ <- moduleIOMonad.raiseUnless(manifest.packages.toList.contains(selected))(
+            _ <- moduleIOMonad.raiseUnless(manifest.packages.exists(pathOrdering.equiv(_, selected)))(
               CliException.Basic(show"test bundle $selected is absent from runtime manifest $file"))
-            inputs = manifest.packages.toList.toSet + file
+            inputs = SortedSet.from(manifest.packages.toList) + file
             outputs = out :: headerPaths
-            _ <- moduleIOMonad.raiseWhen(outputs.distinct.size != outputs.size)(
+            _ <- moduleIOMonad.raiseWhen(SortedSet.from(outputs).size != outputs.size)(
               CliException.Basic("emit-c requires distinct C and header output paths"))
             _ <- outputs.find(inputs).traverse_(p =>
               moduleIOMonad.raiseError[Unit](CliException.Basic(show"output $p is also a runtime input")))
