@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2474` 0i: Emit program C from a selected compiled package group
-- Pending steps: `3`
-- Completed steps: `0`
+- Pending steps: `2`
+- Completed steps: `1`
 - Total steps: `3`
 
 ## Summary
@@ -33,7 +33,7 @@ Follow-up proposal: apply the checked native Main/Prog representation contract t
 
 ## Steps
 
-1. [ ] `step_1` Allow program rendering with an explicit external resolver
+1. [x] `step_1` Allow program rendering with an explicit external resolver
 
 In `core/src/main/scala/dev/bosatsu/codegen/clang/ClangGen.scala`, add a `renderMain` overload taking the existing package, binding, runner, and an explicit `ExternalResolver`, matching the pattern used by `renderTests`. Make the existing three-argument overload delegate with `ExternalResolver.stdExternals`; use explicit arguments rather than default arguments. Both overloads must invoke the same existing rendering implementation.
 
@@ -53,6 +53,10 @@ Add focused regressions in `core/src/test/scala/dev/bosatsu/codegen/clang/ClangG
 
 - For an existing compiled fixture, the original overload and the overload explicitly supplied with stdExternals produce identical rendered C.
 - A main containing an external reference fails with UnknownValue when its resolver excludes that symbol and succeeds when the resolver permits it.
+
+#### Completion Notes
+
+Added the explicit-resolver `renderMain` overload and made the existing overload delegate to it. The focused regression confirms default-rendering compatibility and that filtering a referenced external makes rendering fail. `coreJVM/test:compile`, the targeted `ClangGenTest` case, and `git diff --check` passed.
 
 2. [ ] `step_2` Implement checked local program selection through the shared emission path
 

@@ -1726,13 +1726,42 @@ main = same
         .strictToValidated
         .fold(errs => fail(errs.toList.mkString("\n")), identity)
     }
-    val renderedE = Par.withEC {
-      ClangGen(pm).renderMain(
+    val (renderedE, renderedWithResolverE, missingExternalE) = Par.withEC {
+      val clangGen = ClangGen(pm)
+      val float64Package = PackageName.parts("Bosatsu", "Num", "Float64")
+      val float32BitsToFloat64 = Identifier.Name("float32_bits_to_Float64")
+      val standardExternals = clangGen.ExternalResolver.stdExternals
+      val rendered = clangGen.renderMain(
         PackageName.parts("Test"),
         Identifier.Name("main"),
         Code.Ident("run_main")
       )
+      val renderedWithResolver = clangGen.renderMain(
+        PackageName.parts("Test"),
+        Identifier.Name("main"),
+        Code.Ident("run_main"),
+        standardExternals
+      )
+      val missingExternalResolver = standardExternals.filter {
+        (_, packageName, bindable) =>
+          packageName != float64Package || bindable != float32BitsToFloat64
+      }
+      val missingExternal = clangGen.renderMain(
+        PackageName.parts("Test"),
+        Identifier.Name("main"),
+        Code.Ident("run_main"),
+        missingExternalResolver
+      )
+      (rendered, renderedWithResolver, missingExternal)
     }
+    assertEquals(
+      renderedWithResolverE.map(_.render(120)),
+      renderedE.map(_.render(120))
+    )
+    assert(
+      missingExternalE.isLeft,
+      "the supplied resolver must resolve references"
+    )
 
     renderedE match {
       case Left(err) =>
