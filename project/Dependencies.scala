@@ -18,7 +18,7 @@ object Dependencies {
   lazy val jacksonYaml = Def.setting(
     "com.fasterxml.jackson.dataformat" % "jackson-dataformat-yaml" % "2.23.0"
   )
-  lazy val jna = Def.setting("net.java.dev.jna" % "jna" % "5.19.0")
+  lazy val jna = Def.setting("net.java.dev.jna" % "jna" % "5.19.1")
   // SDK shipped with the pinned GraalVM Java 23.0.2 builder.
   lazy val nativeImageSdk =
     Def.setting("org.graalvm.sdk" % "nativeimage" % "24.1.2")
