@@ -5,20 +5,60 @@ import cats.MonadError
 import cats.data.Validated
 import cats.effect.{IO, Resource}
 import cats.effect.kernel.Deferred
-import fs2.io.file.{Files, Path}
+import fs2.io.file.{FileKey as FsKey, Files, NoSuchFileException, Path}
 import com.monovore.decline.Argument
 import org.typelevel.paiges.Doc
 import dev.bosatsu.graph.CanPromise
 import dev.bosatsu.hashing.{Algo, Hashed, HashValue}
 import scala.util.{Failure, Success, Try}
 import scala.scalajs.js
+import scala.scalajs.js.annotation.JSImport
 import scala.scalajs.js.Dynamic.global
 import scala.scalajs.js.typedarray.Uint8Array
 
 import cats.syntax.all._
 import scalapb.{GeneratedMessage, GeneratedMessageCompanion}
 
+@js.native
+@JSImport("fs/promises", "readlink")
+private object ReadLink extends js.Function1[String, js.Promise[String]] {
+  def apply(path: String): js.Promise[String] = js.native
+}
+
 object Fs2PlatformIO extends PlatformIO[IO, Path] {
+  type FileKey = Either[Path, FsKey]
+
+  def withTempDirectoryIn[A](parent: Path)(fn: Path => IO[A]): IO[A] =
+    Resource.make(FilesIO.createTempDirectory(Some(parent), ".bosatsu-probe-", None))(
+      FilesIO.deleteRecursively(_)
+    ).use(fn)
+
+  def existingFileKey(path: Path): IO[Option[FileKey]] =
+    FilesIO.getBasicFileAttributes(path, followLinks = true).flatMap { attrs =>
+      attrs.fileKey match {
+        case Some(key) => IO.pure(Some(Right(key)): Option[FileKey])
+        case None => FilesIO.realPath(path).map(p => Some(Left(p)): Option[FileKey])
+      }
+    }.recover { case _: NoSuchFileException => None }
+
+  def pendingOutputPath(path: Path): IO[Path] = {
+    // realpath requires the leaf to exist. Resolve its parent or, for a
+    // dangling symlink, the name where writing through the link would land.
+    def target(p: Path, links: Set[Path]): IO[Path] =
+      FilesIO.realPath(p).recoverWith { case _: NoSuchFileException =>
+        target(p.parent.getOrElse(Path(".")), links).flatMap { dir =>
+          val leaf = dir.resolve(p.fileName).normalize
+          FilesIO.isSymbolicLink(leaf).recover { case _: NoSuchFileException => false }.flatMap {
+            case true if links(leaf) => IO.raiseError(new java.io.IOException(s"output symlink cycle at $leaf"))
+            case true => IO.fromPromise(IO(ReadLink(leaf.toString)))
+              .flatMap(s => target(leaf.resolveSibling(Path(s)), links + leaf))
+            case false => IO.pure(leaf)
+          }
+        }
+      }
+    target(path, Set.empty)
+  }
+
   def moduleIOMonad: MonadError[IO, Throwable] =
     IO.asyncForIO
 
@@ -386,7 +426,7 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
 
   def writeDoc(p: Path, d: Doc): IO[Unit] = {
     val pipe = FilesIO.writeUtf8(p)
-    pipe(docStream(d)).compile.drain
+    p.parent.traverse_(FilesIO.createDirectories(_)) *> pipe(docStream(d)).compile.drain
   }
 
   private def onParts(doc: Doc)(fn: String => IO[Unit]): IO[Unit] =

@@ -2309,7 +2309,7 @@ object ProtoConverter {
           // dependencies can point to external packages not included in this proto blob
           Nil
         case None =>
-          sys.error(s"could not find node named: $n a dependency of $parent")
+          throw CliException.Basic(s"missing package $n required by ${nodeName(parent)}")
       }
 
     // we only call this when we have done validation

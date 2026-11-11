@@ -11,6 +11,13 @@ object MatchlessFromTypedExpr {
   def compileRaw[K: Order, A](
       from: K,
       pm: PackageMap.Typed[A]
+  )(implicit ec: Par.EC): Compiled[K] =
+    compileRaw(from, pm, standardInt64Intrinsics = true)
+
+  private[bosatsu] def compileRaw[K: Order, A](
+      from: K,
+      pm: PackageMap.Typed[A],
+      standardInt64Intrinsics: Boolean
   )(implicit ec: Par.EC): Compiled[K] = {
 
     val gdr = pm.getDataRepr
@@ -53,7 +60,7 @@ object MatchlessFromTypedExpr {
                 lets
                   .traverse { case (name, rec, te) =>
                     Matchless
-                      .fromLetRaw(from, name, rec, te, variantOf, c)
+                      .fromLetRaw(from, name, rec, te, variantOf, c, standardInt64Intrinsics)
                       .map((name, _))
                   }
               }
@@ -73,7 +80,10 @@ object MatchlessFromTypedExpr {
       pm: PackageMap.Typed[A],
       localPassOptions: Matchless.LocalPassOptions
   )(implicit ec: Par.EC): Compiled[K] =
-    compileRaw(from, pm).view.mapValues { lets =>
+    cleanup(compileRaw(from, pm), localPassOptions)
+
+  private[bosatsu] def cleanup[K: Order](raw: Compiled[K], localPassOptions: Matchless.LocalPassOptions): Compiled[K] =
+    raw.view.mapValues { lets =>
       lets.map { case (name, expr) =>
         (name, Matchless.postLoweringCleanup(expr, localPassOptions))
       }

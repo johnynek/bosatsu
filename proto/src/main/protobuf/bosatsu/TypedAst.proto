@@ -412,6 +412,21 @@ message Package {
 
 message Packages {
   repeated Package packages = 1;
+  // Present on compile-packages output, including groups with no external
+  // dependencies. Historical bundles have no recorded interface digests.
+  BuildRequirements buildRequirements = 2;
+}
+
+message BuildRequirements {
+  // One entry per selected external package, including exposure-only owners,
+  // in package-name order. Paths, labels and implementation bytes are excluded.
+  repeated InterfaceRequirement interfaces = 1;
+}
+
+message InterfaceRequirement {
+  string packageName = 1;
+  // Lowercase hex BLAKE3 of this package's canonical public Interface proto.
+  string interfaceBlake3 = 2;
 }
 
 // Message representing a Version using Semantic Versioning

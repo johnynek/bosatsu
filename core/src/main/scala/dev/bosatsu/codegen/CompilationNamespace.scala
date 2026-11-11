@@ -14,6 +14,9 @@ import dev.bosatsu.graph.Toposort
 import scala.collection.immutable.{SortedMap, SortedSet}
 
 trait CompilationNamespace[K] {
+  // Loose graphs can supply arbitrary implementations under Bosatsu/Num/Int64.
+  // Lowering and C emission must agree on whether the standard ABI is in use.
+  def standardInt64Intrinsics: Boolean = true
   implicit def keyOrder: Ordering[K]
   def keyShow: Show[K]
 

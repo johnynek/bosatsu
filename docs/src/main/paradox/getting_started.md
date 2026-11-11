@@ -216,6 +216,32 @@ second provider, pass both signatures. A provider used only inside the API’s
 implementation can be omitted. Build tools can add `--interface-labels FILE`
 to include target labels in missing, ambiguous and unused dependency errors.
 
+### Emit C for tests from compiled groups
+
+To run tests defined inside a compiled group, list the group and its reachable
+implementation bundles in a runtime manifest. For a group using only Predef’s
+native bindings, `gen/runtime.json` can contain the following JSON.
+
+```json
+{
+  "schema_version": 1,
+  "kind": "local",
+  "packages": ["gen/api.bosatsu_package", "gen/main.bosatsu_package"],
+  "externals": []
+}
+```
+
+```sh
+./bosatsu tool emit-c --runtime-manifest gen/runtime.json \
+  --test-packages gen/main.bosatsu_package --out gen/test_runner.c
+```
+
+Paths are relative to the working directory. The test runner includes the
+suites in the selected file and can use helpers from any listed dependency.
+Emission fails if the selected group contains no tests. Compile and link
+the C file with the matching Bosatsu runtime and any native dependencies.
+The compiler does not need a local C runtime installation to emit C.
+
 ## 11) Run tests
 
 From the repo root:

@@ -161,6 +161,7 @@ class PathModuleTest extends munit.FunSuite {
         "headers",
         "compile-packages",
         "validate-graph",
+        "emit-c",
         "test",
         "transpile",
         "json",

@@ -3,6 +3,7 @@ package dev.bosatsu
 import _root_.bosatsu.{TypedAst => proto}
 import cats.Show
 import cats.syntax.all._
+import dev.bosatsu.hashing.Algo
 import dev.bosatsu.rankn.{Type, TypeEnv}
 import dev.bosatsu.tool.CliException
 import scala.collection.mutable
@@ -56,6 +57,11 @@ object PackageSignatures {
 
   def encode(interfaces: List[Package.Interface]): Try[proto.Interfaces] =
     interfaces.sortBy(_.name).traverse(encodeRoot).map(proto.Interfaces(_))
+
+  private[bosatsu] def requirement(iface: Package.Interface): Try[proto.InterfaceRequirement] =
+    encodeRoot(iface).map { entry =>
+      proto.InterfaceRequirement(iface.name.asString, Algo.hashBytes[Algo.Blake3](entry.toByteArray).hex)
+    }
 
   private[bosatsu] def viewOf(
       entry: proto.Interface,

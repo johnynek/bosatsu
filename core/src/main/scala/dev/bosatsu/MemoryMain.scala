@@ -189,6 +189,7 @@ object MemoryMain {
     new PlatformIO[StateF[G], Chain[String]] {
       type F[A] = StateT[G, State, A]
       type Path = Chain[String]
+      type FileKey = Chain[String]
 
       private sealed trait PromiseState[+A]
       private object PromiseState {
@@ -405,6 +406,12 @@ object MemoryMain {
               case None           => None
             }
           }
+
+      def existingFileKey(p: Path): F[Option[FileKey]] =
+        StateT.inspect[G, State, Option[FileKey]](_.get(p).map(_ => p))
+      def pendingOutputPath(p: Path): F[Path] = moduleIOMonad.pure(p)
+      def withTempDirectoryIn[A](parent: Path)(fn: Path => F[A]): F[A] =
+        withTempPrefix("output-probe")(fn)
 
       def resolve(p: Chain[String], child: String): Chain[String] =
         p :+ child

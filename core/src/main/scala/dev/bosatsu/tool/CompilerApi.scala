@@ -756,6 +756,11 @@ object CompilerApi {
     )
   }
 
+  private[bosatsu] final case class CompiledGroup(
+      members: List[Package.Compiled],
+      dependencies: List[Package.Interface]
+  )
+
   // A local owner may have to be compiled before a foreign re-export can be
   // decoded. Read each source and signature once across all stages.
   private[bosatsu] def compileWithSignatures[F[_], Path](
@@ -768,7 +773,7 @@ object CompilerApi {
       color: Colorize,
       options: CompileOptions,
       cache: Option[Path]
-  )(using Par.EC): F[List[Package.Compiled]] = {
+  )(using Par.EC): F[CompiledGroup] = {
     import platform.{moduleIOMonad, showPath}
     // The planner indexes requirements by package name. A duplicate must be
     // reported before one source's imports could replace the other's.
@@ -817,7 +822,8 @@ object CompilerApi {
             }
           } yield (next, compiled ::: members)
       }
-    } yield result._2.sortBy(_.name)
+    } yield CompiledGroup(result._2.sortBy(_.name),
+      resolution.origins.keys.toList.sorted.map(name => result._1(name).iface))
   }
 
   private def typeCheckLoaded[IO[_], Path](
