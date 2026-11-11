@@ -148,6 +148,105 @@ class PatternTest extends munit.ScalaCheckSuite {
     assert(Pattern.Union(struct, NonEmptyList.of(inner)).substructures.isEmpty)
   }
 
+  test("substructures is not exponential in the number of unions") {
+    // The old algorithm re-walked the rest of the pattern once per union
+    // branch, so this took about 2^40 steps.
+    val names = (0 until 40).map(i => Identifier.Name(s"x$i")).toList
+    val args = names.map { n =>
+      Pattern.Union(
+        Pattern.Var(n),
+        NonEmptyList.one(Pattern.Named(n, Pattern.WildCard))
+      )
+    }
+    val pat = Pattern.PositionalStruct("Foo", args)
+    assertEquals(pat.substructures, names)
+  }
+
+  // The previous implementation, kept as an oracle. It forks the rest of the
+  // walk at every union, so only use it on patterns with few union branches.
+  private def substructuresReference(
+      pat: Pattern.Parsed
+  ): List[Identifier.Bindable] = {
+    import Pattern.{ListPart, StrPart}
+    type B = Identifier.Bindable
+
+    def loop(
+        stack: List[(Pattern.Parsed, Boolean)],
+        seen: Set[B],
+        acc: List[B]
+    ): List[B] =
+      stack match {
+        case Nil => acc.reverse
+        case ((Pattern.WildCard, _) | (Pattern.Literal(_), _)) :: tail =>
+          loop(tail, seen, acc)
+        case (Pattern.Var(v), isTop) :: tail =>
+          if (seen(v) || isTop) loop(tail, seen, acc)
+          else loop(tail, seen + v, v :: acc)
+        case (Pattern.Named(v, p), isTop) :: tail =>
+          if (seen(v) || isTop) loop((p, isTop) :: tail, seen, acc)
+          else loop((p, isTop) :: tail, seen + v, v :: acc)
+        case (
+              Pattern.StrPat(NonEmptyList(StrPart.NamedStr(_), Nil)),
+              true
+            ) :: tail =>
+          loop(tail, seen, acc)
+        case (Pattern.StrPat(items), _) :: tail =>
+          val globs = items
+            .collect { case StrPart.NamedStr(glob) => glob }
+            .filterNot(seen)
+          loop(tail, seen ++ globs, globs reverse_::: acc)
+        case (Pattern.ListPat(ListPart.NamedList(_) :: Nil), true) :: tail =>
+          loop(tail, seen, acc)
+        case (Pattern.ListPat(items), _) :: tail =>
+          val globs = items
+            .collect { case ListPart.NamedList(glob) => glob }
+            .filterNot(seen)
+          val next = items.collect { case ListPart.Item(inner) =>
+            (inner, false)
+          }
+          loop(next ::: tail, seen ++ globs, globs reverse_::: acc)
+        case (Pattern.Annotation(p, _), isTop) :: tail =>
+          loop((p, isTop) :: tail, seen, acc)
+        case (Pattern.PositionalStruct(_, params), _) :: tail =>
+          loop(params.map((_, false)) ::: tail, seen, acc)
+        case (Pattern.Union(h, t), isTop) :: tail =>
+          val all =
+            (h :: t.toList).map(p => loop((p, isTop) :: tail, seen, acc))
+          val intr = all.map(_.toSet).reduce(_.intersect(_))
+          all.flatMap(_.filter(intr)).distinct
+      }
+
+    loop((pat, true) :: Nil, Set.empty, Nil).distinct
+  }
+
+  // An upper bound on how many walks substructuresReference does.
+  private def unionForks(pat: Pattern.Parsed): Long =
+    pat match {
+      case Pattern.WildCard | Pattern.Literal(_) | Pattern.Var(_) |
+          Pattern.StrPat(_) =>
+        1L
+      case Pattern.Named(_, p)             => unionForks(p)
+      case Pattern.Annotation(p, _)        => unionForks(p)
+      case Pattern.PositionalStruct(_, ps) =>
+        ps.foldLeft(1L)((acc, p) => (acc * unionForks(p)).min(1000000L))
+      case Pattern.ListPat(items) =>
+        items.foldLeft(1L) {
+          case (acc, Pattern.ListPart.Item(p)) =>
+            (acc * unionForks(p)).min(1000000L)
+          case (acc, _) => acc
+        }
+      case Pattern.Union(h, t) =>
+        (h :: t.toList).foldLeft(0L)((acc, p) => acc + unionForks(p))
+    }
+
+  test("substructures matches the previous implementation") {
+    forAll(patGen) { p =>
+      if (unionForks(p) <= 1000L) {
+        assertEquals(p.substructures, substructuresReference(p))
+      }
+    }
+  }
+
   test("StrPat.isTotal works") {
     forAll(Generators.genStrPat, Arbitrary.arbitrary[String]) { (pat, str) =>
       pat match {
