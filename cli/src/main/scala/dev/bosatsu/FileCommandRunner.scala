@@ -15,12 +15,23 @@ final class FileCommandRunner private (compilerEC: Par.EC) {
   import FileCommandRunner._
 
   def run(directory: Path, arguments: List[String]): IO[Result] =
+    capture { (stdout, stderr) => runTo(directory, arguments, stdout, stderr) }
+
+  /** Run a classified worker operation through the same request lifecycle as
+    * standalone file commands.
+    */
+  def runWorker(directory: Path, arguments: List[String]): IO[Result] =
+    capture { (stdout, stderr) =>
+      runWorkerTo(directory, arguments, stdout, stderr)
+    }
+
+  private def capture(
+      run: (PrintStream, PrintStream) => IO[ExitCode]
+  ): IO[Result] =
     IO.defer {
       val out = new ByteArrayOutputStream
       val err = new ByteArrayOutputStream
-      runTo(
-        directory,
-        arguments,
+      run(
         new PrintStream(out, false, UTF_8),
         new PrintStream(err, false, UTF_8)
       ).map(code => Result(code, out.toString(UTF_8), err.toString(UTF_8)))
@@ -54,6 +65,35 @@ final class FileCommandRunner private (compilerEC: Par.EC) {
             .as(ExitCode.Error)
       }
       execute.handleErrorWith(module.reportException)
+    }
+
+  /** Streaming counterpart used by PathModule and the later persistent
+    * transport. Classification happens before any request is created.
+    */
+  private[bosatsu] def runWorkerTo(
+      directory: Path,
+      arguments: List[String],
+      stdout: PrintStream,
+      stderr: PrintStream
+  ): IO[ExitCode] =
+    arguments match {
+      case operationName :: commandArguments =>
+        BazelWorker.Operation.fromCommandName(operationName) match {
+          case Some(operation) =>
+            runTo(
+              directory,
+              operation.commandName :: commandArguments,
+              stdout,
+              stderr
+            )
+          case None =>
+            IO.blocking(
+              stderr.println(s"unsupported bazel worker operation: $operationName")
+            ).as(ExitCode.Error)
+        }
+      case Nil =>
+        IO.blocking(stderr.println("expected a bazel worker operation"))
+          .as(ExitCode.Error)
     }
 
   private[bosatsu] def requestPlatform(

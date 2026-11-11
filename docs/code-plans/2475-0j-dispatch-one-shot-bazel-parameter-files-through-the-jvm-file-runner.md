@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2475` 0j: Dispatch one-shot Bazel parameter files through the JVM file runner
-- Pending steps: `2`
-- Completed steps: `0`
+- Pending steps: `1`
+- Completed steps: `1`
 - Total steps: `2`
 
 ## Summary
@@ -33,7 +33,7 @@ Bazel one-shot actions cannot currently submit a multiline parameter file to the
 
 ## Steps
 
-1. [ ] `step-1` Implement classified one-shot dispatch through FileCommandRunner
+1. [x] `step-1` Implement classified one-shot dispatch through FileCommandRunner
 
 Add a small JVM module at `cli/src/main/scala/dev/bosatsu/BazelWorker.scala` for the worker-operation classification and parameter-file decoding. Represent the recognized operations with an immutable enum or equivalent checked type containing exactly `headers`, `compile-packages`, `validate-graph`, and `emit-c`. Keep this as the sole worker allowlist; FileCommandRunner.supports remains the broader standalone routing predicate. Expose the classification for reuse by the later persistent transport and registration by the inspection/verification children, without implementing those children now.
 
@@ -68,6 +68,10 @@ Run focused suites with `sbt "cli/testOnly dev.bosatsu.BazelWorkerTest dev.bosat
 - Compare successful and failing direct/worker executions for the four operations, including missing command inputs and invalid source diagnostics.
 - Run the existing strict-interface exposure/unused-interface matrix through the one-shot file path, preserving direct invocation coverage.
 - Force a multi-output worker compilation write failure, verify previous bytes survive and staging scratch is removed, then repair and succeed using the same runner. Cover byte-identical output retention and a symlink output through the worker path.
+
+#### Completion Notes
+
+Implemented strict one-file parameter decoding, the four-operation worker classification, PathModule routing, and captured/streaming FileCommandRunner entry points. Added parity, rejection, lifecycle recovery, symlink, and strict-interface coverage. The focused suites passed (42 tests, 1 skipped), and the final BazelWorkerTest rerun passed (8 tests). `bash ./test_cli.sh` passed; direct `./test_cli.sh` stopped because `/bin/sh` lacks `time`. MergeXO retains the supervised `scripts/test_basic.sh` gate.
 
 2. [ ] `step-2` Verify candidate-jar and launcher behavior and complete tracker 0j
 
