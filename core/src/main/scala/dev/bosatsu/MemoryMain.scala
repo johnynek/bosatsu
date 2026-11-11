@@ -1,7 +1,7 @@
 package dev.bosatsu
 
 import _root_.bosatsu.{TypedAst => proto}
-import cats.MonadError
+import cats.{Hash, MonadError}
 import cats.data.{Chain, StateT, Validated}
 import com.monovore.decline.Argument
 import java.nio.charset.StandardCharsets
@@ -190,6 +190,7 @@ object MemoryMain {
       type F[A] = StateT[G, State, A]
       type Path = Chain[String]
       type FileKey = Chain[String]
+      val fileKeyHash: Hash[FileKey] = Hash[FileKey]
 
       private sealed trait PromiseState[+A]
       private object PromiseState {

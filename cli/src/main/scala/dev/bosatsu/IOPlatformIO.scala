@@ -1,7 +1,7 @@
 package dev.bosatsu
 
 import _root_.bosatsu.{TypedAst => proto}
-import cats.{Eval, MonadError}
+import cats.{Eval, Hash, MonadError}
 import cats.effect.{IO, Resource}
 import cats.effect.kernel.Deferred
 import com.monovore.decline.Argument
@@ -29,7 +29,11 @@ object IOPlatformIO extends IOPlatformIO
 class IOPlatformIO extends PlatformIO[IO, JPath] {
   type F[A] = IO[A]
   type Path = JPath
-  type FileKey = Either[JPath, Object]
+  type FileKey = Either[JPath, JFileKey]
+  val fileKeyHash: Hash[FileKey] = {
+    given Hash[JPath] = Hash.fromUniversalHashCode
+    Hash[FileKey]
+  }
 
   def pendingOutputPath(path: Path): IO[Path] = IO.blocking {
     def target(p: Path, links: Set[Path]): Eval[Path] = Eval.defer {
@@ -58,7 +62,7 @@ class IOPlatformIO extends PlatformIO[IO, JPath] {
     val target = diskPath(path)
     try {
       val attrs = Files.readAttributes(target, classOf[BasicFileAttributes])
-      Some(Option(attrs.fileKey()).toRight(target.toRealPath()))
+      Some(JFileKey.fromAttributes(attrs).toRight(target.toRealPath()))
     } catch { case _: NoSuchFileException => None }
   }
 

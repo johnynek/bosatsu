@@ -1,7 +1,7 @@
 package dev.bosatsu
 
 import _root_.bosatsu.{TypedAst => proto}
-import cats.MonadError
+import cats.{Hash, MonadError}
 import cats.data.Validated
 import cats.effect.{IO, Resource}
 import cats.effect.kernel.Deferred
@@ -27,6 +27,7 @@ private object ReadLink extends js.Function1[String, js.Promise[String]] {
 
 object Fs2PlatformIO extends PlatformIO[IO, Path] {
   type FileKey = Either[Path, FsKey]
+  val fileKeyHash: Hash[FileKey] = Hash[FileKey]
 
   def withTempDirectoryIn[A](parent: Path)(fn: Path => IO[A]): IO[A] =
     Resource.make(FilesIO.createTempDirectory(Some(parent), ".bosatsu-probe-", None))(

@@ -1,6 +1,7 @@
 package dev.bosatsu.tool_command
 
-import cats.Show
+import cats.{Hash, Show}
+import cats.collections.HashMap
 import cats.data.NonEmptyList
 import cats.syntax.all._
 import com.monovore.decline.Opts
@@ -18,6 +19,8 @@ object EmitCCommand {
 
   private def checkPendingNames[F[_], P](platform: PlatformIO[F, P], paths: List[P]): F[Unit] = {
     import platform.moduleIOMonad
+    given Hash[platform.FileKey] = platform.fileKeyHash
+    type Location = (platform.FileKey, P, P)
     // Keys do not exist yet. Only probe names the filesystem might fold
     // together; ordinary C and header leaves need no scratch I/O. Non-ASCII
     // names can also alias through filesystem-specific Unicode normalization.
@@ -26,7 +29,7 @@ object EmitCCommand {
       if (names.exists(_._1.exists(_ > 127))) paths
       else names.groupMap(_._1.toUpperCase(Locale.ROOT))(_._2).valuesIterator.filter(_.size > 1).flatten.toList
 
-    def locate(p: P) = moduleIOMonad.tailRecM(p) { current =>
+    def locate(p: P): F[Location] = moduleIOMonad.tailRecM(p) { current =>
       platform.parent(current) match {
         case None => moduleIOMonad.raiseError(CliException.Basic(s"no output directory for ${platform.pathToString(p)}"))
         case Some(parent) =>
@@ -39,11 +42,15 @@ object EmitCCommand {
 
     if (candidates.lengthCompare(2) < 0) moduleIOMonad.unit
     else candidates.traverse(locate).flatMap { located =>
-      located.groupBy(_._1).values.toList.filter(_.size > 1).traverse_ { group =>
+      val grouped = located.foldLeft(HashMap.empty[platform.FileKey, List[(P, P)]]) {
+        case (groups, (key, parent, suffix)) =>
+          groups.updated(key, (parent -> suffix) :: groups.getOrElse(key, Nil))
+      }
+      grouped.valuesIterator.filter(_.size > 1).toList.traverse_ { group =>
         // Mirror absent suffixes beneath their nearest existing directory.
         // Identical leaves in genuinely case-sensitive directories stay legal.
-        platform.withTempDirectoryIn(group.head._2) { temp =>
-          group.traverse_ { case (_, _, suffix) =>
+        platform.withTempDirectoryIn(group.head._1) { temp =>
+          group.traverse_ { case (_, suffix) =>
             val marker = platform.resolve(temp, suffix)
             platform.existingFileKey(marker).flatMap {
               case Some(_) => moduleIOMonad.raiseError[Unit](CliException.Basic("multiple C outputs refer to the same file"))
@@ -59,6 +66,7 @@ object EmitCCommand {
       platform: PlatformIO[F, P], inputs: Set[P], outputs: List[P]
   ): F[Unit] = {
     import platform.{moduleIOMonad, showPath}
+    given Hash[platform.FileKey] = platform.fileKeyHash
     type Key = Either[P, platform.FileKey]
     outputs.traverse { p =>
       platform.pendingOutputPath(p).flatMap { target =>
@@ -67,11 +75,12 @@ object EmitCCommand {
     }.flatMap { files =>
       // In a clean action there are no prior outputs. Only a local rebuild
       // needs to stat the inputs, once each even with many requested headers.
-      val byKey = files.collect { case (Right(key), path) => key -> path }.toMap
-      if (files.toMap.size != files.size)
+      val existing = files.collect { case (Right(key), path) => key -> path }
+      val byKey = HashMap.fromSeq(existing)
+      val pending = files.collect { case (Left(path), _) => path }
+      if (byKey.size != existing.size || pending.distinct.size != pending.size)
         moduleIOMonad.raiseError(CliException.Basic("multiple C outputs refer to the same file"))
       else {
-        val pending = files.collect { case (Left(path), _) => path }
         checkPendingNames(platform, pending) *> moduleIOMonad.whenA(byKey.nonEmpty) {
           inputs.toList.traverse_ { p =>
             platform.existingFileKey(p).flatMap(_.flatMap(byKey.get).traverse_ { out =>

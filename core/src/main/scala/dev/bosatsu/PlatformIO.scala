@@ -2,7 +2,7 @@ package dev.bosatsu
 
 import _root_.bosatsu.{TypedAst => proto}
 
-import cats.{MonadError, Parallel, Show}
+import cats.{Hash, MonadError, Parallel, Show}
 import cats.data.ValidatedNel
 import cats.parse.{Parser0 => P0}
 import com.monovore.decline.Argument
@@ -94,11 +94,14 @@ trait PlatformIO[F[_], Path] {
 
   def fsDataType(p: Path): F[Option[PlatformIO.FSDataType]]
 
-  /** Filesystem identity after following links, for detecting an existing
-    * output that aliases a declared input. Never use this in an artifact or
-    * a compiler cache key.
+  /** Filesystem identity after following links. Equal keys identify the same
+    * existing file, including hard links when the filesystem supplies native
+    * identities. Otherwise implementations fall back to the resolved path.
+    * Equality and hashing apply only within one operation on a static
+    * filesystem. Never use a key in an artifact or a compiler cache key.
     */
   type FileKey
+  def fileKeyHash: Hash[FileKey]
   def existingFileKey(path: Path): F[Option[FileKey]]
   /** Resolve a prospective output name without creating it. */
   def pendingOutputPath(path: Path): F[Path]
