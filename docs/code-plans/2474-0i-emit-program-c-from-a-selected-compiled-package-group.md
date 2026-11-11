@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2474` 0i: Emit program C from a selected compiled package group
-- Pending steps: `2`
-- Completed steps: `1`
+- Pending steps: `1`
+- Completed steps: `2`
 - Total steps: `3`
 
 ## Summary
@@ -58,7 +58,7 @@ Add focused regressions in `core/src/test/scala/dev/bosatsu/codegen/clang/ClangG
 
 Added the explicit-resolver `renderMain` overload and made the existing overload delegate to it. The focused regression confirms default-rendering compatibility and that filtering a referenced external makes rendering fail. `coreJVM/test:compile`, the targeted `ClangGenTest` case, and `git diff --check` passed.
 
-2. [ ] `step_2` Implement checked local program selection through the shared emission path
+2. [x] `step_2` Implement checked local program selection through the shared emission path
 
 Extend `core/src/main/scala/dev/bosatsu/tool_command/EmitCCommand.scala` with a typed selector representing either tests from one bundle or a program from one bundle and package. Parse exactly one of `--test-packages FILE` or the complete pair `--main-packages FILE --main-package NAME`, using the existing package-name argument parser. Reject missing pairs, mixed modes, and missing selectors.
 
@@ -97,6 +97,10 @@ Extend `cli/src/test/scala/dev/bosatsu/EmitCCommandTest.scala` using the existin
 - Generate only requested matching headers; an invalid header request preserves old C/header files and publishes no new siblings, followed by a successful request on the same runner.
 - Exercise program mode through the shared lexical, symlink/hard-link, and output-to-output alias checks, preserving runtime inputs; retain existing filesystem case-rule coverage and staged-publication rollback tests.
 - All existing test-emission cases continue to pass, including private Test/ProgTest discovery, custom Int64 bindings, stale interface rejection, and dependency-test exclusion.
+
+#### Completion Notes
+
+Added the paired program selectors, selected-bundle membership checks, shared Main/Prog layout validation, and common native-binding, header, and output handling. Added CLI regressions for selection, layouts, externs, output safety, deterministic emission, and byte-identical retention; updated the local C emission contract. `EmitCCommandTest`, `LocalRuntimeScopeTest`, `ClangGenTest`, and `git diff --check` passed.
 
 3. [ ] `step_3` Prove bundle-only native program emission and complete tracker 0i
 

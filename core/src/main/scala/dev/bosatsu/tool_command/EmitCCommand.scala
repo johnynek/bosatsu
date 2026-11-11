@@ -15,6 +15,16 @@ import org.typelevel.paiges.Doc
 import scala.collection.immutable.SortedSet
 
 object EmitCCommand {
+  private enum Selector[P] {
+    case Tests(bundle: P)
+    case Main(bundle: P, packageName: PackageName)
+
+    def selectedBundle: P = this match {
+      case Tests(bundle)   => bundle
+      case Main(bundle, _) => bundle
+    }
+  }
+
   private def fileName[F[_], P](platform: PlatformIO[F, P], path: P): String =
     platform.pathToString(platform.parent(path).flatMap(platform.relativize(_, path)).getOrElse(path))
 
@@ -93,11 +103,15 @@ object EmitCCommand {
     }
   }
 
-  // bsts_Bosatsu_Prog_run_test calls the unboxed field with List[String],
-  // interprets the result as a native Prog, then passes its success to the
-  // Predef Test runner. A loose package controls the definitions behind both
-  // nominal names, so recognizing ProgTest alone cannot authorize those calls.
-  private def supportsNativeProgTest(packages: PackageMap.Compiled): Boolean = {
+  // The native wrappers call their unboxed field with List[String] and
+  // interpret its result using the external Prog representation. A loose
+  // package controls the definitions behind nominal names, so recognition
+  // alone cannot authorize either native call.
+  private def supportsNativeProgWrapper(
+      packages: PackageMap.Compiled,
+      wrapperType: Type.TyConst,
+      successType: Type
+  ): Boolean = {
     val owner = Type.ProgTestType.tpe.toDefined.packageName
     val progName = TypeName("Prog")
     val progType = Type.const(owner, progName)
@@ -106,7 +120,8 @@ object EmitCCommand {
     def validCallback(tpe: Type): Boolean = Type.splitQuantifiers(tpe)._3 match {
       case Type.Fun(NonEmptyList(arg, Nil), result) if arg.sameAs(argsType) =>
         Type.splitQuantifiers(result)._3 match {
-          case Type.TyApply(Type.TyApply(`progType`, _), Type.TestType) => true
+          case Type.TyApply(Type.TyApply(foundProg, _), foundSuccess)
+              if foundProg.sameAs(progType) && foundSuccess.sameAs(successType) => true
           case _ => false
         }
       case _ => false
@@ -115,13 +130,52 @@ object EmitCCommand {
     packages.toMap.get(owner).exists { pack =>
       pack.types.getType(owner, progName).exists { prog =>
         prog.isOpaque && prog.annotatedTypeParams.map(_._2) === List(Kind.Type.co, Kind.Type.co)
-      } && pack.types.getType(Type.ProgTestType).exists { wrapper =>
+      } && pack.types.getType(wrapperType).exists { wrapper =>
         wrapper.constructors match {
           case ctor :: Nil if ctor.isSingleArg => validCallback(ctor.args.head.tpe)
           case _ => false
         }
       }
     }
+  }
+
+  private def supportsNativeProgTest(packages: PackageMap.Compiled): Boolean =
+    supportsNativeProgWrapper(packages, Type.ProgTestType, Type.TestType)
+
+  private def supportsNativeMain(packages: PackageMap.Compiled): Boolean = {
+    val owner = Type.ProgTestType.tpe.toDefined.packageName
+    supportsNativeProgWrapper(packages, Type.TyConst(Type.Const.Defined(owner, TypeName("Main"))), Type.IntType)
+  }
+
+  private def externalBindings[P](
+      scope: LocalRuntime[P],
+      gen: ClangGen[Unit]
+  ): gen.ExternalResolver =
+    gen.ExternalResolver.stdExternals.filter((_, pack, name) => scope.hasBinding(pack, name))
+
+  private def finishOutput[P: Show](
+      scope: LocalRuntime[P],
+      headers: List[(String, P)],
+      out: P,
+      bindings: ClangGen[Unit]#ExternalResolver,
+      rendered: Either[ClangGen.Error, Doc]
+  ): Either[Throwable, Output[P]] = {
+    val program = rendered.leftMap {
+      case err @ ClangGen.Error.UnknownValue(_, pack, name, _)
+          if scope.packages.toMap.get(pack).exists(_.externalDefs.contains(name)) =>
+        CliException.Basic(show"missing native binding for $pack::${name.sourceCodeRepr}\n${err.display.render(80)}")
+      case err => CliException.Basic(err.display.render(80))
+    }
+    for {
+      code <- program
+      headerDocs <- {
+        lazy val stubs = bindings.generateExternalsStub
+        headers.traverse { case (name, path) =>
+          stubs.get(name).map(path -> _).toRight(
+            CliException.Basic(show"no declared external bindings generate header $path"))
+        }
+      }
+    } yield Output.TranspileOut((out -> code) :: headerDocs)
   }
 
   private def renderTests[P: Show](
@@ -148,44 +202,79 @@ object EmitCCommand {
         "incompatible Bosatsu/Prog::ProgTest for the native test runner: expected a single " +
           "List[String] -> Prog[err, Test] field and the external Bosatsu/Prog::Prog type"))
       roots = tests.iterator.map { case (pack, entry) => (pack, entry.bindable: Identifier) }.toSet
-      // A loose provider can use the standard package and symbol names with
-      // its own implementation. Only a verified standard runtime may replace
-      // those calls with the backend's built-in constant conversion.
-      ns = CompilationSource.packageMapSource[Region](useStandardInt64 = false).namespace(scope.packages).treeShake(roots)
-      gen = new ClangGen(ns)
-      // Restrict resolution at the actual C references, after tree shaking
-      // and inlining. An unreachable declaration needs no native provider.
-      bindings = gen.ExternalResolver.stdExternals.filter((_, pack, name) => scope.hasBinding(pack, name))
-      program <- gen.renderTests(tests, bindings).leftMap {
-        case err @ ClangGen.Error.UnknownValue(_, pack, name, _)
-            if scope.packages.toMap.get(pack).exists(_.externalDefs.contains(name)) =>
-          CliException.Basic(show"missing native binding for $pack::${name.sourceCodeRepr}\n${err.display.render(80)}")
-        case err => CliException.Basic(err.display.render(80))
+      output <- {
+        val ns = CompilationSource.packageMapSource[Region](useStandardInt64 = false).namespace(scope.packages).treeShake(roots)
+        val gen = new ClangGen[Unit](ns)
+        // A loose provider can use standard package and symbol names with its
+        // own implementation. Only declared providers may resolve references.
+        val bindings = externalBindings(scope, gen)
+        finishOutput(scope, headers, out, bindings, gen.renderTests(tests, bindings))
       }
-      headerDocs <- {
-        lazy val stubs = bindings.generateExternalsStub
-        headers.traverse { case (name, path) =>
-          stubs.get(name).map(path -> _).toRight(
-            CliException.Basic(show"no declared external bindings generate header $path"))
-        }
-      }
-    } yield Output.TranspileOut((out -> program) :: headerDocs)
+    } yield output
   }
+
+  private def renderMain[P: Show](
+      scope: LocalRuntime[P],
+      selected: P,
+      packageName: PackageName,
+      headers: List[(String, P)],
+      out: P
+  )(using Par.EC): Either[Throwable, Output[P]] = {
+    val members = scope.members(selected)
+    val namespace = CompilationSource.packageMapSource[Region](useStandardInt64 = false).namespace(scope.packages)
+    for {
+      _ <- Either.cond(members.toList.contains(packageName), (), CliException.Basic(
+        show"main package $packageName is not a member of selected bundle $selected"))
+      (binding, tpe) <- namespace.mainValues(ClangTranspiler.validMain(_).isRight).get(packageName)
+        .toRight(CliException.Basic(show"no Bosatsu/Prog::Main value found in $packageName from selected bundle $selected"))
+      _ <- Either.cond(supportsNativeMain(scope.packages), (), CliException.Basic(
+        "incompatible Bosatsu/Prog::Main for the native program runner: expected a single " +
+          "List[String] -> Prog[err, Int] field and the external opaque Bosatsu/Prog::Prog type"))
+      runner <- ClangTranspiler.validMain(tpe).leftMap(detail =>
+        CliException.Basic(show"invalid main value in $packageName from selected bundle $selected: $detail"))
+      output <- {
+        val roots = Set((packageName, binding: Identifier))
+        val ns = CompilationSource.packageMapSource[Region](useStandardInt64 = false).namespace(scope.packages).treeShake(roots)
+        val gen = new ClangGen[Unit](ns)
+        val bindings = externalBindings(scope, gen)
+        finishOutput(scope, headers, out, bindings, gen.renderMain(packageName, binding, runner, bindings))
+      }
+    } yield output
+  }
+
+  private def parseSelector[P](
+      testBundle: Option[P],
+      mainBundle: Option[P],
+      mainPackage: Option[PackageName]
+  ): Either[Throwable, Selector[P]] =
+    (testBundle, mainBundle, mainPackage) match {
+      case (Some(_), Some(_), _) | (Some(_), _, Some(_)) =>
+        Left(CliException.Basic("--test-packages cannot be combined with --main-packages or --main-package"))
+      case (Some(bundle), None, None) => Right(Selector.Tests(bundle))
+      case (None, Some(bundle), Some(packageName)) => Right(Selector.Main(bundle, packageName))
+      case (None, Some(_), None) => Left(CliException.Basic("--main-packages requires --main-package"))
+      case (None, None, Some(_)) => Left(CliException.Basic("--main-package requires --main-packages"))
+      case (None, None, None) =>
+        Left(CliException.Basic("provide either --test-packages or both --main-packages and --main-package"))
+    }
 
   def opts[F[_], P](platform: PlatformIO[F, P]): Opts[F[Output[P]]] = {
     import platform.{moduleIOMonad, pathArg, pathOrdering, showPath}
     Opts.subcommand("emit-c", "emit C from declared compiled packages") {
       (
         Opts.option[P]("runtime-manifest", "local runtime graph JSON"),
-        Opts.option[P]("test-packages", "implementation bundle whose package tests to run"),
+        Opts.option[P]("test-packages", "implementation bundle whose package tests to run").orNone,
+        Opts.option[P]("main-packages", "implementation bundle containing the program main").orNone,
+        Opts.option[PackageName]("main-package", "package whose last Main value to run").orNone,
         Opts.option[P]("out", "generated C translation unit"),
         Opts.options[P]("extern-header-out", "generated external declaration header (repeatable)").orEmpty
-      ).mapN { (file, selected, out, headerPaths) =>
+      ).mapN { (file, testBundle, mainBundle, mainPackage, out, headerPaths) =>
         platform.withEC {
           for {
+            selector <- moduleIOMonad.fromEither(parseSelector(testBundle, mainBundle, mainPackage))
             manifest <- LocalRuntimeManifest.read(platform, file)
-            _ <- moduleIOMonad.raiseUnless(manifest.packages.exists(pathOrdering.equiv(_, selected)))(
-              CliException.Basic(show"test bundle $selected is absent from runtime manifest $file"))
+            _ <- moduleIOMonad.raiseUnless(manifest.packages.exists(pathOrdering.equiv(_, selector.selectedBundle)))(
+              CliException.Basic(show"selected bundle ${selector.selectedBundle} is absent from runtime manifest $file"))
             inputs = SortedSet.from(manifest.packages.toList) + file
             outputs = out :: headerPaths
             _ <- moduleIOMonad.raiseWhen(SortedSet.from(outputs).size != outputs.size)(
@@ -195,9 +284,12 @@ object EmitCCommand {
             headers = headerPaths.map(path => fileName(platform, path) -> path)
             scope <- LocalRuntime.load(platform, manifest)
             _ <- checkOutputFiles(platform, inputs, outputs)
-            result <- platform.canPromiseF.compute(
-              renderTests(scope, selected, scope.members(selected), headers, out)
-            ).flatMap(moduleIOMonad.fromEither)
+            result <- platform.canPromiseF.compute {
+              selector match {
+                case Selector.Tests(bundle) => renderTests(scope, bundle, scope.members(bundle), headers, out)
+                case Selector.Main(bundle, packageName) => renderMain(scope, bundle, packageName, headers, out)
+              }
+            }.flatMap(moduleIOMonad.fromEither)
           } yield result
         }
       }
