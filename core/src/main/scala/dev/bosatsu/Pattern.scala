@@ -156,15 +156,43 @@ sealed abstract class Pattern[+N, +T] derives CanEqual {
     * this pattern e.g. a top level var, would not be returned
     */
   def substructures: List[Bindable] = {
-    def cheat(
-        stack: List[(Pattern[N, T], Boolean)],
-        seen: Set[Bindable],
-        acc: List[Bindable]
-    ): List[Bindable] =
-      loop(stack, seen, acc)
-
     import Pattern.{ListPart, StrPart}
 
+    // The set of substructure names, computed bottom up so each node is
+    // visited once. A union only provides the names every branch provides.
+    def subSet(pat: Pattern[N, T], isTop: Boolean): Set[Bindable] =
+      pat match {
+        case Pattern.WildCard | Pattern.Literal(_) => Set.empty
+        case Pattern.Var(v)                        =>
+          if (isTop) Set.empty else Set(v)
+        case Pattern.Named(v, p) =>
+          val inner = subSet(p, isTop)
+          if (isTop) inner else inner + v
+        case Pattern.StrPat(NonEmptyList(StrPart.NamedStr(_), Nil)) if isTop =>
+          // this is a total match at the top level, not a substructure
+          Set.empty
+        case Pattern.StrPat(items) =>
+          items.iterator.collect { case StrPart.NamedStr(glob) => glob }.toSet
+        case Pattern.ListPat(ListPart.NamedList(_) :: Nil) if isTop =>
+          // this is a total match at the top level, not a substructure
+          Set.empty
+        case Pattern.ListPat(items) =>
+          items.foldLeft(Set.empty[Bindable]) {
+            case (acc, ListPart.NamedList(glob)) => acc + glob
+            case (acc, ListPart.WildList)        => acc
+            case (acc, ListPart.Item(inner))     => acc | subSet(inner, false)
+          }
+        case Pattern.Annotation(p, _)            => subSet(p, isTop)
+        case Pattern.PositionalStruct(_, params) =>
+          params.foldLeft(Set.empty[Bindable])(_ | subSet(_, false))
+        case Pattern.Union(h, t) =>
+          t.foldLeft(subSet(h, isTop)) { (acc, p) =>
+            if (acc.isEmpty) acc else acc & subSet(p, isTop)
+          }
+      }
+
+    // Order the names left to right, following the first branch of each
+    // union. Every name in subSet appears on that path.
     @annotation.tailrec
     def loop(
         stack: List[(Pattern[N, T], Boolean)],
@@ -191,6 +219,7 @@ sealed abstract class Pattern[+N, +T] derives CanEqual {
           val globs = items
             .collect { case StrPart.NamedStr(glob) => glob }
             .filterNot(seen)
+            .distinct
           loop(tail, seen ++ globs, globs reverse_::: acc)
         case (Pattern.ListPat(ListPart.NamedList(_) :: Nil), true) :: tail =>
           // this is a total match at the top level, not a substructure
@@ -199,6 +228,7 @@ sealed abstract class Pattern[+N, +T] derives CanEqual {
           val globs = items
             .collect { case ListPart.NamedList(glob) => glob }
             .filterNot(seen)
+            .distinct
           val next = items.collect { case ListPart.Item(inner) =>
             (inner, false)
           }
@@ -207,16 +237,13 @@ sealed abstract class Pattern[+N, +T] derives CanEqual {
           loop((p, isTop) :: tail, seen, acc)
         case (Pattern.PositionalStruct(_, params), _) :: tail =>
           loop(params.map((_, false)) ::: tail, seen, acc)
-        case (Pattern.Union(h, t), isTop) :: tail =>
-          val all = (h :: t.toList).map { p =>
-            cheat((p, isTop) :: tail, seen, acc)
-          }
-          // we need to be substructual on all:
-          val intr = all.map(_.toSet).reduce(_.intersect(_))
-          all.flatMap(_.filter(intr)).distinct
+        case (Pattern.Union(h, _), isTop) :: tail =>
+          loop((h, isTop) :: tail, seen, acc)
       }
 
-    loop((this, true) :: Nil, Set.empty, Nil)
+    val subNames = subSet(this, isTop = true)
+    if (subNames.isEmpty) Nil
+    else loop((this, true) :: Nil, Set.empty, Nil).filter(subNames)
   }
 
   /** Return the pattern with all the binding names removed
