@@ -50,6 +50,20 @@ class BazelWorkerTest extends FileCommandFixtures {
       case (expected, actual) => assertEquals(actual, expected, relative)
     }
 
+  private def runWorkerTo(
+      runner: FileCommandRunner,
+      root: Path,
+      arguments: List[String]
+  ): IO[FileCommandRunner.Result] = {
+    val out = new ByteArrayOutputStream
+    val err = new ByteArrayOutputStream
+    val outStream = new PrintStream(out, false, UTF_8)
+    val errStream = new PrintStream(err, false, UTF_8)
+    runner.runWorkerTo(root, arguments, outStream, errStream).map { code =>
+      FileCommandRunner.Result(code, out.toString(UTF_8), err.toString(UTF_8))
+    }
+  }
+
   test("the parameter decoder preserves argument lines across LF and CRLF") {
     withRunner { (root, _) =>
       val samples = List(
@@ -408,6 +422,39 @@ class BazelWorkerTest extends FileCommandFixtures {
     }
   }
 
+  test("the streaming worker route rejects an absent or unregistered operation") {
+    withRunner { (root, runner) =>
+      for {
+        empty <- runWorkerTo(runner, root, Nil)
+        _ = assertEquals(empty.exitCode, ExitCode.Error)
+        _ = assertEquals(empty.stderr, "expected a bazel worker operation\n")
+        unsupported <- runWorkerTo(runner, root, List("fetch"))
+        _ = assertEquals(unsupported.exitCode, ExitCode.Error)
+        _ = assertEquals(unsupported.stderr, "unsupported bazel worker operation: fetch\n")
+      } yield ()
+    }
+  }
+
+  test("PathModule sends an accepted one-shot operation through the file runner") {
+    withRunner { (root, _) =>
+      val source = root.resolve("source 雪.bosatsu").toAbsolutePath
+      val output = root.resolve("headers 雪.json").toAbsolutePath
+      val params = root.resolve("worker.params").toAbsolutePath
+      val sourceText = "package Example/Worker\nexport value\nvalue = 1\n"
+      for {
+        _ <- IO.blocking(Files.writeString(source, sourceText))
+        _ <- IO.blocking(Files.writeString(params,
+          s"headers\n--src\n$source\n--out\n$output\n"))
+        result <- runCliCaptured(List("tool", "bazel-worker", s"@$params"))
+        _ = assertEquals(result.exitCode, ExitCode.Success, result.stderr)
+        _ = assertEquals(result.stdout, "")
+        _ = assertEquals(result.stderr, "")
+        written <- IO.blocking(Files.readString(output))
+        _ = assert(written.contains("Example/Worker"), written)
+      } yield ()
+    }
+  }
+
   private def runCli(arguments: List[String]): IO[(ExitCode, String)] =
     IO.defer {
       val buffer = new ByteArrayOutputStream
@@ -418,5 +465,24 @@ class BazelWorkerTest extends FileCommandFixtures {
         .runCli(arguments)
         .guarantee(IO(System.setErr(previous)))
         .map(code => (code, buffer.toString(UTF_8)))
+    }
+
+  private def runCliCaptured(arguments: List[String]): IO[FileCommandRunner.Result] =
+    IO.defer {
+      val out = new ByteArrayOutputStream
+      val err = new ByteArrayOutputStream
+      val outStream = new PrintStream(out, false, UTF_8)
+      val errStream = new PrintStream(err, false, UTF_8)
+      val previousOut = System.out
+      val previousErr = System.err
+      System.setOut(outStream)
+      System.setErr(errStream)
+      PathModule
+        .runCli(arguments)
+        .guarantee(IO {
+          System.setOut(previousOut)
+          System.setErr(previousErr)
+        })
+        .map(code => FileCommandRunner.Result(code, out.toString(UTF_8), err.toString(UTF_8)))
     }
 }

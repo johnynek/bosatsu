@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2475` 0j: Dispatch one-shot Bazel parameter files through the JVM file runner
-- Pending steps: `1`
-- Completed steps: `1`
+- Pending steps: `0`
+- Completed steps: `2`
 - Total steps: `2`
 
 ## Summary
@@ -73,7 +73,7 @@ Run focused suites with `sbt "cli/testOnly dev.bosatsu.BazelWorkerTest dev.bosat
 
 Implemented strict one-file parameter decoding, the four-operation worker classification, PathModule routing, and captured/streaming FileCommandRunner entry points. Added parity, rejection, lifecycle recovery, symlink, and strict-interface coverage. The focused suites passed (42 tests, 1 skipped), and the final BazelWorkerTest rerun passed (8 tests). `bash ./test_cli.sh` passed; direct `./test_cli.sh` stopped because `/bin/sh` lacks `time`. MergeXO retains the supervised `scripts/test_basic.sh` gate.
 
-2. [ ] `step-2` Verify candidate-jar and launcher behavior and complete tracker 0j
+2. [x] `step-2` Verify candidate-jar and launcher behavior and complete tracker 0j
 
 Add `scripts/test_bazel_worker.py` as a portable subprocess acceptance harness taking an explicit `--jar` path. Use argument arrays, isolated working directories, and fixtures created by the harness. Invoke the assembled candidate with `java -jar <candidate> tool bazel-worker @params` and compare it with direct `tool <operation> ...` invocation using the same relative input and output names. Cover all four registered operations, including a compiled test bundle and local runtime manifest for emit-c; emission does not require compiling or running native C. Use source, manifest, output, and parameter-file paths containing spaces and non-ASCII characters. Compare raw output-file bytes, captured stdout/stderr, and process status. Include failing command cases and a blocked output followed by a successful retry; same-runner recovery is established by step-1 tests.
 
@@ -101,3 +101,7 @@ Run `scripts/test_launcher_passthrough.sh` and `./test_cli.sh`. Inspect changed 
 - Exercise empty argument values, terminal newline cases, literal @ operands, and a failed write followed by a successful candidate invocation.
 - Record argv from both Java launcher paths and assert @params remains exactly one unchanged argument; retain the existing eval passthrough regression.
 - Run ./test_cli.sh with the newly integrated candidate harness and inspect the repository coverage report for changed executable branches.
+
+#### Completion Notes
+
+Added the candidate-jar parity harness, launcher passthrough checks, and tests for the streaming worker route; documented parameter-file semantics and updated tracker 0j with issue and test links. The candidate harness and `./test_cli.sh` passed; `BazelWorkerTest` passed all 10 tests under focused coverage. The full coverage run hit a 30-second timeout in `ToolAndLibCommandTest`; its isolated rerun passed all 172 tests without coverage.
