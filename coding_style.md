@@ -14,6 +14,15 @@ This repository is mostly Scala 3 compiler and tooling code. These are the codin
    - Use Scala 3 features (opaque types, enums, ADTs, non-empty types) to express checked invariants.
    - Parse/validate at boundaries, then pass strongly typed values internally.
 
+3. Keep generic code parametric.
+   - Preserve type parameters throughout an operation and state the capabilities it needs in its signature or supplied instances.
+   - Never rely on JVM `equals`, `hashCode`, `compareTo`, or `toString` for a type parameter, including parameters inside tuples or other wrappers.
+   - Require `Eq[A]` for equality, `Hash[A]` for hashing and equality, `Order[A]` for ordering, and `Show[A]` for rendering. Use the supplied instances for every corresponding operation.
+   - For generic keys or elements, use `SortedMap` or `SortedSet` with an explicit `Ordering[A]`, obtained from `Order[A]` or an existing platform ordering. Alternatively, use `cats.collections.HashMap` or `cats.collections.HashSet` with `Hash[A]`. Standard hash-based `Map` and `Set` do not use these typeclass contracts.
+   - Audit implicit equality and hashing in operations such as `contains`, `distinct`, `distinctBy`, `groupBy`, `toMap`, and `toSet`. Choose implementations driven by the required instances. A typeclass constraint alone does not change how a standard collection operation behaves.
+   - Render generic values through `Show`, including diagnostics. Use `show"..."` interpolation or `.show` before joining values. String interpolation and `mkString` on generic values can otherwise invoke JVM `toString`.
+   - JVM methods may implement typeclass instances for fully concrete types with known, documented semantics and no abstract type parameters. Encapsulate weakly typed foreign values in opaque types with typed constructors and expose the required instances, such as `Hash` for a Java file-identity token.
+
 ## Iteration style
 
 1. Compile frequently during development:
