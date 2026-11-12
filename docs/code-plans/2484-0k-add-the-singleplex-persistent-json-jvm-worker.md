@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2484` 0k: Add the singleplex persistent JSON JVM worker
-- Pending steps: `3`
-- Completed steps: `0`
+- Pending steps: `2`
+- Completed steps: `1`
 - Total steps: `3`
 
 ## Summary
@@ -27,7 +27,7 @@ Bazel cannot currently keep the JVM alive across file actions. Tracker 0k requir
 
 ## Steps
 
-1. [ ] `step_1` Add typed worker envelopes and compact JSON encoding
+1. [x] `step_1` Add typed worker envelopes and compact JSON encoding
 
 Extend `cli/src/main/scala/dev/bosatsu/BazelWorker.scala` with immutable request/input/response representations and pure decoding and encoding functions. Reuse `Json.parserFile` for complete-object parsing and existing JSON string escaping; construct the fixed response object compactly rather than changing the general pretty printer or introducing a JSON dependency. Decode arguments, inputs, requestId, verbosity, cancel and sandboxDir. Supply defaults: empty argument/input lists, input path and digest, ID/verbosity zero, cancel false and empty sandbox directory. Ignore unknown fields at both request and input levels. Follow the field representations in the design's linked [worker schema](https://github.com/bazelbuild/bazel/blob/9.2.0/src/main/protobuf/worker_protocol.proto) and [ProtoJSON specification](https://protobuf.dev/programming-guides/json/): recognize camelCase and original proto field names, treat null fields as unset, accept valid numeric or quoted int32 values and standard/URL-safe base64 with optional padding. Reject invalid known-field types, fractional/out-of-range integers, null array elements and malformed base64 with useful transport errors. Resolve duplicate recognized field spellings consistently in input order. Keep decoded digest bytes immutable and opaque; they do not authorize inference reuse. Represent cancel controls separately from action requests so they cannot accidentally dispatch an empty command.
 
@@ -52,6 +52,10 @@ Extend `cli/src/test/scala/dev/bosatsu/BazelWorkerTest.scala` with generated con
 - Reject non-object JSON, trailing JSON values, malformed JSON, incorrect scalar/array types, fractional or overflowing IDs and invalid base64.
 - Check cancel-control classification and deterministic duplicate-field handling.
 - Assert a long multiline diagnostic still encodes onto one physical line and parses correctly with an independent test JSON parser.
+
+#### Completion Notes
+
+Added immutable worker envelope and response types, protobuf JSON decoding with defaults, aliases, null handling, int32 and base64 support, and compact response encoding. Generated codec checks and the independent JSON parser assertions passed with `sbt "cli/testOnly dev.bosatsu.BazelWorkerTest"` (12 tests).
 
 2. [ ] `step_2` Integrate the sequential transport with request completion
 

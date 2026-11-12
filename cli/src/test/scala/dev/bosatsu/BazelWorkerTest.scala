@@ -2,13 +2,18 @@ package dev.bosatsu
 
 import cats.effect.IO
 import cats.syntax.all._
+import com.fasterxml.jackson.databind.ObjectMapper
 import dev.bosatsu.tool.ExitCode
 import java.io.{ByteArrayOutputStream, PrintStream}
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.{Files, Path}
 import java.nio.file.attribute.FileTime
+import java.util.Base64
+import scala.util.Random
 
 class BazelWorkerTest extends FileCommandFixtures {
+  private val jsonMapper = new ObjectMapper()
+
   private def writeBytes(root: Path, relative: String, bytes: Array[Byte]): IO[Unit] =
     IO.blocking {
       val path = root.resolve(relative)
@@ -61,6 +66,182 @@ class BazelWorkerTest extends FileCommandFixtures {
     val errStream = new PrintStream(err, false, UTF_8)
     runner.runWorkerTo(root, arguments, outStream, errStream).map { code =>
       FileCommandRunner.Result(code, out.toString(UTF_8), err.toString(UTF_8))
+    }
+  }
+
+  test("worker request envelopes use defaults, aliases, nulls, and input-order duplicates") {
+    val defaults = BazelWorker.decodeRequest("{}").toOption
+    assertEquals(
+      defaults,
+      Some(BazelWorker.ActionRequest(Nil, Nil, 0, 0, ""))
+    )
+
+    val decoded = BazelWorker.decodeRequest(
+      """{"arguments":["headers","path with spaces","雪"],"inputs":[{"path":"雪 file","digest":"AQID","ignored":{"nested":true}}],"request_id":-2147483648,"requestId":"2147483647","request_id":null,"verbosity":"-4","cancel":false,"sandbox_dir":"work","sandboxDir":null,"unknown":[1,2]}"""
+    )
+    assertEquals(
+      decoded,
+      Right(
+        BazelWorker.ActionRequest(
+          List("headers", "path with spaces", "雪"),
+          List(BazelWorker.Input("雪 file", Vector[Byte](1, 2, 3))),
+          Int.MaxValue,
+          -4,
+          "work"
+        )
+      )
+    )
+
+    assertEquals(
+      BazelWorker.decodeRequest("""{"requestId":7,"cancel":true,"arguments":["headers"]}"""),
+      Right(BazelWorker.CancelRequest(7))
+    )
+    assertEquals(
+      BazelWorker.decodeRequest("""{"arguments":null,"inputs":null,"cancel":null}"""),
+      Right(BazelWorker.ActionRequest(Nil, Nil, 0, 0, ""))
+    )
+    assertEquals(
+      BazelWorker.decodeRequest("""{"requestId":1e2,"verbosity":1.0}"""),
+      Right(BazelWorker.ActionRequest(Nil, Nil, 100, 1, ""))
+    )
+    assertEquals(
+      BazelWorker.decodeRequest("""{"request_id":"1.00e+2"}"""),
+      Right(BazelWorker.ActionRequest(Nil, Nil, 100, 0, ""))
+    )
+  }
+
+  test("worker response encoding round trips generated values as one compact JSON line") {
+    val random = new Random(2484L)
+    val codePoints = Array(0, 8, 9, 10, 13, 31, 34, 39, 92, 127, 0x00e9, 0x96ea, 0x1f642)
+    def generatedString(maxSize: Int): String = {
+      val size = random.nextInt(maxSize + 1)
+      val builder = new java.lang.StringBuilder
+      var index = 0
+      while (index < size) {
+        builder.appendCodePoint(codePoints(random.nextInt(codePoints.length)))
+        index += 1
+      }
+      builder.toString
+    }
+
+    (0 until 100).foreach { _ =>
+      val args = List.fill(random.nextInt(8))(generatedString(30))
+      val inputs = List(BazelWorker.Input(generatedString(24), Vector.empty))
+      val requestId = random.nextInt()
+      val verbosity = random.nextInt()
+      val request = Json.JObject(
+        List(
+          "arguments" -> Json.JArray(args.map(Json.JString(_)).toVector),
+          "inputs" -> Json.JArray(
+            Vector(
+              Json.JObject(
+                List("path" -> Json.JString(inputs.head.path), "unknown" -> Json.JObject(Nil))
+              )
+            )
+          ),
+          "requestId" -> Json.JNumberStr(requestId.toString),
+          "request_id" -> Json.JNull,
+          "verbosity" -> Json.JString(verbosity.toString),
+          "cancel" -> Json.JNull,
+          "sandboxDir" -> Json.JNull,
+          "unknown" -> Json.JObject(List("nested" -> Json.JArray(Vector(Json.JBool.True))))
+        )
+      ).render
+      BazelWorker.decodeRequest(request) match {
+        case Right(action: BazelWorker.ActionRequest) =>
+          assertEquals(action, BazelWorker.ActionRequest(args, inputs, requestId, verbosity, ""))
+        case other                                    => fail(s"expected action request, got $other")
+      }
+
+      val response = BazelWorker.Response(
+        random.nextInt(),
+        random.nextInt(),
+        generatedString(400)
+      )
+      val encoded = BazelWorker.encodeResponse(response)
+      assert(!encoded.contains('\n'))
+      assert(!encoded.contains('\r'))
+      val parsed = jsonMapper.readTree(encoded)
+      assertEquals(parsed.get("requestId").intValue(), response.requestId)
+      assertEquals(parsed.get("exitCode").intValue(), response.exitCode)
+      assertEquals(parsed.get("output").textValue(), response.output)
+      assertEquals(parsed.get("wasCancelled").booleanValue(), false)
+    }
+
+    val longDiagnostic = ("bad \"input\" \\ line\n" * 5000) + "雪"
+    val encoded = BazelWorker.encodeResponse(BazelWorker.Response(0, 1, longDiagnostic))
+    assert(!encoded.contains('\n'))
+    assert(!encoded.contains('\r'))
+    assertEquals(jsonMapper.readTree(encoded).get("output").textValue(), longDiagnostic)
+    assert(encoded.contains("\"wasCancelled\":false"))
+  }
+
+  test("worker request decoding accepts standard and URL-safe base64 digests") {
+    val random = new Random(0L)
+    val vectors = List(
+      Array.emptyByteArray,
+      Array[Byte](1),
+      Array[Byte](0xfb.toByte, 0xff.toByte, 0xef.toByte),
+      Array.fill[Byte](32)(0)
+    ) ::: List.fill(50)(Array.fill(random.nextInt(64))(random.nextInt(256).toByte))
+    val encoders = List(
+      Base64.getEncoder,
+      Base64.getEncoder.withoutPadding(),
+      Base64.getUrlEncoder,
+      Base64.getUrlEncoder.withoutPadding()
+    )
+
+    vectors.foreach { bytes =>
+      encoders.foreach { encoder =>
+        val encoded = encoder.encodeToString(bytes)
+        val json = s"""{"inputs":[{"digest":"$encoded"}]}"""
+        assertEquals(
+          BazelWorker.decodeRequest(json),
+          Right(BazelWorker.ActionRequest(Nil, List(BazelWorker.Input("", bytes.toVector)), 0, 0, ""))
+        )
+      }
+    }
+
+    assertEquals(
+      BazelWorker.decodeRequest("""{"inputs":[{}, {"digest":""}, {"path":null,"digest":null}]}"""),
+      Right(
+        BazelWorker.ActionRequest(
+          Nil,
+          List(
+            BazelWorker.Input("", Vector.empty),
+            BazelWorker.Input("", Vector.empty),
+            BazelWorker.Input("", Vector.empty)
+          ),
+          0,
+          0,
+          ""
+        )
+      )
+    )
+  }
+
+  test("worker request decoding rejects malformed JSON and invalid known fields") {
+    val invalid = List(
+      "[]",
+      "{",
+      "{} {}",
+      """{"arguments":"headers"}""",
+      """{"arguments":[null]}""",
+      """{"inputs":[null]}""",
+      """{"inputs":[{"path":1}]}""",
+      """{"inputs":[{"digest":1}]}""",
+      """{"inputs":[{"digest":"A"}]}""",
+      """{"inputs":[{"digest":"+-_"}]}""",
+      """{"requestId":1.5}""",
+      """{"requestId":2147483648}""",
+      """{"request_id":"-2147483649"}""",
+      """{"verbosity":true}""",
+      """{"cancel":"false"}""",
+      """{"sandboxDir":[]}"""
+    )
+    invalid.foreach { json =>
+      val decoded = BazelWorker.decodeRequest(json)
+      assert(decoded.isLeft, s"expected request to fail: $json, got $decoded")
     }
   }
 
