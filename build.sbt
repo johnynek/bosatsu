@@ -429,6 +429,10 @@ lazy val core =
         "com.thesamet.scalapb" %%% "scalapb-runtime" % scalapb.compiler.Version.scalapbVersion
       )
   ).dependsOn(base, proto)
+    .jvmSettings(
+      // Compiler-heavy suites contend for CPU and exceed MUnit's per-test timeout.
+      Test / parallelExecution := false
+    )
     .jsSettings(
       commonJsSettings
     )

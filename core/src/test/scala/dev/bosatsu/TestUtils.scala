@@ -61,7 +61,8 @@ object TestUtils {
     List[Statement]
   ]
 
-  private val predefInterface: Package.Interface =
+  // Parser-only tests use this object too; defer Predef compilation until needed.
+  private lazy val predefInterface: Package.Interface =
     Package.interfaceOf(PackageMap.predefCompiled)
 
   private def importAllPredef[A](
@@ -82,11 +83,11 @@ object TestUtils {
     Import(pack, NonEmptyList.fromListUnsafe(items))
   }
 
-  private val predefResolvedImport
+  private lazy val predefResolvedImport
       : Import[Package.Interface, NonEmptyList[Referant[Kind.Arg]]] =
     importAllPredef(predefInterface)
 
-  private val predefSourceImport
+  private lazy val predefSourceImport
       : Import[PackageName, NonEmptyList[Referant[Kind.Arg]]] =
     importAllPredef(PackageName.PredefName)
 
@@ -112,7 +113,7 @@ object TestUtils {
 
     sourceConvertedProgramOf(pack, str).types._2
 
-  val predefParsedTypeEnv: ParsedTypeEnv[Option[Kind.Arg]] = {
+  lazy val predefParsedTypeEnv: ParsedTypeEnv[Option[Kind.Arg]] = {
     val p = Package.predefPackage
     val prog = SourceConverter.toProgram(p.name, Nil, p.program) match {
       case Ior.Right(prog)   => prog

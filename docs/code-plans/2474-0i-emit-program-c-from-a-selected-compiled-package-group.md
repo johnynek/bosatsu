@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2474` 0i: Emit program C from a selected compiled package group
-- Pending steps: `1`
-- Completed steps: `4`
+- Pending steps: `0`
+- Completed steps: `5`
 - Total steps: `5`
 
 ## Summary
@@ -171,7 +171,7 @@ Required-test repair provenance: tested SHA `1ba5bf38e746aefb0f1ffb6d81410ce3145
 
 Measured the three sequential `runBosatsuTest` scenarios at 14.75s, 3.39s, and 3.24s; the test took 24.4s in that run, while a later repeat took 33.4s. This confirmed successful work exceeded the previous 30-second limit under runner load, with no semantic failure. Added a suite-local 60-second timeout, preserving all scenarios and assertions. The unchanged `sbt -batch 'coreJVM/testOnly dev.bosatsu.OperatorTest'` command passed twice after the change (3 tests each; 25.5s and 33.4s). `git diff --check` passed.
 
-5. [ ] `step_5_core_startup_timeouts` Resolve the shared core JVM startup timeout failures
+5. [x] `step_5_core_startup_timeouts` Resolve the shared core JVM startup timeout failures
 
 Investigate and repair the timeout family blocking the required JVM gate, rather than adding an independent workaround for each failed test. Authoritative provenance: tested SHA `d64de59648469fe7ddeeec5b73d2c31cf731f7f8`; gate/run ID `01a1cda3c26f7801935149b63df1a6c7`; command `scripts/test_basic.sh`; status `failed`, exit code 1. The failures were the 30-second MUnit timeouts in DefRecursionCheckTest.non recursive cases are allowed, CompileCacheTest.dependency interface changes invalidate the compile key, and PackageTest.simple package resolves. All previous steps are completed, so no pending work can absorb this correction.
 
@@ -198,3 +198,7 @@ Required-test repair provenance: tested SHA `d64de59648469fe7ddeeec5b73d2c31cf73
 - The three previously failing cases complete successfully with their original semantic assertions under committed test settings.
 - The combined DefRecursionCheckTest, CompileCacheTest, PackageTest, and OperatorTest focused command passes in two fresh sbt processes without diagnostic command-line scheduling or timeout overrides.
 - If initialization or scheduling changes, focused verification exercises cold initialization and concurrent access relevant to the diagnosed cause, rather than relying only on warmed state.
+
+#### Completion Notes
+
+Diagnosed the gate timeouts as parallel-suite CPU contention, not a hang or semantic defect. In a fresh sbt process with parallel execution enabled, the focused baseline took 22.468s for DefRecursionCheckTest, 45.861s for OperatorTest, and 54.869s for CompileCacheTest; PackageTest.simple package resolves timed out at 44.076s. A fresh serial comparison passed all four suites (15.734s, 4.645s, 16.734s, and 25.012s respectively). Set coreJVM test parallelism to false, deferred TestUtils’ Predef-derived values so parser-only use avoids unrelated Predef compilation, and removed OperatorTest’s now-unneeded 60-second timeout. The required focused command passed in two fresh sbt processes: 64/64 tests each, with suite timings 3.599/25.184/20.295/4.636s and 3.539/26.647/17.025/3.749s. `git diff --check` passed.

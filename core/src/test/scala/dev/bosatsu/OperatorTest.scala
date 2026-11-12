@@ -4,13 +4,9 @@ import org.typelevel.paiges.{Doc, Document}
 
 import cats.parse.{Parser => P}
 
-import scala.concurrent.duration.DurationInt
-
 import Parser.Combinators
 
 class OperatorTest extends ParserTestBase {
-  override val munitTimeout = 60.seconds
-
   import Operators.Formula
   import TestUtils.runBosatsuTest
 
