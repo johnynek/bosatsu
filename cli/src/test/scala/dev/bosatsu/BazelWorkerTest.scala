@@ -391,37 +391,6 @@ class BazelWorkerTest extends FileCommandFixtures {
     }
   }
 
-  test("the PathModule worker route rejects malformed startup and parameter files") {
-    withRunner { (root, _) =>
-      val emptyFile = root.resolve("empty params 雪")
-      val emptyOperation = root.resolve("empty-operation.params")
-      val invalidUtf8 = root.resolve("invalid-utf8.params")
-      for {
-        _ <- IO.blocking(Files.writeString(emptyFile, ""))
-        _ <- IO.blocking(Files.writeString(emptyOperation, "\nheaders"))
-        _ <- writeBytes(root, "invalid-utf8.params", Array(0xc3.toByte, 0x28.toByte))
-        results <- List(
-          List("tool", "bazel-worker"),
-          List("tool", "bazel-worker", "params"),
-          List("tool", "bazel-worker", "@"),
-          List("tool", "bazel-worker", "@absent.params"),
-          List("tool", "bazel-worker", "@one.params", "@two.params"),
-          List("tool", "bazel-worker", "--persistent_worker"),
-          List("tool", "bazel-worker", s"@$emptyFile"),
-          List("tool", "bazel-worker", s"@$emptyOperation"),
-          List("tool", "bazel-worker", s"@$invalidUtf8")
-        ).traverse(runCli)
-        _ = results.foreach { case (exitCode, stderr) =>
-          assertEquals(exitCode, ExitCode.Error)
-          assert(stderr.nonEmpty)
-        }
-        _ = assert(!listPaths(root).exists(path =>
-          path.endsWith(".json") || path.endsWith(".pkg") || path.endsWith(".sig")
-        ))
-      } yield ()
-    }
-  }
-
   test("the streaming worker route rejects an absent or unregistered operation") {
     withRunner { (root, runner) =>
       for {
@@ -435,54 +404,4 @@ class BazelWorkerTest extends FileCommandFixtures {
     }
   }
 
-  test("PathModule sends an accepted one-shot operation through the file runner") {
-    withRunner { (root, _) =>
-      val source = root.resolve("source 雪.bosatsu").toAbsolutePath
-      val output = root.resolve("headers 雪.json").toAbsolutePath
-      val params = root.resolve("worker.params").toAbsolutePath
-      val sourceText = "package Example/Worker\nexport value\nvalue = 1\n"
-      for {
-        _ <- IO.blocking(Files.writeString(source, sourceText))
-        _ <- IO.blocking(Files.writeString(params,
-          s"headers\n--src\n$source\n--out\n$output\n"))
-        result <- runCliCaptured(List("tool", "bazel-worker", s"@$params"))
-        _ = assertEquals(result.exitCode, ExitCode.Success, result.stderr)
-        _ = assertEquals(result.stdout, "")
-        _ = assertEquals(result.stderr, "")
-        written <- IO.blocking(Files.readString(output))
-        _ = assert(written.contains("Example/Worker"), written)
-      } yield ()
-    }
-  }
-
-  private def runCli(arguments: List[String]): IO[(ExitCode, String)] =
-    IO.defer {
-      val buffer = new ByteArrayOutputStream
-      val stream = new PrintStream(buffer, false, UTF_8)
-      val previous = System.err
-      System.setErr(stream)
-      PathModule
-        .runCli(arguments)
-        .guarantee(IO(System.setErr(previous)))
-        .map(code => (code, buffer.toString(UTF_8)))
-    }
-
-  private def runCliCaptured(arguments: List[String]): IO[FileCommandRunner.Result] =
-    IO.defer {
-      val out = new ByteArrayOutputStream
-      val err = new ByteArrayOutputStream
-      val outStream = new PrintStream(out, false, UTF_8)
-      val errStream = new PrintStream(err, false, UTF_8)
-      val previousOut = System.out
-      val previousErr = System.err
-      System.setOut(outStream)
-      System.setErr(errStream)
-      PathModule
-        .runCli(arguments)
-        .guarantee(IO {
-          System.setOut(previousOut)
-          System.setErr(previousErr)
-        })
-        .map(code => FileCommandRunner.Result(code, out.toString(UTF_8), err.toString(UTF_8)))
-    }
 }

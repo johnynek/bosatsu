@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2475` 0j: Dispatch one-shot Bazel parameter files through the JVM file runner
-- Pending steps: `1`
-- Completed steps: `2`
+- Pending steps: `0`
+- Completed steps: `3`
 - Total steps: `3`
 
 ## Summary
@@ -106,7 +106,7 @@ Run `scripts/test_launcher_passthrough.sh` and `./test_cli.sh`. Inspect changed 
 
 Added the candidate-jar parity harness, launcher passthrough checks, and tests for the streaming worker route; documented parameter-file semantics and updated tracker 0j with issue and test links. The candidate harness and `./test_cli.sh` passed; `BazelWorkerTest` passed all 10 tests under focused coverage. The full coverage run hit a 30-second timeout in `ToolAndLibCommandTest`; its isolated rerun passed all 172 tests without coverage.
 
-3. [ ] `step-3` Isolate worker CLI stream assertions in subprocess tests
+3. [x] `step-3` Isolate worker CLI stream assertions in subprocess tests
 
 Invariant family: cli-stream-isolation
 
@@ -135,3 +135,7 @@ Run sbt "cli/testOnly dev.bosatsu.BazelWorkerTest dev.bosatsu.PathModuleTest" wi
 - Run BazelWorkerTest and PathModuleTest together under normal test concurrency.
 - Run ./test_cli.sh against the freshly assembled candidate, including all migrated startup cases.
 - Inspect BazelWorkerTest to confirm both global-capture helpers and all System.setOut/System.setErr calls are removed.
+
+#### Completion Notes
+
+Removed the PathModule route tests and JVM-wide stream replacement helpers from BazelWorkerTest, retaining the runner-scoped stream test. Moved all nine malformed-startup cases into the candidate-jar harness, asserting failure status, useful stderr, empty stdout, and an unchanged workspace; successful headers now also requires empty stdout/stderr while preserving parity checks. `sbt "cli/testOnly dev.bosatsu.BazelWorkerTest dev.bosatsu.PathModuleTest"` passed (26 tests), and `./test_cli.sh` passed, including candidate-jar acceptance, launcher checks, and 6,118 Bosatsu tests.

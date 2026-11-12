@@ -57,6 +57,84 @@ def output_bytes(cwd: Path, outputs: list[str]) -> dict[str, bytes]:
     return result
 
 
+def workspace_snapshot(cwd: Path) -> dict[str, bytes]:
+    result: dict[str, bytes] = {}
+    for path in cwd.rglob("*"):
+        relative = path.relative_to(cwd).as_posix()
+        if path.is_symlink():
+            result[relative] = b"L\0" + path.readlink().as_posix().encode("utf-8")
+        elif path.is_file():
+            result[relative] = b"F\0" + path.read_bytes()
+        elif path.is_dir():
+            result[relative] = b"D\0"
+    return result
+
+
+def check_startup_failures(java: str, jar: Path, cwd: Path) -> None:
+    params_dir = Path("parameter files 雪")
+    params_root = cwd / params_dir
+    params_root.mkdir(parents=True, exist_ok=True)
+    (params_root / "empty.params").write_bytes(b"")
+    (params_root / "empty-operation.params").write_bytes(b"\nheaders")
+    (params_root / "invalid-utf8.params").write_bytes(b"headers\n\xc3(")
+
+    cases = (
+        ("no parameter argument", (), "requires exactly one @parameter-file argument"),
+        (
+            "bare filename",
+            (str(params_dir / "empty.params"),),
+            "requires exactly one @parameter-file argument",
+        ),
+        ("bare @", ("@",), "requires exactly one @parameter-file argument"),
+        (
+            "missing file",
+            ("@" + (params_dir / "missing.params").as_posix(),),
+            "cannot read parameter file",
+        ),
+        (
+            "multiple parameter arguments",
+            (
+                "@" + (params_dir / "empty.params").as_posix(),
+                "@" + (params_dir / "empty-operation.params").as_posix(),
+            ),
+            "requires exactly one @parameter-file argument",
+        ),
+        (
+            "persistent worker startup",
+            ("--persistent_worker",),
+            "requires exactly one @parameter-file argument",
+        ),
+        (
+            "empty file",
+            ("@" + (params_dir / "empty.params").as_posix(),),
+            "is empty",
+        ),
+        (
+            "empty operation line",
+            ("@" + (params_dir / "empty-operation.params").as_posix(),),
+            "empty worker operation",
+        ),
+        (
+            "invalid UTF-8",
+            ("@" + (params_dir / "invalid-utf8.params").as_posix(),),
+            "not valid UTF-8",
+        ),
+    )
+    before = workspace_snapshot(cwd)
+    for label, args, expected in cases:
+        result = invoke(java, jar, cwd, "tool", "bazel-worker", *args)
+        stderr = result.stderr.decode("utf-8", errors="replace")
+        if result.returncode == 0 or expected not in stderr:
+            raise AssertionError(
+                f"worker did not reject {label} with a useful diagnostic:\n{stderr}"
+            )
+        if result.stdout:
+            raise AssertionError(f"worker wrote stdout while rejecting {label}: {result.stdout!r}")
+        after = workspace_snapshot(cwd)
+        if after != before:
+            raise AssertionError(f"worker changed or published workspace files while rejecting {label}")
+
+
 def compare_command(
     java: str,
     jar: Path,
@@ -146,7 +224,7 @@ def test_worker(java: str, jar: Path, work: Path) -> None:
     write_fixture(cwd)
     (cwd / "generated files 雪").mkdir()
 
-    compare_command(
+    headers_result = compare_command(
         java,
         jar,
         cwd,
@@ -154,6 +232,8 @@ def test_worker(java: str, jar: Path, work: Path) -> None:
         ["headers", "--src", SOURCE, "--out", "generated files 雪/headers.json"],
         ["generated files 雪/headers.json"],
     )
+    if headers_result.stdout or headers_result.stderr:
+        raise AssertionError("successful headers worker invocation must have empty stdout and stderr")
     compare_command(
         java,
         jar,
@@ -256,18 +336,6 @@ def test_worker(java: str, jar: Path, work: Path) -> None:
         if result.returncode == 0 or f"unsupported bazel worker operation: {operation}" not in message:
             raise AssertionError(f"worker accepted or misdiagnosed blocked operation {operation}:\n{message}")
 
-    for label, data, expected in (
-        ("invalid-utf8.params", b"headers\n\xff", "not valid UTF-8"),
-        ("missing.params", None, "cannot read parameter file"),
-    ):
-        params = cwd / "parameter files 雪" / label
-        if data is not None:
-            params.write_bytes(data)
-        result = invoke(java, jar, cwd, "tool", "bazel-worker", "@" + params.relative_to(cwd).as_posix())
-        message = result.stderr.decode("utf-8", errors="replace")
-        if result.returncode == 0 or expected not in message:
-            raise AssertionError(f"worker did not diagnose {label}:\n{message}")
-
     blocked_parent = cwd / "blocked output 雪"
     blocked_parent.write_text("not a directory", encoding="utf-8")
     blocked_output = "blocked output 雪/retry.json"
@@ -291,6 +359,7 @@ def test_worker(java: str, jar: Path, work: Path) -> None:
         ["headers", "--src", SOURCE, "--out", blocked_output],
         [blocked_output],
     )
+    check_startup_failures(java, jar, cwd)
 
 
 def test_bosatsuj(java: str, jar: Path, work: Path) -> None:
