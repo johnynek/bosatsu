@@ -1735,7 +1735,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
           }
 
           // the Code.Ident should be a function with signature:
-          // int run_main(BValue main_value, int argc, char** args)
+          // int run_main(BValue main_value, int argc, char** argv)
           def renderMain(
               p: PackageName,
               b: Bindable,
@@ -1751,7 +1751,20 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
               return code;
             }
              */
-            globalIdent(ns.rootKey, p, b).flatMap { mainCons =>
+            // Reachable externals can omit the runner, and generated Prog headers can shadow it.
+            appendStatement(
+              Code.DeclareFn(
+                Nil,
+                Code.TypeIdent.Int,
+                mainRun,
+                List(
+                  Code.Param(Code.TypeIdent.BValue, Code.Ident("main_value")),
+                  Code.Param(Code.TypeIdent.Int, Code.Ident("argc")),
+                  Code.Param(Code.TypeIdent.Char.ptr.ptr, Code.Ident("argv"))
+                ),
+                None
+              )
+            ) *> globalIdent(ns.rootKey, p, b).flatMap { mainCons =>
               val mainValue = Code.Ident("main_value")
               val mainBody = Code.Statements(
                 Code.Ident("GC_init")().stmt,

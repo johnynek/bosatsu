@@ -187,6 +187,8 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_build__List(BValue __bsts_b_fn0) {
         alloc_enum0(0));
 }
 
+int run_main(BValue main_value, int argc, char** argv);
+
 int main(int argc, char** argv) {
     GC_init();
     init_statics();
@@ -223,6 +225,8 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_foldr__List(BValue __bsts_b_list0,
     BValue __bsts_b_acc0) {
     return __bsts_t_lambda__loop0(__bsts_b_acc0, __bsts_b_fn0, __bsts_b_list0);
 }
+
+int run_main(BValue main_value, int argc, char** argv);
 
 int main(int argc, char** argv) {
     GC_init();
@@ -1020,6 +1024,8 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_reverse__concat(BValue __bsts_b_front0,
     return __bsts_a_11;
 }
 
+int run_main(BValue main_value, int argc, char** argv);
+
 int main(int argc, char** argv) {
     GC_init();
     init_statics();
@@ -1028,6 +1034,34 @@ int main(int argc, char** argv) {
     return run_main(main_value, argc, argv);
 }"""
     )
+  }
+
+  test("renderMain declares the supplied runner ABI before main") {
+    TestUtils.checkPackageMap("""
+x = 1
+""") { pm =>
+      val renderedE = Par.withEC {
+        ClangGen(pm).renderMain(
+          TestUtils.testPackage,
+          Identifier.Name("x"),
+          Code.Ident("custom_runner")
+        )
+      }
+
+      renderedE match {
+        case Left(err) => fail(err.toString)
+        case Right(doc) =>
+          val rendered = doc.render(120)
+          val prototype =
+            "int custom_runner(BValue main_value, int argc, char** argv);"
+          val prototypeAt = rendered.indexOf(prototype)
+          val mainAt = rendered.indexOf("int main(")
+          assert(prototypeAt >= 0, rendered)
+          assert(mainAt >= 0, rendered)
+          assert(prototypeAt < mainAt, rendered)
+          assert(!rendered.contains("bosatsu_ext_Bosatsu_l_Prog.h"), rendered)
+      }
+    }
   }
 
   test("float literals use packed bits") {

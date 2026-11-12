@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2474` 0i: Emit program C from a selected compiled package group
-- Pending steps: `2`
-- Completed steps: `5`
+- Pending steps: `1`
+- Completed steps: `6`
 - Total steps: `7`
 
 ## Summary
@@ -203,7 +203,7 @@ Required-test repair provenance: tested SHA `d64de59648469fe7ddeeec5b73d2c31cf73
 
 Diagnosed the gate timeouts as parallel-suite CPU contention, not a hang or semantic defect. In a fresh sbt process with parallel execution enabled, the focused baseline took 22.468s for DefRecursionCheckTest, 45.861s for OperatorTest, and 54.869s for CompileCacheTest; PackageTest.simple package resolves timed out at 44.076s. A fresh serial comparison passed all four suites (15.734s, 4.645s, 16.734s, and 25.012s respectively). Set coreJVM test parallelism to false, deferred TestUtils’ Predef-derived values so parser-only use avoids unrelated Predef compilation, and removed OperatorTest’s now-unneeded 60-second timeout. The required focused command passed in two fresh sbt processes: 64/64 tests each, with suite timings 3.599/25.184/20.295/4.636s and 3.539/26.647/17.025/3.749s. `git diff --check` passed.
 
-6. [ ] `step_6_main_runner_declaration` Declare the runner ABI at the shared main-rendering boundary
+6. [x] `step_6_main_runner_declaration` Declare the runner ABI at the shared main-rendering boundary
 
 Invariant family: main-runner-declaration
 Extend the existing main renderer in core/src/main/scala/dev/bosatsu/codegen/clang/ClangGen.scala. Steps step_1 and step_2 routed program emission through this renderer, but it emits a runner call without declaring the runner. Depending on an external binding to include the installed Prog header fails when no Bosatsu/Prog external survives, and generated Prog headers can shadow the installed header while omitting its runner declaration. Both manifestations prevent valid programs from compiling and violate the issue's native emission and header acceptance criteria. All existing steps are completed; no pending work can absorb this correction.
@@ -229,6 +229,10 @@ Extend core/src/test/scala/dev/bosatsu/codegen/clang/ClangGenTest.scala with foc
 - A Main using only another package's external to obtain Prog compiles with generated headers first, rejects implicit function declarations, and exits 7.
 - Default and explicit standard-resolver rendering remain equivalent; excluding a required external still fails rendering.
 - Existing passing and failing Test and ProgTest native fixtures retain their expected results.
+
+#### Completion Notes
+
+Added the supplied runner’s ABI prototype in the shared main renderer. The focused regression confirms the prototype precedes `main` for a custom runner with no Bosatsu/Prog external. `ClangGenTest` (33 tests) and `EmitCCommandTest` (28 tests) passed. The rebuilt assembled-jar fixture passed all existing native test-emission cases and both bundle-only program variants; each program compiled with implicit function declarations treated as errors and exited 7. The provider-backed C contained no Prog external include. `git diff --check` passed.
 
 7. [ ] `step_7_complete_acceptance_validation` Complete required validation before restoring tracker completion
 

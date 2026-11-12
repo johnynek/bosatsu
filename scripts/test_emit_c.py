@@ -12,6 +12,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 HEADER = "bosatsu_ext_Demo_l_Native.h"
 PROG_HEADER = "bosatsu_ext_Bosatsu_l_Prog.h"
+RUNNER_HEADER = "bosatsu_ext_Demo_l_Runner.h"
 
 
 def exercise(jar: Path, cc_conf: Path, work: Path) -> None:
@@ -96,7 +97,8 @@ def exercise(jar: Path, cc_conf: Path, work: Path) -> None:
              "--runtime-manifest", "runtime.json", "--out", "test.c",
              "--extern-header-out", "include/" + HEADER)
         subprocess.run(
-            [cc["cc_path"], *cc["flags"], *cc["iflags"], "-I", action / "include",
+            [cc["cc_path"], *cc["flags"], "-Werror=implicit-function-declaration",
+             "-I", action / "include", *cc["iflags"],
              action / "test.c", binding, *cc["libs"], "-o", work / "suite"],
             check=True,
         )
@@ -173,7 +175,8 @@ def exercise(jar: Path, cc_conf: Path, work: Path) -> None:
     # compiler configuration only here.
     executable = work / "program"
     subprocess.run(
-        [cc["cc_path"], *cc["flags"], *cc["iflags"], "-I", program_action / "include",
+        [cc["cc_path"], *cc["flags"], "-Werror=implicit-function-declaration",
+         "-I", program_action / "include", *cc["iflags"],
          program_action / "program.c", *cc["libs"], "-o", executable],
         check=True,
     )
@@ -183,6 +186,66 @@ def exercise(jar: Path, cc_conf: Path, work: Path) -> None:
             f"expected program exit 7, got {result.returncode}\n{result.stdout}{result.stderr}"
         )
     print("native program passed bundle-only emission fixture with exit=7")
+
+    # A second root obtains its Prog value from a reachable package external.
+    # It has no reachable Bosatsu/Prog external, so the shared main renderer
+    # must declare the native runner independently of generated Prog headers.
+    (producer / "Runner.bosatsu").write_text(
+        "package Demo/Runner\nfrom Bosatsu/Prog import Prog\nexport make_prog\n"
+        "exposes Bosatsu/Prog\n"
+        "external def make_prog[err](ignored: Int) -> Prog[err, Int]\n"
+    )
+    (producer / "RunnerMain.bosatsu").write_text(
+        "package Demo/RunnerMain\nfrom Bosatsu/Prog import Main\n"
+        "from Demo/Runner import make_prog\nmain = Main(_ -> make_prog(0))\n"
+    )
+    compile_group("runner", ["Runner"], ["prog"], program_action)
+    compile_group("runner-main", ["RunnerMain"], ["runner", "prog"], program_action)
+    runner_manifest = {
+        "schema_version": 1, "kind": "local",
+        "packages": ["prog.pkg", "runner.pkg", "runner-main.pkg"],
+        "externals": [{"package": "Demo/Runner", "symbols": ["make_prog"]}],
+    }
+    (program_action / "runner-runtime.json").write_text(json.dumps(runner_manifest))
+    runner_include = "runner-include"
+    tool(
+        program_action,
+        "emit-c", "--main-packages", "runner-main.pkg", "--main-package",
+        "Demo/RunnerMain", "--runtime-manifest", "runner-runtime.json",
+        "--out", "runner-program.c", "--extern-header-out",
+        runner_include + "/" + RUNNER_HEADER,
+    )
+    runner_program_c = (program_action / "runner-program.c").read_text()
+    if PROG_HEADER in runner_program_c:
+        raise AssertionError("provider-backed program unexpectedly uses a Prog external")
+    if not (program_action / runner_include / RUNNER_HEADER).is_file():
+        raise AssertionError("provider external header was not emitted")
+    runner_binding = work / "runner_binding.c"
+    runner_binding.write_text(
+        f'#include "{RUNNER_HEADER}"\n'
+        f'#include "{PROG_HEADER}"\n'
+        "BValue ___bsts_g_Demo_l_Runner_l_make__prog(BValue ignored) {\n"
+        "    (void)ignored;\n"
+        "    return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_integer_from_int(7));\n"
+        "}\n"
+    )
+    runner_executable = work / "runner-program"
+    subprocess.run(
+        [cc["cc_path"], *cc["flags"], "-Werror=implicit-function-declaration",
+         "-I", program_action / runner_include, *cc["iflags"],
+         program_action / "runner-program.c", runner_binding, *cc["libs"],
+         "-o", runner_executable],
+        check=True,
+    )
+    result = subprocess.run(
+        [runner_executable], cwd=work, capture_output=True, text=True, timeout=60
+    )
+    if result.returncode != 7:
+        raise AssertionError(
+            f"expected provider-backed program exit 7, got {result.returncode}\n"
+            f"{result.stdout}{result.stderr}"
+        )
+    print("native provider-backed program passed bundle-only emission fixture with exit=7")
 
 
 if __name__ == "__main__":
