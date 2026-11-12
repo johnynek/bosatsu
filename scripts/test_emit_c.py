@@ -11,19 +11,22 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 HEADER = "bosatsu_ext_Demo_l_Native.h"
+PROG_HEADER = "bosatsu_ext_Bosatsu_l_Prog.h"
 
 
 def exercise(jar: Path, cc_conf: Path, work: Path) -> None:
     # Only the separate native compile/link operation receives cc_conf.
     cc = json.loads(cc_conf.read_text())
-    java = shutil.which("java")
-    if not java:
+    java_path = shutil.which("java")
+    if not java_path:
         raise RuntimeError("java is required")
+    java = Path(java_path).resolve()
 
     producer = work / "producer"
     action = work / "action"
+    program_action = work / "program-action"
     empty_path = work / "empty-path"
-    for directory in (producer, action, empty_path):
+    for directory in (producer, action, program_action, empty_path):
         directory.mkdir()
     java_env = dict(os.environ, PATH=str(empty_path))
 
@@ -31,7 +34,9 @@ def exercise(jar: Path, cc_conf: Path, work: Path) -> None:
         subprocess.run([java, "-jar", str(jar), "tool", *args], cwd=cwd,
                        env=java_env, check=True)
 
-    def compile_group(out: str, sources: list[str], deps: list[str]) -> None:
+    def compile_group(
+        out: str, sources: list[str], deps: list[str], destination: Path = action
+    ) -> None:
         args = ["compile-packages", "--packages-out", out + ".pkg",
                 "--sig-out", out + ".sig", "--error-unused-interfaces"]
         for name in sources:
@@ -39,7 +44,7 @@ def exercise(jar: Path, cc_conf: Path, work: Path) -> None:
         for name in deps:
             args.extend(["--direct-interface", name + ".sig"])
         tool(producer, *args)
-        shutil.copyfile(producer / (out + ".pkg"), action / (out + ".pkg"))
+        shutil.copyfile(producer / (out + ".pkg"), destination / (out + ".pkg"))
 
     shutil.copyfile(ROOT / "test_workspace/Prog.bosatsu", producer / "Prog.bosatsu")
     (producer / "Native.bosatsu").write_text(
@@ -110,6 +115,74 @@ def exercise(jar: Path, cc_conf: Path, work: Path) -> None:
         if not prog_ok and "effect expectation" not in report:
             raise AssertionError(report)
         print(f"native suite passed fixture with plain={plain_ok}, prog={prog_ok}, exit={expected}")
+
+    # Program emission is a separate file-only action with one selected root
+    # bundle and the dependency bundles needed to typecheck and run it.
+    (producer / "Types.bosatsu").write_text(
+        "package Demo/Types\nexport Result(), get\nstruct Result(value: Int)\n"
+        "def get(result: Result) -> Int:\n  match result:\n    case Result(value): value\n"
+    )
+    (producer / "Api.bosatsu").write_text(
+        "package Demo/Api\nfrom Demo/Types import Result, get\n"
+        "export result, result_value\nexposes Demo/Types\n"
+        "result = Result(7)\nresult_value = value -> get(value)\n"
+    )
+    (producer / "Main.bosatsu").write_text(
+        "package Demo/Main\nfrom Bosatsu/Prog import Main, pure\n"
+        "from Demo/Api import result, result_value\n"
+        "main = Main(_ -> pure(result_value(result)))\n"
+    )
+    compile_group("types", ["Types"], [], program_action)
+    compile_group("api", ["Api"], ["types"], program_action)
+    shutil.copyfile(action / "prog.pkg", program_action / "prog.pkg")
+    compile_group("main", ["Main"], ["api", "types", "prog"], program_action)
+
+    program_manifest = {
+        "schema_version": 1, "kind": "local",
+        "packages": ["prog.pkg", "types.pkg", "api.pkg", "main.pkg"],
+        "externals": [{"package": "Bosatsu/Prog", "symbols": ["pure"]}],
+    }
+    (program_action / "runtime.json").write_text(json.dumps(program_manifest))
+    emit_args = [
+        "emit-c", "--main-packages", "main.pkg", "--main-package", "Demo/Main",
+        "--runtime-manifest", "runtime.json", "--out", "program.c",
+        "--extern-header-out", "include/" + PROG_HEADER,
+    ]
+    tool(program_action, *emit_args)
+    expected_files = {
+        "runtime.json", "prog.pkg", "types.pkg", "api.pkg", "main.pkg",
+        "program.c", "include/" + PROG_HEADER,
+    }
+    emitted_files = {
+        path.relative_to(program_action).as_posix()
+        for path in program_action.rglob("*") if path.is_file()
+    }
+    if emitted_files != expected_files:
+        raise AssertionError(f"unexpected program action files: {sorted(emitted_files)}")
+    if (program_action / ".bosatsuc").exists():
+        raise AssertionError("program emission installed a runtime")
+    generated = (program_action / "program.c").read_bytes()
+
+    program_manifest["packages"] = list(reversed(program_manifest["packages"]))
+    (program_action / "runtime.json").write_text(json.dumps(program_manifest))
+    tool(program_action, *emit_args)
+    if (program_action / "program.c").read_bytes() != generated:
+        raise AssertionError("reordered program manifest changed generated C")
+
+    # Linking is deliberately separate from emission and receives the C
+    # compiler configuration only here.
+    executable = work / "program"
+    subprocess.run(
+        [cc["cc_path"], *cc["flags"], *cc["iflags"], "-I", program_action / "include",
+         program_action / "program.c", *cc["libs"], "-o", executable],
+        check=True,
+    )
+    result = subprocess.run([executable], cwd=work, capture_output=True, text=True, timeout=60)
+    if result.returncode != 7:
+        raise AssertionError(
+            f"expected program exit 7, got {result.returncode}\n{result.stdout}{result.stderr}"
+        )
+    print("native program passed bundle-only emission fixture with exit=7")
 
 
 if __name__ == "__main__":

@@ -272,9 +272,13 @@ object EmitCCommand {
         platform.withEC {
           for {
             selector <- moduleIOMonad.fromEither(parseSelector(testBundle, mainBundle, mainPackage))
+            absentBundleMessage = selector match {
+              case Selector.Tests(bundle) => show"test bundle $bundle is absent from runtime manifest $file"
+              case Selector.Main(bundle, _) => show"selected bundle $bundle is absent from runtime manifest $file"
+            }
             manifest <- LocalRuntimeManifest.read(platform, file)
             _ <- moduleIOMonad.raiseUnless(manifest.packages.exists(pathOrdering.equiv(_, selector.selectedBundle)))(
-              CliException.Basic(show"selected bundle ${selector.selectedBundle} is absent from runtime manifest $file"))
+              CliException.Basic(absentBundleMessage))
             inputs = SortedSet.from(manifest.packages.toList) + file
             outputs = out :: headerPaths
             _ <- moduleIOMonad.raiseWhen(SortedSet.from(outputs).size != outputs.size)(

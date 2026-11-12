@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2474` 0i: Emit program C from a selected compiled package group
-- Pending steps: `1`
-- Completed steps: `2`
+- Pending steps: `0`
+- Completed steps: `3`
 - Total steps: `3`
 
 ## Summary
@@ -102,7 +102,7 @@ Extend `cli/src/test/scala/dev/bosatsu/EmitCCommandTest.scala` using the existin
 
 Added the paired program selectors, selected-bundle membership checks, shared Main/Prog layout validation, and common native-binding, header, and output handling. Added CLI regressions for selection, layouts, externs, output safety, deterministic emission, and byte-identical retention; updated the local C emission contract. `EmitCCommandTest`, `LocalRuntimeScopeTest`, `ClangGenTest`, and `git diff --check` passed.
 
-3. [ ] `step_3` Prove bundle-only native program emission and complete tracker 0i
+3. [x] `step_3` Prove bundle-only native program emission and complete tracker 0i
 
 Extend `scripts/test_emit_c.py` alongside its existing passing/failing test-suite fixtures. Compile separate Prog, Types, Api, and Main groups with `compile-packages`: Types supplies a public type, Api imports and exposes that type while supplying the result value, and Main imports Api and Bosatsu/Prog and constructs a Main that exits 7. Supply the precise direct interfaces required by each compile invocation, including exposure-only owners. Reuse `test_workspace/Prog.bosatsu` as the Prog source.
 
@@ -130,3 +130,11 @@ After the acceptance checks pass, mark only tracker row 0i complete in `docs/des
 - A separate configured native compile/link operation succeeds, and the resulting program exits exactly 7.
 - Existing passing and failing plain Test and ProgTest fixtures retain their expected exits and exclude the dependency suite.
 - Run focused suites, JVM/CLI coverage checks, CLI integration checks, and the applicable existing codegen CI matrix.
+
+#### Completion Notes
+
+Extended `scripts/test_emit_c.py` with separate Prog, Types, Api, and Main bundles. The assembled-jar fixture passed with an absolute Java path and empty `PATH`; emission used only bundles and the runtime manifest, produced the declared C/header outputs without installing a runtime, and generated identical C after manifest reordering. Separate native linking produced a program that exited 7. Existing passing and expected-failure native suite fixtures also passed. Updated `docs/design/hermetic-bazel-rules.md` and marked only tracker row 0i complete. Restored the existing test-bundle diagnostic wording in `EmitCCommand` and covered both selector-specific messages.
+
+Verification: `python3 scripts/test_emit_c.py` passed against the current assembled jar and runtime; `bash ./test_cli.sh` passed 6,118 tests; focused JVM/CLI tests passed, and focused coverage passed 47 core tests and 168 CLI tests (one skipped), with both changed diagnostic branches covered. `git diff --check` passed. Python codegen tests passed 78 tests. Scala.js checks passed (coreJS 2,167 passed/8 ignored; jsapiJS 2; jsuiJS 8); webpack exited successfully with three stats-parser warnings. Node codegen/runtime checks passed, including 6,159 tests and FibBench output 89. `scripts/test_c_valgrind.sh` passed after removing generated ASan objects left by the earlier sanitizer attempt; its test suites reported zero Valgrind errors or leaks.
+
+Validation limits: the full coverage command timed out in `Issue2087Test` at its 30-second test limit; that test passed without coverage in 7.6 seconds, and the focused coverage run passed. The coreJS run took 34:07, beyond the workflow's 30-minute timeout. `scripts/test_c_sanitizers.sh` remained CPU-bound in `./bosatsuj test` for over 19 minutes with repeated `AddressSanitizer:DEADLYSIGNAL` output; it was stopped without a final result. The macOS native job could not run on this Linux host. `scripts/test_basic.sh` remains for MergeXO's supervised gate.
