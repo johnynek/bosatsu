@@ -189,8 +189,10 @@ BValue ___bsts_g_Bosatsu_l_Num_l_Int64_l_shift__left__Int64(BValue a, BValue b) 
       return bsts_int64_from_bits(bits << (uint32_t)shift);
     }
 
+    // Range-check before narrowing: small counts reach -2^61, so the 32-bit
+    // cast alone would wrap a huge count into an ordinary one.
+    if (shift <= -64) return bsts_int64_sign_fill(bits);
     uint32_t shift_count = (uint32_t)(-shift);
-    if (shift_count >= 64U) return bsts_int64_sign_fill(bits);
     return bsts_int64_from_bits(
         bsts_int64_arithmetic_shift_right_bits(bits, shift_count));
   }
@@ -217,8 +219,10 @@ BValue ___bsts_g_Bosatsu_l_Num_l_Int64_l_shift__right__Int64(BValue a, BValue b)
           bsts_int64_arithmetic_shift_right_bits(bits, (uint32_t)shift));
     }
 
+    // Range-check before narrowing: small counts reach -2^61, so the 32-bit
+    // cast alone would wrap a huge count into an ordinary one.
+    if (shift <= -64) return bsts_int64_from_int64(0);
     uint32_t shift_count = (uint32_t)(-shift);
-    if (shift_count >= 64U) return bsts_int64_from_int64(0);
     return bsts_int64_from_bits(bits << shift_count);
   }
 
@@ -242,8 +246,10 @@ BValue ___bsts_g_Bosatsu_l_Num_l_Int64_l_shift__right__unsigned__Int64(BValue a,
           bsts_int64_logical_shift_right_bits(bits, (uint32_t)shift));
     }
 
+    // Range-check before narrowing: small counts reach -2^61, so the 32-bit
+    // cast alone would wrap a huge count into an ordinary one.
+    if (shift <= -64) return bsts_int64_from_int64(0);
     uint32_t shift_count = (uint32_t)(-shift);
-    if (shift_count >= 64U) return bsts_int64_from_int64(0);
     return bsts_int64_from_bits(bits << shift_count);
   }
 

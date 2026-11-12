@@ -45,7 +45,7 @@ class PredefWorkspaceTest extends munit.FunSuite with ParTest {
     runBosatsuTest(
       List(int64Pack, natPack, binNatPack, randPack, propertiesPack, int64PropertiesPack),
       "Int64Properties",
-      900
+      1700
     )
   }
 }
