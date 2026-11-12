@@ -7,23 +7,23 @@
 
 - Flow: `small_job`
 - Issue: `#2474` 0i: Emit program C from a selected compiled package group
-- Pending steps: `0`
+- Pending steps: `2`
 - Completed steps: `5`
-- Total steps: `5`
+- Total steps: `7`
 
 ## Summary
 
 Add local program emission through `tool emit-c --main-packages FILE --main-package NAME`, using the existing compiled-bundle runtime loader, main discovery, C backend, and staged output lifecycle. Validate selected-bundle membership and native Main/Prog compatibility, preserve test emission, and demonstrate bundle-only emission followed by separate native linking and execution with exit code 7. Update the existing command contract and complete tracker item 0i after its acceptance checks pass.
 
-Plan trajectory: initial steps 3; review revisions 0; review-origin steps 0.
+Plan trajectory: initial steps 3; review revisions 1; review-origin steps 2.
 
 ## Current State
 
-All four existing steps are completed and remain immutable history. Program emission and its acceptance fixtures are implemented; completion notes retain verification results and limitations. The completed OperatorTest repair added a measured, suite-local 60-second timeout. Roadmap #2470 and its local_main node remain aligned with this scope and supply no direct dependencies.
+All five existing steps are completed immutable history, and there are no pending steps to absorb the requested corrections. Program selection, Main/Prog layout checks, resolver reuse, and staged publication are implemented. The reviewed JVM/CLI required-tests gate passed after the shared startup-timeout repair.
 
-MergeXO tested candidate `d64de59648469fe7ddeeec5b73d2c31cf731f7f8` in gate/run `01a1cda3c26f7801935149b63df1a6c7` using `scripts/test_basic.sh`: status `failed`, exit code 1, failure class `test_failure`. CLI tests passed. Core reported 2,189 passing tests and three failures, all exceeding MUnit's default 30-second timeout: DefRecursionCheckTest.non recursive cases are allowed (30.424s), CompileCacheTest.dependency interface changes invalidate the compile key (45.139s), and PackageTest.simple package resolves (62.143s). Complete stderr was empty; the gate output does not establish a semantic failure or identify the timeout cause.
+Candidate inspection confirms a native declaration defect: ClangGen's shared main renderer calls its supplied runner without emitting its documented prototype. The installed Prog binding header supplies that declaration incidentally, but programs can have no reachable Prog externals, and generated Prog headers can shadow the installed header. One corrective step repairs this at the existing main-rendering boundary and covers both manifestations through native compilation with generated headers first.
 
-Repository inspection identifies a shared initialization hypothesis: TestUtils eagerly computes its Predef interface and related values even when called only to parse a tiny declaration, while PackageTest and CompileCacheTest also enter PackageMap's lazy Predef compilation. JVM suites lack the explicit serial scheduling configured for Scala.js. These facts warrant investigating initialization and scheduling together, but do not prove contention or justify blanket timeout increases. There are no existing pending steps to absorb the work. One corrective step covers this timeout family and the prior OperatorTest workaround without changing completed history.
+Required acceptance validation is still incomplete. Step_3 records an interrupted sanitizer run and a failed full coverage run; successful replacements are not established by the passing basic gate. A second corrective step completes those checks and the applicable existing codegen validation against the repaired candidate before restoring tracker 0i's completion claim. Required macOS evidence needs a matching platform; if unavailable before publication, that obligation remains pending for execution replanning. Roadmap #2470 and its local_main node remain aligned, with no direct dependencies. The existing technical-debt proposal for legacy layout validation remains outside this repair.
 
 ## Problem
 
@@ -202,3 +202,59 @@ Required-test repair provenance: tested SHA `d64de59648469fe7ddeeec5b73d2c31cf73
 #### Completion Notes
 
 Diagnosed the gate timeouts as parallel-suite CPU contention, not a hang or semantic defect. In a fresh sbt process with parallel execution enabled, the focused baseline took 22.468s for DefRecursionCheckTest, 45.861s for OperatorTest, and 54.869s for CompileCacheTest; PackageTest.simple package resolves timed out at 44.076s. A fresh serial comparison passed all four suites (15.734s, 4.645s, 16.734s, and 25.012s respectively). Set coreJVM test parallelism to false, deferred TestUtils’ Predef-derived values so parser-only use avoids unrelated Predef compilation, and removed OperatorTest’s now-unneeded 60-second timeout. The required focused command passed in two fresh sbt processes: 64/64 tests each, with suite timings 3.599/25.184/20.295/4.636s and 3.539/26.647/17.025/3.749s. `git diff --check` passed.
+
+6. [ ] `step_6_main_runner_declaration` Declare the runner ABI at the shared main-rendering boundary
+
+Invariant family: main-runner-declaration
+Extend the existing main renderer in core/src/main/scala/dev/bosatsu/codegen/clang/ClangGen.scala. Steps step_1 and step_2 routed program emission through this renderer, but it emits a runner call without declaring the runner. Depending on an external binding to include the installed Prog header fails when no Bosatsu/Prog external survives, and generated Prog headers can shadow the installed header while omitting its runner declaration. Both manifestations prevent valid programs from compiling and violate the issue's native emission and header acceptance criteria. All existing steps are completed; no pending work can absorb this correction.
+
+Use the existing Code.DeclareFn representation to emit a prototype for the supplied runner before the generated main: int runner(BValue main_value, int argc, char** argv). Put the declaration in the shared implementation reached by both renderMain overloads, preserving arbitrary runner identifiers and explicit-resolver behavior. This source-site repair makes runner declaration independent of reachable extern packages and header search order. Keep generated external headers limited to their existing binding contract; do not add a parallel runner-header mechanism or require an artificial Prog binding.
+
+Extend core/src/test/scala/dev/bosatsu/codegen/clang/ClangGenTest.scala with focused declaration regressions, retaining overload equivalence and resolver rejection coverage. Extend scripts/test_emit_c.py through its existing bundle-only emission and separate linking lifecycle: compile the existing pure-based program using its generated Prog header before runtime include directories, and add a valid program whose callback obtains Prog through another package's external with no reachable Bosatsu/Prog external. Supply that provider's native implementation and generated header. Both programs must compile with implicit function declarations treated as errors and exit 7. Preserve the separate Prog/Types/Api/Main groups, empty-PATH emission, deterministic manifest permutations, and every existing test-emission fixture. Remove the runtime-first include ordering that masked the defect. Run focused ClangGenTest and EmitCCommandTest coverage and the assembled-jar native fixture before completing this step.
+
+#### Invariants
+
+- Every runner call emitted by the shared main renderer has the documented ABI declared before its use.
+- Runner declaration does not depend on external binding reachability or which Prog header the native compiler finds.
+- Both renderMain overloads retain their supplied runner and resolver semantics.
+- Emission remains file-only and continues through the existing staged publication lifecycle.
+
+#### Property Tests
+
+- Across fixtures with and without reachable Bosatsu/Prog externals, and both renderMain overloads, the supplied runner has a compatible prototype before its generated call.
+
+#### Assertion Tests
+
+- The pure-based bundle fixture compiles with generated Prog headers preceding runtime headers and exits 7.
+- A Main using only another package's external to obtain Prog compiles with generated headers first, rejects implicit function declarations, and exits 7.
+- Default and explicit standard-resolver rendering remain equivalent; excluding a required external still fails rendering.
+- Existing passing and failing Test and ProgTest native fixtures retain their expected results.
+
+7. [ ] `step_7_complete_acceptance_validation` Complete required validation before restoring tracker completion
+
+Invariant family: acceptance-validation
+Complete the implementation validation required by issue #2474, roadmap #2470, and coding_style.md. Step step_3 recorded an interrupted sanitizer run with repeated AddressSanitizer:DEADLYSIGNAL output and a full coverage timeout, yet marked tracker 0i complete. Step step_5 subsequently repaired JVM scheduling and initialization, and the reviewed required-tests gate passed, but neither fact establishes successful sanitizer or full coverage checks. This is an outstanding acceptance obligation, not a request to rewrite completed history. There are no pending validation steps to revise.
+
+Set only tracker row 0i in docs/design/hermetic-bazel-rules.md to incomplete while validation remains outstanding. After step_6_main_runner_declaration, run the full sbt coverage entry point from coding_style.md: sbt "coverage; clean; coreJVM/test; cli/test; coverageReport". Inspect changed-behavior coverage without weakening thresholds. Rebuild the candidate assembly after coverage cleanup and run the assembled-jar scripts/test_emit_c.py fixture with an explicitly selected jar and cc_conf, plus ./test_cli.sh. Run scripts/test_c_sanitizers.sh to successful completion and the applicable codegen matrix from .github/workflows/ci.yml, including Linux native, Valgrind, shared Scala.js, Python/Node, and macOS native checks. Use clean generated native build state between instrumentation configurations so sanitizer artifacts cannot contaminate ordinary or Valgrind runs. The shared renderer change warrants checking these existing consumers; do not introduce a new validation subsystem.
+
+Investigate reproduced sanitizer failures or timeouts instead of treating an interrupted run as success. Distinguish a compiler/runtime defect from build contamination, scheduling, or an unavailable environment; repair demonstrated blockers through existing mechanisms and add focused coverage where executable behavior changes. Preserve test workloads, instrumentation, assertions, and repository thresholds. MergeXO independently reruns scripts/test_basic.sh; do not schedule or wait for that supervised gate here.
+
+Evidence must come from repository commands or matching-platform execution of the repaired candidate before publication. Record the tested revision, commands, outcomes, and coverage assessment in this step's completion notes. The earlier Linux execution supplied no macOS result, and this Linux host cannot itself produce one: obtain matching-platform evidence before completing this step. If the required environment or evidence cannot be obtained within the pre-PR transaction, leave the step pending and report the lifecycle/environment conflict through the execution replan flow; do not substitute another platform, defer authoritative acceptance to debt, or depend on this candidate's future merge. Restore only tracker row 0i to complete after all required acceptance checks succeed.
+
+#### Invariants
+
+- Tracker 0i claims completion only after required acceptance and validation checks have succeeded against the repaired candidate.
+- A passing basic gate, focused coverage, or interrupted sanitizer run cannot substitute for the outstanding full checks.
+- Required validation retains its workloads, instrumentation, assertions, and coverage thresholds.
+- Completed plan steps remain immutable; validation results are recorded in the new step.
+
+#### Property Tests
+
+- None recorded.
+
+#### Assertion Tests
+
+- The complete JVM/CLI coverage command succeeds and changed executable behavior is assessed against repository coverage expectations.
+- The sanitizer script completes successfully without unresolved sanitizer failures.
+- The repaired assembled-jar fixture, CLI integration checks, and applicable existing codegen matrix succeed on their required platforms.
+- Tracker 0i remains incomplete when any required check lacks successful candidate evidence.
