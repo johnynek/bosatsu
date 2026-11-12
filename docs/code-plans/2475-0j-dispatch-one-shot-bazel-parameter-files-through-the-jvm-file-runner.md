@@ -7,9 +7,9 @@
 
 - Flow: `small_job`
 - Issue: `#2475` 0j: Dispatch one-shot Bazel parameter files through the JVM file runner
-- Pending steps: `0`
+- Pending steps: `1`
 - Completed steps: `2`
-- Total steps: `2`
+- Total steps: `3`
 
 ## Summary
 
@@ -17,15 +17,15 @@ Implement `java -jar <candidate> tool bazel-worker @params` by decoding one UTF-
 
 The bounded production surface is the JVM routing boundary in PathModule, a small worker argument/operation module, and worker-facing methods on FileCommandRunner. Existing command parsers and StagedOutputs remain the enforcing mechanisms for command options and output publication. Persistent JSON transport, declared-input authorization for that transport, inspection/verification implementations, Bazel rules, and compiler/backend changes belong to other roadmap children.
 
-Plan trajectory: initial steps 2; review revisions 0; review-origin steps 0.
+Plan trajectory: initial steps 2; review revisions 1; review-origin steps 1.
 
 ## Current State
 
-PathModule.runCli already sends supported standalone `tool` commands through FileCommandRunner. Main maps the resulting tool exit code to the process exit code. FileCommandRunner owns a reusable compiler pool; each request owns its streams, RequestPlatform, Supervisor, and staged publication lifecycle. Existing runner and staging tests cover rollback, symlinks, access preservation, scratch cleanup, and completion of request-owned work.
+The one-shot dispatcher, shared four-operation classification, parameter-file decoder, FileCommandRunner integration, candidate-jar acceptance harness, launcher checks, and tracker update are implemented. Both original plan steps are completed and remain immutable history.
 
-FileCommandRunner.supports includes legacy operations such as `check` and `assemble`, so it cannot serve as the worker allowlist. ToolCommand already registers the four requested build operations, whose parsers do not use CommonOpts or expose its `--cache_dir` option. No bazel-worker dispatcher exists. Both JVM launcher paths forward argv intact, while scripts/test_launcher_passthrough.sh currently checks a native-launcher eval case. test_cli.sh builds cli/assembly and is called by JVM CI.
+Pre-PR inspection confirmed that BazelWorkerTest's runCli and runCliCaptured helpers replace JVM-wide streams while concurrent CLI suites can write to them. One corrective test-only step moves those route assertions into the existing candidate-jar subprocess harness while preserving malformed-startup and successful-route coverage. Production routing and lifecycle behavior need no change for this defect.
 
-The source issue, roadmap #2470, worker_args node, and dependency handoff agree on this scope and supply no upstream dependencies. This planning turn made no code changes and ran no tests.
+The source issue, roadmap #2470, worker_args node, and dependency handoff remain aligned, with no upstream dependencies or scope amendment. This revision inspected the authoritative candidate patch and repository guidance, changed no repository files, and ran no tests.
 
 ## Problem
 
@@ -105,3 +105,33 @@ Run `scripts/test_launcher_passthrough.sh` and `./test_cli.sh`. Inspect changed 
 #### Completion Notes
 
 Added the candidate-jar parity harness, launcher passthrough checks, and tests for the streaming worker route; documented parameter-file semantics and updated tracker 0j with issue and test links. The candidate harness and `./test_cli.sh` passed; `BazelWorkerTest` passed all 10 tests under focused coverage. The full coverage run hit a 30-second timeout in `ToolAndLibCommandTest`; its isolated rerun passed all 172 tests without coverage.
+
+3. [ ] `step-3` Isolate worker CLI stream assertions in subprocess tests
+
+Invariant family: cli-stream-isolation
+
+The route tests added in step-1 and step-2 use runCli and runCliCaptured in cli/src/test/scala/dev/bosatsu/BazelWorkerTest.scala to replace JVM-wide System.err and System.out. Concurrent suites, including PathModuleTest's FibBench execution, write through those same streams. This can contaminate assertions or swallow unrelated diagnostics. Repair both helpers together by removing them and moving their route-level assertions into the existing scripts/test_bazel_worker.py candidate-jar subprocess harness. Both existing steps are completed; no pending step can absorb this correction.
+
+Preserve the complete malformed-startup inventory through subprocess cases: no parameter argument, a bare filename, bare @, a missing file, multiple parameter arguments, --persistent_worker, an empty file, an empty operation line, and invalid UTF-8. Reuse existing missing-file and UTF-8 cases rather than duplicating them. Assert failure status, useful stderr, empty stdout, and no published outputs. Preserve the accepted headers route assertion by extending the existing successful candidate-jar case to require empty stdout/stderr while retaining direct/worker status and output-byte parity with spaces and Unicode paths.
+
+Retain decoder, classification, lifecycle, and explicitly scoped FileCommandRunner stream tests in Scala. Process-owned pipes from the harness's existing invoke helper provide the isolation for every migrated route case, eliminating the shared-state race across both affected helpers. Do not introduce suite-local locks, disable parallel testing, or change production routing for this test defect.
+
+Run sbt "cli/testOnly dev.bosatsu.BazelWorkerTest dev.bosatsu.PathModuleTest" with normal concurrency, then ./test_cli.sh to assemble this branch's candidate and execute the extended subprocess acceptance harness. Completion requires preserving the migrated assertions and removing all JVM-wide stream replacement from BazelWorkerTest.
+
+#### Invariants
+
+- Worker route assertions capture only the candidate subprocess's stdout and stderr.
+- BazelWorkerTest never replaces JVM-wide output streams, so concurrent suites retain their own diagnostics and output.
+- Malformed-startup and successful-route coverage remains intact through the assembled candidate jar.
+- Existing runner-scoped tests continue to cover worker classification and request lifecycle behavior.
+
+#### Property Tests
+
+- Across the malformed-startup case table, each isolated candidate invocation fails with useful stderr, empty stdout, and no published outputs.
+
+#### Assertion Tests
+
+- A valid headers parameter file with spaces and Unicode paths succeeds with empty stdout/stderr and output bytes matching direct invocation.
+- Run BazelWorkerTest and PathModuleTest together under normal test concurrency.
+- Run ./test_cli.sh against the freshly assembled candidate, including all migrated startup cases.
+- Inspect BazelWorkerTest to confirm both global-capture helpers and all System.setOut/System.setErr calls are removed.
