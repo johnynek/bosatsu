@@ -62,10 +62,14 @@ case class DecodedLibraryWithDeps[A](
       localPassOptions
     )
 
-  def compileRaw(implicit
+  def startCompileRaw(implicit
       ec: Par.EC
-  ): MatchlessFromTypedExpr.Compiled[(Name, Version)] =
-    MatchlessFromTypedExpr.compileRaw(nameVersion, lib.implementations)
+  ): Par.F[MatchlessFromTypedExpr.Compiled[(Name, Version)]] =
+    MatchlessFromTypedExpr.startCompileRaw(
+      nameVersion,
+      lib.implementations,
+      standardInt64Intrinsics = true
+    )
 
   def filterLets(
       keep: ((Name, Version)) => Option[((PackageName, Identifier)) => Boolean]
@@ -241,10 +245,12 @@ object DecodedLibraryWithDeps {
               enableGlobalInlining: Boolean
           ): SortedMap[ScopeKey, MatchlessFromTypedExpr.Compiled[ScopeKey]] =
             if (enableGlobalInlining)
+              // Start every scope's package tasks before awaiting any, so no
+              // pool task blocks waiting on other tasks.
               MatchlessGlobalInlining.optimize(
                 allDeps
                   .map { dep =>
-                    (dep.nameVersion, Par.start(dep.compileRaw))
+                    (dep.nameVersion, dep.startCompileRaw)
                   }
                   .to(SortedMap)
                   .transform((_, p) => Par.await(p)),

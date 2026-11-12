@@ -48,20 +48,21 @@ object MatchlessGlobalInlining {
       rawCompiled: SortedMap[K, MatchlessFromTypedExpr.Compiled[K]],
       localPassOptions: Matchless.LocalPassOptions
   )(implicit ec: Par.EC): SortedMap[K, MatchlessFromTypedExpr.Compiled[K]] = {
-    val scopeTasks = rawCompiled.iterator.toList.map { case (scope, packs) =>
-      Par.start {
-        val packTasks = packs.toList.map { case (pack, lets) =>
-          Par.start {
-            pack -> lets.map { case (name, expr) =>
-              (name, Matchless.postLoweringCleanup(expr, localPassOptions))
-            }
+    // Start one task per package across all scopes, then await them here, so
+    // no pool task blocks waiting on other tasks.
+    val packTasks = rawCompiled.transform { (_, packs) =>
+      packs.transform { (_, lets) =>
+        Par.start {
+          lets.map { case (name, expr) =>
+            (name, Matchless.postLoweringCleanup(expr, localPassOptions))
           }
         }
-        scope -> packTasks.map(Par.await).toMap
       }
     }
 
-    SortedMap.from(scopeTasks.map(Par.await))(using rawCompiled.ordering)
+    packTasks.transform { (_, packs) =>
+      packs.transform((_, task) => Par.await(task))
+    }
   }
 
   def optimize[K: Order](
