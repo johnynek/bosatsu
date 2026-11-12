@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2474` 0i: Emit program C from a selected compiled package group
-- Pending steps: `1`
-- Completed steps: `3`
+- Pending steps: `0`
+- Completed steps: `4`
 - Total steps: `4`
 
 ## Summary
@@ -141,7 +141,7 @@ Verification: `python3 scripts/test_emit_c.py` passed against the current assemb
 
 Validation limits: the full coverage command timed out in `Issue2087Test` at its 30-second test limit; that test passed without coverage in 7.6 seconds, and the focused coverage run passed. The coreJS run took 34:07, beyond the workflow's 30-minute timeout. `scripts/test_c_sanitizers.sh` remained CPU-bound in `./bosatsuj test` for over 19 minutes with repeated `AddressSanitizer:DEADLYSIGNAL` output; it was stopped without a final result. The macOS native job could not run on this Linux host. `scripts/test_basic.sh` remains for MergeXO's supervised gate.
 
-4. [ ] `step_4_operator_timeout` Resolve the reproducible OperatorTest timeout
+4. [x] `step_4_operator_timeout` Resolve the reproducible OperatorTest timeout
 
 Repair the repeatable timeout blocking the required JVM gate. Investigate `test operator precedence in real programs` in `core/src/test/scala/dev/bosatsu/OperatorTest.scala` and its three sequential `TestUtils.runBosatsuTest` calls in `core/src/test/scala/dev/bosatsu/TestUtils.scala`. Measure the scenarios to distinguish successful compiler/interpreter work exceeding the default 30-second limit from a hang, semantic defect, or pathological performance regression.
 
@@ -166,3 +166,7 @@ Required-test repair provenance: tested SHA `1ba5bf38e746aefb0f1ffb6d81410ce3145
 - The normal focused OperatorTest command passes all three existing tests, including every compiler/interpreter scenario in the previously failing test.
 - A repeated focused run passes within the justified timeout without command-line timeout overrides.
 - If investigation identifies a semantic or performance defect, focused regression coverage demonstrates the defect and verifies its repair.
+
+#### Completion Notes
+
+Measured the three sequential `runBosatsuTest` scenarios at 14.75s, 3.39s, and 3.24s; the test took 24.4s in that run, while a later repeat took 33.4s. This confirmed successful work exceeded the previous 30-second limit under runner load, with no semantic failure. Added a suite-local 60-second timeout, preserving all scenarios and assertions. The unchanged `sbt -batch 'coreJVM/testOnly dev.bosatsu.OperatorTest'` command passed twice after the change (3 tests each; 25.5s and 33.4s). `git diff --check` passed.
