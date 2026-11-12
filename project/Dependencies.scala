@@ -21,7 +21,7 @@ object Dependencies {
   lazy val jna = Def.setting("net.java.dev.jna" % "jna" % "5.19.1")
   // SDK shipped with the pinned GraalVM Java 23.0.2 builder.
   lazy val nativeImageSdk =
-    Def.setting("org.graalvm.sdk" % "nativeimage" % "24.1.2")
+    Def.setting("org.graalvm.sdk" % "nativeimage" % "24.2.2")
   lazy val jython = Def.setting("org.python" % "jython-standalone" % "2.7.4")
   lazy val http4sCore = Def.setting("org.http4s" %%% "http4s-core" % "0.23.38")
   lazy val http4sEmber =
