@@ -38,6 +38,16 @@ class StrictInterfacesCommandTest extends FileCommandFixtures {
   ): IO[Unit] =
     runner.run(root, args(out, sources, deps)).map(success)
 
+  private def parameterFileInvocation(
+      runner: FileCommandRunner,
+      root: Path,
+      arguments: List[String]
+  ): IO[FileCommandRunner.Result] =
+    write(root, "strict-worker.params", arguments.mkString("\n")) *>
+      BazelWorker.readParameterFile(root, "@strict-worker.params").flatMap { invocation =>
+        runner.runWorker(root, invocation.commandArguments)
+      }
+
   private def fixture(runner: FileCommandRunner, root: Path): IO[Unit] =
     for {
       _ <- write(root, "Leaf.bosatsu", leaf)
@@ -66,26 +76,30 @@ class StrictInterfacesCommandTest extends FileCommandFixtures {
 
   test("only selected roots of a wide direct interface contribute exposure dependencies") {
     withRunner { (root, runner) =>
-      def run(deps: String*) =
-        runner.run(root, args("client", List("Client"), deps.toList) ::: strict)
+      def run(args: List[String]): IO[FileCommandRunner.Result] =
+        for {
+          direct <- runner.run(root, args)
+          worker <- parameterFileInvocation(runner, root, args)
+          _ = assertEquals(worker, direct)
+        } yield direct
       for {
         _ <- fixture(runner, root)
         _ <- write(root, "Client.bosatsu", "package Client\nfrom Sibling import number\nmain = number\n")
-        fromSibling <- run("wide.sig")
+        fromSibling <- run(args("client", List("Client"), List("wide.sig")) ::: strict)
         _ = success(fromSibling)
-        unused <- run("wide.sig", "y.sig")
+        unused <- run(args("client", List("Client"), List("wide.sig", "y.sig")) ::: strict)
         _ = failure(unused)
         _ = assert(unused.stderr.contains("unused direct interfaces: y.sig"), unused.stderr)
         _ <- write(root, "Client.bosatsu", "package Client\nfrom X import shared\nmain = [shared]\n")
-        missing <- run("wide.sig")
+        missing <- run(args("client", List("Client"), List("wide.sig")) ::: strict)
         _ = failure(missing)
         _ = assert(missing.stderr.contains("Client -> X -> Y"), missing.stderr)
-        nested <- run("wide.sig", "y.sig")
+        nested <- run(args("client", List("Client"), List("wide.sig", "y.sig")) ::: strict)
         _ = failure(nested)
         _ = assert(nested.stderr.contains("Client -> X -> Y -> Leaf"), nested.stderr)
-        exact <- run("leaf.sig", "y.sig", "wide.sig", "wide.sig")
+        exact <- run(args("client", List("Client"), List("leaf.sig", "y.sig", "wide.sig", "wide.sig")) ::: strict)
         _ = success(exact)
-        privateEdge <- run("wide.sig", "leaf.sig", "private.sig", "y.sig")
+        privateEdge <- run(args("client", List("Client"), List("wide.sig", "leaf.sig", "private.sig", "y.sig")) ::: strict)
         _ = failure(privateEdge)
         _ = assert(privateEdge.stderr.contains("unused direct interfaces: private.sig"), privateEdge.stderr)
       } yield ()
