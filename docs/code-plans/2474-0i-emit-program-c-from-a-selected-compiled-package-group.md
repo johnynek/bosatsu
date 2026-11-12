@@ -7,9 +7,9 @@
 
 - Flow: `small_job`
 - Issue: `#2474` 0i: Emit program C from a selected compiled package group
-- Pending steps: `0`
+- Pending steps: `1`
 - Completed steps: `4`
-- Total steps: `4`
+- Total steps: `5`
 
 ## Summary
 
@@ -19,11 +19,11 @@ Plan trajectory: initial steps 3; review revisions 0; review-origin steps 0.
 
 ## Current State
 
-The three implementation steps are completed: program selection, native representation validation, shared emission/publication handling, CLI regressions, and the bundle-only native fixture are implemented. Their completion notes retain the recorded verification results and limitations. The ancestor roadmap and local_main node remain aligned with this scope and supply no direct dependencies.
+All four existing steps are completed and remain immutable history. Program emission and its acceptance fixtures are implemented; completion notes retain verification results and limitations. The completed OperatorTest repair added a measured, suite-local 60-second timeout. Roadmap #2470 and its local_main node remain aligned with this scope and supply no direct dependencies.
 
-MergeXO tested candidate `1ba5bf38e746aefb0f1ffb6d81410ce3145e67c0` in gate/run `01a1cd86123375c18d3b65f9cb45cd17` using `scripts/test_basic.sh`: status `failed`, exit code 1. CLI tests passed; the sole core failure was `OperatorTest.test operator precedence in real programs` exceeding MUnit's 30-second timeout. The core run reported 2,191 passing tests and one failure.
+MergeXO tested candidate `d64de59648469fe7ddeeec5b73d2c31cf731f7f8` in gate/run `01a1cda3c26f7801935149b63df1a6c7` using `scripts/test_basic.sh`: status `failed`, exit code 1, failure class `test_failure`. CLI tests passed. Core reported 2,189 passing tests and three failures, all exceeding MUnit's default 30-second timeout: DefRecursionCheckTest.non recursive cases are allowed (30.424s), CompileCacheTest.dependency interface changes invalidate the compile key (45.139s), and PackageTest.simple package resolves (62.143s). Complete stderr was empty; the gate output does not establish a semantic failure or identify the timeout cause.
 
-During this planning revision, `sbt -batch 'coreJVM/testOnly dev.bosatsu.OperatorTest'` reproduced the same timeout at the unchanged candidate: two tests passed and one failed. The failing test runs three sequential compiler/interpreter scenarios through `TestUtils.runBosatsuTest`, outside the changed C-emission path. This evidence warrants one focused timeout investigation and repair; it does not establish a semantic failure or justify changing production emission behavior. There were no existing pending steps to absorb this work. Repository code and plan artifacts were not edited during this revision.
+Repository inspection identifies a shared initialization hypothesis: TestUtils eagerly computes its Predef interface and related values even when called only to parse a tiny declaration, while PackageTest and CompileCacheTest also enter PackageMap's lazy Predef compilation. JVM suites lack the explicit serial scheduling configured for Scala.js. These facts warrant investigating initialization and scheduling together, but do not prove contention or justify blanket timeout increases. There are no existing pending steps to absorb the work. One corrective step covers this timeout family and the prior OperatorTest workaround without changing completed history.
 
 ## Problem
 
@@ -170,3 +170,31 @@ Required-test repair provenance: tested SHA `1ba5bf38e746aefb0f1ffb6d81410ce3145
 #### Completion Notes
 
 Measured the three sequential `runBosatsuTest` scenarios at 14.75s, 3.39s, and 3.24s; the test took 24.4s in that run, while a later repeat took 33.4s. This confirmed successful work exceeded the previous 30-second limit under runner load, with no semantic failure. Added a suite-local 60-second timeout, preserving all scenarios and assertions. The unchanged `sbt -batch 'coreJVM/testOnly dev.bosatsu.OperatorTest'` command passed twice after the change (3 tests each; 25.5s and 33.4s). `git diff --check` passed.
+
+5. [ ] `step_5_core_startup_timeouts` Resolve the shared core JVM startup timeout failures
+
+Investigate and repair the timeout family blocking the required JVM gate, rather than adding an independent workaround for each failed test. Authoritative provenance: tested SHA `d64de59648469fe7ddeeec5b73d2c31cf731f7f8`; gate/run ID `01a1cda3c26f7801935149b63df1a6c7`; command `scripts/test_basic.sh`; status `failed`, exit code 1. The failures were the 30-second MUnit timeouts in DefRecursionCheckTest.non recursive cases are allowed, CompileCacheTest.dependency interface changes invalidate the compile key, and PackageTest.simple package resolves. All previous steps are completed, so no pending work can absorb this correction.
+
+Trace and measure the failed workloads through `core/src/test/scala/dev/bosatsu/DefRecursionCheckTest.scala`, `PackageTest.scala`, `tool/CompileCacheTest.scala`, and the existing Predef initialization in `TestUtils.scala` and `core/src/main/scala/dev/bosatsu/PackageMap.scala`. Examine JVM test scheduling in `build.sbt` and service ownership in `ParTest.scala`. In particular, determine whether TestUtils's eager Predef-derived values make its parsing helper wait for unrelated compiler initialization, and whether concurrent suites amplify initialization or CPU waits. Distinguish cold-start cost, contention, a hang, and a demonstrated compiler performance or semantic defect. Use fresh sbt processes for cold-start measurements and a focused comparison with serial JVM suite scheduling when useful; do not infer the cause solely from warm passing tests.
+
+Apply the smallest correction supported by those measurements through the existing initialization or sbt test-scheduling mechanism. Prefer one repair at the demonstrated shared cause over repeated suite-specific timeout increases. If a genuinely slow successful workload still needs a larger timeout after addressing that cause, use the existing bounded MUnit timeout mechanism at the narrowest justified scope and record the measurements supporting it. Repair any demonstrated hang or semantic defect instead of hiding it with a larger budget. Reassess the code added by the completed OperatorTest step if the shared repair makes that workaround unnecessary; its historical plan step remains untouched. Preserve every existing test workload and semantic assertion, required-test selection, and the supervised gate's command and timeout.
+
+Validate with `sbt -batch 'coreJVM/testOnly dev.bosatsu.DefRecursionCheckTest dev.bosatsu.tool.CompileCacheTest dev.bosatsu.PackageTest dev.bosatsu.OperatorTest'` under the committed runner settings, and repeat in a fresh process. Include additional focused regression or property coverage only for behavior actually changed. Completion requires a supported diagnosis and successful focused verification of all four suites; record cold-start measurements, any scheduling comparison, the correction, and results in completion notes. MergeXO performs the subsequent supervised required-tests run automatically.
+
+Required-test repair provenance: tested SHA `d64de59648469fe7ddeeec5b73d2c31cf731f7f8`; gate/run ID `01a1cda3c26f7801935149b63df1a6c7`; status `failed`; configured gate `required_tests`; failure: test_failure required gate failed with exit code 1.
+
+#### Invariants
+
+- All existing recursion, package-resolution, compile-cache invalidation, and operator-precedence workloads and semantic assertions remain exercised.
+- Timeouts remain bounded; skipped tests, suppressed failures, reduced gate selection, and increased supervised gate budgets cannot serve as the repair.
+- Changes address the demonstrated startup or execution cause through existing mechanisms; production emission behavior changes only if investigation demonstrates a related defect.
+
+#### Property Tests
+
+- None recorded.
+
+#### Assertion Tests
+
+- The three previously failing cases complete successfully with their original semantic assertions under committed test settings.
+- The combined DefRecursionCheckTest, CompileCacheTest, PackageTest, and OperatorTest focused command passes in two fresh sbt processes without diagnostic command-line scheduling or timeout overrides.
+- If initialization or scheduling changes, focused verification exercises cold initialization and concurrent access relevant to the diagnosed cause, rather than relying only on warmed state.
