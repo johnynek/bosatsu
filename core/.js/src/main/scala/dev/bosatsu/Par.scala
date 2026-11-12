@@ -52,10 +52,13 @@ object Par {
   }
 
   def newService(): ExecutionService = ()
+  def newService(parallelism: Parallelism): ExecutionService = ()
   def shutdownService(es: ExecutionService): Unit = es
   def ecFromService(es: ExecutionService): EC = ()
 
   def withEC[A](fn: EC ?=> A): A = fn(using ())
+  def withParallelism[A](parallelism: Parallelism)(fn: EC ?=> A): A =
+    fn(using ecFromService(newService(parallelism)))
   def noParallelism[A](fn: EC ?=> A): A = fn(using ())
 
   inline def start[A](a: => A): F[A] = a

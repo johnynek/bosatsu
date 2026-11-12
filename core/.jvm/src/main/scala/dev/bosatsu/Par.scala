@@ -2,8 +2,19 @@ package dev.bosatsu
 
 import cats.{Monad, Parallel}
 import dev.bosatsu.graph.CanPromise
-import java.util.concurrent.Executors
-import scala.concurrent.{Await, ExecutionContext, Future, Promise}
+import java.util.concurrent.{
+  ExecutorService,
+  ForkJoinPool,
+  ForkJoinWorkerThread
+}
+import scala.concurrent.{
+  Await,
+  BlockContext,
+  CanAwait,
+  ExecutionContext,
+  Future,
+  Promise
+}
 import scala.concurrent.duration.Duration
 
 /** This is an abstraction to handle parallel computation, not effectful
@@ -15,7 +26,7 @@ object Par {
   opaque type F[A] = Future[A]
   opaque type P[A] <: AnyRef = Promise[A]
   opaque type EC = ExecutionContext
-  opaque type ExecutionService = java.util.concurrent.ExecutorService
+  opaque type ExecutionService = ExecutorService
 
   implicit def ecFromExecutionContext(implicit ec: ExecutionContext): EC = ec
 
@@ -55,7 +66,63 @@ object Par {
   }
 
   def newService(): ExecutionService =
-    Executors.newWorkStealingPool()
+    newService(Parallelism.availableProcessors)
+
+  /** A work-stealing pool that keeps `parallelism` workers running. A task
+    * may await other tasks on the same pool: while a worker is blocked in
+    * `await` the pool adds a replacement, so nested start/await cannot
+    * deadlock at any parallelism.
+    */
+  def newService(parallelism: Parallelism): ExecutionService =
+    new ForkJoinPool(
+      parallelism.toInt,
+      ManagedBlockingWorker.Factory,
+      // no uncaught exception handler: Future captures task failures
+      null,
+      // FIFO order for tasks that are never joined, as in
+      // Executors.newWorkStealingPool
+      true
+    )
+
+  /** A pool worker that is also the `BlockContext` for code it runs.
+    * `Await.result` blocks through `scala.concurrent.blocking`, which uses this
+    * to wait inside `ForkJoinPool.managedBlock`. That lets the pool compensate
+    * for the blocked worker. A plain `ForkJoinWorkerThread` would use
+    * `BlockContext.DefaultBlockContext`, and its pool would lose the worker for
+    * as long as it waits.
+    */
+  private final class ManagedBlockingWorker(pool: ForkJoinPool)
+      extends ForkJoinWorkerThread(pool)
+      with BlockContext {
+    def blockOn[T](thunk: => T)(implicit permission: CanAwait): T = {
+      val blocker = new ManagedBlockingWorker.Blocker(() => thunk)
+      ForkJoinPool.managedBlock(blocker)
+      blocker.result
+    }
+  }
+
+  private object ManagedBlockingWorker {
+    object Factory extends ForkJoinPool.ForkJoinWorkerThreadFactory {
+      def newThread(pool: ForkJoinPool): ForkJoinWorkerThread =
+        new ManagedBlockingWorker(pool)
+    }
+
+    // Only the blocked worker calls these methods, so value needs no
+    // synchronization.
+    final class Blocker[T](thunk: () => T) extends ForkJoinPool.ManagedBlocker {
+      private var value: Option[T] = None
+
+      def block(): Boolean = {
+        value = Some(thunk())
+        true
+      }
+
+      def isReleasable: Boolean = value.isDefined
+
+      def result: T =
+        value.getOrElse(sys.error("managedBlock returned before block() ran"))
+    }
+  }
 
   def shutdownService(es: ExecutionService): Unit =
     es.shutdown()
@@ -64,8 +131,11 @@ object Par {
     ExecutionContext.fromExecutor(es)
 
   // Used in testing generally, we don't want to make more than one of these per app
-  def withEC[A](fn: EC ?=> A): A = {
-    val srv = newService()
+  def withEC[A](fn: EC ?=> A): A =
+    withParallelism(Parallelism.availableProcessors)(fn)
+
+  def withParallelism[A](parallelism: Parallelism)(fn: EC ?=> A): A = {
+    val srv = newService(parallelism)
     try {
       val ec = ecFromService(srv)
       fn(using ec)

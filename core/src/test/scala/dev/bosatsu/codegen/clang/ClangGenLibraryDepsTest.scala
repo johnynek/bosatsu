@@ -19,6 +19,7 @@ import dev.bosatsu.{
   PackageMap,
   PackageName,
   Par,
+  Parallelism,
   Parser,
   Predef,
   ProtoConverter
@@ -182,7 +183,10 @@ class ClangGenLibraryDepsTest extends munit.FunSuite {
       "package App\nfrom Left import answer as one\nfrom Right import answer as two\nmain = (one, two)\n",
       List(left, right))
 
-    Par.withEC {
+    // Compile the five library scopes on a single worker, so any task that
+    // awaits other tasks on the same pool would deadlock unless the pool can
+    // replace the blocked worker.
+    Par.withParallelism(Parallelism.one) {
       val ns = CompilationSource.namespace(root)
       assertEquals(ns.depFor(left.nameVersion, common), first.nameVersion)
       assertEquals(ns.depFor(right.nameVersion, common), second.nameVersion)
