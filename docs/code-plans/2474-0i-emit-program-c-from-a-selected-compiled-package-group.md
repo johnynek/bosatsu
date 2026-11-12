@@ -7,9 +7,9 @@
 
 - Flow: `small_job`
 - Issue: `#2474` 0i: Emit program C from a selected compiled package group
-- Pending steps: `0`
+- Pending steps: `1`
 - Completed steps: `3`
-- Total steps: `3`
+- Total steps: `4`
 
 ## Summary
 
@@ -19,9 +19,11 @@ Plan trajectory: initial steps 3; review revisions 0; review-origin steps 0.
 
 ## Current State
 
-At initial planning, `EmitCCommand` requires `--test-packages` and accepts only the local runtime manifest schema. `LocalRuntime` already decodes the declared bundles together, supplies implicit Predef, records bundle membership, verifies implementation/interface requirements, and checks native binding declarations. Test emission discovers selected roots, disables unverified standard Int64 intrinsics, filters external resolution at actual generated references, prepares requested headers, and returns `Output.TranspileOut`. The JVM `FileCommandRunner` publishes that output through `StagedOutputs`, preserving rollback and byte-identical output retention.
+The three implementation steps are completed: program selection, native representation validation, shared emission/publication handling, CLI regressions, and the bundle-only native fixture are implemented. Their completion notes retain the recorded verification results and limitations. The ancestor roadmap and local_main node remain aligned with this scope and supply no direct dependencies.
 
-`CompilationSource.mainValues` selects the last matching binding in each package, and `ClangTranspiler.validMain` recognizes nominal `Bosatsu/Prog::Main`. `ClangGen.renderMain` currently always selects the standard external resolver; `renderTests` already has an explicit-resolver overload. `EmitCCommand` validates the supplied ProgTest representation, but has no program selector or Main representation check. The native runner calls Main as an unboxed `List[String]` callback returning an external Prog whose successful result is an Int. Existing CLI tests and `scripts/test_emit_c.py` cover test emission and its native execution. The ancestor roadmap and immediate node agree on this local-only change and specify no upstream dependencies. No implementation edits or tests were performed during plan authoring.
+MergeXO tested candidate `1ba5bf38e746aefb0f1ffb6d81410ce3145e67c0` in gate/run `01a1cd86123375c18d3b65f9cb45cd17` using `scripts/test_basic.sh`: status `failed`, exit code 1. CLI tests passed; the sole core failure was `OperatorTest.test operator precedence in real programs` exceeding MUnit's 30-second timeout. The core run reported 2,191 passing tests and one failure.
+
+During this planning revision, `sbt -batch 'coreJVM/testOnly dev.bosatsu.OperatorTest'` reproduced the same timeout at the unchanged candidate: two tests passed and one failed. The failing test runs three sequential compiler/interpreter scenarios through `TestUtils.runBosatsuTest`, outside the changed C-emission path. This evidence warrants one focused timeout investigation and repair; it does not establish a semantic failure or justify changing production emission behavior. There were no existing pending steps to absorb this work. Repository code and plan artifacts were not edited during this revision.
 
 ## Problem
 
@@ -138,3 +140,29 @@ Extended `scripts/test_emit_c.py` with separate Prog, Types, Api, and Main bundl
 Verification: `python3 scripts/test_emit_c.py` passed against the current assembled jar and runtime; `bash ./test_cli.sh` passed 6,118 tests; focused JVM/CLI tests passed, and focused coverage passed 47 core tests and 168 CLI tests (one skipped), with both changed diagnostic branches covered. `git diff --check` passed. Python codegen tests passed 78 tests. Scala.js checks passed (coreJS 2,167 passed/8 ignored; jsapiJS 2; jsuiJS 8); webpack exited successfully with three stats-parser warnings. Node codegen/runtime checks passed, including 6,159 tests and FibBench output 89. `scripts/test_c_valgrind.sh` passed after removing generated ASan objects left by the earlier sanitizer attempt; its test suites reported zero Valgrind errors or leaks.
 
 Validation limits: the full coverage command timed out in `Issue2087Test` at its 30-second test limit; that test passed without coverage in 7.6 seconds, and the focused coverage run passed. The coreJS run took 34:07, beyond the workflow's 30-minute timeout. `scripts/test_c_sanitizers.sh` remained CPU-bound in `./bosatsuj test` for over 19 minutes with repeated `AddressSanitizer:DEADLYSIGNAL` output; it was stopped without a final result. The macOS native job could not run on this Linux host. `scripts/test_basic.sh` remains for MergeXO's supervised gate.
+
+4. [ ] `step_4_operator_timeout` Resolve the reproducible OperatorTest timeout
+
+Repair the repeatable timeout blocking the required JVM gate. Investigate `test operator precedence in real programs` in `core/src/test/scala/dev/bosatsu/OperatorTest.scala` and its three sequential `TestUtils.runBosatsuTest` calls in `core/src/test/scala/dev/bosatsu/TestUtils.scala`. Measure the scenarios to distinguish successful compiler/interpreter work exceeding the default 30-second limit from a hang, semantic defect, or pathological performance regression.
+
+If the workload completes correctly but needs a larger budget, use the existing suite-local `munitTimeout` mechanism, following the bounded timeout conventions already used by slow core suites such as `EvaluationTest` and `PredefWorkspaceTest`. Choose the smallest justified budget from the measurements. Preserve every existing program, expected assertion count, and semantic assertion. If investigation instead demonstrates a compiler/interpreter defect, repair its demonstrated cause and add focused regression coverage appropriate to that defect rather than masking it with a timeout increase.
+
+Run the unchanged focused command `sbt -batch 'coreJVM/testOnly dev.bosatsu.OperatorTest'` and repeat it to check that the repair resolves the reproduced failure under normal runner settings. Run any additional focused suites required by the actual repair. Record the diagnosis, measurements, change, and verification in completion notes. Completion requires the full OperatorTest suite to pass within its justified bounded timeout. MergeXO supplies the subsequent supervised required-tests run. This new step addresses a reproduced gate blocker; all previous steps are completed immutable history.
+
+Required-test repair provenance: tested SHA `1ba5bf38e746aefb0f1ffb6d81410ce3145e67c0`; gate/run ID `01a1cd86123375c18d3b65f9cb45cd17`; status `failed`; configured gate `required_tests`; failure: test_failure required gate failed with exit code 1.
+
+#### Invariants
+
+- All existing operator-precedence programs and semantic assertions remain exercised, including the three compiler/interpreter scenarios with expected assertion counts 3, 1, and 2.
+- Any timeout adjustment is bounded and local to the demonstrated slow suite; repository-wide timeout settings remain unchanged.
+- A hang, semantic defect, or pathological performance regression must be repaired at its demonstrated cause rather than hidden by a larger timeout.
+
+#### Property Tests
+
+- None recorded.
+
+#### Assertion Tests
+
+- The normal focused OperatorTest command passes all three existing tests, including every compiler/interpreter scenario in the previously failing test.
+- A repeated focused run passes within the justified timeout without command-line timeout overrides.
+- If investigation identifies a semantic or performance defect, focused regression coverage demonstrates the defect and verifies its repair.
