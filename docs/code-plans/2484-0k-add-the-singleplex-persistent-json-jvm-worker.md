@@ -1,0 +1,122 @@
+# Code Plan #2484
+
+> Generated from code plan JSON.
+> Edit the `.json` file, not this `.md` file.
+
+## Metadata
+
+- Flow: `small_job`
+- Issue: `#2484` 0k: Add the singleplex persistent JSON JVM worker
+- Pending steps: `3`
+- Completed steps: `0`
+- Total steps: `3`
+
+## Summary
+
+Implement the stage-0 persistent JVM worker by extending `BazelWorker` and the existing `FileCommandRunner` request lifecycle. Add sequential UTF-8 newline-delimited JSON transport, preserve direct and one-shot behavior, and deliver candidate-jar tests proving response timing, failure recovery, fresh file reads and strict-interface parity. Complete tracker 0k and document the implemented v1 contract.
+
+Plan trajectory: initial steps 3; review revisions 0; review-origin steps 0.
+
+## Current State
+
+`PathModule.runBazelWorker` accepts exactly one @parameter-file argument. `BazelWorker` owns strict parameter-file decoding and the shared registry for headers, compile-packages, validate-graph and emit-c. `FileCommandRunner.resource` already owns a reusable compiler executor; `runWorker` captures request output, and `runWorkerTo` classifies operations before entering the ordinary file-command lifecycle. Request platforms supervise compiler work and resolve scratch beneath the request working directory. `StagedOutputs` closes writers before publication, preserves unchanged outputs and rolls back failed publication. Existing tests cover reusable-runner isolation, output preservation and one-shot parity. The Python candidate-jar harness still expects persistent startup to fail. The existing `Json` parser and string escaping are reusable, but object rendering introduces physical newlines and cannot directly encode wire responses. Roadmap #2482 and its persistent_worker node agree with this scope and require no dependency artifacts.
+
+## Problem
+
+Bazel cannot currently keep the JVM alive across file actions. Tracker 0k requires a singleplex JSON transport that shares the completed dispatcher and request lifecycle, captures diagnostics, responds only after request work and cleanup finish, survives ordinary action failures and recomputes from current files. Unit tests alone cannot establish real process framing, immediate flushing, restart behavior or parity with direct and @params invocations.
+
+## Steps
+
+1. [ ] `step_1` Add typed worker envelopes and compact JSON encoding
+
+Extend `cli/src/main/scala/dev/bosatsu/BazelWorker.scala` with immutable request/input/response representations and pure decoding and encoding functions. Reuse `Json.parserFile` for complete-object parsing and existing JSON string escaping; construct the fixed response object compactly rather than changing the general pretty printer or introducing a JSON dependency. Decode arguments, inputs, requestId, verbosity, cancel and sandboxDir. Supply defaults: empty argument/input lists, input path and digest, ID/verbosity zero, cancel false and empty sandbox directory. Ignore unknown fields at both request and input levels. Follow the field representations in the design's linked [worker schema](https://github.com/bazelbuild/bazel/blob/9.2.0/src/main/protobuf/worker_protocol.proto) and [ProtoJSON specification](https://protobuf.dev/programming-guides/json/): recognize camelCase and original proto field names, treat null fields as unset, accept valid numeric or quoted int32 values and standard/URL-safe base64 with optional padding. Reject invalid known-field types, fractional/out-of-range integers, null array elements and malformed base64 with useful transport errors. Resolve duplicate recognized field spellings consistently in input order. Keep decoded digest bytes immutable and opaque; they do not authorize inference reuse. Represent cancel controls separately from action requests so they cannot accidentally dispatch an empty command.
+
+Extend `cli/src/test/scala/dev/bosatsu/BazelWorkerTest.scala` with generated contract checks and concrete decoding failures. Encode response fields requestId, exitCode, output and wasCancelled, explicitly emitting false for ordinary responses. This step is complete when the codec is independently testable without a JVM process or compiler execution.
+
+#### Invariants
+
+- An accepted envelope contains typed values and documented protobuf defaults; unknown fields do not change recognized values.
+- Argument order and string contents survive decoding without shell splitting or @argument expansion.
+- Response encoding produces exactly one JSON object with no physical CR/LF inside it, while preserving diagnostic string contents.
+- Input digests are opaque immutable byte tokens and are never interpreted as file identity or compiler state.
+
+#### Property Tests
+
+- Generate argument vectors, signed int32 IDs and Unicode diagnostic strings containing quotes, backslashes, tabs, CR/LF and long messages; verify decoding preserves arguments and independently parsing encoded responses recovers the exact ID, status and output.
+- For generated valid requests, omit default-valued fields, replace them with null and add unknown nested fields; decoding must preserve the recognized request.
+- Round-trip generated digest bytes through standard and URL-safe padded/unpadded base64 representations; omitted and empty digests both provide no reuse evidence.
+
+#### Assertion Tests
+
+- Cover empty/default envelopes, omitted and explicit zero/nonzero IDs, original proto field names, quoted integers and integer bounds.
+- Reject non-object JSON, trailing JSON values, malformed JSON, incorrect scalar/array types, fractional or overflowing IDs and invalid base64.
+- Check cancel-control classification and deterministic duplicate-field handling.
+- Assert a long multiline diagnostic still encodes onto one physical line and parses correctly with an independent test JSON parser.
+
+2. [ ] `step_2` Integrate the sequential transport with request completion
+
+Add a testable persistent loop in `BazelWorker.scala` taking the working directory, caller-owned transport streams and an existing runner. Update `cli/src/main/scala/dev/bosatsu/PathModule.scala` to accept exactly `tool bazel-worker --persistent_worker` and hold one `FileCommandRunner.resource` around the entire loop. Preserve the existing @parameter-file path and reject mixed or extra startup arguments.
+
+Read physical LF-delimited frames as bytes and decode each completed frame with strict UTF-8 before using the codec. Accept CRLF framing. EOF between frames returns success; EOF with a pending unterminated frame, invalid UTF-8, blank/malformed frames or invalid envelopes logs a transport diagnostic on stderr and returns nonzero without fabricating a response. Keep the loop stack safe. Process one action to completion before dispatching another, including when IDs are nonzero. Ignore cancel controls without dispatch or response: this sequential v1 cannot interrupt active work, and controls read afterward cannot create another response. Do not advertise cancellation or multiplexing. Reject a valid action envelope with nonempty sandboxDir using a nonzero response for its ID, then continue without changing the working directory. Verbosity may affect worker-lifetime stderr logging only.
+
+Send each action's received argument list directly to `FileCommandRunner.runWorker`, retaining `BazelWorker.Operation.fromCommandName` as the sole worker-operation classification. Convert its result into one response using the exit status and deterministic concatenation of captured stdout followed by stderr. Missing/unsupported operations and option errors remain recoverable action failures. Do not consult digest metadata for reuse or expose inference-cache flags.
+
+In `FileCommandRunner.scala`, make ownership of captured PrintStreams explicit and close runner-owned capture streams after the request resource exits and before materializing the result; leave caller-owned streaming and transport streams open. Preserve the existing RequestPlatform/Supervisor and StagedOutputs ownership rather than adding a second request engine. Await request finalizers, staged publication/cleanup and scratch cleanup before encoding, writing and immediately flushing the response. A transport write/flush failure terminates the loop; ordinary command or publication failure does not. Do not swallow fatal transport failures into action success.
+
+Extend `BazelWorkerTest.scala` and `FileCommandRunnerTest.scala` with focused lifecycle tests using Deferred coordination and controlled streams rather than sleeps. In this same slice, replace the Python harness's obsolete persistent-startup rejection with a clean-EOF and one-request smoke test, keeping the existing harness executable. Extend `scripts/test_launcher_passthrough.sh` to check intact forwarding of --persistent_worker through both JVM launcher paths. Run the focused Scala suites and launcher/harness smoke checks against an assembled jar.
+
+#### Invariants
+
+- The persistent and one-shot routes both pass through runWorker/runWorkerTo and the existing Operation registry; the transport has no second allowlist or parameter-file expansion.
+- One runner resource owns the process-lifetime compiler executor; platforms, diagnostics, streams, scratch and supervised work remain request-local.
+- A response becomes observable only after the runner's request resource and publication lifecycle have finished; the next action cannot overlap that lifecycle.
+- Transport stdout contains one complete flushed response per non-cancel action envelope, including recoverable command and sandbox rejection failures.
+- Malformed transport input ends nonzero on stderr; ordinary action/publication failures leave the worker usable.
+- Current files are read for every request, independently of IDs and missing, empty or repeated digests.
+
+#### Property Tests
+
+- For bounded sequences of valid action envelopes, including failures and interspersed cancel controls, verify ordered response IDs and exactly one response for each non-cancel envelope.
+- Vary byte chunk boundaries across UTF-8 sequences and frame delimiters; the same framed input must produce the same requests and responses.
+- Compare repeated worker invocations after source edits with fresh direct runs, varying digest presence and reusing IDs; status, diagnostics and artifacts must agree.
+
+#### Assertion Tests
+
+- Test good/bad/good requests, empty arguments, blocked commands, cache-option rejection, literal @arguments and nonempty sandboxDir followed by success.
+- Use coordinated request-finalizer and output-stream checks to prove cleanup precedes response writing and that flush occurs for every response.
+- Extend captured-runner tests to cover finalizer diagnostics and closure of owned capture streams without closing caller-owned streams.
+- Test clean empty EOF, LF/CRLF frames, malformed/truncated JSON, an unterminated final frame, invalid UTF-8 and transport read/write/flush failures.
+- Verify ordinary publication failure preserves existing outputs, removes staging scratch and permits a later successful request using the same runner.
+
+3. [ ] `step_3` Qualify the candidate JVM and complete the v1 documentation
+
+Extend `scripts/test_bazel_worker.py` into the reusable direct/@params/persistent candidate-jar harness. Preserve its required --jar argument and existing one-shot and launcher coverage. Add a managed long-lived subprocess helper with bounded response/exit deadlines, strict UTF-8 JSON-line reads, stderr capture that cannot block the child and guaranteed subprocess cleanup on failure. Send a request and require its complete response while stdin remains open. Detect extra response lines, stray stdout and unexpected worker stderr for ordinary actions.
+
+Run all four currently registered operations through direct, @params and persistent routes using equivalent fixture states and relative paths. Compare exit status, captured diagnostic content and declared output bytes; compare stable publication-error content rather than JVM stack-frame locations. Exercise good/bad/good compilation, source body and type edits at the same path, missing/empty/repeated digests, omitted/zero/nonzero IDs, unknown fields, Unicode/spaces, literal @arguments, escaped multiline diagnostics, invalid commands/options and unsupported sandbox directories. Exercise an actual multi-output publication failure with pre-existing output bytes, then repair the obstruction and succeed in the same worker. Snapshot outputs and request scratch after responses so failures cannot leave partial artifacts or affect later requests. Check clean EOF, malformed/truncated/invalid-UTF-8 transport exits and a fresh worker restart against the same files.
+
+Repeat the bounded strict-interface scenarios established in `cli/src/test/scala/dev/bosatsu/StrictInterfacesCommandTest.scala` through the actual persistent transport: Sibling selected from the wide X/Sibling signature without Y; unused Y rejection; X missing Y and then Leaf with dependency-chain diagnostics; exact exposure closure success; private-interface rejection; label attribution and declaration-order parity; group-local exposure ownership; exposed-provider ambiguity; and an in-place wide-signature edit that removes an exposure, fails warm exactly as cold, preserves old outputs and recovers with corrected dependencies. Generate prerequisite signatures using the same candidate jar. Keep semantic assertions in the existing Scala suite and use compact shared Python fixture/comparison helpers rather than creating another compiler test framework.
+
+Validate with `sbt "cli/test; cli/assembly"`, resolve that invocation's candidate assembly and run `python3 scripts/test_bazel_worker.py --jar <resolved-candidate-assembly>` and `./scripts/test_launcher_passthrough.sh`. Run `./test_cli.sh` as required for CLI changes. Inspect changed protocol/lifecycle coverage using the repository entry point `sbt "coverage; clean; coreJVM/test; cli/test; coverageReport"`; target all new branches and disable coverage before assembling the final candidate. Keep all checks Linux-local. MergeXO separately owns the supervised `scripts/test_basic.sh` gate; no plan step waits for it.
+
+Update only the relevant persistent-worker sections and tracker 0k row in `docs/design/hermetic-bazel-rules.md`: mark 0k complete with issue #2484, preserve completed 0j, remove statements that persistent dispatch is still future work and document actual startup, framing, EOF/error behavior, defaults, diagnostics combination, control handling, fixed working-directory policy, cleanup-before-response and cache-free recomputation. Document the candidate-jar harness invocation and that later inspection/verification implementations extend the same registry. Completion requires the executable harness and implemented documentation on this branch; it does not require this PR to merge first.
+
+#### Invariants
+
+- Actual assembled-JVM behavior agrees with direct and one-shot actions for the current four-operation registry.
+- Warm, cold and restarted execution sees current source/interface bytes and retains the existing strict-interface pass/fail behavior.
+- Every observed response is already flushed and follows completed output publication and request cleanup.
+- Failure preserves prior valid outputs, creates no partial declared outputs and cannot contaminate the next request.
+- The in-scope surfaces are worker codec/startup, runner capture ownership, existing publication lifecycle integration, the named Scala tests, candidate-jar/launcher harnesses and the existing design. Bazel rules, new operations, inference caching, cancellation, multiplexing and compiler semantic changes remain outside this job.
+
+#### Property Tests
+
+- Apply the shared parity comparison across the four registered operations and successful/failing fixture states, checking status, diagnostic payload and declared output bytes.
+- Repeat the strict-interface matrix with reordered declarations and warm/restarted workers; outcomes and applicable diagnostics must match fresh direct execution.
+
+#### Assertion Tests
+
+- Require a complete response before closing stdin, then send another request through the same process.
+- Verify same-path source and exposure edits, all requested digest/ID variants, Unicode paths, unknown fields and escaped multiline diagnostics in the assembled JVM.
+- Verify publication failure followed by success, unchanged prior output bytes on failure and no staging/request scratch leakage after each response.
+- Verify clean EOF exits zero, malformed/truncated framing exits nonzero with stderr diagnostics and restart restores ordinary operation.
+- Run the issue's JVM assembly, candidate-jar and launcher checks, the CLI regression script and changed-behavior coverage inspection.
