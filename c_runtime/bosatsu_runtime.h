@@ -5,6 +5,9 @@
 #include <stddef.h>
 
 typedef uintptr_t BValue;
+// Bosatsu requires a 64-bit platform: Int64 and Float64 values are packed
+// directly into a BValue, so a narrower BValue would silently truncate them.
+_Static_assert(sizeof(BValue) == 8, "Bosatsu requires a 64-bit platform (BValue must be 64 bits)");
 typedef uint32_t ENUM_TAG;
 #include "bosatsu_decls_generated.h"
 

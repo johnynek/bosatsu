@@ -10,10 +10,13 @@ from Bosatsu/Num/Int64 import (
   int_low_bits_to_Int64,
   mod_Int64,
   mul_Int64,
+  shift_left_Int64,
+  shift_right_Int64,
+  shift_right_unsigned_Int64,
   sub_Int64,
 )
 from Bosatsu/Testing/Properties import (forall_Prop, run_Prop, suite_Prop)
-from Bosatsu/Rand import (Rand, int_range, map_Rand, prod_Rand)
+from Bosatsu/Rand import (Rand, bool_Rand, from_pair, int_range, map_Rand, prod_Rand)
 
 def operator -(a, b): a.sub(b)
 def operator <<(a, b): a.shift_left_Int(b)
@@ -33,6 +36,53 @@ def eq_i64_int(value: Int64, expected: Int) -> Bool:
 int64_pair = prod_Rand(rand_Int64, rand_Int64)
 int64_triple = prod_Rand(rand_Int64, prod_Rand(rand_Int64, rand_Int64))
 small_int_pair = prod_Rand(small_Int, small_Int)
+
+# Divisors near zero exercise division by 0 and -1 and floor rounding of
+# mixed signs, which uniform 64-bit divisors almost never hit.
+small_divisor: Rand[Int64] =
+  int_range(17).map_Rand(i -> int_low_bits_to_Int64(i - 8))
+int64_and_divisor = prod_Rand(rand_Int64, from_pair(rand_Int64, small_divisor))
+
+# Int64 arithmetic is the exact Int operation followed by keeping the low 64
+# bits, so it must agree with Int on every input, including ones that wrap.
+def agrees_with_Int(op64: (Int64, Int64) -> Int64, op: (Int, Int) -> Int, x: Int64, y: Int64) -> Bool:
+  expected = int_low_bits_to_Int64(op(int64_to_Int(x), int64_to_Int(y)))
+  eq_Int64(op64(x, y), expected)
+
+# Shift counts near the 64-bit width, plus huge ones: magnitude at least 2^32
+# but with low 32 bits below 64, so a count wrongly narrowed to 32 bits looks
+# like an ordinary in-range shift.
+near_width_shift: Rand[Int] =
+  int_range(161).map_Rand(i -> i - 80)
+
+def huge_count(parts: (Int, (Int, Bool))) -> Int:
+  (high, (low, negative)) = parts
+  magnitude = ((high.add(1)) << 32).add(low)
+  if negative: 0 - magnitude
+  else: magnitude
+
+huge_shift: Rand[Int] =
+  prod_Rand(int_range(1 << 28), prod_Rand(int_range(64), bool_Rand)).map_Rand(huge_count)
+
+int64_and_shift = prod_Rand(rand_Int64, from_pair(near_width_shift, huge_shift))
+
+# Shifting a value below 2^64 in magnitude by 64 or more places gives the same
+# low 64 bits as shifting by exactly 64, so the reference clamps the count and
+# only ever asks Int for a shift of at most 64.
+def clamp_to_width(count: Int) -> Int:
+  match cmp_Int(count, 64):
+    case GT: 64
+    case _: count
+
+# Exact Int shift: left for a non-negative count, arithmetic right otherwise.
+def exact_shift(value: Int, left_count: Int) -> Int:
+  match cmp_Int(left_count, 0):
+    case LT: value.shift_right_Int(clamp_to_width(0 - left_count))
+    case _: value.shift_left_Int(clamp_to_width(left_count))
+
+# The unsigned bit pattern of an Int64, in [0, 2^64).
+def unsigned_Int(x: Int64) -> Int:
+  int64_to_Int(x).and_Int((1 << 64) - 1)
 
 all_props = suite_Prop(
   "Int64 properties",
@@ -83,6 +133,28 @@ all_props = suite_Prop(
         and(cmp_ok, eq_ok),
         "cmp_Int64 and eq_Int64 agree with Int"
       )
+    )),
+    forall_Prop(int64_pair, "add_Int64 is Int addition modulo 2^64", ((x, y)) ->
+      Assertion(agrees_with_Int(add_Int64, add, x, y), "add_Int64(x, y) = low64(x + y)")),
+    forall_Prop(int64_pair, "sub_Int64 is Int subtraction modulo 2^64", ((x, y)) ->
+      Assertion(agrees_with_Int(sub_Int64, sub, x, y), "sub_Int64(x, y) = low64(x - y)")),
+    forall_Prop(int64_pair, "mul_Int64 is Int multiplication modulo 2^64", ((x, y)) ->
+      Assertion(agrees_with_Int(mul_Int64, mul, x, y), "mul_Int64(x, y) = low64(x * y)")),
+    forall_Prop(int64_and_divisor, "div_Int64 is Int floor division modulo 2^64", ((x, y)) ->
+      Assertion(agrees_with_Int(div_Int64, div, x, y), "div_Int64(x, y) = low64(div(x, y))")),
+    forall_Prop(int64_and_divisor, "mod_Int64 matches Int mod", ((x, y)) ->
+      Assertion(agrees_with_Int(mod_Int64, mod_Int, x, y), "mod_Int64(x, y) = low64(mod_Int(x, y))")),
+    forall_Prop(int64_and_shift, "shift_left_Int64 is the exact Int shift modulo 2^64", ((x, n)) -> (
+      expected = int_low_bits_to_Int64(exact_shift(int64_to_Int(x), n))
+      Assertion(eq_Int64(shift_left_Int64(x, n), expected), "shift_left_Int64(x, n) = low64(x << n)")
+    )),
+    forall_Prop(int64_and_shift, "shift_right_Int64 is the exact Int shift modulo 2^64", ((x, n)) -> (
+      expected = int_low_bits_to_Int64(exact_shift(int64_to_Int(x), 0 - n))
+      Assertion(eq_Int64(shift_right_Int64(x, n), expected), "shift_right_Int64(x, n) = low64(x >> n)")
+    )),
+    forall_Prop(int64_and_shift, "shift_right_unsigned_Int64 shifts the unsigned bits", ((x, n)) -> (
+      expected = int_low_bits_to_Int64(exact_shift(unsigned_Int(x), 0 - n))
+      Assertion(eq_Int64(shift_right_unsigned_Int64(x, n), expected), "shift_right_unsigned_Int64(x, n) = low64(unsigned(x) >> n)")
     )),
   ])
 
