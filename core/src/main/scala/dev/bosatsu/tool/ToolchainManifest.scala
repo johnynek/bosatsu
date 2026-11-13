@@ -160,6 +160,13 @@ private[bosatsu] object ToolchainManifest {
     }
   }
 
+  private def sameVersionIdentity(left: Version, right: Version): Boolean =
+    left.major == right.major &&
+      left.minor == right.minor &&
+      left.patch == right.patch &&
+      left.preRelease.map(_.asString) == right.preRelease.map(_.asString) &&
+      left.build.map(_.asString) == right.build.map(_.asString)
+
   private def verifyCore[F[_], P](
       platform: PlatformIO[F, P],
       manifest: ToolchainManifest,
@@ -181,7 +188,7 @@ private[bosatsu] object ToolchainManifest {
                   moduleIOMonad.raiseError(CliException.Basic(
                     show"core library identity mismatch for $path: expected ${manifest.core.libraryName.name}, found ${library.name}"
                   ))
-                case Some(version) if !Version.versionOrder.eqv(version, manifest.core.version) =>
+                case Some(version) if !sameVersionIdentity(version, manifest.core.version) =>
                   moduleIOMonad.raiseError(CliException.Basic(
                     show"core library version mismatch for $path: expected ${manifest.core.version.render}, found ${version.render}"
                   ))

@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2486` 0p: Verify declared compiler, core and runtime components
-- Pending steps: `2`
-- Completed steps: `5`
+- Pending steps: `1`
+- Completed steps: `6`
 - Total steps: `7`
 
 ## Summary
@@ -207,7 +207,7 @@ Extend VerifyToolchainCommandTest.scala and Fs2PlatformIOTest.scala with valid f
 
 Added a shared `PlatformIO` file-key check in `VerifyToolchainCommand` for the manifest, compiler, selected binary or all selected sources, and requested runtime before returning the stamp output. Added JVM, Scala.js, and exact-candidate direct/one-shot alias coverage, including normalized, symlink, hard-link, and multi-source cases, and documented input/output separation. The focused JVM and Scala.js suites passed (7 and 4 tests); the candidate-jar worker harness and `git diff --check` passed.
 
-6. [ ] `step_6` Require exact embedded core version identity
+6. [x] `step_6` Require exact embedded core version identity
 
 Invariant family: exact-core-version-identity
 
@@ -232,6 +232,10 @@ Extend core/src/test/scala/dev/bosatsu/ToolchainManifestTest.scala with manifest
 - Reject manifest version 1.2.3+01 with pinned library bytes advertising 1.2.3+1, and reject the reverse pairing.
 - Accept exactly matching versions containing build identifiers.
 - Retain wrong-name, missing-version, ordinary version-mismatch and digest-mismatch regressions on JVM and Scala.js.
+
+#### Completion Notes
+
+Changed binary-core verification to compare major, minor, patch, prerelease, and build fields directly. Added manifest-pinned tests for exact matches and mismatches across three leading-zero build identifier pairs in both directions. The probe showed the current version ordering does not equate the tested `+01`/`+1` variants, so the verifier now enforces exact identity independently of ordering. `coreJVM/testOnly dev.bosatsu.ToolchainManifestTest` and `coreJS/testOnly dev.bosatsu.ToolchainManifestTest` passed (8 tests each); `git diff --check` passed.
 
 7. [ ] `step_7` Make Scala.js stamp publication failure-safe
 

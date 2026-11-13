@@ -39,6 +39,7 @@ class ToolchainManifestTest extends munit.FunSuite {
   private def manifest(
       compiler: Array[Byte] = compilerBytes,
       core: Array[Byte] = bytes("core pin"),
+      coreVersion: Version = version,
       runtime: Array[Byte] = runtimeBytes,
       sources: List[(String, Array[Byte])] = Nil
   ): String = {
@@ -50,7 +51,7 @@ class ToolchainManifestTest extends munit.FunSuite {
       }
     s"""{"schema_version":1,
        |"compiler":{"uri":"https://unused.invalid/compiler.jar","sha256":"${sha(compiler)}"},
-       |"core":{"library_name":"core_alpha","version":"${version.render}","uri":"https://unused.invalid/core.lib","sha256":"${sha(core)}"},
+       |"core":{"library_name":"core_alpha","version":"${coreVersion.render}","uri":"https://unused.invalid/core.lib","sha256":"${sha(core)}"},
        |"c_runtime":{"uri":"https://unused.invalid/runtime.tar.gz","sha256":"${sha(runtime)}"}$sourceField}""".stripMargin
   }
 
@@ -184,6 +185,42 @@ class ToolchainManifestTest extends munit.FunSuite {
       commonFiles :+ (corePath -> malformedLibrary),
       ToolchainManifest.CoreSelection.Binary(corePath)
     ), "cannot parse core library")
+  }
+
+  test("binary core version identity preserves literal build identifiers") {
+    val buildIdentifierPairs = List(("01", "1"), ("0002", "2"), ("09", "9"))
+
+    buildIdentifierPairs.foreach { case (withLeadingZeros, withoutLeadingZeros) =>
+      val leadingZeroVersion = Version.parser.parseAll(s"1.2.3+$withLeadingZeros").toOption.get
+      val plainVersion = Version.parser.parseAll(s"1.2.3+$withoutLeadingZeros").toOption.get
+
+      assertEquals(leadingZeroVersion.render, s"1.2.3+$withLeadingZeros")
+      assertEquals(plainVersion.render, s"1.2.3+$withoutLeadingZeros")
+
+      val leadingZeroLibrary = library(ver = leadingZeroVersion)
+      val plainLibrary = library(ver = plainVersion)
+
+      checked(run(
+        manifest(core = leadingZeroLibrary, coreVersion = leadingZeroVersion),
+        commonFiles :+ (corePath -> leadingZeroLibrary),
+        ToolchainManifest.CoreSelection.Binary(corePath)
+      ))
+      checked(run(
+        manifest(core = plainLibrary, coreVersion = plainVersion),
+        commonFiles :+ (corePath -> plainLibrary),
+        ToolchainManifest.CoreSelection.Binary(corePath)
+      ))
+      rejects(run(
+        manifest(core = plainLibrary, coreVersion = leadingZeroVersion),
+        commonFiles :+ (corePath -> plainLibrary),
+        ToolchainManifest.CoreSelection.Binary(corePath)
+      ), "core library version mismatch")
+      rejects(run(
+        manifest(core = leadingZeroLibrary, coreVersion = plainVersion),
+        commonFiles :+ (corePath -> leadingZeroLibrary),
+        ToolchainManifest.CoreSelection.Binary(corePath)
+      ), "core library version mismatch")
+    }
   }
 
   test("source mode validates package headers and hashes from each requested source") {
