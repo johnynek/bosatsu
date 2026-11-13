@@ -217,7 +217,15 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
       value: Bindable,
       runner: Code.Ident
   ): Either[Error, Doc] =
-    render(env.renderMain(pn, value, runner), ExternalResolver.stdExternals)
+    renderMain(pn, value, runner, ExternalResolver.stdExternals)
+
+  def renderMain(
+      pn: PackageName,
+      value: Bindable,
+      runner: Code.Ident,
+      externals: ExternalResolver
+  ): Either[Error, Doc] =
+    render(env.renderMain(pn, value, runner), externals)
 
   def renderTests(
       values: List[(PackageName, Package.TestEntry[Any])]

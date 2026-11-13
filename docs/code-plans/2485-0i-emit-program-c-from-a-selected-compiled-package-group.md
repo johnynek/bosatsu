@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2485` 0i: Emit program C from a selected compiled package group
-- Pending steps: `3`
-- Completed steps: `0`
+- Pending steps: `2`
+- Completed steps: `1`
 - Total steps: `3`
 
 ## Summary
@@ -33,7 +33,7 @@ Tracker item 0i requires generating program C from a selected compiled package g
 
 ## Steps
 
-1. [ ] `step_1` Allow the existing main renderer to use a supplied external resolver
+1. [x] `step_1` Allow the existing main renderer to use a supplied external resolver
 
 In `core/src/main/scala/dev/bosatsu/codegen/clang/ClangGen.scala`, add an explicit-resolver overload of `renderMain`, following the existing `renderTests` overload pattern. Route it through the existing private `render` method so direct external references and first-class external function values use the supplied resolver. Keep the current three-argument overload and make it delegate with `ExternalResolver.stdExternals`; do not introduce default arguments or change existing transpiler callers.
 
@@ -54,6 +54,10 @@ Add focused regressions in `core/src/test/scala/dev/bosatsu/codegen/clang/ClangG
 - The legacy overload and explicit standard-resolver overload produce identical C for the same namespace and main.
 - Allowing a referenced external renders its C symbol and include; denying it returns UnknownValue.
 - A referenced external passed as a first-class function obeys the supplied resolver.
+
+#### Completion Notes
+
+Added the explicit-resolver `renderMain` overload and kept the existing overload delegating to standard externals. Regressions cover legacy/explicit output parity, allowed and rejected direct externals, and first-class external references. `coreJVM/test:compile`, focused JVM tests, and focused Scala.js tests passed; each suite reported 33 passing tests.
 
 2. [ ] `step_2` Implement checked program selection through the shared local emission boundary
 

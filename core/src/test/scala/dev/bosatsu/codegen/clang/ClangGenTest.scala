@@ -1805,4 +1805,102 @@ main = same
       }
     }
   }
+
+  test("main rendering uses an explicit external resolver") {
+    val floatPkg =
+      """package Bosatsu/Num/Float64
+        |
+        |from Bosatsu/Predef import Float64
+        |
+        |export (float32_bits_to_Float64)
+        |
+        |external def float32_bits_to_Float64(x: Int) -> Float64
+        |""".stripMargin
+    val extPackage = PackageName.parts("Bosatsu", "Num", "Float64")
+    val externalName = Identifier.Name("float32_bits_to_Float64")
+    val directSource =
+      """package Test
+        |
+        |from Bosatsu/Num/Float64 import float32_bits_to_Float64
+        |
+        |def main(x: Int) -> Float64:
+        |  float32_bits_to_Float64(x)
+        |""".stripMargin
+    val firstClassSource =
+      """package Test
+        |
+        |from Bosatsu/Num/Float64 import float32_bits_to_Float64
+        |
+        |def apply(f: Int -> Float64) -> Int -> Float64:
+        |  f
+        |
+        |main = apply(float32_bits_to_Float64)
+        |""".stripMargin
+
+    def render(source: String, allowExternal: Boolean) = Par.withEC {
+      val gen = ClangGen(typeCheckPackages(List(floatPkg, source)))
+      val std = gen.ExternalResolver.stdExternals
+      val resolver =
+        if (allowExternal) std
+        else std.filter((_, packageName, name) =>
+          packageName != extPackage || name != externalName
+        )
+      gen.renderMain(
+        PackageName.parts("Test"),
+        Identifier.Name("main"),
+        Code.Ident("run_main"),
+        resolver
+      )
+    }
+
+    val directAllowed = render(directSource, allowExternal = true)
+    val directLegacy = Par.withEC {
+      ClangGen(typeCheckPackages(List(floatPkg, directSource))).renderMain(
+        PackageName.parts("Test"),
+        Identifier.Name("main"),
+        Code.Ident("run_main")
+      )
+    }
+    val directExplicitStandard = Par.withEC {
+      val gen = ClangGen(typeCheckPackages(List(floatPkg, directSource)))
+      gen.renderMain(
+        PackageName.parts("Test"),
+        Identifier.Name("main"),
+        Code.Ident("run_main"),
+        gen.ExternalResolver.stdExternals
+      )
+    }
+    assertEquals(directExplicitStandard, directLegacy)
+    val directCode = directAllowed.fold(err => fail(err.toString), _.render(120))
+    assert(
+      directCode.contains("bosatsu_ext_Bosatsu_l_Num_l_Float64.h"),
+      directCode
+    )
+    assert(
+      directCode.contains(
+        "___bsts_g_Bosatsu_l_Num_l_Float64_l_float32__bits__to__Float64"
+      ),
+      directCode
+    )
+
+    val deniedDirect = render(directSource, allowExternal = false)
+    assert(
+      deniedDirect.swap.toOption.exists(_.isInstanceOf[ClangGen.Error.UnknownValue]),
+      deniedDirect.toString
+    )
+
+    val firstClass = render(firstClassSource, allowExternal = true)
+    val firstClassCode = firstClass.fold(err => fail(err.toString), _.render(120))
+    assert(
+      firstClassCode.contains(
+        "___bsts_g_Bosatsu_l_Num_l_Float64_l_float32__bits__to__Float64"
+      ),
+      firstClassCode
+    )
+    val deniedFirstClass = render(firstClassSource, allowExternal = false)
+    assert(
+      deniedFirstClass.swap.toOption.exists(_.isInstanceOf[ClangGen.Error.UnknownValue]),
+      deniedFirstClass.toString
+    )
+  }
 }
