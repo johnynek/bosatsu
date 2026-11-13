@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2484` 0k: Add the singleplex persistent JSON JVM worker
-- Pending steps: `3`
-- Completed steps: `2`
+- Pending steps: `2`
+- Completed steps: `3`
 - Total steps: `5`
 
 ## Summary
@@ -100,7 +100,7 @@ Extend `BazelWorkerTest.scala` and `FileCommandRunnerTest.scala` with focused li
 
 Added the persistent startup route and sequential UTF-8 JSON-line loop, dispatching actions through the shared worker registry and runner. Responses follow request cleanup and publication, are flushed immediately, and preserve action failures as recoverable responses; transport errors terminate with stderr diagnostics. Captured runner streams now close after request completion, while caller-owned streams remain open. Verified with the full CLI suite and assembly (178 tests, 1 skipped), focused suites after the final assertions (28 passed), the candidate-jar worker harness, and launcher passthrough checks.
 
-3. [ ] `step_3a` Complete the shared candidate-jar transport harness
+3. [x] `step_3a` Complete the shared candidate-jar transport harness
 
 Extend `scripts/test_bazel_worker.py` to satisfy issue #2484's actual-JVM transport, parity and recovery acceptance. Preserve the required `--jar` argument, existing parameter-file cases and launcher coverage. Replace `check_persistent_smoke` with one context-managed persistent-process helper. Use binary reads with a monotonic deadline that covers receipt of the complete LF-terminated response, rather than calling an unbounded `readline` after readiness. Retain unread bytes between reads, decode strict UTF-8 and JSON, check response fields and IDs, and detect extra frames or stray stdout. Redirect stderr to a temporary file or equivalently nonblocking sink and inspect it without disturbing the child's write offset. Bound process exit and guarantee kill/reap on every exceptional path. Every ordinary request must receive its complete response while stdin remains open; ordinary actions must leave worker stderr empty.
 
@@ -133,6 +133,10 @@ Build a candidate with `sbt "cli/assembly"` and run the extended script with its
 - Reject invalid options, unsupported operations and nonempty sandboxDir without poisoning the next request; ignore cancellation controls without producing an extra response.
 - Fail multi-output publication with prior bytes intact, repair the obstruction and succeed in the same process.
 - Verify clean EOF, malformed/truncated/invalid-UTF-8 exits, no stray stdout and successful fresh-process restart.
+
+#### Completion Notes
+
+Expanded `scripts/test_bazel_worker.py` with a managed persistent JVM reader using deadline-bound binary framing, separate stderr capture, response and cleanup checks, and shared direct/@params/persistent comparisons across the four registered operations. The candidate harness passed same-path edit and recovery, digest and ID cases, controls, publication rollback and retry, malformed transport, EOF, and restart checks. `sbt "cli/test; cli/assembly"` passed (177 tests passed, 1 skipped); the harness passed against the resolved assembly, and launcher passthrough, Python syntax, and diff checks passed.
 
 4. [ ] `step_3b` Replay the strict-interface acceptance matrix through the shared harness
 
