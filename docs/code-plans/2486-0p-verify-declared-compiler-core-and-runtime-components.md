@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2486` 0p: Verify declared compiler, core and runtime components
-- Pending steps: `3`
-- Completed steps: `1`
+- Pending steps: `2`
+- Completed steps: `2`
 - Total steps: `4`
 
 ## Summary
@@ -65,7 +65,7 @@ Add shared tests in `core/src/test/scala/dev/bosatsu/hashing/AlgoTest.scala` and
 
 Added the pinned SHA-256 dependency, incremental and one-shot support in `Algo`, `sha256:<hex>` and shared bare-hex parsing, plus cross-platform vectors, parser, partitioning, and JVM reference tests. Made existing generic library-hash calls explicitly select BLAKE3. The focused JVM and Scala.js digest suites, JVM reference suite, and `CompileCacheTest` passed.
 
-2. [ ] `step_2` Implement the typed manifest and requested-component verifier
+2. [x] `step_2` Implement the typed manifest and requested-component verifier
 
 Add `core/src/main/scala/dev/bosatsu/tool/ToolchainManifest.scala` containing the version-1 detached-manifest model, reader and requested-component verification entry point. Extend `BuildManifest.scala` only where sharing its strict byte-to-UTF-8 decoding avoids duplication. Use `BuildManifest.obj`, `version1` and `read` for the documented `compiler`, `core`, `c_runtime` and optional `core_sources` fields. Parse component SHA-256 values through the shared algorithm parser into typed SHA-256 values; parse core versions and source package names with existing repository parsers. Reject ambiguous duplicate fields, including duplicate source-package keys. URI fields are metadata and must never trigger fetching.
 
@@ -99,6 +99,10 @@ Add shared tests using the existing `MemoryMain` platform and small read-countin
 - Reject same-name/version core with changed bytes, and separately reject wrong embedded name, wrong or missing version and malformed library bytes even when the manifest digest matches those fixture bytes.
 - Reject changed source bytes, renamed or unlisted packages, duplicate source providers and binary/source conflicts; use a platform that changes bytes on a second read to guard snapshot reuse.
 - Cover empty, matching BLAKE3, matching SHA-256, malformed and conflicting advertised runtime hashes, including a manifest-matching archive that conflicts only with the advertised hash.
+
+#### Completion Notes
+
+Added the typed version-1 manifest reader and requested-component verifier, including strict UTF-8 and duplicate-field checks, SHA-256 pin validation, core identity/version checks, and advertised runtime-hash verification. `coreJVM/testOnly dev.bosatsu.ToolchainManifestTest` and `coreJS/testOnly dev.bosatsu.ToolchainManifestTest` both passed (7 tests each).
 
 3. [ ] `step_3` Expose verification through the existing file-command lifecycle
 
