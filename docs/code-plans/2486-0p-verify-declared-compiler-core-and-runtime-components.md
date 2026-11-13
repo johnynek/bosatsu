@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2486` 0p: Verify declared compiler, core and runtime components
-- Pending steps: `1`
-- Completed steps: `6`
+- Pending steps: `0`
+- Completed steps: `7`
 - Total steps: `7`
 
 ## Summary
@@ -237,7 +237,7 @@ Extend core/src/test/scala/dev/bosatsu/ToolchainManifestTest.scala with manifest
 
 Changed binary-core verification to compare major, minor, patch, prerelease, and build fields directly. Added manifest-pinned tests for exact matches and mismatches across three leading-zero build identifier pairs in both directions. The probe showed the current version ordering does not equate the tested `+01`/`+1` variants, so the verifier now enforces exact identity independently of ordering. `coreJVM/testOnly dev.bosatsu.ToolchainManifestTest` and `coreJS/testOnly dev.bosatsu.ToolchainManifestTest` passed (8 tests each); `git diff --check` passed.
 
-7. [ ] `step_7` Make Scala.js stamp publication failure-safe
+7. [x] `step_7` Make Scala.js stamp publication failure-safe
 
 Invariant family: verification-stamp-publication
 
@@ -265,3 +265,7 @@ Add fault-injected tests in cliJS/src/test/scala/dev/bosatsu/Fs2PlatformIOTest.s
 - Verify replacement starts only after the staged writer closes, and a replacement failure preserves the original destination.
 - Cover successful creation and replacement, nested destinations and symlink destinations through the existing path-resolution semantics.
 - Retain command validation-failure preservation and JVM publication retry coverage; run the rebuilt candidate harness including input-alias regressions.
+
+#### Completion Notes
+
+Updated Scala.js `writeDoc` to resolve the destination with `pendingOutputPath`, stage beside it, finish writing before replacing through `fs/promises.rename`, and clean up failed staging without letting post-rename cleanup report failure. Added nested and symlink destination tests plus injected partial-write, writer-finalization, and replacement failures; existing stamps and absent outputs were preserved, staging was cleaned, and retry succeeded. The focused Scala.js suite passed (6 tests); the requested sbt sequence passed (JVM 2,228, CLI 183 plus 1 skipped, coreJS 2,198 plus 8 ignored, Scala.js CLI 6); the candidate-jar harness and `./test_cli.sh` passed; `git diff --check` passed.

@@ -1,6 +1,7 @@
 package dev.bosatsu
 
 import cats.effect.IO
+import cats.effect.Ref
 import cats.effect.unsafe.implicits.global
 import cats.syntax.all._
 import dev.bosatsu.hashing.Algo
@@ -9,10 +10,128 @@ import dev.bosatsu.tool.ExitCode
 import fs2.io.file.{Files, Path}
 import munit.FunSuite
 import org.typelevel.paiges.Doc
+import java.io.IOException
 import scala.scalajs.js
 import _root_.bosatsu.{TypedAst => proto}
 
 class Fs2PlatformIOTest extends FunSuite {
+  test("document publication handles nested and symlink destinations") {
+    val fs = Files.forIO
+    fs.tempDirectory.use { dir =>
+      val nested = dir / "nested" / "stamp"
+      val target = dir / "stamp-target"
+      val link = dir / "stamp-link"
+      val danglingTarget = dir / "new-target"
+      val danglingLink = dir / "dangling-link"
+      for {
+        _ <- Fs2PlatformIO.writeDoc(nested, Doc.text("nested"))
+        nestedContent <- Fs2PlatformIO.readUtf8(nested)
+        _ = assertEquals(nestedContent, "nested")
+        _ <- Fs2PlatformIO.writeDoc(target, Doc.text("old"))
+        _ <- fs.createSymbolicLink(link, target)
+        _ <- Fs2PlatformIO.writeDoc(link, Doc.text("through link"))
+        targetContent <- Fs2PlatformIO.readUtf8(target)
+        linkIsSymlink <- fs.isSymbolicLink(link)
+        _ = assertEquals(targetContent, "through link")
+        _ = assert(linkIsSymlink)
+        _ <- fs.createSymbolicLink(danglingLink, danglingTarget)
+        _ <- Fs2PlatformIO.writeDoc(danglingLink, Doc.text("created target"))
+        danglingContent <- Fs2PlatformIO.readUtf8(danglingTarget)
+        danglingLinkIsSymlink <- fs.isSymbolicLink(danglingLink)
+        _ = assertEquals(danglingContent, "created target")
+        _ = assert(danglingLinkIsSymlink)
+      } yield ()
+    }.unsafeToFuture()
+  }
+
+  test("document publication preserves destinations and cleans staging after writer or rename failure") {
+    val fs = Files.forIO
+    fs.tempDirectory.use { dir =>
+      val existing = dir / "existing-stamp"
+      val absent = dir / "absent-stamp"
+      val normalOps = Fs2PlatformIO.documentWriteOps
+      def stagedFiles =
+        fs.list(dir).compile.toList.map(_.filter(_.fileName.startsWith(".bosatsu-write-")))
+      def assertNoStagedFiles = stagedFiles.map(files => assertEquals(files, Nil))
+
+      val partialWriteOps = normalOps.copy(
+        writeStaged = (staged, _) => {
+          val partialThenFail: fs2.Stream[IO, String] =
+            fs2.Stream.emit("partial").covary[IO] ++
+              fs2.Stream.eval(IO.raiseError[String](new IOException("staged write failed")))
+          fs.writeUtf8(staged)(partialThenFail).compile.drain
+        }
+      )
+
+      for {
+        _ <- Fs2PlatformIO.writeDoc(existing, Doc.text("sentinel"))
+        failedWrite <- Fs2PlatformIO
+          .writeDocWith(existing, Doc.text("replacement"), partialWriteOps)
+          .attempt
+        _ = assert(failedWrite.swap.toOption.exists(_.getMessage == "staged write failed"), failedWrite)
+        existingAfterWriteFailure <- Fs2PlatformIO.readUtf8(existing)
+        _ = assertEquals(existingAfterWriteFailure, "sentinel")
+        _ <- assertNoStagedFiles
+        failedAbsentWrite <- Fs2PlatformIO
+          .writeDocWith(absent, Doc.text("replacement"), partialWriteOps)
+          .attempt
+        _ = assert(failedAbsentWrite.isLeft, failedAbsentWrite)
+        absentAfterWriteFailure <- fs.exists(absent)
+        _ = assert(!absentAfterWriteFailure)
+        _ <- assertNoStagedFiles
+        events <- Ref.of[IO, List[String]](Nil)
+        closeFailureOps = normalOps.copy(
+          writeStaged = (staged, doc) =>
+            normalOps.writeStaged(staged, doc) *>
+              events.update(_ :+ "closed").flatMap(_ =>
+                IO.raiseError(new IOException("staged writer close failed"))
+              ),
+          replace = (staged, destination) =>
+            events.update(_ :+ "replace") *> normalOps.replace(staged, destination)
+        )
+        failedClose <- Fs2PlatformIO
+          .writeDocWith(existing, Doc.text("replacement"), closeFailureOps)
+          .attempt
+        _ = assert(failedClose.swap.toOption.exists(_.getMessage == "staged writer close failed"), failedClose)
+        closeEvents <- events.get
+        _ = assertEquals(closeEvents, List("closed"))
+        existingAfterCloseFailure <- Fs2PlatformIO.readUtf8(existing)
+        _ = assertEquals(existingAfterCloseFailure, "sentinel")
+        _ <- assertNoStagedFiles
+        failedAbsentClose <- Fs2PlatformIO
+          .writeDocWith(absent, Doc.text("replacement"), closeFailureOps)
+          .attempt
+        _ = assert(
+          failedAbsentClose.swap.toOption.exists(_.getMessage == "staged writer close failed"),
+          failedAbsentClose
+        )
+        absentAfterCloseFailure <- fs.exists(absent)
+        _ = assert(!absentAfterCloseFailure)
+        _ <- assertNoStagedFiles
+        replacementFailureOps = normalOps.copy(
+          replace = (_, _) => IO.raiseError(new IOException("rename failed"))
+        )
+        failedReplace <- Fs2PlatformIO
+          .writeDocWith(existing, Doc.text("replacement"), replacementFailureOps)
+          .attempt
+        _ = assert(failedReplace.swap.toOption.exists(_.getMessage == "rename failed"), failedReplace)
+        existingAfterReplaceFailure <- Fs2PlatformIO.readUtf8(existing)
+        _ = assertEquals(existingAfterReplaceFailure, "sentinel")
+        _ <- assertNoStagedFiles
+        failedAbsentReplace <- Fs2PlatformIO
+          .writeDocWith(absent, Doc.text("replacement"), replacementFailureOps)
+          .attempt
+        _ = assert(failedAbsentReplace.swap.toOption.exists(_.getMessage == "rename failed"), failedAbsentReplace)
+        absentAfterReplaceFailure <- fs.exists(absent)
+        _ = assert(!absentAfterReplaceFailure)
+        _ <- assertNoStagedFiles
+        _ <- Fs2PlatformIO.writeDoc(existing, Doc.text("retry succeeded"))
+        afterRetry <- Fs2PlatformIO.readUtf8(existing)
+        _ = assertEquals(afterRetry, "retry succeeded")
+      } yield ()
+    }.unsafeToFuture()
+  }
+
   test("verify-toolchain runs portably and preserves a stamp after validation failure") {
     val fs = Files.forIO
     val module = new MainModule(Fs2PlatformIO)

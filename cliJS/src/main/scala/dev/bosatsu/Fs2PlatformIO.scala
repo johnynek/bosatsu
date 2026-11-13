@@ -25,7 +25,21 @@ private object ReadLink extends js.Function1[String, js.Promise[String]] {
   def apply(path: String): js.Promise[String] = js.native
 }
 
+@js.native
+@JSImport("fs/promises", "rename")
+private object Rename extends js.Function2[String, String, js.Promise[Unit]] {
+  def apply(source: String, target: String): js.Promise[Unit] = js.native
+}
+
 object Fs2PlatformIO extends PlatformIO[IO, Path] {
+  private[dev] final case class DocumentWriteOps(
+      createParentDirectories: Path => IO[Unit],
+      resolveDestination: Path => IO[Path],
+      stagedFile: Path => Resource[IO, Path],
+      writeStaged: (Path, Doc) => IO[Unit],
+      replace: (Path, Path) => IO[Unit]
+  )
+
   type FileKey = Either[Path, FsKey]
   val fileKeyHash: Hash[FileKey] = Hash[FileKey]
 
@@ -425,10 +439,46 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
   private def docStream(doc: Doc): fs2.Stream[IO, String] =
     fs2.Stream.fromIterator[IO](doc.renderStream(100).iterator, chunkSize = 128)
 
-  def writeDoc(p: Path, d: Doc): IO[Unit] = {
-    val pipe = FilesIO.writeUtf8(p)
-    p.parent.traverse_(FilesIO.createDirectories(_)) *> pipe(docStream(d)).compile.drain
-  }
+  private[dev] val documentWriteOps: DocumentWriteOps = DocumentWriteOps(
+    createParentDirectories = p => p.parent.traverse_(FilesIO.createDirectories(_)),
+    resolveDestination = pendingOutputPath,
+    stagedFile = destination => {
+      val directory = destination.parent.getOrElse(Path("."))
+      val allocated = FilesIO.tempFile(
+        dir = Some(directory),
+        prefix = ".bosatsu-write-",
+        suffix = ".tmp",
+        permissions = None
+      ).allocated
+      Resource
+        .make(allocated) { case (_, release) =>
+          // The staged path no longer exists after a successful rename. Cleanup
+          // is best-effort so it cannot turn a committed publication into an error.
+          release.handleErrorWith(_ => IO.unit)
+        }
+        .map(_._1)
+    },
+    writeStaged = (path, doc) =>
+      FilesIO.writeUtf8(path)(docStream(doc)).compile.drain,
+    replace = (source, target) =>
+      IO.fromPromise(IO(Rename(source.toString, target.toString)))
+  )
+
+  private[dev] def writeDocWith(
+      p: Path,
+      d: Doc,
+      ops: DocumentWriteOps
+  ): IO[Unit] =
+    ops.createParentDirectories(p) *>
+      ops.resolveDestination(p).flatMap { destination =>
+        ops.stagedFile(destination).use { staged =>
+          // writeStaged completes only after the fs2 writer has closed the file.
+          ops.writeStaged(staged, d) *> ops.replace(staged, destination)
+        }
+      }
+
+  def writeDoc(p: Path, d: Doc): IO[Unit] =
+    writeDocWith(p, d, documentWriteOps)
 
   private def onParts(doc: Doc)(fn: String => IO[Unit]): IO[Unit] =
     docStream(doc)
