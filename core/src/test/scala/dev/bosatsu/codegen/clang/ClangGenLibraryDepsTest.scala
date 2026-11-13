@@ -428,7 +428,10 @@ class ClangGenLibraryDepsTest extends munit.FunSuite {
           val initStatics = rendered.indexOf("init_statics();")
           val freeStatics = rendered.indexOf("atexit(free_statics);")
           val mainValue = rendered.indexOf("BValue main_value =")
-          val runMain = rendered.indexOf("bsts_Bosatsu_Prog_run_main")
+          val runMain = rendered.indexOf(
+            "return bsts_Bosatsu_Prog_run_main(",
+            mainValue
+          )
           assert(gcInit >= 0, rendered)
           assert(initStatics > gcInit, rendered)
           assert(freeStatics > initStatics, rendered)
