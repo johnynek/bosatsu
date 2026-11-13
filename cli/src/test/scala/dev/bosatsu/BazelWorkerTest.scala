@@ -4,7 +4,14 @@ import cats.effect.{Deferred, IO}
 import cats.syntax.all._
 import com.fasterxml.jackson.databind.ObjectMapper
 import dev.bosatsu.tool.ExitCode
-import java.io.{ByteArrayOutputStream, InputStream, OutputStream, PrintStream}
+import java.io.{
+  ByteArrayInputStream,
+  ByteArrayOutputStream,
+  IOException,
+  InputStream,
+  OutputStream,
+  PrintStream
+}
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.{Files, Path}
 import java.nio.file.attribute.FileTime
@@ -281,12 +288,14 @@ class BazelWorkerTest extends FileCommandFixtures {
       "{} {}",
       """{"arguments":"headers"}""",
       """{"arguments":[null]}""",
+      """{"inputs":{}}""",
       """{"inputs":[null]}""",
       """{"inputs":[{"path":1}]}""",
       """{"inputs":[{"digest":1}]}""",
       """{"inputs":[{"digest":"A"}]}""",
       """{"inputs":[{"digest":"+-_"}]}""",
       """{"requestId":1.5}""",
+      """{"requestId":"not-an-int"}""",
       """{"requestId":2147483648}""",
       """{"request_id":"-2147483649"}""",
       """{"verbosity":true}""",
@@ -702,6 +711,90 @@ class BazelWorkerTest extends FileCommandFixtures {
           diagnostics.close()
         }
       } yield ()
+    }
+  }
+
+  test("persistent transport reports malformed, truncated, and unreadable requests") {
+    withRunner { (root, runner) =>
+      def checkFailure(input: InputStream, expected: String): IO[Unit] = {
+        val outputBytes = new ByteArrayOutputStream
+        val diagnosticBytes = new ByteArrayOutputStream
+        val diagnostics = new PrintStream(diagnosticBytes, false, UTF_8)
+        BazelWorker
+          .runPersistent(
+            root,
+            input,
+            outputBytes,
+            diagnostics,
+            runner
+          )
+          .map { code =>
+            assertEquals(code, ExitCode.Error)
+            assertEquals(outputBytes.size(), 0)
+            assert(diagnosticBytes.toString(UTF_8).contains(expected))
+          }
+      }
+
+      val inputs = List(
+        new ByteArrayInputStream("{".getBytes(UTF_8)) -> "truncated worker request",
+        new ByteArrayInputStream("{\"arguments\":[}\n".getBytes(UTF_8)) -> "invalid worker JSON",
+        new ByteArrayInputStream(Array(0xc3.toByte, 0x28.toByte, '\n'.toByte)) -> "not valid UTF-8",
+        new InputStream {
+          override def read(): Int = throw new IOException()
+        } -> "could not read worker request: IOException"
+      )
+
+      inputs.traverse_ { case (input, expected) =>
+        checkFailure(input, expected)
+      }
+    }
+  }
+
+  test("persistent stream write failures are surfaced to the caller") {
+    withRunner { (root, runner) =>
+      def failingPrintStream: PrintStream =
+        new PrintStream(new OutputStream {
+          override def write(value: Int): Unit =
+            throw new IOException("closed worker stream")
+        }, false, UTF_8)
+
+      val request = "{\"arguments\":[]}\n".getBytes(UTF_8)
+      val outputFailure = BazelWorker
+        .runPersistent(
+          root,
+          new ByteArrayInputStream(request),
+          failingPrintStream,
+          new PrintStream(new ByteArrayOutputStream, false, UTF_8),
+          runner
+        )
+        .attempt
+        .map { result =>
+          assert(
+            result.swap.toOption.exists(error =>
+              Option(error.getMessage).exists(_.contains("failed to write bazel worker response"))
+            )
+          )
+        }
+
+      val diagnosticFailure = BazelWorker
+        .runPersistent(
+          root,
+          new ByteArrayInputStream("{\n".getBytes(UTF_8)),
+          new ByteArrayOutputStream,
+          failingPrintStream,
+          runner
+        )
+        .attempt
+        .map { result =>
+          assert(
+            result.swap.toOption.exists(error =>
+              Option(error.getMessage)
+                .exists(_.contains("failed to write bazel worker transport diagnostic"))
+            )
+          )
+        }
+
+      outputFailure *> diagnosticFailure
     }
   }
 

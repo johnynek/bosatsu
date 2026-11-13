@@ -1,8 +1,10 @@
 package dev.bosatsu
 
+import cats.Eval
 import cats.effect.{Deferred, IO}
 import cats.syntax.all._
-import dev.bosatsu.tool.{CliException, ExitCode}
+import dev.bosatsu.LocationMap.Colorize
+import dev.bosatsu.tool.{CliException, ExitCode, Output}
 import org.typelevel.paiges.Doc
 import java.io.{ByteArrayOutputStream, PrintStream}
 import java.nio.charset.StandardCharsets.UTF_8
@@ -129,6 +131,37 @@ class FileCommandRunnerTest extends FileCommandFixtures {
         _ = assertEquals(ifaces.map(_.name.asString), List("Example/Value"))
         _ = assertEquals(packages.map(_.name.asString), List("Example/Value"))
       } yield ()
+    }
+  }
+
+  test("a reported test failure remains an unsuccessful request") {
+    withRunner { (root, runner) =>
+      val out = new ByteArrayOutputStream
+      val err = new ByteArrayOutputStream
+      val output = Output.TestOutput(
+        List(
+          (
+            PackageName.parts("Example", "Failed"),
+            Some(Eval.now(Test.Assertion(false, "expected failure")))
+          )
+        ),
+        Colorize.None,
+        quiet = false
+      )
+
+      runner
+        .requestPlatform(
+          root,
+          new PrintStream(out, false, UTF_8),
+          new PrintStream(err, false, UTF_8)
+        )
+        .use(_.publish(output))
+        .map { code =>
+          assertEquals(code, ExitCode.Error)
+          assert(out.toString(UTF_8).contains("1 test failure"))
+          assertEquals(err.toString(UTF_8), "")
+          assert(!listPaths(root).exists(_.contains(".bosatsu-stage-")))
+        }
     }
   }
 

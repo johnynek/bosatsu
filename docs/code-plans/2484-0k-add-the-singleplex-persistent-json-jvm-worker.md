@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2484` 0k: Add the singleplex persistent JSON JVM worker
-- Pending steps: `1`
-- Completed steps: `4`
+- Pending steps: `0`
+- Completed steps: `5`
 - Total steps: `5`
 
 ## Summary
@@ -171,7 +171,7 @@ Run `python3 scripts/test_bazel_worker.py --jar <resolved-candidate-assembly>` a
 
 Extended `scripts/test_bazel_worker.py` using the shared process, parity, and snapshot helpers. The strict-interface matrix passed through direct, @params, and persistent execution in both a warm worker and a restarted worker, including same-path exposure edits, failure output preservation, and recovery. `python3 scripts/test_bazel_worker.py --jar <resolved-candidate-assembly>`, Python syntax validation, and `git diff --check` passed.
 
-5. [ ] `step_3c` Close qualification coverage and document the implemented v1 worker
+5. [x] `step_3c` Close qualification coverage and document the implemented v1 worker
 
 Qualify the completed transport and strict-interface harness from `step_3a` and `step_3b`, then update `docs/design/hermetic-bazel-rules.md`. Inspect changed protocol/lifecycle coverage using `sbt "coverage; clean; coreJVM/test; cli/test; coverageReport"`. Target complete coverage of new branches and fill concrete gaps with focused properties or regressions in `BazelWorkerTest.scala` and `FileCommandRunnerTest.scala`. Correct any demonstrated worker defect through the existing BazelWorker decoding/transport and FileCommandRunner request boundary, preserving StagedOutputs publication ownership; consolidate a recurring defect at that boundary rather than adding per-operation workarounds. This is acceptance closure for the existing transport, not authorization for a new compiler policy, operation or execution subsystem.
 
@@ -196,3 +196,7 @@ Update only relevant persistent-worker passages and tracker 0k in `docs/design/h
 - Pass the issue's CLI test/assembly, resolved-candidate harness and launcher checks, plus the repository-required CLI regression script.
 - Inspect the repository coverage report and add focused assertions for any uncovered new protocol/lifecycle branches.
 - Verify the final candidate harness covers the bounded transport and strict-interface inventories before marking tracker 0k complete.
+
+#### Completion Notes
+
+Updated `docs/design/hermetic-bazel-rules.md` with the implemented v1 worker behavior and candidate-jar qualification instructions; marked tracker 0k complete while preserving 0j. Added focused transport decoding/error and request-publication failure coverage, and raised the harness response timeout to 60 seconds after `./test_cli.sh` exposed a timeout on a loaded run. `sbt "coverage; clean; coreJVM/test; cli/test; coverageReport"` stopped on an Issue1633 timeout under coverage (2/2 passed when rerun without coverage); `sbt "coverage; cli/test; coverageReport"` passed (177 passed, 1 skipped) and reported 100% branch coverage for the changed BazelWorker and FileCommandRunner lifecycle branches. `sbt "cli/test; cli/assembly"` passed (180 passed, 1 skipped). The candidate-jar worker harness and launcher passthrough passed; the final `./test_cli.sh` rerun exited successfully, including the candidate harness and 6,918 Bosatsu tests. `git diff --check` passed.

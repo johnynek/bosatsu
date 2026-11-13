@@ -177,7 +177,7 @@ def without_jvm_trace_frames(message: str) -> str:
 class PersistentWorker:
     """One bounded, context-managed reader for a real candidate JVM process."""
 
-    def __init__(self, java: str, jar: Path, cwd: Path, timeout: float = 15):
+    def __init__(self, java: str, jar: Path, cwd: Path, timeout: float = 60):
         self.timeout = timeout
         self._stderr_dir = tempfile.TemporaryDirectory(prefix="bosatsu-worker-stderr-")
         self._stderr_path = Path(self._stderr_dir.name) / "stderr.log"
