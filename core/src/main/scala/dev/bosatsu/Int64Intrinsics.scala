@@ -24,6 +24,15 @@ import dev.bosatsu.rankn.{DefinedType, Type, TypeEnv}
   * pass `checkInterface` when it is decoded (`ProtoConverter`). Interfaces
   * derived from a checked package need no further check.
   *
+  * These checks cover the Bosatsu declarations, not native code. Calls that
+  * are not rewritten, such as `int_low_bits_to_Int64(x)` with a non-literal
+  * `x` or `cmp_Int64` passed as a value, still run the external's native
+  * implementation. The rewrites therefore also assume that implementation
+  * keeps the standard runtime's representation and results. Each backend's
+  * built-in Int64 externals do. A provider that binds these symbols itself,
+  * as `emit-c` allows, must as well. Verifying that belongs to core-source
+  * identity checks, not to this object.
+  *
   * Adding a case to `Intrinsic` adds it to both checks.
   */
 object Int64Intrinsics {
@@ -117,7 +126,7 @@ object Int64Intrinsics {
 
   private def isExternalType(dt: DefinedType[Kind.Arg]): Boolean =
     // Structs and enums always have at least one constructor.
-    dt.constructors.isEmpty && dt.annotatedTypeParams.isEmpty
+    dt.isOpaque && dt.typeParams.isEmpty
 
   /** Check a package implementation, from source or decoded from an artifact.
     */
@@ -146,9 +155,11 @@ object Int64Intrinsics {
     }
 
   /** Check a decoded interface. An interface cannot distinguish an external
-    * type from a struct exported without constructors. Its consumers cannot
-    * build or inspect such a value without calling the implementation, which
-    * `checkPackage` covers wherever it enters a compilation.
+    * type from a struct exported without constructors, or an `external def`
+    * from a `def`, so this checks only the visible shape and types. Consumers
+    * cannot build or inspect an `Int64` without calling the implementation,
+    * and `checkPackage` covers the implementation wherever it enters a
+    * compilation.
     */
   def checkInterface(iface: Package.Interface): Option[Mismatch] =
     if (iface.name != packageName) None

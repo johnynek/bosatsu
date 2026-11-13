@@ -848,8 +848,9 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
       // Lowering folds literal calls it can see; Matchless optimizations such
       // as global inlining can expose more. Folding by name relies on the
       // invariant documented in Int64Intrinsics: every Bosatsu/Num/Int64
-      // reaching codegen declares the core external type and signatures,
-      // whose values the C runtime packs into a BValue.
+      // reaching codegen declares the core external type and signatures. Its
+      // native bindings must keep the C runtime's representation, which packs
+      // an Int64 into a BValue.
       def optimizeInt64LiteralCall(
           pack: PackageName,
           fnName: Bindable,

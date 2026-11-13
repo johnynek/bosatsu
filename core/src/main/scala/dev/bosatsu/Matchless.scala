@@ -5546,7 +5546,10 @@ object Matchless {
     // `Bosatsu/Num/Int64` that reaches lowering, from source or from an
     // artifact, has passed the `Int64Intrinsics` checks: `Int64` is an
     // external type and each intrinsic is an external def with exactly the
-    // core type. The rewrites therefore agree with the runtimes.
+    // core type. The rewrites then agree with the calls they replace, as long
+    // as the native implementations of those externals are the standard
+    // runtime's. The compiler does not check native code (see
+    // Int64Intrinsics).
     def eqBuiltinDomain(
         pack: PackageName,
         fnName: Bindable

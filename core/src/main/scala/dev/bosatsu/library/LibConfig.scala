@@ -293,8 +293,8 @@ case class LibConfig(
     *      exportedPackages or publicDeps
     *   5. all public deps appear somewhere on an API
     *   6. all private deps are used somewhere
-    *   7. no package is in the reserved `Bosatsu/` namespace unless this is
-    *      the core library
+    *   11. no package is in the reserved `Bosatsu/` namespace unless this is
+    *      the core library (validateDepArtifacts checks 7-10)
     */
   def validatePacks(
       previous: Option[DecodedLibrary[Algo.Blake3]],
@@ -577,9 +577,9 @@ case class LibConfig(
       prop5 *> prop6
     }
 
-    val prop7 = validateLocalPackageNames(packsNoPredef.map(p => (p.name, None)))
+    val prop11 = validateLocalPackageNames(packsNoPredef.map(p => (p.name, None)))
 
-    prop7 *> prop1 *> prop2 *> prop4.andThen(_ => prop3) *> prop5_6
+    prop11 *> prop1 *> prop2 *> prop4.andThen(_ => prop3) *> prop5_6
   }
 
   /** call validatePacks, validatePreviousHist, validateDeps Note: we can cache
