@@ -7,9 +7,9 @@
 
 - Flow: `small_job`
 - Issue: `#2485` 0i: Emit program C from a selected compiled package group
-- Pending steps: `0`
+- Pending steps: `1`
 - Completed steps: `3`
-- Total steps: `3`
+- Total steps: `4`
 
 ## Summary
 
@@ -17,15 +17,13 @@ Extend the existing compiled-bundle `tool emit-c` command with program emission 
 
 The boundary is local compiled-bundle emission and its executable fixtures/documentation. Imported-library scopes, toolchain authentication, persistent-worker transport and Bazel rules remain assigned to other roadmap nodes. Existing interactive transpiler callers retain their behavior.
 
-Plan trajectory: initial steps 3; review revisions 0; review-origin steps 0.
+Plan trajectory: initial steps 3; review revisions 1; review-origin steps 1.
 
 ## Current State
 
-At initial authoring, `EmitCCommand.scala` supports only `--test-packages`. Its shared command path reads `LocalRuntimeManifest`, loads `LocalRuntime`, protects runtime inputs and C/header destinations against aliases, and returns `Output.TranspileOut` for the existing FileCommandRunner/StagedOutputs publication lifecycle. LocalRuntime already retains bundle membership, supplies compiled Predef once, validates implementation/interface requirements and validates declared external names.
+Steps step_1 through step_3 are completed. The candidate implements explicit program root-bundle selection, native Main layout checks, declared external resolution, shared staged publication, command documentation and compiled-only native fixtures. Their completion notes record the prior Scala, CLI, Scala.js and native validation.
 
-Test rendering disables standard Int64 intrinsics for loose implementations, tree-shakes selected entries, filters native resolution through `scope.hasBinding`, validates requested headers and checks the ProgTest wrapper layout. `CompilationNamespace.mainValues` selects the last binding satisfying the supplied main-type predicate; `ClangTranspiler.validMain` recognizes `Bosatsu/Prog::Main`. `ClangGen.renderMain` currently always uses the standard external resolver, whereas `renderTests` accepts an explicit resolver. The native runner calls Main's unboxed callback with List[String] and consumes its external Prog result as an Int exit code.
-
-`scripts/test_emit_c.py` already separates compiled-only emission under an empty PATH from native compilation and checks passing/failing private Test and ProgTest fixtures. The design's 0i tracker is incomplete and its command contract does not yet identify the program's selected root bundle. Roadmap #2482 and its program_c node agree with the requested extension and require no dependency artifacts.
+At this revision boundary, code inspection confirms a remaining program-C declaration defect: both renderMain overloads converge on env.renderMain, which calls the supplied native runner without emitting its prototype. The runtime Prog header declares the runner, but generated Prog external stubs do not; callbacks without reachable Prog externals may omit that header entirely. The native harness currently searches runtime includes before generated includes, masking the generated-header case. This is an in-scope compilability defect under issue #2485, aligned with roadmap #2482 and its program_c node. One corrective step covers the shared renderer and native regressions. No implementation changes or tests were performed during this planning-only revision.
 
 ## Problem
 
@@ -135,3 +133,36 @@ Validate the candidate with `sbt "coreJVM/test; cli/test; coreJS/test; cli/assem
 #### Completion Notes
 
 Extended the native harness to compile separate Prog/Types/Api/Main bundles, emit with an empty PATH using only declared bundles and the runtime manifest, and link a program that exits 7. The existing private Test/ProgTest cases still exit 0, 1, and 1; the action-file inventory check passed. Updated the design command contract, shared publication and external-binding guarantees, and tracker 0i implementation references. `sbt "coreJVM/test; cli/test; coreJS/test; cli/assembly"`, `./test_cli.sh`, the native harness, and the explicit candidate-jar worker harness passed. Focused coverage passed all 30 EmitCCommand tests and generated reports. The full coverage command stopped at Issue1633Test’s 30-second timeout under instrumentation; that test passed in the uninstrumented full run. `git diff --check` and Python syntax validation passed.
+
+4. [ ] `step_4` Declare the main runner at the shared rendering boundary and qualify generated headers
+
+Invariant family: native-main-runner-declaration
+
+Repair the compilability gap in the program-emission path implemented by step_1 and step_2 and masked by step_3's native include ordering. Issue #2485 requires emitted program C to compile with its requested generated headers. Currently the runner declaration exists only in the runtime's Bosatsu/Prog header; the generated same-named header omits it, and a callback using another package's external may cause no Prog header include at all. All existing steps are completed, so there is no pending work to absorb this repair.
+
+In `core/src/main/scala/dev/bosatsu/codegen/clang/ClangGen.scala`, extend the existing `env.renderMain` boundary to emit a declaration for its supplied runner identifier before the generated main calls it. Use the existing `Code.DeclareFn` representation and documented signature `int runner(BValue main_value, int argc, char** argv)`, matching `c_runtime/bosatsu_ext_Bosatsu_l_Prog.h`. Both public renderMain overloads already converge here, so the declaration must be independent of reachable externals, resolver choice and package-header search order. Keep generated external stubs focused on Bosatsu external bindings; no new header format or CLI-specific declaration patch is needed.
+
+Extend `core/src/test/scala/dev/bosatsu/codegen/clang/ClangGenTest.scala` to exercise both overloads with callbacks whose reachable externals do and do not include Bosatsu/Prog. Assert the supplied runner's compatible prototype precedes its call, and retain external-resolution rejection and overload-parity coverage. Update existing generated-C expectations for the added declaration without weakening their other assertions.
+
+Extend `scripts/test_emit_c.py` through its existing producer/action split and compile_group helper. Put the generated include directory before runtime include directories for native program compilation and explicitly reject implicit function declarations. Retain the separately compiled Prog/Types/Api/Main fixture exiting 7. Add a valid Main callback that obtains its Prog result from a declared external in another package, with no reachable direct Bosatsu/Prog external reference; supply that fixture's native implementation only to the separate compile/link operation and assert exit 7. Check that its emitted C does not depend on a Prog external-header include. Retain the existing private Test/ProgTest cases and declared-action-file inventory, updating the inventory for explicitly added fixture inputs and outputs. Remove the masking program include ordering rather than preserving it alongside a second workaround.
+
+Run focused ClangGen tests on JVM and Scala.js while implementing, then `sbt "coreJVM/test; cli/test; coreJS/test; cli/assembly"`. Run the extended native harness with explicit candidate `--jar` and `--cc-conf` inputs using the existing Linux testC vendored-runtime setup, and run `scripts/test_bazel_worker.py --jar` against that candidate assembly. The implementation agent produces this pre-PR evidence from the repaired candidate; macOS remains PR CI's responsibility. Completion requires both native program cases to compile with implicit declarations treated as errors and exit 7, with the existing test cases retaining their expected outcomes.
+
+#### Invariants
+
+- Every main emitted through the existing shared main-rendering boundary declares its supplied runner with the documented native signature before calling it.
+- Runner declaration availability does not depend on reachable Bosatsu externals or whether a generated package header shadows the runtime header.
+- Both renderMain overloads retain their external-resolution behavior and use the same declaration and rendering path.
+- Emission continues to use declared compiled inputs under an empty PATH; native compilation and runtime preparation remain separate caller operations.
+- The existing private Test and ProgTest native outcomes remain unchanged.
+
+#### Property Tests
+
+- Across both renderMain overloads and fixtures with and without reachable Bosatsu/Prog externals, the supplied runner prototype precedes its call and has the same native signature.
+
+#### Assertion Tests
+
+- The existing all-source Prog/Types/Api/Main program compiles with the generated Prog header taking precedence over runtime headers, with implicit function declarations rejected, and exits 7.
+- A valid Main callback using another package's declared external and no direct Prog external emits C without a Prog external-header dependency, compiles under the same strict declaration check, and exits 7.
+- Legacy and explicit standard-resolver rendering remain equivalent, while denied direct and first-class external references still fail.
+- The native private Test/ProgTest cases retain exits 0, 1 and 1, and the action directory contains only declared inputs and outputs.
