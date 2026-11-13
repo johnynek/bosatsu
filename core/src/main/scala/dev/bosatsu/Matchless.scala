@@ -5426,17 +5426,6 @@ object Matchless {
       te: TypedExpr[A],
       variantOf: (PackageName, Constructor) => Option[DataRepr],
       makeAnon: F[Long]
-  ): F[Expr[B]] =
-    fromLetRaw(from, name, rec, te, variantOf, makeAnon, standardInt64Intrinsics = true)
-
-  private[bosatsu] def fromLetRaw[F[_]: Monad: Defer, A, B: Order](
-      from: B,
-      name: Bindable,
-      rec: RecursionKind,
-      te: TypedExpr[A],
-      variantOf: (PackageName, Constructor) => Option[DataRepr],
-      makeAnon: F[Long],
-      standardInt64Intrinsics: Boolean
   ): F[Expr[B]] = {
 
     type UnionMatch =
@@ -5514,15 +5503,10 @@ object Matchless {
       case IntDomain, Int64Domain, Float64Domain
     }
 
-    val int64PackageName = PackageName.parts("Bosatsu", "Num", "Int64")
     val eqIntName = Identifier.Name("eq_Int")
     val cmpIntName = Identifier.Name("cmp_Int")
     val eqFloat64Name = Identifier.Name("eq_Float64")
     val cmpFloat64Name = Identifier.Name("cmp_Float64")
-    val eqInt64Name = Identifier.Name("eq_Int64")
-    val cmpInt64Name = Identifier.Name("cmp_Int64")
-    val intToInt64Name = Identifier.Name("int_to_Int64")
-    val intLowBitsToInt64Name = Identifier.Name("int_low_bits_to_Int64")
     val someConstructor = Constructor("Some")
     val noneConstructor = Constructor("None")
 
@@ -5555,6 +5539,17 @@ object Matchless {
       applyArgs(MakeEnum(variant, arity, famArities), NonEmptyList.one(value))
     }
 
+    // Builtins are recognized by package and name alone. Invariant: each
+    // `Bosatsu/...` package in a compilation is the compiler's Predef or
+    // comes from the core library; library builds reject any other
+    // provider. Loose compilations cannot name the library, so every
+    // `Bosatsu/Num/Int64` that reaches lowering, from source or from an
+    // artifact, has passed the `Int64Intrinsics` checks: `Int64` is an
+    // external type and each intrinsic is an external def with exactly the
+    // core type. The rewrites then agree with the calls they replace, as long
+    // as the native implementations of those externals are the standard
+    // runtime's. The compiler does not check native code (see
+    // Int64Intrinsics).
     def eqBuiltinDomain(
         pack: PackageName,
         fnName: Bindable
@@ -5563,9 +5558,12 @@ object Matchless {
         Some(BuiltinCompareDomain.IntDomain)
       else if ((pack == PackageName.PredefName) && (fnName == eqFloat64Name))
         Some(BuiltinCompareDomain.Float64Domain)
-      else if (standardInt64Intrinsics && (pack == int64PackageName) && (fnName == eqInt64Name))
-        Some(BuiltinCompareDomain.Int64Domain)
-      else None
+      else
+        Int64Intrinsics.get(pack, fnName) match {
+          case Some(Int64Intrinsics.Intrinsic.EqInt64) =>
+            Some(BuiltinCompareDomain.Int64Domain)
+          case _ => None
+        }
 
     def cmpBuiltinDomain(
         pack: PackageName,
@@ -5575,9 +5573,12 @@ object Matchless {
         Some(BuiltinCompareDomain.IntDomain)
       else if ((pack == PackageName.PredefName) && (fnName == cmpFloat64Name))
         Some(BuiltinCompareDomain.Float64Domain)
-      else if (standardInt64Intrinsics && (pack == int64PackageName) && (fnName == cmpInt64Name))
-        Some(BuiltinCompareDomain.Int64Domain)
-      else None
+      else
+        Int64Intrinsics.get(pack, fnName) match {
+          case Some(Int64Intrinsics.Intrinsic.CmpInt64) =>
+            Some(BuiltinCompareDomain.Int64Domain)
+          case _ => None
+        }
 
     def comparePredicate(
         domain: BuiltinCompareDomain,
@@ -5677,26 +5678,27 @@ object Matchless {
           None
       }
 
+    // Sound for the same reason as the builtin compares above.
     def maybeLiteralInt64App(
         fn: TypedExpr[A],
         args: List[TypedExpr[A]]
     ): Option[Expr[B]] =
       (fn, args) match {
-        case (
-              TypedExpr.Global(pack, fnName, _, _),
-              literalArg :: Nil
-            ) if standardInt64Intrinsics && (pack == int64PackageName) && (fnName == intLowBitsToInt64Name) =>
-          maybeLiteralIntValue(literalArg).map(value => LitInt64(value.longValue))
-
-        case (
-              TypedExpr.Global(pack, fnName, _, _),
-              literalArg :: Nil
-            ) if standardInt64Intrinsics && (pack == int64PackageName) && (fnName == intToInt64Name) =>
-          maybeLiteralIntValue(literalArg).map { value =>
-            try optionSomeExpr(LitInt64(value.longValueExact()))
-            catch {
-              case _: ArithmeticException => optionNoneExpr
-            }
+        case (TypedExpr.Global(pack, fnName, _, _), literalArg :: Nil) =>
+          Int64Intrinsics.get(pack, fnName) match {
+            case Some(Int64Intrinsics.Intrinsic.IntLowBitsToInt64) =>
+              maybeLiteralIntValue(literalArg).map(value =>
+                LitInt64(value.longValue)
+              )
+            case Some(Int64Intrinsics.Intrinsic.IntToInt64) =>
+              maybeLiteralIntValue(literalArg).map { value =>
+                try optionSomeExpr(LitInt64(value.longValueExact()))
+                catch {
+                  case _: ArithmeticException => optionNoneExpr
+                }
+              }
+            case _ =>
+              None
           }
 
         case _ =>

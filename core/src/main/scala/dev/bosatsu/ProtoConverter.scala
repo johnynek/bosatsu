@@ -1956,6 +1956,19 @@ object ProtoConverter {
       s.foldRight(dtab)(_.finish(_))
   }
 
+  // Every interface and package decoded from an artifact passes through
+  // interfaceFromProto0 or packagesFromProto. Lowering rewrites the
+  // Bosatsu/Num/Int64 intrinsics by name, so reject a decoded package or
+  // interface with that name that differs from the core declarations.
+  private def checkInt64Intrinsics[A](
+      decoded: A,
+      mismatch: Option[Int64Intrinsics.Mismatch]
+  ): Try[A] =
+    mismatch match {
+      case None    => Success(decoded)
+      case Some(m) => Failure(CliException.Basic(m.message))
+    }
+
   private[bosatsu] def interfaceFromProto0(
       loadDT: Type.Const => Try[DefinedType[Kind.Arg]],
       loadTA: Type.Const => Try[TypeAlias[Kind.Arg]],
@@ -1968,7 +1981,10 @@ object ProtoConverter {
         exports <- protoIface.exports.toList.traverse(exportedNameFromProto(loadDT, loadTA, _))
         iface = Package(pn, Nil, exports, ())
         view <- ReaderT.liftF(PackageSignatures.checkedView(protoIface, iface))
-      } yield view
+        checked <- ReaderT.liftF(
+          checkInt64Intrinsics(view, Int64Intrinsics.checkInterface(view))
+        )
+      } yield checked
 
     // build up the decoding state by decoding the tables in order
     Scoped
@@ -2465,7 +2481,11 @@ object ProtoConverter {
               Scoped(buildExprs(pack.expressions))(_.withExprs(_))
             )(tab)
 
-            tab1.run(DecodeState.init(pack.strings))
+            tab1
+              .run(DecodeState.init(pack.strings))
+              .flatMap(decoded =>
+                checkInt64Intrinsics(decoded, Int64Intrinsics.checkPackage(decoded))
+              )
           }
 
           lazy val predefIface = {

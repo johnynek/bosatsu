@@ -57,13 +57,14 @@ from Bosatsu/Prog import Main
 main = Main(0)
 """
 
+  // The library supplies Bosatsu/Prog, which only the core library may do.
   private def baseFiles: List[(Chain[String], String)] = {
-    val libs = Libraries(SortedMap(Name("mylib") -> "src"))
+    val libs = Libraries(SortedMap(Name("core_alpha") -> "src"))
     val conf =
-      LibConfig.init(Name("mylib"), "https://example.com", Version(0, 0, 1))
+      LibConfig.init(Name("core_alpha"), "https://example.com", Version(0, 0, 1))
     List(
       Chain("repo", "bosatsu_libs.json") -> renderJson(libs),
-      Chain("repo", "src", "mylib_conf.json") -> renderJson(conf),
+      Chain("repo", "src", "core_alpha_conf.json") -> renderJson(conf),
       Chain("repo", "src", "Bosatsu", "Prog.bosatsu") -> progSrc,
       Chain("repo", "src", "MyLib", "Fib.bosatsu") -> fibSrc
     )

@@ -214,6 +214,8 @@ object CompilerApi {
         renderedError(ErrorCategory.PackageError, 1, body)
       case _: PackageError.ExposesMismatch =>
         renderedError(ErrorCategory.PackageError, 1, body)
+      case e: PackageError.Int64IntrinsicMismatch =>
+        renderedError(ErrorCategory.PackageError, e.mismatch.violations.length, body)
       case e: PackageError.TodoUsage =>
         renderedError(ErrorCategory.PackageError, e.regions.length, body)
     }
@@ -826,7 +828,7 @@ object CompilerApi {
       resolution.origins.keys.toList.sorted.map(name => result._1(name).iface))
   }
 
-  private def typeCheckLoaded[IO[_], Path](
+  private[bosatsu] def typeCheckLoaded[IO[_], Path](
       platformIO: PlatformIO[IO, Path],
       sources: NonEmptyList[PackageResolver.SourceFile[IO, Path]],
       ifs: List[Package.Interface],
@@ -876,6 +878,34 @@ object CompilerApi {
       ec: Par.EC
   ): IO[(PackageMap.Compiled, NonEmptyList[(Path, PackageName)])] = {
     import platformIO.moduleIOMonad
+    loadSources(platformIO, inputs, packRes, errColor).flatMap(
+      typeCheckLoadedWithLintMode(
+        platformIO,
+        _,
+        ifs,
+        errColor,
+        compileOptions,
+        lintMode,
+        compileCacheDirOpt
+      )
+    )
+  }
+
+  /** Like typeCheckWithLintMode, for sources the caller has already loaded,
+    * for example to check their package names first.
+    */
+  private[bosatsu] def typeCheckLoadedWithLintMode[IO[_], Path](
+      platformIO: PlatformIO[IO, Path],
+      sources: NonEmptyList[PackageResolver.SourceFile[IO, Path]],
+      ifs: List[Package.Interface],
+      errColor: Colorize,
+      compileOptions: CompileOptions,
+      lintMode: LintMode,
+      compileCacheDirOpt: Option[Path]
+  )(implicit
+      ec: Par.EC
+  ): IO[(PackageMap.Compiled, NonEmptyList[(Path, PackageName)])] = {
+    import platformIO.moduleIOMonad
 
     def compiledOrError(
         diagnostics: TypeCheckDiagnostics[Path]
@@ -913,7 +943,6 @@ object CompilerApi {
       )
 
     for {
-      sources <- loadSources(platformIO, inputs, packRes, errColor)
       diagnostics <- typeCheckDiagnostics(
         platformIO,
         sources,

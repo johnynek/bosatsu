@@ -29,8 +29,20 @@ object PackageCustoms {
       pack: Package.Typed[A]
   ): ValidatedNec[PackageError, Package.Typed[A]] =
     checkExportsHaveNoPrivateTypes(pack.name, pack.exports) *>
+      checkInt64Intrinsics(pack) *>
       noUselessBinds(pack, None) *>
       allImportsAreUsed(pack)
+
+  // Every package type-checked from source passes through here, in all
+  // compile modes. See Int64Intrinsics for the other entry points.
+  private def checkInt64Intrinsics[A](
+      pack: Package.Typed[A]
+  ): ValidatedNec[PackageError, Unit] =
+    Int64Intrinsics.checkPackage(pack) match {
+      case None           => Validated.unit
+      case Some(mismatch) =>
+        Validated.invalidNec(PackageError.Int64IntrinsicMismatch(mismatch))
+    }
 
   private def errorsOf[A](validated: ValidatedNec[PackageError, A]): List[PackageError] =
     validated match {
