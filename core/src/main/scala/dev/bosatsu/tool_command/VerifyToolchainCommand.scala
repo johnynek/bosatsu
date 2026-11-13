@@ -8,6 +8,43 @@ import dev.bosatsu.tool.{CliException, Output, ToolchainManifest}
 import org.typelevel.paiges.Doc
 
 object VerifyToolchainCommand {
+  private def checkStampDoesNotAliasInputs[F[_], P](
+      platform: PlatformIO[F, P],
+      stamp: P,
+      inputs: List[P]
+  ): F[Unit] = {
+    import platform.{moduleIOMonad, showPath}
+    platform.pendingOutputPath(stamp).flatMap(platform.existingFileKey).flatMap {
+      case None => moduleIOMonad.unit
+      case Some(stampKey) =>
+        inputs.traverse(path => platform.existingFileKey(path).map(key => path -> key)).flatMap { keys =>
+          keys.collectFirst {
+            case (path, Some(inputKey)) if platform.fileKeyHash.eqv(stampKey, inputKey) => path
+          } match {
+            case Some(path) =>
+              moduleIOMonad.raiseError(CliException.Basic(
+                show"verification stamp $stamp refers to requested input $path"
+              ))
+            case None => moduleIOMonad.unit
+          }
+        }
+    }
+  }
+
+  private def requestedInputs[P](
+      manifest: P,
+      compilerJar: P,
+      core: ToolchainManifest.CoreSelection[P],
+      runtimeArchive: Option[P]
+  ): List[P] = {
+    val coreInputs = core match {
+      case ToolchainManifest.CoreSelection.None        => Nil
+      case ToolchainManifest.CoreSelection.Binary(path) => List(path)
+      case ToolchainManifest.CoreSelection.Sources(paths) => paths.toList
+    }
+    manifest :: compilerJar :: (coreInputs ++ runtimeArchive.toList)
+  }
+
   def opts[F[_], P](platform: PlatformIO[F, P]): Opts[F[Output[P]]] = {
     import platform.{moduleIOMonad, pathArg}
     val manifest =
@@ -52,6 +89,11 @@ object VerifyToolchainCommand {
               core,
               runtimeArchive,
               BuildInfo.cRuntimeArchiveHash
+            )
+            _ <- checkStampDoesNotAliasInputs(
+              platform,
+              stamp,
+              requestedInputs(manifestPath, compilerJar, core, runtimeArchive)
             )
           } yield Output.Basic(Doc.text("ok"), Some(stamp)): Output[P]
       }

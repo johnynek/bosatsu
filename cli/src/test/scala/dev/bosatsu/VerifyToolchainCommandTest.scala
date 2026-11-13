@@ -1,7 +1,10 @@
 package dev.bosatsu
 
 import cats.effect.IO
+import cats.syntax.all._
 import dev.bosatsu.hashing.Algo
+import dev.bosatsu.library.Version
+import _root_.bosatsu.{TypedAst => proto}
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.{Files, Path}
 
@@ -11,12 +14,22 @@ class VerifyToolchainCommandTest extends FileCommandFixtures {
     "package Example/One\nexport value\nvalue = 1\n".getBytes(UTF_8)
   private val sourceTwo =
     "package Example/Two\nexport value\nvalue = 2\n".getBytes(UTF_8)
+  private val coreBytes = proto.Library(
+    name = "bosatsu",
+    repoUri = "unused",
+    descriptor = Some(proto.LibDescriptor(
+      version = Some(Version.parser.parseAll("1.2.3").toOption.get.toProto)
+    ))
+  ).toByteArray
+  private val runtimeBytes = "runtime archive".getBytes(UTF_8)
 
   private def sha(bytes: Array[Byte]): String =
     Algo.hashBytes[Algo.Sha256](bytes).hex
 
   private def manifest(
       compiler: Array[Byte] = compilerBytes,
+      core: Array[Byte] = Array.emptyByteArray,
+      runtime: Array[Byte] = Array.emptyByteArray,
       sources: List[(String, Array[Byte])] = Nil
   ): String = {
     val sourceEntries = sources.map { case (name, bytes) =>
@@ -25,12 +38,11 @@ class VerifyToolchainCommandTest extends FileCommandFixtures {
     val sourceField =
       if (sources.isEmpty) ""
       else s",\n\"core_sources\":{$sourceEntries}"
-    val emptyHash = sha(Array.emptyByteArray)
     s"""{
        |"schema_version":1,
        |"compiler":{"uri":"unused","sha256":"${sha(compiler)}"},
-       |"core":{"library_name":"bosatsu","version":"1.2.3","uri":"unused","sha256":"$emptyHash"},
-       |"c_runtime":{"uri":"unused","sha256":"$emptyHash"}$sourceField
+       |"core":{"library_name":"bosatsu","version":"1.2.3","uri":"unused","sha256":"${sha(core)}"},
+       |"c_runtime":{"uri":"unused","sha256":"${sha(runtime)}"}$sourceField
        |}""".stripMargin
   }
 
@@ -45,13 +57,37 @@ class VerifyToolchainCommandTest extends FileCommandFixtures {
     writeBytes(root, "manifest.json", manifest().getBytes(UTF_8)) *>
       writeBytes(root, "compiler.jar", compilerBytes)
 
-  private def args(out: String = "stamp"): List[String] =
+  private def args(
+      out: String = "stamp",
+      manifestPath: String = "manifest.json",
+      compilerPath: String = "compiler.jar",
+      coreLibrary: Option[String] = None,
+      coreSources: List[String] = Nil,
+      runtimeArchive: Option[String] = None
+  ): List[String] =
     List(
       "verify-toolchain",
-      "--manifest", "manifest.json",
-      "--compiler-jar", "compiler.jar",
+      "--manifest", manifestPath,
+      "--compiler-jar", compilerPath,
       "--out", out
-    )
+    ) ++ coreLibrary.toList.flatMap(path => List("--core-library", path)) ++
+      coreSources.flatMap(path => List("--core-source", path)) ++
+      runtimeArchive.toList.flatMap(path => List("--runtime-archive", path))
+
+  private def assertAliasRejected(
+      root: Path,
+      runner: FileCommandRunner,
+      command: List[String],
+      inputs: List[String]
+  ): IO[Unit] =
+    for {
+      before <- IO.blocking(inputs.map(path => path -> Files.readAllBytes(root.resolve(path)).toList).toMap)
+      result <- runner.run(root, command)
+      _ = failure(result)
+      _ = assert(result.stderr.contains("refers to requested input"), result.stderr)
+      after <- IO.blocking(inputs.map(path => path -> Files.readAllBytes(root.resolve(path)).toList).toMap)
+      _ = assertEquals(after, before)
+    } yield ()
 
   test(
     "compiler-only verification writes a silent success stamp with unused files absent"
@@ -118,6 +154,63 @@ class VerifyToolchainCommandTest extends FileCommandFixtures {
         _ = failure(existing)
         preserved <- read(root, "stamp")
         _ = assertEquals(preserved, "sentinel")
+      } yield ()
+    }
+  }
+
+  test("verification stamps cannot alias any requested input") {
+    withRunner { (root, runner) =>
+      val manifestBytes = manifest(
+        core = coreBytes,
+        runtime = runtimeBytes,
+        sources = List("Example/One" -> sourceOne, "Example/Two" -> sourceTwo)
+      ).getBytes(UTF_8)
+      for {
+        _ <- writeBytes(root, "manifest.json", manifestBytes)
+        _ <- writeBytes(root, "compiler.jar", compilerBytes)
+        _ <- assertAliasRejected(root, runner, args(out = "manifest.json"), List("manifest.json", "compiler.jar"))
+        _ <- assertAliasRejected(root, runner, args(out = "compiler.jar"), List("manifest.json", "compiler.jar"))
+        _ <- assertAliasRejected(root, runner, args(out = "./compiler.jar"), List("manifest.json", "compiler.jar"))
+        _ <- IO.blocking {
+          Files.createSymbolicLink(root.resolve("compiler-link.jar"), Path.of("compiler.jar"))
+          Files.createLink(root.resolve("compiler-hard.jar"), root.resolve("compiler.jar"))
+        }
+        _ <- assertAliasRejected(
+          root,
+          runner,
+          args(out = "compiler-link.jar"),
+          List("manifest.json", "compiler.jar", "compiler-link.jar")
+        )
+        _ <- assertAliasRejected(
+          root,
+          runner,
+          args(out = "compiler-hard.jar"),
+          List("manifest.json", "compiler.jar", "compiler-hard.jar")
+        )
+        _ <- writeBytes(root, "core.lib", coreBytes)
+        _ <- assertAliasRejected(
+          root,
+          runner,
+          args(out = "core.lib", coreLibrary = Some("core.lib")),
+          List("manifest.json", "compiler.jar", "core.lib")
+        )
+        _ <- writeBytes(root, "One.bosatsu", sourceOne)
+        _ <- writeBytes(root, "Two.bosatsu", sourceTwo)
+        _ <- List("One.bosatsu", "Two.bosatsu").traverse_ { source =>
+          assertAliasRejected(
+            root,
+            runner,
+            args(out = source, coreSources = List("One.bosatsu", "Two.bosatsu")),
+            List("manifest.json", "compiler.jar", "One.bosatsu", "Two.bosatsu")
+          )
+        }
+        _ <- writeBytes(root, "runtime.tar.gz", runtimeBytes)
+        _ <- assertAliasRejected(
+          root,
+          runner,
+          args(out = "runtime.tar.gz", runtimeArchive = Some("runtime.tar.gz")),
+          List("manifest.json", "compiler.jar", "runtime.tar.gz")
+        )
       } yield ()
     }
   }

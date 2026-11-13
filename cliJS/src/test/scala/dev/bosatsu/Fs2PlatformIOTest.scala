@@ -4,11 +4,13 @@ import cats.effect.IO
 import cats.effect.unsafe.implicits.global
 import cats.syntax.all._
 import dev.bosatsu.hashing.Algo
+import dev.bosatsu.library.Version
 import dev.bosatsu.tool.ExitCode
 import fs2.io.file.{Files, Path}
 import munit.FunSuite
 import org.typelevel.paiges.Doc
 import scala.scalajs.js
+import _root_.bosatsu.{TypedAst => proto}
 
 class Fs2PlatformIOTest extends FunSuite {
   test("verify-toolchain runs portably and preserves a stamp after validation failure") {
@@ -55,6 +57,98 @@ class Fs2PlatformIOTest extends FunSuite {
         )
         previous <- Fs2PlatformIO.readUtf8(stamp)
         _ = assertEquals(previous, "sentinel")
+      } yield ()
+    }.unsafeToFuture()
+  }
+
+  test("verify-toolchain rejects stamp aliases for every requested component") {
+    val fs = Files.forIO
+    val module = new MainModule(Fs2PlatformIO)
+    def run(args: List[String]): IO[ExitCode] =
+      IO.fromEither(module.run("tool" :: args).leftMap(h => new IllegalArgumentException(h.toString)))
+        .flatten.flatMap(_.report(Fs2PlatformIO))
+    fs.tempDirectory.use { dir =>
+      val manifest = dir / "manifest.json"
+      val compiler = dir / "compiler.jar"
+      val firstSource = dir / "One.bosatsu"
+      val secondSource = dir / "Two.bosatsu"
+      val core = dir / "core.lib"
+      val runtime = dir / "runtime.tar.gz"
+      val compilerBytes = "node candidate jar".getBytes("UTF-8")
+      val firstBytes = "package Example/One\n\nvalue = 1\n".getBytes("UTF-8")
+      val secondBytes = "package Example/Two\n\nvalue = 2\n".getBytes("UTF-8")
+      val coreBytes = proto.Library(
+        name = "bosatsu",
+        repoUri = "unused",
+        descriptor = Some(proto.LibDescriptor(
+          version = Some(Version.parser.parseAll("1.2.3").toOption.get.toProto)
+        ))
+      ).toByteArray
+      val runtimeBytes = "node runtime archive".getBytes("UTF-8")
+      def sha(bytes: Array[Byte]): String = Algo.hashBytes[Algo.Sha256](bytes).hex
+      def manifestBytes(coreBytes: Array[Byte]): Array[Byte] = {
+        val sourcePins =
+          s"\"Example/One\":\"${sha(firstBytes)}\",\"Example/Two\":\"${sha(secondBytes)}\""
+        s"""{
+           |"schema_version":1,
+           |"compiler":{"uri":"unused","sha256":"${sha(compilerBytes)}"},
+           |"core":{"library_name":"bosatsu","version":"1.2.3","uri":"unused","sha256":"${sha(coreBytes)}"},
+           |"c_runtime":{"uri":"unused","sha256":"${sha(runtimeBytes)}"},
+           |"core_sources":{$sourcePins}
+           |}""".stripMargin.getBytes("UTF-8")
+      }
+      def verifyArgs(
+          out: Path,
+          binaryCore: Option[Path] = None,
+          sources: List[Path] = Nil,
+          archive: Option[Path] = None
+      ): List[String] =
+        List(
+          "verify-toolchain",
+          "--manifest", manifest.toString,
+          "--compiler-jar", compiler.toString,
+          "--out", out.toString
+        ) ++ binaryCore.toList.flatMap(path => List("--core-library", path.toString)) ++
+          sources.flatMap(path => List("--core-source", path.toString)) ++
+          archive.toList.flatMap(path => List("--runtime-archive", path.toString))
+      def rejectedAlias(out: Path, requested: List[Path], command: List[String]): IO[Unit] = {
+        val paths = (requested :+ out).distinct
+        for {
+          before <- paths.traverse(path => Fs2PlatformIO.readBytes(path).map(path.toString -> _.toList)).map(_.toMap)
+          result <- run(command).attempt
+          _ = assert(
+            result.swap.toOption.exists(_.getMessage.contains("refers to requested input")),
+            result
+          )
+          after <- paths.traverse(path => Fs2PlatformIO.readBytes(path).map(path.toString -> _.toList)).map(_.toMap)
+          _ = assertEquals(after, before)
+        } yield ()
+      }
+      val requestedSources = List(firstSource, secondSource)
+      val sourceAndRuntimeInputs = List(manifest, compiler, firstSource, secondSource, runtime)
+      for {
+        _ <- Fs2PlatformIO.writeBytes(manifest, manifestBytes(coreBytes))
+        _ <- Fs2PlatformIO.writeBytes(compiler, compilerBytes)
+        _ <- Fs2PlatformIO.writeBytes(firstSource, firstBytes)
+        _ <- Fs2PlatformIO.writeBytes(secondSource, secondBytes)
+        _ <- Fs2PlatformIO.writeBytes(runtime, runtimeBytes)
+        _ <- sourceAndRuntimeInputs.traverse_(path =>
+          rejectedAlias(path, sourceAndRuntimeInputs, verifyArgs(
+            path,
+            sources = requestedSources,
+            archive = Some(runtime)
+          ))
+        )
+        link = dir / "compiler-link.jar"
+        _ <- fs.createSymbolicLink(link, compiler)
+        _ <- rejectedAlias(
+          link,
+          sourceAndRuntimeInputs,
+          verifyArgs(link, sources = requestedSources, archive = Some(runtime))
+        )
+        _ <- Fs2PlatformIO.writeBytes(core, coreBytes)
+        _ <- Fs2PlatformIO.writeBytes(manifest, manifestBytes(coreBytes))
+        _ <- rejectedAlias(core, List(manifest, compiler, core), verifyArgs(core, binaryCore = Some(core)))
       } yield ()
     }.unsafeToFuture()
   }

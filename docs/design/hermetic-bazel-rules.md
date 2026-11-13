@@ -273,6 +273,8 @@ Fetch and validate only the parts a target consumes. A Predef-only group can use
 
 The launcher must authenticate the selected manifest pin and candidate jar before executing the candidate. The verifier cannot use successful self-inspection to authenticate an untrusted manifest or the jar that is already running. The operation is offline: it never fetches manifest URIs, invokes a compiler, installs a runtime, or resolves dependencies. It emits the success stamp only after every requested check succeeds; failure leaves an existing stamp unchanged and creates no new one. Keep the full manifest and implementation digests out of ordinary signature-only compile inputs.
 
+The success stamp path must not alias the manifest, compiler jar, or any requested core or runtime input. The command rejects identical paths and filesystem aliases before publishing the stamp, preserving all declared inputs.
+
 ### Local toolchain inputs
 
 A compiler-only workspace can select an unreleased jar with this MODULE declaration. The pinned JRE comes from the compiler toolchain.

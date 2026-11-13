@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2486` 0p: Verify declared compiler, core and runtime components
-- Pending steps: `3`
-- Completed steps: `4`
+- Pending steps: `2`
+- Completed steps: `5`
 - Total steps: `7`
 
 ## Summary
@@ -173,7 +173,7 @@ Run the issue-required Linux checks: `sbt "coreJVM/test; cli/test; coreJS/test; 
 
 Added candidate-jar fixtures and direct/one-shot worker parity cases for matched compiler-only, binary-core, source-core, and native-runtime requests, plus mismatched compiler/core/runtime, core identity, and source replacements. Verified failures preserve existing stamps. Documented the version-1 manifest and implemented command policy, marked tracker 0p complete, and updated the CLI help-order assertion for the registered command. The requested sbt sequence passed: core JVM 2,227 passed/0 failed, CLI 182 passed/0 failed, coreJS 2,197 passed/0 failed, cliJSJS 3 passed/0 failed, and assembly built. The candidate-jar harness, `./test_cli.sh`, and `git diff --check` also passed.
 
-5. [ ] `step_5` Reject verification stamps that alias requested inputs
+5. [x] `step_5` Reject verification stamps that alias requested inputs
 
 Invariant family: verification-input-output-separation
 
@@ -202,6 +202,10 @@ Extend VerifyToolchainCommandTest.scala and Fs2PlatformIOTest.scala with valid f
 - Include multiple requested sources so an alias to a later source cannot bypass the inventory.
 - Exercise Scala.js alias rejection through MainModule and Output.report, and retain successful verification with a separate stamp.
 - Run focused JVM command and Node suites; include the candidate alias cases in the final assembled-jar harness run.
+
+#### Completion Notes
+
+Added a shared `PlatformIO` file-key check in `VerifyToolchainCommand` for the manifest, compiler, selected binary or all selected sources, and requested runtime before returning the stamp output. Added JVM, Scala.js, and exact-candidate direct/one-shot alias coverage, including normalized, symlink, hard-link, and multi-source cases, and documented input/output separation. The focused JVM and Scala.js suites passed (7 and 4 tests); the candidate-jar worker harness and `git diff --check` passed.
 
 6. [ ] `step_6` Require exact embedded core version identity
 

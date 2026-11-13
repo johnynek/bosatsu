@@ -220,10 +220,42 @@ def compare_command(
     return worker
 
 
+def reject_input_alias(
+    java: str,
+    jar: Path,
+    cwd: Path,
+    name: str,
+    command: list[str],
+    inputs: list[str],
+) -> None:
+    parameter_path = Path("parameter files 雪") / f"{name}.params"
+    parameter_file = cwd / parameter_path
+    parameter_file.parent.mkdir(parents=True, exist_ok=True)
+    parameter_file.write_text("\n".join(command) + "\n", encoding="utf-8")
+    before = {path: (cwd / path).read_bytes() for path in inputs}
+
+    direct = invoke(java, jar, cwd, "tool", *command)
+    if direct.returncode == 0 or b"refers to requested input" not in direct.stderr:
+        raise AssertionError(
+            f"direct {name} did not reject an input alias:\n"
+            f"{direct.stderr.decode('utf-8', errors='replace')}"
+        )
+    if {path: (cwd / path).read_bytes() for path in inputs} != before:
+        raise AssertionError(f"direct {name} changed a requested input while rejecting its alias")
+
+    worker = invoke(java, jar, cwd, "tool", "bazel-worker", "@" + parameter_path.as_posix())
+    check_result(name, direct, worker)
+    if worker.returncode == 0:
+        raise AssertionError(f"one-shot {name} accepted an output alias to a requested input")
+    if {path: (cwd / path).read_bytes() for path in inputs} != before:
+        raise AssertionError(f"one-shot {name} changed a requested input while rejecting its alias")
+
+
 TOOLCHAIN_MANIFEST = "manifests 雪/toolchain.json"
 TOOLCHAIN_STAMP = "generated files 雪/toolchain stamp"
 TOOLCHAIN_CORE = "components 雪/core.bosatsu_lib"
 TOOLCHAIN_SOURCE = "sources 雪/Prog.bosatsu"
+TOOLCHAIN_SECOND_SOURCE = "sources 雪/Two.bosatsu"
 TOOLCHAIN_RUNTIME = "components 雪/c-runtime.tar.gz"
 
 
@@ -307,6 +339,7 @@ def write_toolchain_manifest(
 def toolchain_command(
     compiler_jar: Path,
     *,
+    out: str = TOOLCHAIN_STAMP,
     core_library: str | None = None,
     core_sources: list[str] | None = None,
     runtime_archive: str | None = None,
@@ -318,7 +351,7 @@ def toolchain_command(
         "--compiler-jar",
         compiler_jar.as_posix(),
         "--out",
-        TOOLCHAIN_STAMP,
+        out,
     ]
     if core_library is not None:
         command.extend(["--core-library", core_library])
@@ -346,6 +379,22 @@ def test_toolchain_verification(java: str, candidate_jar: Path, work: Path) -> N
         toolchain_command(candidate_name),
         [TOOLCHAIN_STAMP],
     )
+    reject_input_alias(
+        java,
+        candidate_name,
+        cwd,
+        "toolchain-manifest-alias",
+        toolchain_command(candidate_name, out=TOOLCHAIN_MANIFEST),
+        [TOOLCHAIN_MANIFEST, candidate_name.as_posix()],
+    )
+    reject_input_alias(
+        java,
+        candidate_name,
+        cwd,
+        "toolchain-candidate-alias",
+        toolchain_command(candidate_name, out="./" + candidate_name.as_posix()),
+        [TOOLCHAIN_MANIFEST, candidate_name.as_posix()],
+    )
 
     core = core_library_fixture()
     (cwd / TOOLCHAIN_CORE).parent.mkdir(parents=True, exist_ok=True)
@@ -358,6 +407,14 @@ def test_toolchain_verification(java: str, candidate_jar: Path, work: Path) -> N
         "toolchain-binary-core",
         toolchain_command(candidate_name, core_library=TOOLCHAIN_CORE),
         [TOOLCHAIN_STAMP],
+    )
+    reject_input_alias(
+        java,
+        candidate_name,
+        cwd,
+        "toolchain-core-alias",
+        toolchain_command(candidate_name, core_library=TOOLCHAIN_CORE, out=TOOLCHAIN_CORE),
+        [TOOLCHAIN_MANIFEST, candidate_name.as_posix(), TOOLCHAIN_CORE],
     )
 
     wrong_core = core_library_fixture(repo="https://example.invalid/altered-core")
@@ -408,6 +465,32 @@ def test_toolchain_verification(java: str, candidate_jar: Path, work: Path) -> N
         [TOOLCHAIN_STAMP],
     )
 
+    second_source = b"package Example/Two\n\nvalue = 2\n"
+    (cwd / TOOLCHAIN_SECOND_SOURCE).write_bytes(second_source)
+    write_toolchain_manifest(
+        cwd,
+        compiler_bytes=candidate_bytes,
+        core_sources={"Bosatsu/Prog": source, "Example/Two": second_source},
+    )
+    for source_path in (TOOLCHAIN_SOURCE, TOOLCHAIN_SECOND_SOURCE):
+        reject_input_alias(
+            java,
+            candidate_name,
+            cwd,
+            "toolchain-source-alias-" + Path(source_path).stem,
+            toolchain_command(
+                candidate_name,
+                core_sources=[TOOLCHAIN_SOURCE, TOOLCHAIN_SECOND_SOURCE],
+                out=source_path,
+            ),
+            [
+                TOOLCHAIN_MANIFEST,
+                candidate_name.as_posix(),
+                TOOLCHAIN_SOURCE,
+                TOOLCHAIN_SECOND_SOURCE,
+            ],
+        )
+
     changed_source = b"package Bosatsu/Prog\n\nmain = 2\n"
     (cwd / TOOLCHAIN_SOURCE).write_bytes(changed_source)
     compare_command(
@@ -443,6 +526,14 @@ def test_toolchain_verification(java: str, candidate_jar: Path, work: Path) -> N
         "toolchain-native-runtime",
         toolchain_command(candidate_name, runtime_archive=TOOLCHAIN_RUNTIME),
         [TOOLCHAIN_STAMP],
+    )
+    reject_input_alias(
+        java,
+        candidate_name,
+        cwd,
+        "toolchain-runtime-alias",
+        toolchain_command(candidate_name, runtime_archive=TOOLCHAIN_RUNTIME, out=TOOLCHAIN_RUNTIME),
+        [TOOLCHAIN_MANIFEST, candidate_name.as_posix(), TOOLCHAIN_RUNTIME],
     )
 
     changed_runtime = runtime_archive_fixture() + b"independently hashed substitute"
