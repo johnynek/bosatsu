@@ -15,6 +15,7 @@ import scala.scalajs.js
 import scala.scalajs.js.annotation.JSImport
 import scala.scalajs.js.Dynamic.global
 import scala.scalajs.js.typedarray.Uint8Array
+import java.io.IOException
 
 import cats.syntax.all._
 import scalapb.{GeneratedMessage, GeneratedMessageCompanion}
@@ -444,24 +445,35 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
     resolveDestination = pendingOutputPath,
     stagedFile = destination => {
       val directory = destination.parent.getOrElse(Path("."))
-      val allocated = FilesIO.tempFile(
-        dir = Some(directory),
-        prefix = ".bosatsu-write-",
-        suffix = ".tmp",
-        permissions = None
-      ).allocated
       Resource
-        .make(allocated) { case (_, release) =>
-          // The staged path no longer exists after a successful rename. Cleanup
-          // is best-effort so it cannot turn a committed publication into an error.
-          release.handleErrorWith(_ => IO.unit)
+        .make(FilesIO.createTempDirectory(Some(directory), ".bosatsu-write-", None)) { stage =>
+          // Own the directory, not fs2's JS tempFile, whose release removes only
+          // the file. Cleanup must not report failure after a committed rename.
+          FilesIO.deleteRecursively(stage).handleErrorWith(_ => IO.unit)
         }
-        .map(_._1)
+        .map(_ / "document")
     },
     writeStaged = (path, doc) =>
       FilesIO.writeUtf8(path)(docStream(doc)).compile.drain,
     replace = (source, target) =>
-      IO.fromPromise(IO(Rename(source.toString, target.toString)))
+      FilesIO.getBasicFileAttributes(target, followLinks = false).map(Some(_))
+        .recover { case _: NoSuchFileException => None }
+        .flatMap {
+          case None => IO.fromPromise(IO(Rename(source.toString, target.toString)))
+          case Some(_) =>
+            // Node exposes mode/owner/group, but no ACL reader or copier. A
+            // chmod/chown of a new inode cannot preserve all access controls.
+            // Keep identical outputs in place; fail closed for changed ones.
+            FilesIO.readAll(source).map(Option(_))
+              .zipAll(FilesIO.readAll(target).map(Option(_)))(None, None)
+              .forall { case (left, right) => left == right }
+              .compile.lastOrError.flatMap {
+                case true => IO.unit
+                case false => IO.raiseError(new IOException(
+                  s"cannot preserve output access controls with Node's filesystem API: $target"
+                ))
+              }
+        }
   )
 
   private[dev] def writeDocWith(

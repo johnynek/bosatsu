@@ -275,6 +275,8 @@ The launcher must authenticate the selected manifest pin and candidate jar befor
 
 The success stamp path must not alias the manifest, compiler jar, or any requested core or runtime input. The command rejects identical paths and filesystem aliases before publishing the stamp, preserving all declared inputs.
 
+Scala.js document publication stages complete content in an owned temporary directory beside the resolved destination and removes the entire directory on success or failure. Node's filesystem API cannot read or copy ACLs. Consequently an identical existing document is kept in place, preserving its inode and access controls; publishing changed content over an existing document fails before replacement with `cannot preserve output access controls`. This applies to verification stamps and other `writeDoc` outputs, including symlink targets. New outputs still publish by atomic rename, and repeated successful verification of an unchanged `ok` stamp succeeds. JVM publication continues to preserve access controls through `StagedOutputs`.
+
 ### Local toolchain inputs
 
 A compiler-only workspace can select an unreleased jar with this MODULE declaration. The pinned JRE comes from the compiler toolchain.

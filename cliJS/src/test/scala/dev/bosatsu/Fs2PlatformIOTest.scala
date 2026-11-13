@@ -12,9 +12,62 @@ import munit.FunSuite
 import org.typelevel.paiges.Doc
 import java.io.IOException
 import scala.scalajs.js
+import scala.scalajs.js.annotation.JSImport
 import _root_.bosatsu.{TypedAst => proto}
 
+@js.native
+private trait DocumentStat extends js.Object {
+  val mode: Int = js.native
+  val uid: Int = js.native
+  val gid: Int = js.native
+  val ino: Double = js.native
+}
+
+@js.native
+@JSImport("fs/promises", "stat")
+private object DocumentStat extends js.Function1[String, js.Promise[DocumentStat]] {
+  def apply(path: String): js.Promise[DocumentStat] = js.native
+}
+
+@js.native
+@JSImport("fs/promises", "chmod")
+private object DocumentChmod extends js.Function2[String, Int, js.Promise[Unit]] {
+  def apply(path: String, mode: Int): js.Promise[Unit] = js.native
+}
+
 class Fs2PlatformIOTest extends FunSuite {
+  test("document replacement preserves access controls or fails without changing the inode") {
+    val fs = Files.forIO
+    List("600", "640", "644", "400").traverse_ { permissions =>
+      val mode = Integer.parseInt(permissions, 8)
+      fs.tempDirectory.use { dir =>
+        val target = dir / "document"
+        def stat = IO.fromPromise(IO(DocumentStat(target.toString)))
+          .map(s => (s.mode, s.uid, s.gid, s.ino))
+        def assertTree = fs.walk(dir).compile.toList.map { paths =>
+          assertEquals(paths.toSet, Set(dir, target))
+        }
+        for {
+          _ <- fs.writeUtf8(target)(fs2.Stream.emit("sentinel")).compile.drain
+          _ <- IO.fromPromise(IO(DocumentChmod(target.toString, mode)))
+          before <- stat
+          result <- Fs2PlatformIO.writeDoc(target, Doc.text("replacement")).attempt
+          _ = assert(result.swap.toOption.exists(_.getMessage.contains("cannot preserve output access controls")), result)
+          after <- stat
+          _ = assertEquals(after, before)
+          content <- Fs2PlatformIO.readUtf8(target)
+          _ = assertEquals(content, "sentinel")
+          _ <- assertTree
+          // An identical retry needs no inode replacement or ACL copying.
+          _ <- Fs2PlatformIO.writeDoc(target, Doc.text("sentinel"))
+          afterRetry <- stat
+          _ = assertEquals(afterRetry, before)
+          _ <- assertTree
+        } yield ()
+      }
+    }.unsafeToFuture()
+  }
+
   test("document publication handles nested and symlink destinations") {
     val fs = Files.forIO
     fs.tempDirectory.use { dir =>
@@ -29,10 +82,12 @@ class Fs2PlatformIOTest extends FunSuite {
         _ = assertEquals(nestedContent, "nested")
         _ <- Fs2PlatformIO.writeDoc(target, Doc.text("old"))
         _ <- fs.createSymbolicLink(link, target)
-        _ <- Fs2PlatformIO.writeDoc(link, Doc.text("through link"))
+        _ <- Fs2PlatformIO.writeDoc(link, Doc.text("old"))
+        rejected <- Fs2PlatformIO.writeDoc(link, Doc.text("through link")).attempt
+        _ = assert(rejected.isLeft, rejected)
         targetContent <- Fs2PlatformIO.readUtf8(target)
         linkIsSymlink <- fs.isSymbolicLink(link)
-        _ = assertEquals(targetContent, "through link")
+        _ = assertEquals(targetContent, "old")
         _ = assert(linkIsSymlink)
         _ <- fs.createSymbolicLink(danglingLink, danglingTarget)
         _ <- Fs2PlatformIO.writeDoc(danglingLink, Doc.text("created target"))
@@ -50,9 +105,13 @@ class Fs2PlatformIOTest extends FunSuite {
       val existing = dir / "existing-stamp"
       val absent = dir / "absent-stamp"
       val normalOps = Fs2PlatformIO.documentWriteOps
-      def stagedFiles =
-        fs.list(dir).compile.toList.map(_.filter(_.fileName.startsWith(".bosatsu-write-")))
-      def assertNoStagedFiles = stagedFiles.map(files => assertEquals(files, Nil))
+      def stat = IO.fromPromise(IO(DocumentStat(existing.toString)))
+        .map(s => (s.mode, s.uid, s.gid, s.ino))
+      def assertPreserved(before: (Int, Int, Int, Double)) =
+        fs.walk(dir).compile.toList.flatMap { paths =>
+          assertEquals(paths.toSet, Set(dir, existing))
+          stat.map(after => assertEquals(after, before))
+        }
 
       val partialWriteOps = normalOps.copy(
         writeStaged = (staged, _) => {
@@ -65,20 +124,22 @@ class Fs2PlatformIOTest extends FunSuite {
 
       for {
         _ <- Fs2PlatformIO.writeDoc(existing, Doc.text("sentinel"))
+        _ <- IO.fromPromise(IO(DocumentChmod(existing.toString, 0x180)))
+        before <- stat
         failedWrite <- Fs2PlatformIO
           .writeDocWith(existing, Doc.text("replacement"), partialWriteOps)
           .attempt
         _ = assert(failedWrite.swap.toOption.exists(_.getMessage == "staged write failed"), failedWrite)
         existingAfterWriteFailure <- Fs2PlatformIO.readUtf8(existing)
         _ = assertEquals(existingAfterWriteFailure, "sentinel")
-        _ <- assertNoStagedFiles
+        _ <- assertPreserved(before)
         failedAbsentWrite <- Fs2PlatformIO
           .writeDocWith(absent, Doc.text("replacement"), partialWriteOps)
           .attempt
         _ = assert(failedAbsentWrite.isLeft, failedAbsentWrite)
         absentAfterWriteFailure <- fs.exists(absent)
         _ = assert(!absentAfterWriteFailure)
-        _ <- assertNoStagedFiles
+        _ <- assertPreserved(before)
         events <- Ref.of[IO, List[String]](Nil)
         closeFailureOps = normalOps.copy(
           writeStaged = (staged, doc) =>
@@ -97,7 +158,7 @@ class Fs2PlatformIOTest extends FunSuite {
         _ = assertEquals(closeEvents, List("closed"))
         existingAfterCloseFailure <- Fs2PlatformIO.readUtf8(existing)
         _ = assertEquals(existingAfterCloseFailure, "sentinel")
-        _ <- assertNoStagedFiles
+        _ <- assertPreserved(before)
         failedAbsentClose <- Fs2PlatformIO
           .writeDocWith(absent, Doc.text("replacement"), closeFailureOps)
           .attempt
@@ -107,7 +168,7 @@ class Fs2PlatformIOTest extends FunSuite {
         )
         absentAfterCloseFailure <- fs.exists(absent)
         _ = assert(!absentAfterCloseFailure)
-        _ <- assertNoStagedFiles
+        _ <- assertPreserved(before)
         replacementFailureOps = normalOps.copy(
           replace = (_, _) => IO.raiseError(new IOException("rename failed"))
         )
@@ -117,17 +178,21 @@ class Fs2PlatformIOTest extends FunSuite {
         _ = assert(failedReplace.swap.toOption.exists(_.getMessage == "rename failed"), failedReplace)
         existingAfterReplaceFailure <- Fs2PlatformIO.readUtf8(existing)
         _ = assertEquals(existingAfterReplaceFailure, "sentinel")
-        _ <- assertNoStagedFiles
+        _ <- assertPreserved(before)
         failedAbsentReplace <- Fs2PlatformIO
           .writeDocWith(absent, Doc.text("replacement"), replacementFailureOps)
           .attempt
         _ = assert(failedAbsentReplace.swap.toOption.exists(_.getMessage == "rename failed"), failedAbsentReplace)
         absentAfterReplaceFailure <- fs.exists(absent)
         _ = assert(!absentAfterReplaceFailure)
-        _ <- assertNoStagedFiles
-        _ <- Fs2PlatformIO.writeDoc(existing, Doc.text("retry succeeded"))
-        afterRetry <- Fs2PlatformIO.readUtf8(existing)
+        _ <- assertPreserved(before)
+        _ <- Fs2PlatformIO.writeDoc(existing, Doc.text("sentinel"))
+        _ <- assertPreserved(before)
+        _ <- Fs2PlatformIO.writeDoc(absent, Doc.text("retry succeeded"))
+        afterRetry <- Fs2PlatformIO.readUtf8(absent)
         _ = assertEquals(afterRetry, "retry succeeded")
+        paths <- fs.walk(dir).compile.toList
+        _ = assertEquals(paths.toSet, Set(dir, existing, absent))
       } yield ()
     }.unsafeToFuture()
   }
@@ -167,7 +232,9 @@ class Fs2PlatformIOTest extends FunSuite {
         _ = assertEquals(valid.toOption, Some(ExitCode.Success))
         stampContent <- Fs2PlatformIO.readUtf8(stamp)
         _ = assertEquals(stampContent, "ok")
-        _ <- Fs2PlatformIO.writeDoc(stamp, Doc.text("sentinel"))
+        again <- verify
+        _ = assertEquals(again, ExitCode.Success)
+        _ <- fs.writeUtf8(stamp)(fs2.Stream.emit("sentinel")).compile.drain
         _ <- Fs2PlatformIO.writeBytes(compiler, "altered candidate".getBytes("UTF-8"))
         invalid <- verify.attempt
         _ = assert(
