@@ -7,23 +7,27 @@
 
 - Flow: `small_job`
 - Issue: `#2486` 0p: Verify declared compiler, core and runtime components
-- Pending steps: `0`
+- Pending steps: `3`
 - Completed steps: `4`
-- Total steps: `4`
+- Total steps: `7`
 
 ## Summary
 
-Implement file-only `tool verify-toolchain` against the caller-trusted detached manifest, extending the existing digest abstraction with portable SHA-256. Verify the compiler and only the requested core/source/runtime files, then publish a success stamp through the existing file-command lifecycle. Include cross-platform digest/verifier tests, JVM command and exact-candidate-jar worker tests, and the tracker 0p documentation update.
+Implement file-only tool verify-toolchain against the caller-trusted detached manifest using the shared SHA-256/BLAKE3 digest abstraction. Verify the compiler and only requested core/source/runtime components, require exact embedded core identity, protect requested inputs from stamp aliases, and publish a complete success stamp while preserving prior outputs on failure.
 
-The bounded operation family is the new command through `ToolCommand`, ordinary JVM dispatch through `FileCommandRunner`, and one-shot dispatch through `BazelWorker.Operation`. All paths use the same requested-component verifier before producing an `Output`. Import-graph authentication, native composition, persistent-worker transport, Bazel rules, and release manifest production remain assigned to the other roadmap nodes. MergeXO's supervised `scripts/test_basic.sh` gate remains a publication prerequisite.
+The corrective work extends the existing shared command effect, ToolchainManifest verifier, PlatformIO file identities, and Scala.js document-write boundary. Ordinary JVM and one-shot worker dispatch retain FileCommandRunner/StagedOutputs; Scala.js retains Output.Basic reporting. Coverage includes component selections, aliases, exact versions, publication failures, and exact-candidate worker parity.
 
-Plan trajectory: initial steps 4; review revisions 0; review-origin steps 0.
+Import-graph authentication, native composition, persistent-worker transport, Bazel rules, and release manifest production remain assigned to other roadmap nodes. MergeXO's supervised required-test gate remains a publication prerequisite.
+
+Plan trajectory: initial steps 4; review revisions 1; review-origin steps 3.
 
 ## Current State
 
-The checkout provides the extension points described by issue #2486 and roadmap #2482, with no dependency handoff required. `hashing/Algo.scala` supports incremental BLAKE3 and parses only `blake3:<hex>` identifiers. Existing library and compiler CAS behavior uses BLAKE3 explicitly. `tool/BuildManifest.scala` provides strict UTF-8 decoding, duplicate-object-field detection, schema-version validation, and file/JSON-location diagnostics. The detached compiler/core/runtime schema is documented in `docs/design/hermetic-bazel-rules.md`, but tracker 0p is incomplete and no verification command exists.
+The original four implementation steps are completed. HEAD contains portable SHA-256 support, the typed detached-manifest verifier, command registration, JVM and Scala.js tests, exact-candidate worker fixtures, and the tracker/policy documentation.
 
-`PlatformIO.readBytes` supports reading one snapshot for hashing and parsing. Existing protobuf library and version helpers expose embedded core identity, and `PackageResolver.headerParserIgnoreRest` supplies package-header parsing. `ToolCommand`, `FileCommandRunner.supports`, and `BazelWorker.Operation` are the bounded registration sites. The JVM runner already publishes returned outputs through `StagedOutputs`. `build.sbt` generates `BuildInfo.cRuntimeArchiveHash` from `BOSATSU_C_RUNTIME_HASH`; the runtime installer already distinguishes an empty stamp from a malformed nonempty stamp. BuildInfo is generated source.
+At this revision boundary, inspection confirms three required-behavior gaps: VerifyToolchainCommand produces a stamp Output without rejecting destinations that alias requested inputs; binary-core verification uses ordering equivalence that accepts distinct numeric build identifiers; and Scala.js Output.Basic reporting reaches Fs2PlatformIO.writeDoc, which truncates destinations before writing. JVM FileCommandRunner already stages publication through StagedOutputs. The existing PlatformIO file-identity capabilities and Scala.js document-write boundary supply the mechanisms for the corrective steps.
+
+All findings concern in-scope product behavior. There are no existing pending steps to revise. The new steps preserve completed history and require only pre-PR repository changes and Linux-worker evidence. This planning revision ran no tests or builds.
 
 ## Problem
 
@@ -168,3 +172,88 @@ Run the issue-required Linux checks: `sbt "coreJVM/test; cli/test; coreJS/test; 
 #### Completion Notes
 
 Added candidate-jar fixtures and direct/one-shot worker parity cases for matched compiler-only, binary-core, source-core, and native-runtime requests, plus mismatched compiler/core/runtime, core identity, and source replacements. Verified failures preserve existing stamps. Documented the version-1 manifest and implemented command policy, marked tracker 0p complete, and updated the CLI help-order assertion for the registered command. The requested sbt sequence passed: core JVM 2,227 passed/0 failed, CLI 182 passed/0 failed, coreJS 2,197 passed/0 failed, cliJSJS 3 passed/0 failed, and assembly built. The candidate-jar harness, `./test_cli.sh`, and `git diff --check` also passed.
+
+5. [ ] `step_5` Reject verification stamps that alias requested inputs
+
+Invariant family: verification-input-output-separation
+
+Correct the command lifecycle introduced in step_3 and exercised in step_4: verification currently returns a successful Output even when its stamp destination aliases a verified input, allowing publication to overwrite that input. This violates the file-only operation's declared-input contract.
+
+In core/src/main/scala/dev/bosatsu/tool_command/VerifyToolchainCommand.scala, construct the complete requested-input inventory from the validated selection: manifest, compiler jar, selected binary core or every selected source, and requested runtime archive. Before returning Output.Basic, reject a stamp referring to any inventory member. Reuse PlatformIO.pendingOutputPath, existingFileKey and fileKeyHash, following EmitCCommand's existing file-identity approach. Keep generic path comparisons and diagnostics within PlatformIO capabilities. A single-output check needs none of EmitCCommand's multiple-output collision machinery.
+
+Place enforcement in the shared command effect so ordinary JVM, one-shot worker and Scala.js invocation all pass through it. Inventory construction must cover the complete CoreSelection alternatives rather than maintain separate checks for individual flags. Do not inspect or require unrequested component files.
+
+Extend VerifyToolchainCommandTest.scala and Fs2PlatformIOTest.scala with valid fixtures whose output aliases each requested input. Extend scripts/test_bazel_worker.py with exact-candidate direct/one-shot alias regressions. Dedicated harness calls must snapshot input bytes and avoid compare_command's output deletion or sentinel initialization when the output is an input. Launch a disposable candidate copy that is also the supplied --compiler-jar. Add a concise statement of input/output separation to docs/design/hermetic-bazel-rules.md. Completion requires rejection before publication and preservation of every input.
+
+#### Invariants
+
+- The stamp cannot identify the manifest, compiler jar, selected binary core, any requested source, or requested runtime archive.
+- All supported command dispatch paths pass through the same requested-input check before producing an Output.
+- Compiler-only verification continues to tolerate absent unused components.
+
+#### Property Tests
+
+- Enumerate valid component selections and each member of their requested-input inventories; choosing that member as the stamp destination always fails and preserves every input byte.
+- Compare ordinary runner and one-shot worker status, diagnostics and input preservation across the alias matrix.
+
+#### Assertion Tests
+
+- Cover identical paths, normalized relative paths, symlink aliases and hard-link aliases using existing filesystem identity capabilities.
+- Include multiple requested sources so an alias to a later source cannot bypass the inventory.
+- Exercise Scala.js alias rejection through MainModule and Output.report, and retain successful verification with a separate stamp.
+- Run focused JVM command and Node suites; include the candidate alias cases in the final assembled-jar harness run.
+
+6. [ ] `step_6` Require exact embedded core version identity
+
+Invariant family: exact-core-version-identity
+
+Correct the binary-core identity boundary implemented in step_2. ToolchainManifest.verifyCore currently uses Version.versionOrder.eqv, whose numeric build-identifier comparison treats distinct valid versions such as 1.2.3+01 and 1.2.3+1 as equal. Matching the selected SHA-256 therefore does not establish the manifest's required embedded version identity.
+
+In core/src/main/scala/dev/bosatsu/tool/ToolchainManifest.scala, compare the concrete Version values structurally, including literal prerelease and build identifiers. Do not use an equality instance derived from version ordering. Retain the existing same-snapshot digest, embedded name, missing-version and diagnostic behavior. The shared Version ordering and its other consumers need no change to satisfy this issue.
+
+Extend core/src/test/scala/dev/bosatsu/ToolchainManifestTest.scala with manifest-pinned protobuf library bytes whose embedded build identifier differs from the manifest while comparing equal under the current ordering. Run the focused suite on coreJVM and coreJS. Completion requires rejection of distinct identities and acceptance of exactly matching versions on both platforms.
+
+#### Invariants
+
+- A binary core must match both the selected full SHA-256 and the exact embedded library name and version.
+- Version identity preserves literal build and prerelease identifiers rather than numeric ordering equivalence.
+- The correction remains local to the requested-component verifier.
+
+#### Property Tests
+
+- Generate valid numeric build identifiers with distinct leading-zero spellings; with matching library SHA-256, acceptance requires exact manifest/embedded identity, even when ordering compares the versions equal.
+
+#### Assertion Tests
+
+- Reject manifest version 1.2.3+01 with pinned library bytes advertising 1.2.3+1, and reject the reverse pairing.
+- Accept exactly matching versions containing build identifiers.
+- Retain wrong-name, missing-version, ordinary version-mismatch and digest-mismatch regressions on JVM and Scala.js.
+
+7. [ ] `step_7` Make Scala.js stamp publication failure-safe
+
+Invariant family: verification-stamp-publication
+
+Complete the failure-preservation contract implemented for JVM publication in step_3 and claimed by the policy documented in step_4. Scala.js reports the command's Output.Basic through Output.report, PlatformIO.writeOut and Fs2PlatformIO.writeDoc. The latter currently truncates the destination before streaming, so a publication failure can destroy an existing stamp or leave a partial new stamp. Validation-failure coverage does not exercise this defect.
+
+Extend the existing document-write boundary in cliJS/src/main/scala/dev/bosatsu/Fs2PlatformIO.scala. Resolve the destination consistently with pendingOutputPath, stage the document beside the resolved destination, finish and close staged content, then replace the destination with a same-filesystem rename. A failed write, close or replacement must leave an existing destination unchanged and an absent destination absent. Do not delete or truncate the destination as a replacement fallback. Clean staging resources on failed publication; cleanup after a successful replacement must not turn a committed write into a reported publication failure.
+
+Although Fs2PlatformIO.scala was not a named issue extension point, it owns the demonstrated write used by the new Scala.js command and must change to meet the issue's failure-preservation requirement. Extending writeDoc keeps Output.Basic and the existing dispatch/reporting path; a new output variant, command-specific writer or general Scala.js multi-output transaction system is unnecessary. Preserve current parent-directory and symlink destination behavior. JVM FileCommandRunner continues to use StagedOutputs.
+
+Add fault-injected tests in cliJS/src/test/scala/dev/bosatsu/Fs2PlatformIOTest.scala against the publication implementation actually called by writeDoc, using a narrow package-private injection seam only if needed. Retain an end-to-end verification command test through MainModule and Output.report. After all corrective steps, run the issue-required Linux sequence sbt "coreJVM/test; cli/test; coreJS/test; cliJSJS/test; cli/assembly", the candidate-jar cases in scripts/test_bazel_worker.py against the resolved assembly, and ./test_cli.sh. MergeXO separately owns the configured required-test gate.
+
+#### Invariants
+
+- The Scala.js verification destination changes only after complete staged content has closed successfully.
+- Failed publication preserves a prior stamp and leaves a previously absent stamp absent.
+- The command retains the existing Output.Basic reporting path, with staging enforced at its Scala.js document-write boundary.
+
+#### Property Tests
+
+- For absent and existing destinations, inject failures at staging write, close and replacement boundaries; assert destination preservation, staging cleanup and successful retry.
+
+#### Assertion Tests
+
+- Fail after the staging file opens and receives partial content; verify no partial destination and unchanged sentinel bytes.
+- Verify replacement starts only after the staged writer closes, and a replacement failure preserves the original destination.
+- Cover successful creation and replacement, nested destinations and symlink destinations through the existing path-resolution semantics.
+- Retain command validation-failure preservation and JVM publication retry coverage; run the rebuilt candidate harness including input-alias regressions.
