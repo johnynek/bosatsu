@@ -95,7 +95,7 @@ object VerifyToolchainCommand {
               stamp,
               requestedInputs(manifestPath, compilerJar, core, runtimeArchive)
             )
-          } yield Output.Basic(Doc.text("ok"), Some(stamp)): Output[P]
+          } yield Output.AtomicDoc(Doc.text("ok"), stamp): Output[P]
       }
     }
   }

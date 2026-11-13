@@ -490,6 +490,10 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
       }
 
   def writeDoc(p: Path, d: Doc): IO[Unit] =
+    p.parent.traverse_(FilesIO.createDirectories(_)) *>
+      FilesIO.writeUtf8(p)(docStream(d)).compile.drain
+
+  def writeDocAtomic(p: Path, d: Doc): IO[Unit] =
     writeDocWith(p, d, documentWriteOps)
 
   private def onParts(doc: Doc)(fn: String => IO[Unit]): IO[Unit] =

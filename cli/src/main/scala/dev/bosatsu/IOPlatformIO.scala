@@ -476,6 +476,13 @@ class IOPlatformIO extends PlatformIO[IO, JPath] {
       }
     }
 
+  def writeDocAtomic(p: Path, d: Doc): IO[Unit] =
+    StagedOutputs.resource(err =>
+      errorln(s"warning: cleaning staged outputs: ${err.getMessage}")
+    ).use { staged =>
+      staged.prepare(diskPath(p)).flatMap(writeDoc(_, d)) *> staged.publish
+    }
+
   def println(str: String): IO[Unit] = IO.blocking(stdout.println(str))
   def errorln(str: String): IO[Unit] = IO.blocking(stderr.println(str))
 

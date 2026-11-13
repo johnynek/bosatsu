@@ -1,14 +1,37 @@
 package dev.bosatsu
 
 import cats.effect.IO
+import cats.effect.unsafe.implicits.global
 import cats.syntax.all._
 import dev.bosatsu.hashing.Algo
 import dev.bosatsu.library.Version
+import dev.bosatsu.tool.{ExitCode, Output}
+import org.typelevel.paiges.Doc
 import _root_.bosatsu.{TypedAst => proto}
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.{Files, Path}
 
 class VerifyToolchainCommandTest extends FileCommandFixtures {
+  test("atomic document reporting uses staged publication without a file runner") {
+    directory.use { root =>
+      val platform = new IOPlatformIO
+      val target = root.resolve("stamp")
+      val blocked = root.resolve("directory")
+      for {
+        _ <- write(root, "stamp", "sentinel")
+        result <- Output.AtomicDoc(Doc.text("ok"), target).report(platform)
+        _ = assertEquals(result, ExitCode.Success)
+        content <- read(root, "stamp")
+        _ = assertEquals(content, "ok")
+        _ <- IO.blocking { val _ = Files.createDirectory(blocked); () }
+        failed <- Output.AtomicDoc(Doc.text("ok"), blocked).report(platform).attempt
+        _ = assert(failed.isLeft, failed)
+        _ = assert(Files.isDirectory(blocked))
+        _ = assertEquals(listPaths(root), List("", "directory", "stamp"))
+      } yield ()
+    }.unsafeRunSync()
+  }
+
   private val compilerBytes = "candidate compiler jar".getBytes(UTF_8)
   private val sourceOne =
     "package Example/One\nexport value\nvalue = 1\n".getBytes(UTF_8)

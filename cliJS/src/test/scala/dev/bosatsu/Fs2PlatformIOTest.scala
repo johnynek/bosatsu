@@ -6,7 +6,7 @@ import cats.effect.unsafe.implicits.global
 import cats.syntax.all._
 import dev.bosatsu.hashing.Algo
 import dev.bosatsu.library.Version
-import dev.bosatsu.tool.ExitCode
+import dev.bosatsu.tool.{ExitCode, Output}
 import fs2.io.file.{Files, Path}
 import munit.FunSuite
 import org.typelevel.paiges.Doc
@@ -36,7 +36,69 @@ private object DocumentChmod extends js.Function2[String, Int, js.Promise[Unit]]
 }
 
 class Fs2PlatformIOTest extends FunSuite {
-  test("document replacement preserves access controls or fails without changing the inode") {
+  test("deps rewrites changed output while retaining document permissions and inode") {
+    val fs = Files.forIO
+    val module = new MainModule(Fs2PlatformIO)
+    fs.tempDirectory.use { dir =>
+      val source = dir / "source.bosatsu"
+      val output = dir / "deps.json"
+      def run = IO.fromEither(module.run(List(
+        "tool", "deps", "--input", source.toString, "--output", output.toString
+      )).leftMap(h => new IllegalArgumentException(h.toString)))
+        .flatten.flatMap(_.report(Fs2PlatformIO))
+      def stat = IO.fromPromise(IO(DocumentStat(output.toString)))
+        .map(s => (s.mode, s.uid, s.gid, s.ino))
+      for {
+        _ <- Fs2PlatformIO.writeDoc(source, Doc.text("package Example/One\nvalue = 1\n"))
+        first <- run
+        _ = assertEquals(first, ExitCode.Success)
+        oldOutput <- Fs2PlatformIO.readUtf8(output)
+        _ <- IO.fromPromise(IO(DocumentChmod(output.toString, 0x180)))
+        before <- stat
+        _ <- fs.writeUtf8(source)(fs2.Stream.emit("package Example/Two\nvalue = 2\n")).compile.drain
+        second <- run
+        _ = assertEquals(second, ExitCode.Success)
+        newOutput <- Fs2PlatformIO.readUtf8(output)
+        _ = assert(newOutput != oldOutput)
+        _ = assert(newOutput.contains("Example/Two"), newOutput)
+        after <- stat
+        _ = assertEquals(after, before)
+        paths <- fs.walk(dir).compile.toList
+        _ = assertEquals(paths.toSet, Set(dir, source, output))
+      } yield ()
+    }.unsafeToFuture()
+  }
+
+  test("ordinary transpilation outputs overwrite writable documents in place") {
+    val fs = Files.forIO
+    List("600", "640", "644").traverse_ { permissions =>
+      fs.tempDirectory.use { dir =>
+        val target = dir / "generated.txt"
+        def stat = IO.fromPromise(IO(DocumentStat(target.toString)))
+          .map(s => (s.mode, s.uid, s.gid, s.ino))
+        for {
+          _ <- Fs2PlatformIO.writeDoc(target, Doc.text("old"))
+          _ <- IO.fromPromise(IO(DocumentChmod(target.toString, Integer.parseInt(permissions, 8))))
+          before <- stat
+          result <- Output.TranspileOut(List(target -> Doc.text("changed"))).report(Fs2PlatformIO)
+          _ = assertEquals(result, ExitCode.Success)
+          content <- Fs2PlatformIO.readUtf8(target)
+          _ = assertEquals(content, "changed")
+          after <- stat
+          _ = assertEquals(after, before)
+          _ <- Fs2PlatformIO.writeDoc(target, Doc.text("retry"))
+          retried <- Fs2PlatformIO.readUtf8(target)
+          _ = assertEquals(retried, "retry")
+          afterRetry <- stat
+          _ = assertEquals(afterRetry, before)
+          paths <- fs.walk(dir).compile.toList
+          _ = assertEquals(paths.toSet, Set(dir, target))
+        } yield ()
+      }
+    }.unsafeToFuture()
+  }
+
+  test("atomic document replacement preserves access controls or fails without changing the inode") {
     val fs = Files.forIO
     List("600", "640", "644", "400").traverse_ { permissions =>
       val mode = Integer.parseInt(permissions, 8)
@@ -51,7 +113,7 @@ class Fs2PlatformIOTest extends FunSuite {
           _ <- fs.writeUtf8(target)(fs2.Stream.emit("sentinel")).compile.drain
           _ <- IO.fromPromise(IO(DocumentChmod(target.toString, mode)))
           before <- stat
-          result <- Fs2PlatformIO.writeDoc(target, Doc.text("replacement")).attempt
+          result <- Fs2PlatformIO.writeDocAtomic(target, Doc.text("replacement")).attempt
           _ = assert(result.swap.toOption.exists(_.getMessage.contains("cannot preserve output access controls")), result)
           after <- stat
           _ = assertEquals(after, before)
@@ -59,7 +121,7 @@ class Fs2PlatformIOTest extends FunSuite {
           _ = assertEquals(content, "sentinel")
           _ <- assertTree
           // An identical retry needs no inode replacement or ACL copying.
-          _ <- Fs2PlatformIO.writeDoc(target, Doc.text("sentinel"))
+          _ <- Fs2PlatformIO.writeDocAtomic(target, Doc.text("sentinel"))
           afterRetry <- stat
           _ = assertEquals(afterRetry, before)
           _ <- assertTree
@@ -68,7 +130,7 @@ class Fs2PlatformIOTest extends FunSuite {
     }.unsafeToFuture()
   }
 
-  test("document publication handles nested and symlink destinations") {
+  test("atomic document publication handles nested and symlink destinations") {
     val fs = Files.forIO
     fs.tempDirectory.use { dir =>
       val nested = dir / "nested" / "stamp"
@@ -77,20 +139,20 @@ class Fs2PlatformIOTest extends FunSuite {
       val danglingTarget = dir / "new-target"
       val danglingLink = dir / "dangling-link"
       for {
-        _ <- Fs2PlatformIO.writeDoc(nested, Doc.text("nested"))
+        _ <- Fs2PlatformIO.writeDocAtomic(nested, Doc.text("nested"))
         nestedContent <- Fs2PlatformIO.readUtf8(nested)
         _ = assertEquals(nestedContent, "nested")
-        _ <- Fs2PlatformIO.writeDoc(target, Doc.text("old"))
+        _ <- Fs2PlatformIO.writeDocAtomic(target, Doc.text("old"))
         _ <- fs.createSymbolicLink(link, target)
-        _ <- Fs2PlatformIO.writeDoc(link, Doc.text("old"))
-        rejected <- Fs2PlatformIO.writeDoc(link, Doc.text("through link")).attempt
+        _ <- Fs2PlatformIO.writeDocAtomic(link, Doc.text("old"))
+        rejected <- Fs2PlatformIO.writeDocAtomic(link, Doc.text("through link")).attempt
         _ = assert(rejected.isLeft, rejected)
         targetContent <- Fs2PlatformIO.readUtf8(target)
         linkIsSymlink <- fs.isSymbolicLink(link)
         _ = assertEquals(targetContent, "old")
         _ = assert(linkIsSymlink)
         _ <- fs.createSymbolicLink(danglingLink, danglingTarget)
-        _ <- Fs2PlatformIO.writeDoc(danglingLink, Doc.text("created target"))
+        _ <- Fs2PlatformIO.writeDocAtomic(danglingLink, Doc.text("created target"))
         danglingContent <- Fs2PlatformIO.readUtf8(danglingTarget)
         danglingLinkIsSymlink <- fs.isSymbolicLink(danglingLink)
         _ = assertEquals(danglingContent, "created target")
@@ -99,7 +161,7 @@ class Fs2PlatformIOTest extends FunSuite {
     }.unsafeToFuture()
   }
 
-  test("document publication preserves destinations and cleans staging after writer or rename failure") {
+  test("atomic document publication preserves destinations and cleans staging after writer or rename failure") {
     val fs = Files.forIO
     fs.tempDirectory.use { dir =>
       val existing = dir / "existing-stamp"
@@ -123,7 +185,7 @@ class Fs2PlatformIOTest extends FunSuite {
       )
 
       for {
-        _ <- Fs2PlatformIO.writeDoc(existing, Doc.text("sentinel"))
+        _ <- Fs2PlatformIO.writeDocAtomic(existing, Doc.text("sentinel"))
         _ <- IO.fromPromise(IO(DocumentChmod(existing.toString, 0x180)))
         before <- stat
         failedWrite <- Fs2PlatformIO
@@ -186,9 +248,9 @@ class Fs2PlatformIOTest extends FunSuite {
         absentAfterReplaceFailure <- fs.exists(absent)
         _ = assert(!absentAfterReplaceFailure)
         _ <- assertPreserved(before)
-        _ <- Fs2PlatformIO.writeDoc(existing, Doc.text("sentinel"))
+        _ <- Fs2PlatformIO.writeDocAtomic(existing, Doc.text("sentinel"))
         _ <- assertPreserved(before)
-        _ <- Fs2PlatformIO.writeDoc(absent, Doc.text("retry succeeded"))
+        _ <- Fs2PlatformIO.writeDocAtomic(absent, Doc.text("retry succeeded"))
         afterRetry <- Fs2PlatformIO.readUtf8(absent)
         _ = assertEquals(afterRetry, "retry succeeded")
         paths <- fs.walk(dir).compile.toList
@@ -234,7 +296,16 @@ class Fs2PlatformIOTest extends FunSuite {
         _ = assertEquals(stampContent, "ok")
         again <- verify
         _ = assertEquals(again, ExitCode.Success)
-        _ <- fs.writeUtf8(stamp)(fs2.Stream.emit("sentinel")).compile.drain
+        _ <- Fs2PlatformIO.writeDoc(stamp, Doc.text("sentinel"))
+        blocked <- verify.attempt
+        _ = assert(
+          blocked.swap.toOption.exists(_.getMessage.contains("cannot preserve output access controls")),
+          blocked
+        )
+        afterBlocked <- Fs2PlatformIO.readUtf8(stamp)
+        _ = assertEquals(afterBlocked, "sentinel")
+        paths <- fs.walk(dir).compile.toList
+        _ = assertEquals(paths.toSet, Set(dir, manifest, compiler, stamp))
         _ <- Fs2PlatformIO.writeBytes(compiler, "altered candidate".getBytes("UTF-8"))
         invalid <- verify.attempt
         _ = assert(

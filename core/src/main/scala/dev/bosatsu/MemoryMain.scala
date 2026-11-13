@@ -544,6 +544,8 @@ object MemoryMain {
       def writeDoc(p: Path, d: Doc): F[Unit] =
         writeFC(p, FileContent.Str(d.renderTrim(100)))
 
+      def writeDocAtomic(p: Path, d: Doc): F[Unit] = writeDoc(p, d)
+
       def writeInterfaces(
           ifaces: List[Package.Interface],
           path: Path
