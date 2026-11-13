@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2484` 0k: Add the singleplex persistent JSON JVM worker
-- Pending steps: `1`
-- Completed steps: `5`
+- Pending steps: `0`
+- Completed steps: `6`
 - Total steps: `6`
 
 ## Summary
@@ -207,7 +207,7 @@ Update only relevant persistent-worker passages and tracker 0k in `docs/design/h
 
 Updated `docs/design/hermetic-bazel-rules.md` with the implemented v1 worker behavior and candidate-jar qualification instructions; marked tracker 0k complete while preserving 0j. Added focused transport decoding/error and request-publication failure coverage, and raised the harness response timeout to 60 seconds after `./test_cli.sh` exposed a timeout on a loaded run. `sbt "coverage; clean; coreJVM/test; cli/test; coverageReport"` stopped on an Issue1633 timeout under coverage (2/2 passed when rerun without coverage); `sbt "coverage; cli/test; coverageReport"` passed (177 passed, 1 skipped) and reported 100% branch coverage for the changed BazelWorker and FileCommandRunner lifecycle branches. `sbt "cli/test; cli/assembly"` passed (180 passed, 1 skipped). The candidate-jar worker harness and launcher passthrough passed; the final `./test_cli.sh` rerun exited successfully, including the candidate harness and 6,918 Bosatsu tests. `git diff --check` passed.
 
-6. [ ] `step_4_gc_stall` Investigate and close the required-test GC stall
+6. [x] `step_4_gc_stall` Investigate and close the required-test GC stall
 
 Investigate the resource-pressure failure in gate/run 01a1d31bc70f7e31832a53cf11846fe6 at candidate 194d27d606aebe2ae53c5ac9af54f90a2fb39817: scripts/test_basic.sh passed CLI testing, then reported five core test timeouts, 99.8% GC time over 897 seconds, and exhausted the configured 2400-second wall-clock limit. This serves the existing required-test gate and worker resource-lifecycle contract. All existing steps are completed, so none can absorb this investigation.
 
@@ -233,3 +233,7 @@ Required-test repair provenance: tested SHA `194d27d606aebe2ae53c5ac9af54f90a2fb
 
 - Compare the six named core suites alone and after the changed worker suites, recording GC/resource observations with unchanged test timeouts.
 - Run focused regression checks for any demonstrated lifecycle or test-execution repair; if production worker behavior changes, also run the candidate-jar worker harness and launcher passthrough checks.
+
+#### Completion Notes
+
+Investigated the failure against code revision `194d27d606aebe2ae53c5ac9af54f90a2fb39817`; intervening changes through HEAD `657b7234b` touched only plan artifacts. In one bounded sbt process with GC/heap logging, ran the six named `coreJVM/testOnly` suites, then `cli/testOnly dev.bosatsu.BazelWorkerTest dev.bosatsu.FileCommandRunnerTest`, then the same core suites again. Results: 55/55 core tests in 64 s, 31/31 worker tests in 22 s, and 55/55 core tests in 37 s; process exit 0. At a mid-run sample, `jstat -gc` showed 52 young, 0 full and 18 concurrent collections, with 1.498 s cumulative GC; the 139 s run logged 69 young pauses, no full GC, 2.29 s total pause time and 93.6 ms maximum. JVM RSS was about 2.19 GB with 96–100 threads; `jcmd Thread.print` found no ForkJoinPool workers after the worker suites. The existing runner resource chain and `withRunner` fixture close their pool, supervisor, staged outputs and temporary directories; the focused checks showed no retained worker threads or slower following core suites. The host exposed 8 CPUs and no cgroup memory cap; available RAM varied from 6.1 to 10.3 GB, and a post-run load sample was 10.23/42.91/136.61 for 1/5/15 minutes, consistent with shared-host contention. No candidate leak or worker-suite shared-JVM pressure was reproduced, so no speculative code change is justified. The original 99.8%/897 s event's precise cause remains unproven, and this diagnostic does not certify the full required gate; MergeXO must rerun `scripts/test_basic.sh` before publication.
