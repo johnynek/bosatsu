@@ -11,6 +11,8 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 HEADER = "bosatsu_ext_Demo_l_Native.h"
+PROG_HEADER = "bosatsu_ext_Bosatsu_l_Prog.h"
+PROVIDER_HEADER = "bosatsu_ext_Demo_l_NativeProgram.h"
 
 
 def exercise(jar: Path, cc_conf: Path, work: Path) -> None:
@@ -45,6 +47,35 @@ def exercise(jar: Path, cc_conf: Path, work: Path) -> None:
     (producer / "Native.bosatsu").write_text(
         "package Demo/Native\nexport native_id\nexternal def native_id(x: Int) -> Int\n"
     )
+    (producer / "Types.bosatsu").write_text(
+        "package Demo/Types\nexport Number()\nstruct Number(value: Int)\n"
+    )
+    (producer / "Api.bosatsu").write_text(
+        "package Demo/Api\nfrom Demo/Types import Number\n"
+        "export answer\nexposes Demo/Types\nanswer = Number(7)\n"
+    )
+    (producer / "Main.bosatsu").write_text(
+        "package Demo/Main\n"
+        "from Bosatsu/Prog import Main, Prog, pure\n"
+        "from Demo/Api import answer\n"
+        "from Demo/Types import Number\n"
+        "export main\nexposes Bosatsu/Prog\n"
+        "def run(args: List[String]) -> forall err. Prog[err, Int]:\n"
+        "  _ = args\n"
+        "  match answer:\n"
+        "    case Number(value): pure(value)\n"
+        "main = Main(run)\n"
+    )
+    (producer / "NativeProgram.bosatsu").write_text(
+        "package Demo/NativeProgram\nfrom Bosatsu/Prog import Prog\n"
+        "export get_program\nexposes Bosatsu/Prog\n"
+        "external def get_program(args: List[String]) -> forall err. Prog[err, Int]\n"
+    )
+    (producer / "MainExternal.bosatsu").write_text(
+        "package Demo/MainExternal\nfrom Bosatsu/Prog import Main\n"
+        "from Demo/NativeProgram import get_program\n"
+        "export main\nexposes Bosatsu/Prog\nmain = Main(get_program)\n"
+    )
     (producer / "Dep.bosatsu").write_text(
         "package Demo/Dep\nfrom Demo/Native import native_id\nexport answer\n"
         "answer = native_id(7)\nchecks = Assertion(False, \"dependency must not run\")\n"
@@ -61,12 +92,21 @@ def exercise(jar: Path, cc_conf: Path, work: Path) -> None:
     compile_group("prog", ["Prog"], [])
     compile_group("native", ["Native"], [])
     compile_group("dep", ["Dep"], ["native"])
+    compile_group("types", ["Types"], [])
+    compile_group("api", ["Api"], ["types"])
+    compile_group("main", ["Main"], ["api", "types", "prog"])
+    compile_group("provider", ["NativeProgram"], ["prog"])
+    compile_group("main_external", ["MainExternal"], ["provider", "prog"])
 
     manifest = {
         "schema_version": 1, "kind": "local",
-        "packages": ["dep.pkg", "suite.pkg", "native.pkg", "prog.pkg"],
+        "packages": [
+            "api.pkg", "dep.pkg", "main.pkg", "main_external.pkg", "native.pkg",
+            "prog.pkg", "provider.pkg", "suite.pkg", "types.pkg",
+        ],
         "externals": [
             {"package": "Demo/Native", "symbols": ["native_id"]},
+            {"package": "Demo/NativeProgram", "symbols": ["get_program"]},
             {"package": "Bosatsu/Prog", "symbols": ["pure"]},
         ],
     }
@@ -110,6 +150,76 @@ def exercise(jar: Path, cc_conf: Path, work: Path) -> None:
         if not prog_ok and "effect expectation" not in report:
             raise AssertionError(report)
         print(f"native suite passed fixture with plain={plain_ok}, prog={prog_ok}, exit={expected}")
+
+    # The emission action sees only copied implementation bundles and its
+    # declared runtime manifest. Sources, signatures and native tool settings
+    # stay outside the action directory.
+    tool(action, "emit-c", "--main-packages", "main.pkg", "--main-package", "Demo/Main",
+         "--runtime-manifest", "runtime.json", "--out", "program.c",
+         "--extern-header-out", "include/" + PROG_HEADER)
+
+    def compile_program(c_sources: list[Path], executable: Path) -> None:
+        subprocess.run(
+            [cc["cc_path"], *cc["flags"], "-Werror=implicit-function-declaration",
+             "-I", action / "include", *cc["iflags"], *c_sources,
+             *cc["libs"], "-o", executable],
+            check=True,
+        )
+
+    compile_program([action / "program.c"], work / "program")
+    result = subprocess.run([work / "program"], cwd=work, capture_output=True,
+                            text=True, timeout=60)
+    if result.returncode != 7:
+        raise AssertionError(
+            f"expected program exit 7, got {result.returncode}\n{result.stdout}{result.stderr}"
+        )
+
+    tool(action, "emit-c", "--main-packages", "main_external.pkg",
+         "--main-package", "Demo/MainExternal", "--runtime-manifest", "runtime.json",
+         "--out", "program_external.c", "--extern-header-out",
+         "include/" + PROVIDER_HEADER)
+    emitted_external_program = (action / "program_external.c").read_text()
+    if PROG_HEADER in emitted_external_program:
+        raise AssertionError(
+            f"external-only main unexpectedly includes the Prog header:\n{emitted_external_program}"
+        )
+
+    # The declared native implementation is available only to this separate
+    # compile/link operation, never to the compiled-input emission action.
+    provider_impl = work / "native_program.c"
+    provider_impl.write_text(
+        f'#include "{PROVIDER_HEADER}"\n'
+        f'#include "{PROG_HEADER}"\n'
+        "BValue ___bsts_g_Demo_l_NativeProgram_l_get__program(BValue args) {\n"
+        "    (void)args;\n"
+        "    return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_integer_from_int(7));\n"
+        "}\n"
+    )
+    compile_program([action / "program_external.c", provider_impl], work / "program_external")
+    result = subprocess.run([work / "program_external"], cwd=work, capture_output=True,
+                            text=True, timeout=60)
+    if result.returncode != 7:
+        raise AssertionError(
+            f"expected external-only program exit 7, got {result.returncode}\n"
+            f"{result.stdout}{result.stderr}"
+        )
+
+    expected_action_files = {
+        "runtime.json", "api.pkg", "dep.pkg", "main.pkg", "main_external.pkg",
+        "native.pkg", "prog.pkg", "provider.pkg", "suite.pkg", "types.pkg",
+        "program.c", "program_external.c", "test.c", "include/" + HEADER,
+        "include/" + PROG_HEADER, "include/" + PROVIDER_HEADER,
+    }
+    actual_action_files = {
+        path.relative_to(action).as_posix() for path in action.rglob("*") if path.is_file()
+    }
+    if actual_action_files != expected_action_files:
+        raise AssertionError(
+            f"unexpected emission action files: {sorted(actual_action_files)}; "
+            f"expected {sorted(expected_action_files)}"
+        )
+    print("native program emitted from declared bundles and exited 7")
+    print("external-only native program emitted without a Prog header and exited 7")
 
 
 if __name__ == "__main__":
