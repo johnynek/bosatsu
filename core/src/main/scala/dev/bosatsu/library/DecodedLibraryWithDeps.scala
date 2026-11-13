@@ -65,11 +65,7 @@ case class DecodedLibraryWithDeps[A](
   def startCompileRaw(implicit
       ec: Par.EC
   ): Par.F[MatchlessFromTypedExpr.Compiled[(Name, Version)]] =
-    MatchlessFromTypedExpr.startCompileRaw(
-      nameVersion,
-      lib.implementations,
-      standardInt64Intrinsics = true
-    )
+    MatchlessFromTypedExpr.startCompileRaw(nameVersion, lib.implementations)
 
   def filterLets(
       keep: ((Name, Version)) => Option[((PackageName, Identifier)) => Boolean]
@@ -87,13 +83,31 @@ case class DecodedLibraryWithDeps[A](
 }
 
 object DecodedLibraryWithDeps {
+  private def checkReserved[F[_]](lib: proto.Library)(implicit
+      F: MonadError[F, Throwable]
+  ): F[Unit] =
+    F.fromTry(LibConfig.Error.toTry(LibConfig.validateReservedPackages(lib)))
+
+  // Lowering applies Bosatsu/ builtins and intrinsics by name, so only the
+  // core library may supply Bosatsu/ packages. Check each library in the
+  // graph, private dependencies included, before decoding it.
+  private def reservedChecked[F[_]](
+      load: proto.LibDependency => F[Hashed[Algo.Blake3, proto.Library]]
+  )(implicit
+      F: MonadError[F, Throwable]
+  ): proto.LibDependency => F[Hashed[Algo.Blake3, proto.Library]] =
+    dep => load(dep).flatTap(lib => checkReserved(lib.arg))
+
   def decodeAll[F[_]](
       protoLib: Hashed[Algo.Blake3, proto.Library]
   )(load: proto.LibDependency => F[Hashed[Algo.Blake3, proto.Library]])(implicit
       F: MonadError[F, Throwable],
       C: CanPromise[F]
   ): F[DecodedLibraryWithDeps[Algo.Blake3]] =
-    DecodedLibrary.decodeWithDeps(protoLib)(load).flatMap(decodeAll(_)(load))
+    checkReserved(protoLib.arg) *>
+      DecodedLibrary
+        .decodeWithDeps(protoLib)(reservedChecked(load))
+        .flatMap(decodeAll(_)(load))
 
   def decodeAll[F[_]](
       dec: DecodedLibrary[Algo.Blake3]
@@ -105,6 +119,8 @@ object DecodedLibraryWithDeps {
     type Value = DecodedLibraryWithDeps[Algo.Blake3]
     type S = Map[Key, Value]
     type Cached[T] = StateT[F, S, T]
+
+    val checkedLoad = reservedChecked(load)
 
     val getS: Cached[S] = StateT.get
 
@@ -148,13 +164,17 @@ object DecodedLibraryWithDeps {
           case Some(d) => StateT.pure[F, S, Value](d)
           case None    =>
             StateT
-              .liftF(load(dep).flatMap(DecodedLibrary.decodeWithDeps(_)(load)))
+              .liftF(
+                checkedLoad(dep).flatMap(
+                  DecodedLibrary.decodeWithDeps(_)(checkedLoad)
+                )
+              )
               .flatMap(decodeAndStore(_))
         }
       } yield res
     }
 
-    decodeAndStore(dec).runA(Map.empty)
+    checkReserved(dec.protoLib) *> decodeAndStore(dec).runA(Map.empty)
   }
 
   implicit def decodedLibraryWithDepsCompilationSource[A](implicit

@@ -503,6 +503,20 @@ class ToolAndLibCommandTest extends FunSuite {
     )
   }
 
+  // Only the core library may define packages in the reserved Bosatsu/
+  // namespace. Fixtures that supply their own minimal Bosatsu/Prog,
+  // Bosatsu/Json and similar packages model the core library.
+  private def coreLibFiles(mainSrc: String): List[(Chain[String], String)] = {
+    val libs = Libraries(SortedMap(Name("core_alpha") -> "src"))
+    val conf =
+      LibConfig.init(Name("core_alpha"), "https://example.com", Version(0, 0, 1))
+    List(
+      Chain("repo", "bosatsu_libs.json") -> renderJson(libs),
+      Chain("repo", "src", "core_alpha_conf.json") -> renderJson(conf),
+      Chain("repo", "src", "MyLib", "Foo.bosatsu") -> mainSrc
+    )
+  }
+
   private def baseLibFilesWithConf(
       mainSrc: String,
       conf: LibConfig
@@ -712,18 +726,19 @@ class ToolAndLibCommandTest extends FunSuite {
 |  InvalidArgument(context: String)
 |""".stripMargin
 
+  // Supplies Bosatsu/ packages, so it must be the core library.
   private def libFilesWithMinimalProgAndIoCore(
       appPath: Chain[String],
       appSrc: String,
       ioCoreSrc: String
   ): List[(Chain[String], String)] = {
-    val libs = Libraries(SortedMap(Name("mylib") -> "src"))
+    val libs = Libraries(SortedMap(Name("core_alpha") -> "src"))
     val conf =
-      LibConfig.init(Name("mylib"), "https://example.com", Version(0, 0, 1))
+      LibConfig.init(Name("core_alpha"), "https://example.com", Version(0, 0, 1))
 
     List(
       Chain("repo", "bosatsu_libs.json") -> renderJson(libs),
-      Chain("repo", "src", "mylib_conf.json") -> renderJson(conf),
+      Chain("repo", "src", "core_alpha_conf.json") -> renderJson(conf),
       appPath -> appSrc,
       Chain("repo", "src", "Bosatsu", "Prog.bosatsu") -> minimalProgModuleSrc,
       Chain("repo", "src", "Bosatsu", "IO", "Error.bosatsu") -> minimalIoErrorModuleSrc,
@@ -3274,7 +3289,7 @@ class ToolAndLibCommandTest extends FunSuite {
 |main = Main(args -> pure(args.foldl_List(0, (n, _) -> add(n, 1))))
 |""".stripMargin
     val files =
-      baseLibFiles(appSrc) :+ (
+      coreLibFiles(appSrc) :+ (
         Chain("repo", "src", "Bosatsu", "Prog.bosatsu") -> progSrc
       )
 
@@ -3319,7 +3334,7 @@ class ToolAndLibCommandTest extends FunSuite {
 |)
 |""".stripMargin
     val files =
-      baseLibFiles(appSrc) :+ (
+      coreLibFiles(appSrc) :+ (
         Chain("repo", "src", "Bosatsu", "Prog.bosatsu") -> minimalProgModuleSrc
       )
 
@@ -3390,7 +3405,7 @@ class ToolAndLibCommandTest extends FunSuite {
 |))
 |""".stripMargin
     val files =
-      baseLibFiles(appSrc) :+ (
+      coreLibFiles(appSrc) :+ (
         Chain("repo", "src", "Bosatsu", "Prog.bosatsu") -> minimalProgModuleSrc
       )
 
@@ -3423,7 +3438,7 @@ class ToolAndLibCommandTest extends FunSuite {
 
   test("eval --run supports Bosatsu/Prog Var in Main") {
     val files =
-      baseLibFiles(progVarMainBody) :+ (
+      coreLibFiles(progVarMainBody) :+ (
         Chain("repo", "src", "Bosatsu", "Prog.bosatsu") -> fullProgModuleSrc
       )
 
@@ -3550,7 +3565,7 @@ class ToolAndLibCommandTest extends FunSuite {
 |""".stripMargin
 
     val files =
-      baseLibFiles(appSrc) ++ List(
+      coreLibFiles(appSrc) ++ List(
         Chain("repo", "src", "Bosatsu", "Prog.bosatsu") -> minimalProgModuleSrc,
         Chain("repo", "src", "Bosatsu", "IO", "Error.bosatsu") -> minimalIoErrorModuleSrc,
         Chain("repo", "src", "Bosatsu", "IO", "Core.bosatsu") -> ioCoreSrc,
@@ -3664,12 +3679,12 @@ class ToolAndLibCommandTest extends FunSuite {
 |).recover(_ -> pure(1)))
 |""".stripMargin
 
-    val libs = Libraries(SortedMap(Name("mylib") -> "src"))
+    val libs = Libraries(SortedMap(Name("core_alpha") -> "src"))
     val conf =
-      LibConfig.init(Name("mylib"), "https://example.com", Version(0, 0, 1))
+      LibConfig.init(Name("core_alpha"), "https://example.com", Version(0, 0, 1))
     val files = List(
       Chain("repo", "bosatsu_libs.json") -> renderJson(libs),
-      Chain("repo", "src", "mylib_conf.json") -> renderJson(conf),
+      Chain("repo", "src", "core_alpha_conf.json") -> renderJson(conf),
       Chain("repo", "src", "MyLib", "MinParensProbs.bosatsu") -> appSrc,
       Chain("repo", "src", "Bosatsu", "Prog.bosatsu") -> progSrc,
       Chain("repo", "src", "Bosatsu", "IO", "Error.bosatsu") -> ioErrorSrc,
@@ -5182,7 +5197,9 @@ main = 1
       Chain("repo", "src", "Bosatsu", "Num", "Int64.bosatsu") ->
         """package Bosatsu/Num/Int64
 |
-|export Int64Tag(), int64_tag
+|export Int64, Int64Tag(), int64_tag
+|
+|external type Int64
 |
 |struct Int64Tag(value: Int)
 |
@@ -7660,7 +7677,7 @@ main = depBox
   case Some(c): c
   case None: .'?'
 """
-    val charFiles = baseLibFiles(charSrc)
+    val charFiles = coreLibFiles(charSrc)
 
     runWithFiles(charFiles)(
       List(
@@ -7705,7 +7722,7 @@ export Int64, int64_to_Int
 external type Int64
 external def int64_to_Int(i: Int64) -> Int
 """
-    val arrayFiles = baseLibFiles(arraySrc) ++ List(
+    val arrayFiles = coreLibFiles(arraySrc) ++ List(
       Chain("repo", "src", "Bosatsu", "Collection", "Array.bosatsu") -> arrayPkgSrc,
       Chain("repo", "src", "Bosatsu", "Num", "Int64.bosatsu") -> int64PkgSrc
     )
@@ -7751,7 +7768,7 @@ external def int64_to_Int(i: Int64) -> Int
 |external def from_List_Int(ints: List[Int]) -> Bytes
 |external def size_Bytes(bytes: Bytes) -> Int
 |""".stripMargin
-    val bytesFiles = baseLibFiles(bytesSrc) :+ (
+    val bytesFiles = coreLibFiles(bytesSrc) :+ (
       Chain("repo", "src", "Bosatsu", "IO", "Bytes.bosatsu") -> bytesPkgSrc
     )
 
@@ -7808,7 +7825,7 @@ external def int64_to_Int(i: Int64) -> Int
 |  ("b", JArray([JBool(True), JNull])),
 |])
 |""".stripMargin
-    val files = withBosatsuJsonModule(baseLibFiles(src))
+    val files = withBosatsuJsonModule(coreLibFiles(src))
 
     runWithFiles(files)(
       List(
@@ -7942,7 +7959,7 @@ external def int64_to_Int(i: Int64) -> Int
 |present_payload = Payload("a", Set("x"))
 |echo = (p: Payload) -> p
 |""".stripMargin
-    val files = withBosatsuJsonModule(baseLibFiles(src))
+    val files = withBosatsuJsonModule(coreLibFiles(src))
 
     runWithFiles(files)(
       List(
@@ -8016,7 +8033,7 @@ external def int64_to_Int(i: Int64) -> Int
 |flat_null: Nullable[Nullable[Int]] = NonNull(Null)
 |echo = (n: Nullable[Nullable[Int]]) -> n
 |""".stripMargin
-    val files = withBosatsuJsonModule(baseLibFiles(src))
+    val files = withBosatsuJsonModule(coreLibFiles(src))
 
     runWithFiles(files)(
       List(
@@ -8078,7 +8095,7 @@ external def int64_to_Int(i: Int64) -> Int
     val charFnSrc =
       """main = (c: Char) -> (c, c)
 """
-    val charFnFiles = baseLibFiles(charFnSrc)
+    val charFnFiles = coreLibFiles(charFnSrc)
 
     runWithFiles(charFnFiles)(
       List(
@@ -8149,7 +8166,7 @@ export Int64, int64_to_Int
 external type Int64
 external def int64_to_Int(i: Int64) -> Int
 """
-    val arrayFnFiles = baseLibFiles(arrayFnSrc) ++ List(
+    val arrayFnFiles = coreLibFiles(arrayFnSrc) ++ List(
       Chain("repo", "src", "Bosatsu", "Collection", "Array.bosatsu") -> arrayPkgSrc,
       Chain("repo", "src", "Bosatsu", "Num", "Int64.bosatsu") -> int64PkgSrc
     )
@@ -8188,7 +8205,7 @@ external def int64_to_Int(i: Int64) -> Int
 |external def to_List_Int(bytes: Bytes) -> List[Int]
 |external def size_Bytes(bytes: Bytes) -> Int
 |""".stripMargin
-    val bytesFnFiles = baseLibFiles(bytesFnSrc) :+ (
+    val bytesFnFiles = coreLibFiles(bytesFnSrc) :+ (
       Chain("repo", "src", "Bosatsu", "IO", "Bytes.bosatsu") -> bytesPkgSrc
     )
 
@@ -9073,13 +9090,13 @@ main = 0
 |main = Main(dep)
 |""".stripMargin
 
-    val libs = Libraries(SortedMap(Name("mylib") -> "src"))
+    val libs = Libraries(SortedMap(Name("core_alpha") -> "src"))
     val conf =
-      LibConfig.init(Name("mylib"), "https://example.com", Version(0, 0, 1))
+      LibConfig.init(Name("core_alpha"), "https://example.com", Version(0, 0, 1))
     val files = List(
       Chain("dep", "Dep", "Foo.bosatsu") -> depSrc,
       Chain("repo", "bosatsu_libs.json") -> renderJson(libs),
-      Chain("repo", "src", "mylib_conf.json") -> renderJson(conf),
+      Chain("repo", "src", "core_alpha_conf.json") -> renderJson(conf),
       Chain("repo", "src", "Bosatsu", "Prog.bosatsu") -> progSrc,
       Chain("repo", "src", "MyLib", "Main.bosatsu") -> appSrc
     )
@@ -9196,12 +9213,12 @@ main = 0
 |ignored = mk_LazyInt(1)
 |""".stripMargin
 
-    val libs = Libraries(SortedMap(Name("mylib") -> "src"))
+    val libs = Libraries(SortedMap(Name("core_alpha") -> "src"))
     val conf =
-      LibConfig.init(Name("mylib"), "https://example.com", Version(0, 0, 1))
+      LibConfig.init(Name("core_alpha"), "https://example.com", Version(0, 0, 1))
     val files = List(
       Chain("repo", "bosatsu_libs.json") -> renderJson(libs),
-      Chain("repo", "src", "mylib_conf.json") -> renderJson(conf),
+      Chain("repo", "src", "core_alpha_conf.json") -> renderJson(conf),
       Chain("repo", "src", "Bosatsu", "Prog.bosatsu") -> progSrc,
       Chain("repo", "src", "Bosatsu", "Lazy.bosatsu") -> lazySrc,
       Chain("repo", "src", "MyLib", "Main.bosatsu") -> appSrc
@@ -9424,12 +9441,12 @@ main = 0
         |  "os": "test"
         |}
 |""".stripMargin
-    val libs = Libraries(SortedMap(Name("mylib") -> "src"))
+    val libs = Libraries(SortedMap(Name("core_alpha") -> "src"))
     val conf =
-      LibConfig.init(Name("mylib"), "https://example.com", Version(0, 0, 1))
+      LibConfig.init(Name("core_alpha"), "https://example.com", Version(0, 0, 1))
     val files = List(
       Chain("repo", "bosatsu_libs.json") -> renderJson(libs),
-      Chain("repo", "src", "mylib_conf.json") -> renderJson(conf),
+      Chain("repo", "src", "core_alpha_conf.json") -> renderJson(conf),
       Chain("repo", "src", "Bosatsu", "Prog.bosatsu") -> minimalProgModuleSrc,
       Chain("repo", "src", "MyLib", "Euler", "ProgSel.bosatsu") -> targetSrc,
       Chain("repo", "src", "MyLib", "ReproMin8.bosatsu") -> unrelatedBrokenSrc,
@@ -10096,5 +10113,227 @@ main = 0
         assertEquals(exitCode, ExitCode.Error)
         assertEquals(state.get(Chain("out", "later.txt")), None)
     }
+  }
+
+  private val reservedAnythingSrc =
+    """package Bosatsu/Anything
+|
+|export anything
+|
+|anything = 1
+|""".stripMargin
+
+  private def assertReservedPackageError(
+      res: ErrorOr[Output[Chain[String]]],
+      expected: String
+  ): Unit =
+    res match {
+      case Right(out)              => fail(s"expected reserved package failure, got: $out")
+      case Left(err: CliException) =>
+        val rendered = err.errDoc.render(200)
+        assert(rendered.contains(expected), rendered)
+        assert(
+          rendered.contains(
+            "the Bosatsu/ namespace is reserved for the compiler and the core library (core_alpha)"
+          ),
+          rendered
+        )
+      case Left(err) => fail(err.getMessage)
+    }
+
+  test("lib commands reject Bosatsu/ source packages outside the core library") {
+    val appSrc =
+      """from Bosatsu/Anything import anything
+|
+|main = anything
+|""".stripMargin
+    val files = baseLibFiles(appSrc) :+ (
+      Chain("repo", "src", "Bosatsu", "Anything.bosatsu") -> reservedAnythingSrc
+    )
+    val expected =
+      "library mylib cannot define package Bosatsu/Anything (in repo/src/Bosatsu/Anything.bosatsu)"
+
+    // check, a filtered eval and doc each type-check the library's sources.
+    assertReservedPackageError(
+      runWithFiles(files)(List("check", "--repo_root", "repo")),
+      expected
+    )
+    assertReservedPackageError(
+      runWithFiles(files)(
+        List("eval", "--repo_root", "repo", "--main", "MyLib/Foo")
+      ),
+      expected
+    )
+    assertReservedPackageError(
+      runWithFiles(files)(
+        List("doc", "--repo_root", "repo", "--outdir", "outdocs")
+      ),
+      expected
+    )
+  }
+
+  test("assembling a non-core library from Bosatsu/ packages fails") {
+    val files = List(Chain("dep", "Bosatsu", "Anything.bosatsu") -> reservedAnythingSrc)
+    val result = for {
+      s0 <- stateFromFiles(files)
+      s1 <- runWithState(
+        List(
+          "tool",
+          "check",
+          "--input",
+          "dep/Bosatsu/Anything.bosatsu",
+          "--output",
+          "out/Anything.bosatsu_package"
+        ),
+        s0
+      )
+      (state1, _) = s1
+      assembled <- runWithState(
+        List(
+          "tool",
+          "assemble",
+          "--name",
+          "dep",
+          "--version",
+          "0.0.1",
+          "--package",
+          "out/Anything.bosatsu_package",
+          "--output",
+          "out/dep.bosatsu_lib"
+        ),
+        state1
+      )
+    } yield assembled._2
+
+    assertReservedPackageError(
+      result,
+      "library dep cannot define package Bosatsu/Anything:"
+    )
+  }
+
+  test("the core library may define Bosatsu/ packages, including the core Int64") {
+    val appSrc =
+      """from Bosatsu/Anything import anything
+|from Bosatsu/Num/Int64 import int_low_bits_to_Int64, eq_Int64
+|
+|main = (anything, eq_Int64(int_low_bits_to_Int64(1), int_low_bits_to_Int64(1)))
+|""".stripMargin
+    val int64Src = Predef.loadFileInCompile("test_workspace/Int64.bosatsu")
+    val files = coreLibFiles(appSrc) ++ List(
+      Chain("repo", "src", "Bosatsu", "Anything.bosatsu") -> reservedAnythingSrc,
+      Chain("repo", "src", "Bosatsu", "Num", "Int64.bosatsu") -> int64Src
+    )
+
+    runWithFiles(files)(List("check", "--repo_root", "repo")) match {
+      case Right(Output.Basic(_, _)) => ()
+      case Right(other)              => fail(s"unexpected output: $other")
+      case Left(err)                 => fail(err.getMessage)
+    }
+  }
+
+  // Today's compiler refuses to assemble a non-core library with Bosatsu/
+  // packages, so assemble one as core_alpha and rename it, as an older
+  // compiler could have produced.
+  private def stateWithReservedDep(
+      appSrc: String
+  ): ErrorOr[MemoryMain.State] = {
+    val files =
+      Chain("dep", "Bosatsu", "Anything.bosatsu") -> reservedAnythingSrc ::
+        baseLibFiles(appSrc)
+
+    for {
+      s0 <- stateFromFiles(files)
+      s1 <- runWithState(
+        List(
+          "tool",
+          "check",
+          "--input",
+          "dep/Bosatsu/Anything.bosatsu",
+          "--output",
+          "out/Anything.bosatsu_package"
+        ),
+        s0
+      )
+      (state1, _) = s1
+      s2 <- runWithState(
+        List(
+          "tool",
+          "assemble",
+          "--name",
+          "core_alpha",
+          "--version",
+          "0.0.1",
+          "--package",
+          "out/Anything.bosatsu_package",
+          "--output",
+          "out/core.bosatsu_lib"
+        ),
+        state1
+      )
+      (state2, _) = s2
+      coreLib = readLibraryFile(state2, Chain("out", "core.bosatsu_lib"))
+      depLib = Hashed.viaBytes[Algo.Blake3, proto.Library](
+        coreLib.arg.withName("dep")
+      )(_.toByteArray)
+      state3 <- state2
+        .withFile(Chain("out", "dep.bosatsu_lib"), MemoryMain.FileContent.Lib(depLib))
+        .toRight(new Exception("failed to write dep library"))
+      s4 <- runWithState(
+        List(
+          "deps",
+          "add",
+          "--repo_root",
+          "repo",
+          "--dep",
+          "dep",
+          "--version",
+          "0.0.1",
+          "--hash",
+          depLib.hash.toIdent,
+          "--uri",
+          "https://example.com/dep.bosatsu_lib",
+          "--private",
+          "--no-fetch"
+        ),
+        state3
+      )
+      (state4, _) = s4
+      state5 <- state4
+        .withFile(casPathFor(Chain("repo"), depLib), MemoryMain.FileContent.Lib(depLib))
+        .toRight(new Exception("failed to inject dependency library into repo CAS"))
+    } yield state5
+  }
+
+  test("a non-core dependency containing a Bosatsu/ package is rejected") {
+    val appSrc =
+      """from Bosatsu/Anything import anything
+|
+|main = anything
+|""".stripMargin
+    val expected = "dependency dep 0.0.1 contains Bosatsu/Anything:"
+    def run(cmd: List[String]): ErrorOr[Output[Chain[String]]] =
+      stateWithReservedDep(appSrc).flatMap(runWithState(cmd, _)).map(_._2)
+
+    // check validates the direct dependencies; eval --main skips that
+    // validation, but decoding the dependency graph for lowering still checks.
+    assertReservedPackageError(run(List("check", "--repo_root", "repo")), expected)
+    assertReservedPackageError(
+      run(List("eval", "--repo_root", "repo", "--main", "MyLib/Foo")),
+      expected
+    )
+    // tool commands validate library dependencies the same way.
+    assertReservedPackageError(
+      run(
+        List(
+          "tool",
+          "check",
+          "--input",
+          "repo/src/MyLib/Foo.bosatsu",
+          "--priv_dep",
+          "out/dep.bosatsu_lib"
+        )
+      ),
+      expected
+    )
   }
 }

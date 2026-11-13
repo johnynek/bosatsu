@@ -21,7 +21,7 @@ import dev.bosatsu.rankn.TypeEnv
 import dev.bosatsu.hashing.{HashValue, Hashed, Algo}
 import org.typelevel.paiges.{Doc, Document}
 import scala.util.{Failure, Success, Try}
-import scala.collection.immutable.SortedMap
+import scala.collection.immutable.{SortedMap, SortedSet}
 
 import LibConfig.{
   Error,
@@ -263,8 +263,25 @@ case class LibConfig(
     val prop9 =
       LibConfig.unusedTransitiveDepDescriptors(publicDepLibs.map(_.arg))
 
-    prop7_8 *> prop9.map(ValidationResult(_))
+    // 10. only the core library may define Bosatsu/ packages
+    val prop10 = deps.traverse_(dep => LibConfig.validateReservedPackages(dep.arg))
+
+    prop7_8 *> prop10 *> prop9.map(ValidationResult(_))
   }
+
+  /** Only the core library may define packages in the reserved `Bosatsu/`
+    * namespace. `packs` pairs each local package with the file it came from,
+    * when known.
+    */
+  def validateLocalPackageNames(
+      packs: List[(PackageName, Option[String])]
+  ): ValidatedNec[Error, Unit] =
+    if (LibConfig.mayDefineReservedPackages(name)) Validated.unit
+    else
+      packs.traverse_ { case (pn, source) =>
+        if (pn.isReserved) Error.inv(Error.ReservedPackage(name, pn, source))
+        else Validated.unit
+      }
 
   /** This checks the following properties and if they are set, builds the
     * library
@@ -276,6 +293,8 @@ case class LibConfig(
     *      exportedPackages or publicDeps
     *   5. all public deps appear somewhere on an API
     *   6. all private deps are used somewhere
+    *   7. no package is in the reserved `Bosatsu/` namespace unless this is
+    *      the core library
     */
   def validatePacks(
       previous: Option[DecodedLibrary[Algo.Blake3]],
@@ -558,7 +577,9 @@ case class LibConfig(
       prop5 *> prop6
     }
 
-    prop1 *> prop2 *> prop4.andThen(_ => prop3) *> prop5_6
+    val prop7 = validateLocalPackageNames(packsNoPredef.map(p => (p.name, None)))
+
+    prop7 *> prop1 *> prop2 *> prop4.andThen(_ => prop3) *> prop5_6
   }
 
   /** call validatePacks, validatePreviousHist, validateDeps Note: we can cache
@@ -642,6 +663,41 @@ case class LibConfig(
 
 object LibConfig {
 
+  /** The libraries that may define packages in the reserved `Bosatsu/`
+    * namespace. The compiler applies some of those packages' bindings by name,
+    * such as the `Bosatsu/Num/Int64` intrinsics, so no other library may
+    * provide them. This is the only place the core library is named.
+    */
+  val coreLibraryNames: SortedSet[Name] = SortedSet(Name("core_alpha"))
+
+  def mayDefineReservedPackages(name: Name): Boolean =
+    coreLibraryNames.contains(name)
+
+  /** A library that is not the core library must not contain `Bosatsu/`
+    * packages. Every library embeds the compiled `Bosatsu/Predef` of the
+    * compiler that built it, which is allowed. Check the encoded names so
+    * this runs before decoding.
+    */
+  def validateReservedPackages(lib: proto.Library): ValidatedNec[Error, Unit] =
+    if (mayDefineReservedPackages(Name(lib.name))) Validated.unit
+    else {
+      val names =
+        lib.exportedIfaces.iterator.map(ProtoConverter.iname) ++
+          lib.internalPackages.iterator.map(ProtoConverter.pname)
+      val reserved =
+        names
+          .flatMap(PackageName.parse(_))
+          .filter(pn => pn.isReserved && !pn.isPredef)
+          .toList
+          .distinct
+          .sorted
+      NonEmptyList.fromList(reserved) match {
+        case None        => Validated.unit
+        case Some(packs) =>
+          Error.inv(Error.ReservedPackageInDependency(lib, packs))
+      }
+    }
+
   case class LibRef(name: Name, version: Version) derives CanEqual
   case class LibPath(ref: LibRef, path: NonEmptyList[LibRef])
 
@@ -714,6 +770,18 @@ object LibConfig {
     case class MinimumValidVersion(prevVersion: Version, minimumValid: Version)
         extends Error
     case class MissingExpectedPrevious(desc: proto.LibDescriptor) extends Error
+    case class ReservedPackage(
+        library: Name,
+        pack: PackageName,
+        source: Option[String]
+    ) extends Error
+    case class ReservedPackageInDependency(
+        dep: proto.Library,
+        packs: NonEmptyList[PackageName]
+    ) extends Error
+
+    private def coreLibrariesText: String =
+      coreLibraryNames.iterator.map(_.name).mkString(", ")
 
     def errorsToDoc(nec: NonEmptyChain[Error]): Doc = {
       val errors = nec.toChain.toList
@@ -868,6 +936,20 @@ object LibConfig {
         case MissingExpectedPrevious(desc: proto.LibDescriptor) =>
           Doc.text(
             s"no previous library binary found, but config expects ${desc}"
+          )
+        case ReservedPackage(library, pack, source) =>
+          val where = source.fold("")(src => s" (in $src)")
+          Doc.text(
+            show"library $library cannot define package $pack$where: the Bosatsu/ namespace is reserved for the compiler and the core library ($coreLibrariesText)."
+          ) + Doc.line + Doc.text(
+            show"Rename the package, or depend on $coreLibrariesText for the standard Bosatsu/ packages."
+          )
+        case ReservedPackageInDependency(dep, packs) =>
+          val version = Library.getVersion(dep).fold("")(v => show" $v")
+          Doc.text(
+            show"dependency ${dep.name}$version contains ${packs.toList.map(_.asString).mkString(", ")}: the Bosatsu/ namespace is reserved for the compiler and the core library ($coreLibrariesText)."
+          ) + Doc.line + Doc.text(
+            show"Depend on $coreLibrariesText for the standard Bosatsu/ packages instead."
           )
       }
 

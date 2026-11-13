@@ -148,10 +148,7 @@ object EmitCCommand {
         "incompatible Bosatsu/Prog::ProgTest for the native test runner: expected a single " +
           "List[String] -> Prog[err, Test] field and the external Bosatsu/Prog::Prog type"))
       roots = tests.iterator.map { case (pack, entry) => (pack, entry.bindable: Identifier) }.toSet
-      // A loose provider can use the standard package and symbol names with
-      // its own implementation. Only a verified standard runtime may replace
-      // those calls with the backend's built-in constant conversion.
-      ns = CompilationSource.packageMapSource[Region](useStandardInt64 = false).namespace(scope.packages).treeShake(roots)
+      ns = CompilationSource.packageMapSrc[Region].namespace(scope.packages).treeShake(roots)
       gen = new ClangGen(ns)
       // Restrict resolution at the actual C references, after tree shaking
       // and inlining. An unreachable declaration needs no native provider.

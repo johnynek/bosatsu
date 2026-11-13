@@ -6,7 +6,7 @@ import java.math.BigInteger
 import java.nio.charset.StandardCharsets
 import dev.bosatsu.codegen.{CompilationNamespace, CompilationSource, Idents}
 import dev.bosatsu.rankn.{DataRepr, Type}
-import dev.bosatsu.{Identifier, InSetCompiler, Lit, Matchless, Package, Predef, PackageName}
+import dev.bosatsu.{Identifier, InSetCompiler, Int64Intrinsics, Lit, Matchless, Package, Predef, PackageName}
 import dev.bosatsu.Matchless.Expr
 import dev.bosatsu.Identifier.Bindable
 import org.typelevel.paiges.Doc
@@ -20,9 +20,6 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
   given Show[K] = ns.keyShow
   // (function ident, isClosure, arity)
   type DirectFnRef = (Code.Ident, Boolean, Int)
-  private val int64PackageName = PackageName.parts("Bosatsu", "Num", "Int64")
-  private val intToInt64Name = Identifier.Name("int_to_Int64")
-  private val intLowBitsToInt64Name = Identifier.Name("int_low_bits_to_Int64")
   def generateExternalsStub: SortedMap[String, Doc] =
     ExternalResolver.stdExternals.generateExternalsStub
 
@@ -848,22 +845,28 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
       def int64NoneLiteral: T[Code.ValueLike] =
         pv(Code.Ident("alloc_enum0")(Code.IntLiteral(0)))
 
+      // Lowering folds literal calls it can see; Matchless optimizations such
+      // as global inlining can expose more. Folding by name relies on the
+      // invariant documented in Int64Intrinsics: every Bosatsu/Num/Int64
+      // reaching codegen declares the core external type and signatures,
+      // whose values the C runtime packs into a BValue.
       def optimizeInt64LiteralCall(
           pack: PackageName,
           fnName: Bindable,
           args: NonEmptyList[Expr[K]]
       ): Option[T[Code.ValueLike]] =
-        if (!ns.standardInt64Intrinsics) None
-        else args match {
-          case NonEmptyList(Literal(Lit.Integer(value)), Nil)
-              if pack == int64PackageName && fnName == intToInt64Name =>
-            try Some(int64SomeLiteral(value.longValueExact()))
-            catch {
-              case _: ArithmeticException => Some(int64NoneLiteral)
+        args match {
+          case NonEmptyList(Literal(Lit.Integer(value)), Nil) =>
+            Int64Intrinsics.get(pack, fnName) match {
+              case Some(Int64Intrinsics.Intrinsic.IntToInt64) =>
+                try Some(int64SomeLiteral(value.longValueExact()))
+                catch {
+                  case _: ArithmeticException => Some(int64NoneLiteral)
+                }
+              case Some(Int64Intrinsics.Intrinsic.IntLowBitsToInt64) =>
+                Some(pv(int64LiteralExpr(value.longValue())))
+              case _ => None
             }
-          case NonEmptyList(Literal(Lit.Integer(value)), Nil)
-              if pack == int64PackageName && fnName == intLowBitsToInt64Name =>
-            Some(pv(int64LiteralExpr(value.longValue())))
           case _ => None
         }
 
