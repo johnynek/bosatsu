@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2484` 0k: Add the singleplex persistent JSON JVM worker
-- Pending steps: `2`
-- Completed steps: `1`
+- Pending steps: `1`
+- Completed steps: `2`
 - Total steps: `3`
 
 ## Summary
@@ -57,7 +57,7 @@ Extend `cli/src/test/scala/dev/bosatsu/BazelWorkerTest.scala` with generated con
 
 Added immutable worker envelope and response types, protobuf JSON decoding with defaults, aliases, null handling, int32 and base64 support, and compact response encoding. Generated codec checks and the independent JSON parser assertions passed with `sbt "cli/testOnly dev.bosatsu.BazelWorkerTest"` (12 tests).
 
-2. [ ] `step_2` Integrate the sequential transport with request completion
+2. [x] `step_2` Integrate the sequential transport with request completion
 
 Add a testable persistent loop in `BazelWorker.scala` taking the working directory, caller-owned transport streams and an existing runner. Update `cli/src/main/scala/dev/bosatsu/PathModule.scala` to accept exactly `tool bazel-worker --persistent_worker` and hold one `FileCommandRunner.resource` around the entire loop. Preserve the existing @parameter-file path and reject mixed or extra startup arguments.
 
@@ -91,6 +91,10 @@ Extend `BazelWorkerTest.scala` and `FileCommandRunnerTest.scala` with focused li
 - Extend captured-runner tests to cover finalizer diagnostics and closure of owned capture streams without closing caller-owned streams.
 - Test clean empty EOF, LF/CRLF frames, malformed/truncated JSON, an unterminated final frame, invalid UTF-8 and transport read/write/flush failures.
 - Verify ordinary publication failure preserves existing outputs, removes staging scratch and permits a later successful request using the same runner.
+
+#### Completion Notes
+
+Added the persistent startup route and sequential UTF-8 JSON-line loop, dispatching actions through the shared worker registry and runner. Responses follow request cleanup and publication, are flushed immediately, and preserve action failures as recoverable responses; transport errors terminate with stderr diagnostics. Captured runner streams now close after request completion, while caller-owned streams remain open. Verified with the full CLI suite and assembly (178 tests, 1 skipped), focused suites after the final assertions (28 passed), the candidate-jar worker harness, and launcher passthrough checks.
 
 3. [ ] `step_3` Qualify the candidate JVM and complete the v1 documentation
 

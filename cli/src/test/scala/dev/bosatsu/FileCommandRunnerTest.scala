@@ -10,6 +10,16 @@ import java.nio.file.{Files, Path}
 import java.nio.file.attribute.FileTime
 
 class FileCommandRunnerTest extends FileCommandFixtures {
+  private final class TrackingPrintStream(out: ByteArrayOutputStream)
+      extends PrintStream(out, false, UTF_8) {
+    var closed = false
+
+    override def close(): Unit = {
+      closed = true
+      super.close()
+    }
+  }
+
   private val input = "src/Value.bosatsu"
   private val signature = "gen/Value.bosatsig"
   private val implementation = "gen/Value.bosatsu_package"
@@ -365,6 +375,30 @@ class FileCommandRunnerTest extends FileCommandFixtures {
         _ = assert(captured.stdout.contains("Example/Value"), captured.stdout)
         _ = assertEquals(stdout.toString(UTF_8), captured.stdout)
         _ = assertEquals(stderr.toString(UTF_8), captured.stderr)
+      } yield ()
+    }
+  }
+
+  test("streaming worker requests leave caller-owned streams open") {
+    withRunner { (root, runner) =>
+      val stdout = new TrackingPrintStream(new ByteArrayOutputStream)
+      val stderr = new TrackingPrintStream(new ByteArrayOutputStream)
+      for {
+        _ <- write(root, input, source("123"))
+        code <- runner.runWorkerTo(
+          root,
+          List("headers", "--src", input, "--out", "headers.json"),
+          stdout,
+          stderr
+        )
+        _ = assertEquals(code, ExitCode.Success)
+        _ = assert(!stdout.closed)
+        _ = assert(!stderr.closed)
+        _ = assert(Files.isRegularFile(root.resolve("headers.json")))
+        _ <- IO.blocking {
+          stdout.close()
+          stderr.close()
+        }
       } yield ()
     }
   }

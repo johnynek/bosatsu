@@ -1,18 +1,72 @@
 package dev.bosatsu
 
-import cats.effect.IO
+import cats.effect.{Deferred, IO}
 import cats.syntax.all._
 import com.fasterxml.jackson.databind.ObjectMapper
 import dev.bosatsu.tool.ExitCode
-import java.io.{ByteArrayOutputStream, PrintStream}
+import java.io.{ByteArrayOutputStream, InputStream, OutputStream, PrintStream}
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.{Files, Path}
 import java.nio.file.attribute.FileTime
 import java.util.Base64
+import java.util.concurrent.{LinkedBlockingQueue, TimeUnit}
 import scala.util.Random
 
 class BazelWorkerTest extends FileCommandFixtures {
   private val jsonMapper = new ObjectMapper()
+
+  private final class ControlledInputStream extends InputStream {
+    private val bytes = new LinkedBlockingQueue[Integer]()
+    @volatile var closed = false
+
+    def offer(value: String): Unit =
+      value.getBytes(UTF_8).foreach(byte => bytes.add(Integer.valueOf(byte & 0xff)))
+
+    def finish(): Unit = {
+      bytes.add(Integer.valueOf(-1)): Unit
+    }
+
+    override def read(): Int = bytes.take().intValue()
+
+    override def close(): Unit = closed = true
+  }
+
+  private final class FlushedLineOutputStream extends OutputStream {
+    private val current = new ByteArrayOutputStream
+    private val complete = scala.collection.mutable.Queue.empty[String]
+    private val flushed = new LinkedBlockingQueue[String]()
+    @volatile var closed = false
+
+    override def write(value: Int): Unit = synchronized {
+      if (value == '\n') {
+        complete.enqueue(current.toString(UTF_8))
+        current.reset()
+      } else current.write(value)
+    }
+
+    override def flush(): Unit = synchronized {
+      while (complete.nonEmpty) flushed.add(complete.dequeue()): Unit
+    }
+
+    def nextLine(): String =
+      Option(flushed.poll(10, TimeUnit.SECONDS)).getOrElse {
+        throw new AssertionError("persistent worker did not flush a response")
+      }
+
+    def hasExtraLine: Boolean = flushed.poll() != null
+
+    override def close(): Unit = closed = true
+  }
+
+  private final class TrackingPrintStream(out: ByteArrayOutputStream)
+      extends PrintStream(out, false, UTF_8) {
+    @volatile var closed = false
+
+    override def close(): Unit = {
+      closed = true
+      super.close()
+    }
+  }
 
   private def writeBytes(root: Path, relative: String, bytes: Array[Byte]): IO[Unit] =
     IO.blocking {
@@ -581,6 +635,72 @@ class BazelWorkerTest extends FileCommandFixtures {
         unsupported <- runWorkerTo(runner, root, List("fetch"))
         _ = assertEquals(unsupported.exitCode, ExitCode.Error)
         _ = assertEquals(unsupported.stderr, "unsupported bazel worker operation: fetch\n")
+      } yield ()
+    }
+  }
+
+  test("persistent requests finish and flush before the next input frame") {
+    withRunner { (root, runner) =>
+      val input = new ControlledInputStream
+      val output = new FlushedLineOutputStream
+      val errorBytes = new ByteArrayOutputStream
+      val diagnostics = new TrackingPrintStream(errorBytes)
+      val source = "package Example/Persistent\nexport value\nvalue = 42\n"
+      val first =
+        """{"arguments":["headers","--src","Source.bosatsu","--out","first.json"],"requestId":7,"inputs":[{"path":"Source.bosatsu","digest":""}],"unknown":true}"""
+      val bad = """{"arguments":["fetch"],"requestId":8}"""
+      val sandbox =
+        """{"arguments":["headers","--src","Source.bosatsu","--out","sandbox.json"],"requestId":9,"sandboxDir":"elsewhere"}"""
+      val cancel = """{"requestId":10,"cancel":true}"""
+      val last =
+        """{"arguments":["headers","--src","Source.bosatsu","--out","last.json"]}"""
+
+      for {
+        _ <- write(root, "Source.bosatsu", source)
+        ready <- Deferred[IO, Unit]
+        fiber <- (ready.complete(()) *> BazelWorker
+          .runPersistent(root, input, output, diagnostics, runner)).start
+        _ <- ready.get
+        _ <- IO.blocking(input.offer(first + "\r\n"))
+        firstLine <- IO.blocking(output.nextLine())
+        firstResponse = jsonMapper.readTree(firstLine)
+        _ = assertEquals(firstResponse.get("requestId").intValue(), 7)
+        _ = assertEquals(firstResponse.get("exitCode").intValue(), 0)
+        _ = assert(Files.isRegularFile(root.resolve("first.json")))
+        _ = assert(!input.closed)
+        _ <- IO.blocking(input.offer(bad + "\n"))
+        badLine <- IO.blocking(output.nextLine())
+        badResponse = jsonMapper.readTree(badLine)
+        _ = assertEquals(badResponse.get("requestId").intValue(), 8)
+        _ = assertEquals(badResponse.get("exitCode").intValue(), 1)
+        _ = assert(badResponse.get("output").asText().contains("unsupported bazel worker operation: fetch"))
+        _ <- IO.blocking(input.offer(sandbox + "\n"))
+        sandboxLine <- IO.blocking(output.nextLine())
+        sandboxResponse = jsonMapper.readTree(sandboxLine)
+        _ = assertEquals(sandboxResponse.get("requestId").intValue(), 9)
+        _ = assertEquals(sandboxResponse.get("exitCode").intValue(), 1)
+        _ = assert(sandboxResponse.get("output").asText().contains("unsupported nonempty sandboxDir"))
+        _ = assert(!Files.exists(root.resolve("sandbox.json")))
+        _ <- IO.blocking(input.offer(cancel + "\n"))
+        _ <- IO.blocking(input.offer(last + "\n"))
+        lastLine <- IO.blocking(output.nextLine())
+        lastResponse = jsonMapper.readTree(lastLine)
+        _ = assertEquals(lastResponse.get("requestId").intValue(), 0)
+        _ = assertEquals(lastResponse.get("exitCode").intValue(), 0)
+        _ = assert(Files.isRegularFile(root.resolve("last.json")))
+        _ <- IO.blocking(input.finish())
+        result <- fiber.joinWithNever
+        _ = assertEquals(result, ExitCode.Success)
+        _ = assert(!output.hasExtraLine)
+        _ = assertEquals(errorBytes.size(), 0)
+        _ = assert(!input.closed)
+        _ = assert(!output.closed)
+        _ = assert(!diagnostics.closed)
+        _ <- IO.blocking {
+          input.close()
+          output.close()
+          diagnostics.close()
+        }
       } yield ()
     }
   }

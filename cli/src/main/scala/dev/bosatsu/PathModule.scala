@@ -24,27 +24,36 @@ object PathModule extends MainModule[IO, Path](IOPlatformIO) {
 
   private def runBazelWorker(args: List[String]): IO[ExitCode] = {
     val directory = Paths.get(".")
-    val invocation = args match {
+    val run = args match {
+      case "--persistent_worker" :: Nil =>
+        FileCommandRunner.resource.use { runner =>
+          BazelWorker.runPersistent(
+            directory,
+            System.in,
+            System.out,
+            System.err,
+            runner
+          )
+        }
       case parameterFile :: Nil
           if parameterFile.startsWith("@") && parameterFile.length > 1 =>
-        BazelWorker.readParameterFile(directory, parameterFile)
+        BazelWorker.readParameterFile(directory, parameterFile).flatMap { parsed =>
+          FileCommandRunner.resource.use { runner =>
+            runner.runWorkerTo(
+              directory,
+              parsed.commandArguments,
+              System.out,
+              System.err
+            )
+          }
+        }
       case _ =>
-        IO.raiseError[BazelWorker.Invocation](
+        IO.raiseError[ExitCode](
           CliException.Basic(
-            "tool bazel-worker requires exactly one @parameter-file argument"
+            "tool bazel-worker requires exactly one @parameter-file argument or --persistent_worker"
           )
         )
     }
-
-    invocation.flatMap { parsed =>
-      FileCommandRunner.resource.use { runner =>
-        runner.runWorkerTo(
-          directory,
-          parsed.commandArguments,
-          System.out,
-          System.err
-        )
-      }
-    }.handleErrorWith(reportException)
+    run.handleErrorWith(reportException)
   }
 }

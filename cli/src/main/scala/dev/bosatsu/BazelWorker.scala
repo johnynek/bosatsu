@@ -2,9 +2,11 @@ package dev.bosatsu
 
 import cats.effect.IO
 import dev.bosatsu.tool.CliException
+import dev.bosatsu.tool.ExitCode
 import java.nio.ByteBuffer
 import java.nio.charset.{CodingErrorAction, StandardCharsets}
 import java.nio.file.{Files, Path}
+import java.io.{ByteArrayOutputStream, IOException, InputStream, OutputStream, PrintStream}
 import java.util.Base64
 
 /** The file operations available through Bazel's worker entry point. */
@@ -219,6 +221,115 @@ object BazelWorker {
     s"{\"requestId\":${response.requestId},\"exitCode\":${response.exitCode}," +
       s"\"output\":\"${JsonStringUtil.escape('"', response.output)}\"," +
       s"\"wasCancelled\":${response.wasCancelled}}"
+
+  private enum Frame derives CanEqual {
+    case End
+    case Truncated
+    case Line(bytes: Array[Byte])
+  }
+
+  /** Run the singleplex worker protocol without taking ownership of its streams. */
+  def runPersistent(
+      directory: Path,
+      input: InputStream,
+      output: OutputStream,
+      diagnostics: PrintStream,
+      runner: FileCommandRunner
+  ): IO[ExitCode] = {
+    def transportError(message: String): IO[ExitCode] =
+      IO.blocking {
+        diagnostics.println(s"bazel worker transport error: $message")
+        diagnostics.flush()
+        if (diagnostics.checkError())
+          throw new IOException("failed to write bazel worker transport diagnostic")
+      }.as(ExitCode.Error)
+
+    def writeResponse(response: Response): IO[Unit] =
+      IO.blocking {
+        val bytes = (encodeResponse(response) + "\n").getBytes(StandardCharsets.UTF_8)
+        output.write(bytes)
+        output.flush()
+        output match {
+          case stream: PrintStream if stream.checkError() =>
+            throw new IOException("failed to write bazel worker response")
+          case _ => ()
+        }
+      }
+
+    def respond(request: ActionRequest): IO[Unit] = {
+      val response =
+        if (request.sandboxDir.nonEmpty)
+          IO.pure(
+            Response(
+              request.requestId,
+              ExitCode.Error.toInt,
+              s"unsupported nonempty sandboxDir: ${request.sandboxDir}\n"
+            )
+          )
+        else
+          runner.runWorker(directory, request.arguments).map { result =>
+            Response(
+              request.requestId,
+              result.exitCode.toInt,
+              result.stdout + result.stderr
+            )
+          }
+      response.flatMap(writeResponse)
+    }
+
+    def decodeFrame(bytes: Array[Byte]): Either[String, Envelope] = {
+      val decoder = StandardCharsets.UTF_8
+        .newDecoder()
+        .onMalformedInput(CodingErrorAction.REPORT)
+        .onUnmappableCharacter(CodingErrorAction.REPORT)
+      try decodeRequest(decoder.decode(ByteBuffer.wrap(bytes)).toString)
+      catch {
+        case _: java.nio.charset.CharacterCodingException =>
+          Left("worker request is not valid UTF-8")
+      }
+    }
+
+    def readFrame: IO[Frame] = IO.blocking {
+      val bytes = new ByteArrayOutputStream
+      var finished = false
+      var result: Frame = Frame.End
+      var sawByte = false
+      while (!finished) {
+        val next = input.read()
+        if (next < 0) {
+          result = if (sawByte) Frame.Truncated else Frame.End
+          finished = true
+        } else if (next == '\n') {
+          result = Frame.Line(bytes.toByteArray)
+          finished = true
+        } else {
+          bytes.write(next)
+          sawByte = true
+        }
+      }
+      result
+    }
+
+    def loop: IO[ExitCode] = IO.defer {
+      readFrame.attempt.flatMap {
+        case Left(error) =>
+          transportError(
+            s"could not read worker request: ${Option(error.getMessage).getOrElse(error.getClass.getSimpleName)}"
+          )
+        case Right(Frame.End) => IO.pure(ExitCode.Success)
+        case Right(Frame.Truncated) =>
+          transportError("truncated worker request: EOF before newline")
+        case Right(Frame.Line(bytes)) =>
+          decodeFrame(bytes) match {
+            case Left(error) => transportError(error)
+            case Right(_: CancelRequest) => loop
+            case Right(request: ActionRequest) => respond(request) *> loop
+          }
+      }
+    }
+
+    loop
+  }
 
   /** Read one @file argument without shell parsing or recursive expansion. */
   def readParameterFile(directory: Path, parameterArgument: String): IO[Invocation] =

@@ -3,6 +3,7 @@
 import argparse
 import json
 from pathlib import Path
+import select
 import shutil
 import subprocess
 import tempfile
@@ -100,8 +101,13 @@ def check_startup_failures(java: str, jar: Path, cwd: Path) -> None:
             "requires exactly one @parameter-file argument",
         ),
         (
-            "persistent worker startup",
-            ("--persistent_worker",),
+            "mixed persistent and parameter-file startup",
+            ("--persistent_worker", "@" + (params_dir / "empty.params").as_posix()),
+            "requires exactly one @parameter-file argument",
+        ),
+        (
+            "extra persistent startup argument",
+            ("--persistent_worker", "extra"),
             "requires exactly one @parameter-file argument",
         ),
         (
@@ -133,6 +139,63 @@ def check_startup_failures(java: str, jar: Path, cwd: Path) -> None:
         after = workspace_snapshot(cwd)
         if after != before:
             raise AssertionError(f"worker changed or published workspace files while rejecting {label}")
+
+
+def check_persistent_smoke(java: str, jar: Path, cwd: Path) -> None:
+    startup = [java, "-jar", str(jar), "tool", "bazel-worker", "--persistent_worker"]
+    clean_eof = subprocess.run(startup, cwd=cwd, capture_output=True, check=False, timeout=15)
+    if clean_eof.returncode != 0 or clean_eof.stdout or clean_eof.stderr:
+        raise AssertionError(
+            "persistent worker did not exit cleanly on EOF: "
+            f"status={clean_eof.returncode}, stdout={clean_eof.stdout!r}, stderr={clean_eof.stderr!r}"
+        )
+
+    output = "generated files 雪/persistent headers.json"
+    request = {
+        "arguments": ["headers", "--src", SOURCE, "--out", output],
+        "inputs": [{"path": SOURCE, "digest": ""}],
+        "unknown_worker_field": {"ignored": True},
+    }
+    process = subprocess.Popen(
+        startup,
+        cwd=cwd,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    try:
+        assert process.stdin is not None
+        assert process.stdout is not None
+        process.stdin.write(json.dumps(request, ensure_ascii=False).encode("utf-8") + b"\n")
+        process.stdin.flush()
+        ready, _, _ = select.select([process.stdout], [], [], 15)
+        if not ready:
+            raise AssertionError("persistent worker buffered its response until stdin closed")
+        line = process.stdout.readline()
+        response = json.loads(line.decode("utf-8"))
+        if response.get("requestId") != 0 or response.get("exitCode") != 0:
+            raise AssertionError(f"persistent worker returned an unexpected response: {response!r}")
+        if response.get("output") != "" or response.get("wasCancelled") is not False:
+            raise AssertionError(f"persistent worker returned unexpected action output: {response!r}")
+        if not (cwd / output).is_file():
+            raise AssertionError("persistent worker responded before publishing its output")
+        if process.poll() is not None:
+            raise AssertionError("persistent worker exited before stdin was closed")
+        process.stdin.close()
+        process.stdin = None
+        extra_stdout, stderr = process.communicate(timeout=15)
+        if process.returncode != 0 or extra_stdout or stderr:
+            raise AssertionError(
+                "persistent worker did not finish cleanly after EOF: "
+                f"status={process.returncode}, extra stdout={extra_stdout!r}, stderr={stderr!r}"
+            )
+    finally:
+        if process.poll() is None:
+            process.kill()
+            if process.stdin is not None:
+                process.stdin.close()
+                process.stdin = None
+            process.communicate()
 
 
 def compare_command(
@@ -360,6 +423,7 @@ def test_worker(java: str, jar: Path, work: Path) -> None:
         [blocked_output],
     )
     check_startup_failures(java, jar, cwd)
+    check_persistent_smoke(java, jar, cwd)
 
 
 def test_bosatsuj(java: str, jar: Path, work: Path) -> None:
