@@ -18,6 +18,50 @@ SIGNATURE = "generated files 雪/test suite.sig"
 RUNTIME = "manifests 雪/runtime manifest.json"
 ROOT_GRAPH = "graphs 雪/root group.json"
 
+STRICT_SOURCES = "strict sources 雪"
+STRICT_OUTPUTS = "strict outputs 雪"
+STRICT_LEAF = f"{STRICT_SOURCES}/Leaf.bosatsu"
+STRICT_Y = f"{STRICT_SOURCES}/Y.bosatsu"
+STRICT_PRIVATE = f"{STRICT_SOURCES}/Private.bosatsu"
+STRICT_SIBLING = f"{STRICT_SOURCES}/Sibling.bosatsu"
+STRICT_X = f"{STRICT_SOURCES}/X.bosatsu"
+STRICT_CLIENT = f"{STRICT_SOURCES}/Client.bosatsu"
+STRICT_ONE = f"{STRICT_SOURCES}/One.bosatsu"
+STRICT_TWO = f"{STRICT_SOURCES}/Two.bosatsu"
+STRICT_LEFT = f"{STRICT_SOURCES}/Left.bosatsu"
+STRICT_RIGHT = f"{STRICT_SOURCES}/Right.bosatsu"
+STRICT_APP = f"{STRICT_SOURCES}/App.bosatsu"
+STRICT_LABELS = "strict interface labels 雪.json"
+
+STRICT_LEAF_SOURCE = (
+    "package Leaf\nexport Leaf, leaf\nstruct Leaf(n: Int)\nleaf = Leaf(1)\n"
+)
+STRICT_Y_SOURCE = (
+    "package Y\nfrom Leaf import Leaf, leaf\nexport Token(), token\n"
+    "exposes Leaf\nstruct Token(value: Leaf)\ntoken = Token(leaf)\n"
+)
+STRICT_PRIVATE_SOURCE = "package Private\nexport enabled\nenabled = True\n"
+STRICT_SIBLING_SOURCE = "package Sibling\nexport number\nnumber = 7\n"
+STRICT_X_SOURCE = (
+    "package X\nfrom Private import enabled\nfrom Y import token\n"
+    "export shared\nexposes Y\nshared = if enabled: token\n         else: token\n"
+)
+STRICT_X_REDUCED_SOURCE = "package X\nexport shared\nshared = 1\n"
+STRICT_CLIENT_X_SOURCE = "package Client\nfrom X import shared\nmain = [shared]\n"
+STRICT_CLIENT_SIBLING_SOURCE = (
+    "package Client\nfrom Sibling import number\nmain = number\n"
+)
+STRICT_PROVIDER_INT_SOURCE = (
+    "package Shared/Api\nexport Token(), token\nstruct Token(value: Int)\ntoken = Token(1)\n"
+)
+STRICT_PROVIDER_BOOL_SOURCE = (
+    "package Shared/Api\nexport Token(), token\nstruct Token(value: Bool)\ntoken = Token(True)\n"
+)
+STRICT_APP_BOTH_SOURCE = (
+    "package App\nfrom Left import value as x\nfrom Right import value as y\nmain = (x, y)\n"
+)
+STRICT_APP_LEFT_SOURCE = "package App\nfrom Left import value\nmain = [value]\n"
+
 
 def invoke(java: str, jar: Path, cwd: Path, *args: str) -> subprocess.CompletedProcess[bytes]:
     return subprocess.run(
@@ -510,6 +554,489 @@ def compare_command(
     return persistent_response
 
 
+def strict_signature(name: str) -> str:
+    return f"{STRICT_OUTPUTS}/{name}.sig"
+
+
+def strict_compile_command(
+    output: str,
+    sources: list[str],
+    interfaces: list[str],
+    *,
+    labels: str | None = None,
+) -> list[str]:
+    command = [
+        "compile-packages",
+        "--packages-out",
+        f"{output}.pkg",
+        "--sig-out",
+        f"{output}.sig",
+    ]
+    for source in sources:
+        command.extend(("--src", source))
+    for interface in interfaces:
+        command.extend(("--direct-interface", interface))
+    command.append("--error-unused-interfaces")
+    if labels is not None:
+        command.extend(("--interface-labels", labels))
+    return command
+
+
+def strict_compare(
+    java: str,
+    jar: Path,
+    cwd: Path,
+    persistent: PersistentWorker,
+    name: str,
+    output: str,
+    sources: list[str],
+    interfaces: list[str],
+    *,
+    labels: str | None = None,
+    expect_success: bool = True,
+    request_id: int = 0,
+) -> dict[str, object]:
+    return compare_command(
+        java,
+        jar,
+        cwd,
+        persistent,
+        name,
+        strict_compile_command(output, sources, interfaces, labels=labels),
+        [f"{output}.pkg", f"{output}.sig"],
+        expect_success=expect_success,
+        request_fields={"requestId": request_id},
+    )
+
+
+def strict_prepare(
+    java: str,
+    jar: Path,
+    cwd: Path,
+    name: str,
+    output: str,
+    sources: list[str],
+    interfaces: list[str],
+) -> None:
+    command = strict_compile_command(output, sources, interfaces)
+    result = invoke(java, jar, cwd, "tool", *command)
+    if result.returncode != 0:
+        raise AssertionError(
+            f"candidate jar could not prepare {name}:\n"
+            f"{result.stderr.decode('utf-8', errors='replace')}"
+        )
+    output_bytes(cwd, [f"{output}.pkg", f"{output}.sig"])
+    assert_no_scratch(cwd, name)
+
+
+def write_strict_labels(cwd: Path, entries: list[tuple[str, str]]) -> None:
+    manifest = {
+        "schema_version": 1,
+        "interfaces": [{"path": path, "label": label} for path, label in entries],
+    }
+    (cwd / STRICT_LABELS).write_text(
+        json.dumps(manifest, ensure_ascii=False), encoding="utf-8"
+    )
+
+
+def write_strict_sources(cwd: Path) -> None:
+    (cwd / STRICT_SOURCES).mkdir(parents=True, exist_ok=True)
+    (cwd / STRICT_OUTPUTS).mkdir(parents=True, exist_ok=True)
+    for path, source in (
+        (STRICT_LEAF, STRICT_LEAF_SOURCE),
+        (STRICT_Y, STRICT_Y_SOURCE),
+        (STRICT_PRIVATE, STRICT_PRIVATE_SOURCE),
+        (STRICT_SIBLING, STRICT_SIBLING_SOURCE),
+        (STRICT_X, STRICT_X_SOURCE),
+        (STRICT_CLIENT, STRICT_CLIENT_X_SOURCE),
+        (STRICT_ONE, STRICT_PROVIDER_INT_SOURCE),
+        (STRICT_TWO, STRICT_PROVIDER_BOOL_SOURCE),
+        (STRICT_LEFT, ""),
+        (STRICT_RIGHT, ""),
+        (STRICT_APP, STRICT_APP_LEFT_SOURCE),
+    ):
+        (cwd / path).write_text(source, encoding="utf-8")
+
+
+def strict_facade_source(name: str) -> str:
+    return (
+        f"package {name}\nfrom Shared/Api import token\nexport value\n"
+        "exposes Shared/Api\nvalue = token\n"
+    )
+
+
+def assert_strict_output(response: dict[str, object], *witnesses: str) -> str:
+    output = response["output"]
+    if not isinstance(output, str):
+        raise AssertionError(f"strict-interface worker output was not text: {response!r}")
+    for witness in witnesses:
+        if witness not in output:
+            raise AssertionError(
+                f"strict-interface diagnostic lacks {witness!r}: {output!r}"
+            )
+    return output
+
+
+def replay_strict_interface_matrix(
+    java: str, jar: Path, cwd: Path, persistent: PersistentWorker
+) -> None:
+    write_strict_sources(cwd)
+    leaf_sig = strict_signature("leaf")
+    y_sig = strict_signature("y")
+    private_sig = strict_signature("private")
+    wide_sig = strict_signature("wide")
+
+    for name, output, sources, interfaces in (
+        ("strict-build-leaf", f"{STRICT_OUTPUTS}/leaf", [STRICT_LEAF], []),
+        ("strict-build-y", f"{STRICT_OUTPUTS}/y", [STRICT_Y], [leaf_sig]),
+        ("strict-build-private", f"{STRICT_OUTPUTS}/private", [STRICT_PRIVATE], []),
+        (
+            "strict-build-wide",
+            f"{STRICT_OUTPUTS}/wide",
+            [STRICT_X, STRICT_SIBLING],
+            [y_sig, leaf_sig, private_sig],
+        ),
+    ):
+        strict_prepare(java, jar, cwd, name, output, sources, interfaces)
+
+    # Selecting only Sibling from the wide signature must not pull in X's exposure.
+    (cwd / STRICT_CLIENT).write_text(STRICT_CLIENT_SIBLING_SOURCE, encoding="utf-8")
+    sibling_only = strict_compare(
+        java,
+        jar,
+        cwd,
+        persistent,
+        "strict-sibling-only",
+        f"{STRICT_OUTPUTS}/sibling-only",
+        [STRICT_CLIENT],
+        [wide_sig],
+        request_id=210,
+    )
+    if sibling_only["exitCode"] != 0:
+        raise AssertionError(f"Sibling-only selection failed: {sibling_only!r}")
+
+    write_strict_labels(
+        cwd,
+        [(wide_sig, "//interfaces:wide"), (y_sig, "//interfaces:y")],
+    )
+    unused_y = strict_compare(
+        java,
+        jar,
+        cwd,
+        persistent,
+        "strict-unused-y-label",
+        f"{STRICT_OUTPUTS}/sibling-unused-y",
+        [STRICT_CLIENT],
+        [wide_sig, y_sig],
+        labels=STRICT_LABELS,
+        expect_success=False,
+        request_id=211,
+    )
+    assert_strict_output(unused_y, f"{y_sig} (//interfaces:y)")
+
+    (cwd / STRICT_CLIENT).write_text(STRICT_CLIENT_X_SOURCE, encoding="utf-8")
+    missing_y = strict_compare(
+        java,
+        jar,
+        cwd,
+        persistent,
+        "strict-missing-y",
+        f"{STRICT_OUTPUTS}/missing-y",
+        [STRICT_CLIENT],
+        [wide_sig],
+        expect_success=False,
+        request_id=212,
+    )
+    assert_strict_output(missing_y, "Client -> X -> Y")
+
+    missing_leaf = strict_compare(
+        java,
+        jar,
+        cwd,
+        persistent,
+        "strict-missing-leaf-labels",
+        f"{STRICT_OUTPUTS}/missing-leaf",
+        [STRICT_CLIENT],
+        [wide_sig, y_sig],
+        labels=STRICT_LABELS,
+        expect_success=False,
+        request_id=213,
+    )
+    assert_strict_output(
+        missing_leaf,
+        "Client -> X -> Y -> Leaf",
+        f"{wide_sig} (//interfaces:wide)",
+        f"{y_sig} (//interfaces:y)",
+    )
+
+    exact = strict_compare(
+        java,
+        jar,
+        cwd,
+        persistent,
+        "strict-exact-exposure-closure",
+        f"{STRICT_OUTPUTS}/exact-exposure",
+        [STRICT_CLIENT],
+        [leaf_sig, y_sig, wide_sig, wide_sig],
+        request_id=214,
+    )
+    if exact["exitCode"] != 0:
+        raise AssertionError(f"exact exposure closure failed: {exact!r}")
+
+    unnecessary_private = strict_compare(
+        java,
+        jar,
+        cwd,
+        persistent,
+        "strict-unnecessary-private",
+        f"{STRICT_OUTPUTS}/unnecessary-private",
+        [STRICT_CLIENT],
+        [wide_sig, leaf_sig, private_sig, y_sig],
+        expect_success=False,
+        request_id=215,
+    )
+    assert_strict_output(unnecessary_private, f"unused direct interfaces: {private_sig}")
+
+    # Reversing declarations and labels changes neither diagnostics' meaning nor outputs.
+    ordered_interfaces = [wide_sig, y_sig, leaf_sig]
+    write_strict_labels(
+        cwd,
+        [(path, f"//first:{index}") for index, path in enumerate(ordered_interfaces)],
+    )
+    ordered = strict_compare(
+        java,
+        jar,
+        cwd,
+        persistent,
+        "strict-label-order-first",
+        f"{STRICT_OUTPUTS}/label-order",
+        [STRICT_CLIENT],
+        ordered_interfaces,
+        labels=STRICT_LABELS,
+        request_id=216,
+    )
+    if ordered["exitCode"] != 0:
+        raise AssertionError(f"labelled exact closure failed: {ordered!r}")
+    ordered_bytes = output_bytes(
+        cwd, [f"{STRICT_OUTPUTS}/label-order.pkg", f"{STRICT_OUTPUTS}/label-order.sig"]
+    )
+
+    reversed_interfaces = list(reversed(ordered_interfaces))
+    write_strict_labels(
+        cwd,
+        [(path, f"@second//:{index}") for index, path in enumerate(reversed_interfaces)],
+    )
+    reordered = strict_compare(
+        java,
+        jar,
+        cwd,
+        persistent,
+        "strict-label-order-reversed",
+        f"{STRICT_OUTPUTS}/label-order",
+        [STRICT_CLIENT],
+        reversed_interfaces,
+        labels=STRICT_LABELS,
+        request_id=217,
+    )
+    if reordered["exitCode"] != 0:
+        raise AssertionError(f"reordered labelled closure failed: {reordered!r}")
+    if output_bytes(
+        cwd, [f"{STRICT_OUTPUTS}/label-order.pkg", f"{STRICT_OUTPUTS}/label-order.sig"]
+    ) != ordered_bytes:
+        raise AssertionError("declaration order changed successful package/signature bytes")
+
+    write_strict_labels(
+        cwd,
+        [(wide_sig, "//app:facade"), (y_sig, "//types:owner")],
+    )
+    labelled_missing = strict_compare(
+        java,
+        jar,
+        cwd,
+        persistent,
+        "strict-labelled-missing-leaf",
+        f"{STRICT_OUTPUTS}/label-order",
+        [STRICT_CLIENT],
+        [wide_sig, y_sig],
+        labels=STRICT_LABELS,
+        expect_success=False,
+        request_id=218,
+    )
+    assert_strict_output(
+        labelled_missing,
+        "Client -> X -> Y -> Leaf",
+        f"{wide_sig} (//app:facade)",
+        f"{y_sig} (//types:owner)",
+    )
+
+    group_local = strict_compare(
+        java,
+        jar,
+        cwd,
+        persistent,
+        "strict-group-local-owner",
+        f"{STRICT_OUTPUTS}/group-local",
+        [STRICT_CLIENT, STRICT_Y],
+        [wide_sig, leaf_sig],
+        request_id=219,
+    )
+    if group_local["exitCode"] != 0:
+        raise AssertionError(f"group-local Y did not satisfy X's exposure: {group_local!r}")
+    redundant_y = strict_compare(
+        java,
+        jar,
+        cwd,
+        persistent,
+        "strict-group-local-redundant-y",
+        f"{STRICT_OUTPUTS}/group-local",
+        [STRICT_CLIENT, STRICT_Y],
+        [wide_sig, leaf_sig, y_sig],
+        expect_success=False,
+        request_id=220,
+    )
+    assert_strict_output(redundant_y, f"unused direct interfaces: {y_sig}")
+
+    # Both wrappers expose the same package through different private providers.
+    (cwd / STRICT_LEFT).write_text(strict_facade_source("Left"), encoding="utf-8")
+    (cwd / STRICT_RIGHT).write_text(strict_facade_source("Right"), encoding="utf-8")
+    for name, output, sources, interfaces in (
+        ("strict-build-one", f"{STRICT_OUTPUTS}/one", [STRICT_ONE], []),
+        ("strict-build-two", f"{STRICT_OUTPUTS}/two", [STRICT_TWO], []),
+        ("strict-build-left", f"{STRICT_OUTPUTS}/left", [STRICT_LEFT], [strict_signature("one")]),
+        ("strict-build-right", f"{STRICT_OUTPUTS}/right", [STRICT_RIGHT], [strict_signature("two")]),
+    ):
+        strict_prepare(java, jar, cwd, name, output, sources, interfaces)
+
+    one_sig = strict_signature("one")
+    two_sig = strict_signature("two")
+    left_sig = strict_signature("left")
+    right_sig = strict_signature("right")
+    (cwd / STRICT_APP).write_text(STRICT_APP_LEFT_SOURCE, encoding="utf-8")
+    baseline = strict_compare(
+        java,
+        jar,
+        cwd,
+        persistent,
+        "strict-ambiguity-baseline",
+        f"{STRICT_OUTPUTS}/ambiguity-app",
+        [STRICT_APP],
+        [one_sig, left_sig],
+        request_id=234,
+    )
+    if baseline["exitCode"] != 0:
+        raise AssertionError(f"single provider did not compile: {baseline!r}")
+
+    provider_interfaces = [left_sig, right_sig, one_sig, two_sig]
+    write_strict_labels(
+        cwd,
+        [
+            (left_sig, "//:left"),
+            (right_sig, "//:right"),
+            (one_sig, "@shared_v1//:lib"),
+            (two_sig, "@shared_v2//:lib"),
+        ],
+    )
+    (cwd / STRICT_APP).write_text(STRICT_APP_BOTH_SOURCE, encoding="utf-8")
+    for index, interfaces in enumerate((provider_interfaces, list(reversed(provider_interfaces)))):
+        ambiguous = strict_compare(
+            java,
+            jar,
+            cwd,
+            persistent,
+            f"strict-exposed-provider-ambiguity-{index}",
+            f"{STRICT_OUTPUTS}/ambiguity-app",
+            [STRICT_APP],
+            interfaces,
+            labels=STRICT_LABELS,
+            expect_success=False,
+            request_id=235 + index,
+        )
+        assert_strict_output(
+            ambiguous,
+            "ambiguous interface App -> ",
+            " -> Shared/Api",
+            f"{one_sig} (@shared_v1//:lib), {two_sig} (@shared_v2//:lib)",
+        )
+
+    # The same wide.sig path changes exposure while the worker stays warm.
+    (cwd / STRICT_X).write_text(STRICT_X_SOURCE, encoding="utf-8")
+    (cwd / STRICT_CLIENT).write_text(STRICT_CLIENT_X_SOURCE, encoding="utf-8")
+    reused_output = f"{STRICT_OUTPUTS}/reused-client"
+    warm_success = strict_compare(
+        java,
+        jar,
+        cwd,
+        persistent,
+        "strict-reused-exposure-before-edit",
+        reused_output,
+        [STRICT_CLIENT],
+        [wide_sig, y_sig, leaf_sig],
+        request_id=240,
+    )
+    if warm_success["exitCode"] != 0:
+        raise AssertionError(f"initial reused-path client compile failed: {warm_success!r}")
+    old_client_outputs = output_bytes(cwd, [f"{reused_output}.pkg", f"{reused_output}.sig"])
+
+    (cwd / STRICT_X).write_text(STRICT_X_REDUCED_SOURCE, encoding="utf-8")
+    rebuilt = strict_compare(
+        java,
+        jar,
+        cwd,
+        persistent,
+        "strict-rebuild-wide-without-exposure",
+        f"{STRICT_OUTPUTS}/wide",
+        [STRICT_X, STRICT_SIBLING],
+        [],
+        request_id=241,
+    )
+    if rebuilt["exitCode"] != 0:
+        raise AssertionError(f"wide signature rebuild failed: {rebuilt!r}")
+
+    stale_declarations = strict_compare(
+        java,
+        jar,
+        cwd,
+        persistent,
+        "strict-reused-exposure-stale-declarations",
+        reused_output,
+        [STRICT_CLIENT],
+        [wide_sig, y_sig, leaf_sig],
+        expect_success=False,
+        request_id=242,
+    )
+    assert_strict_output(stale_declarations, f"unused direct interfaces: {leaf_sig}, {y_sig}")
+    if output_bytes(cwd, [f"{reused_output}.pkg", f"{reused_output}.sig"]) != old_client_outputs:
+        raise AssertionError("failed reused-path compile changed either prior client output")
+
+    recovered = strict_compare(
+        java,
+        jar,
+        cwd,
+        persistent,
+        "strict-reused-exposure-recovery",
+        reused_output,
+        [STRICT_CLIENT],
+        [wide_sig],
+        request_id=243,
+    )
+    if recovered["exitCode"] != 0:
+        raise AssertionError(f"reused-path client did not recover with corrected dependencies: {recovered!r}")
+
+
+def check_strict_interface_matrix(java: str, jar: Path, work: Path) -> None:
+    cwd = work / "strict interface workspace"
+    cwd.mkdir()
+    for label in ("warm", "restarted"):
+        with PersistentWorker(java, jar, cwd) as persistent:
+            replay_strict_interface_matrix(java, jar, cwd, persistent)
+            status, stdout, stderr = persistent.finish()
+            if status != 0 or stdout or stderr:
+                raise AssertionError(
+                    f"{label} strict-interface worker did not finish cleanly: "
+                    f"status={status}, stdout={stdout!r}, stderr={stderr!r}"
+                )
+
+
 def write_fixture(cwd: Path) -> None:
     (cwd / SOURCE).parent.mkdir(parents=True, exist_ok=True)
     (cwd / SOURCE).write_text(
@@ -862,6 +1389,7 @@ def test_worker(java: str, jar: Path, work: Path) -> None:
             )
 
     check_transport_failures(java, jar, work)
+    check_strict_interface_matrix(java, jar, work)
 
 
 def check_transport_failures(java: str, jar: Path, work: Path) -> None:

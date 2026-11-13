@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2484` 0k: Add the singleplex persistent JSON JVM worker
-- Pending steps: `2`
-- Completed steps: `3`
+- Pending steps: `1`
+- Completed steps: `4`
 - Total steps: `5`
 
 ## Summary
@@ -138,7 +138,7 @@ Build a candidate with `sbt "cli/assembly"` and run the extended script with its
 
 Expanded `scripts/test_bazel_worker.py` with a managed persistent JVM reader using deadline-bound binary framing, separate stderr capture, response and cleanup checks, and shared direct/@params/persistent comparisons across the four registered operations. The candidate harness passed same-path edit and recovery, digest and ID cases, controls, publication rollback and retry, malformed transport, EOF, and restart checks. `sbt "cli/test; cli/assembly"` passed (177 tests passed, 1 skipped); the harness passed against the resolved assembly, and launcher passthrough, Python syntax, and diff checks passed.
 
-4. [ ] `step_3b` Replay the strict-interface acceptance matrix through the shared harness
+4. [x] `step_3b` Replay the strict-interface acceptance matrix through the shared harness
 
 Extend `scripts/test_bazel_worker.py` using the process, parity and snapshot helpers delivered by `step_3a`. This slice supplies issue #2484's required actual-transport strict-interface coverage. Keep the script and its fixtures in the PR. Translate the bounded X/Sibling/Y and exposure scenarios from `cli/src/test/scala/dev/bosatsu/StrictInterfacesCommandTest.scala` into compact Python source constants, a compile-argument builder and explicit case sequences. Generate prerequisite signatures with the same candidate jar; reuse the Leaf, Y, Private, X and Sibling fixture across cases. Keep compiler semantic assertions in the existing Scala suite and add only the expected outcomes and diagnostic witnesses needed to establish transport parity. Do not parse Scala test source, copy the whole suite or introduce a fixture language.
 
@@ -166,6 +166,10 @@ Run `python3 scripts/test_bazel_worker.py --jar <resolved-candidate-assembly>` a
 - Check Sibling-only success, unused Y, missing Y/Leaf chains, exact closure success and private-interface rejection.
 - Check label attribution, group-local exposure ownership and ambiguity naming both exposed providers.
 - Remove an exposure in place, observe matching warm/cold failure with old outputs preserved, and recover with corrected dependencies.
+
+#### Completion Notes
+
+Extended `scripts/test_bazel_worker.py` using the shared process, parity, and snapshot helpers. The strict-interface matrix passed through direct, @params, and persistent execution in both a warm worker and a restarted worker, including same-path exposure edits, failure output preservation, and recovery. `python3 scripts/test_bazel_worker.py --jar <resolved-candidate-assembly>`, Python syntax validation, and `git diff --check` passed.
 
 5. [ ] `step_3c` Close qualification coverage and document the implemented v1 worker
 
