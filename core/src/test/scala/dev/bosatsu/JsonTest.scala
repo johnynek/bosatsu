@@ -125,4 +125,40 @@ class JsonTest extends munit.FunSuite {
     assertEquals(CcConf.parse(json), Right(conf))
     assertEquals(Json.Writer.write(conf), json)
   }
+
+  test("strict JSON documents use JSON string escapes without changing the permissive parser") {
+    val valid = List(
+      "\"\\/\"" -> JString("/"),
+      "\"\\b\\f\\n\\r\\t\\\"\\\\\"" -> JString("\b\f\n\r\t\"\\"),
+      "\"\\u96ea\\uD83D\\uDE42\"" -> JString("雪🙂"),
+      "{\"key\\u002fname\":[\"value\\/part\"]}" -> Json.JObject(
+        List("key/name" -> Json.JArray(Vector(JString("value/part"))))
+      )
+    )
+    valid.foreach { case (document, expected) =>
+      assertEquals(Json.strictParserFile.parseAll(document), Right(expected), document)
+    }
+
+    val invalidEscapes = List(
+      "\"\\x41\"",
+      "\"\\o41\"",
+      "\"\\U00000041\"",
+      "\"\\'\"",
+      "\"\\q\"",
+      "\"\\u12\"",
+      "\"\\u12G4\""
+    )
+    invalidEscapes.foreach { document =>
+      assert(Json.strictParserFile.parseAll(document).isLeft, document)
+    }
+
+    (0 until 0x20).foreach { control =>
+      val document = "\"a" + control.toChar + "b\""
+      assert(Json.strictParserFile.parseAll(document).isLeft, s"accepted control U+${control.toHexString}")
+    }
+
+    assertEquals(Json.parserFile.parseAll("\"\\x41\""), Right(JString("A")))
+    assertEquals(Json.parserFile.parseAll("\"raw\nnewline\""), Right(JString("raw\nnewline")))
+    assert(Json.parserFile.parseAll("\"\\/\"").isLeft)
+  }
 }

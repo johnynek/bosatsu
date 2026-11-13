@@ -31,10 +31,19 @@ final class FileCommandRunner private (compilerEC: Par.EC) {
     IO.defer {
       val out = new ByteArrayOutputStream
       val err = new ByteArrayOutputStream
-      run(
-        new PrintStream(out, false, UTF_8),
-        new PrintStream(err, false, UTF_8)
-      ).map(code => Result(code, out.toString(UTF_8), err.toString(UTF_8)))
+      val stdout = new PrintStream(out, false, UTF_8)
+      val stderr = new PrintStream(err, false, UTF_8)
+      Resource
+        .make(IO.pure((stdout, stderr))) { case (outStream, errStream) =>
+          IO.blocking {
+            outStream.close()
+            errStream.close()
+          }
+        }
+        .use { case (outStream, errStream) => run(outStream, errStream) }
+        .flatMap { code =>
+          IO.blocking(Result(code, out.toString(UTF_8), err.toString(UTF_8)))
+        }
     }
 
   /** The interactive CLI can stream large file-command reports without first

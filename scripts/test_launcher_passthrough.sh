@@ -80,6 +80,18 @@ if ! cmp -s "$EXPECTED_BOSATSUJ" "$WORKDIR/bosatsuj-argv.txt"; then
   exit 1
 fi
 
+ARGV_OUTPUT="$WORKDIR/bosatsuj-persistent-argv.txt" PATH="$FAKE_BIN:$PATH" \
+  "$REPO_ROOT/bosatsuj" tool bazel-worker --persistent_worker
+EXPECTED_BOSATSUJ_PERSISTENT="$WORKDIR/expected-bosatsuj-persistent.txt"
+{
+  printf '%s\n' -jar "$JAR_PATH" tool bazel-worker --persistent_worker
+} > "$EXPECTED_BOSATSUJ_PERSISTENT"
+if ! cmp -s "$EXPECTED_BOSATSUJ_PERSISTENT" "$WORKDIR/bosatsuj-persistent-argv.txt"; then
+  echo "bosatsuj did not preserve --persistent_worker" >&2
+  diff -u "$EXPECTED_BOSATSUJ_PERSISTENT" "$WORKDIR/bosatsuj-persistent-argv.txt" >&2 || true
+  exit 1
+fi
+
 printf 'java-artifact\n' > "$WORKDIR/fake-java-artifact.jar"
 printf 'java\n' > "$TEST_REPO/.bosatsu_platform"
 ARGV_OUTPUT="$WORKDIR/bosatsu-java-argv.txt" PATH="$FAKE_BIN:$PATH" \
@@ -93,5 +105,19 @@ EXPECTED_BOSATSU="$WORKDIR/expected-bosatsu-java.txt"
 if ! cmp -s "$EXPECTED_BOSATSU" "$WORKDIR/bosatsu-java-argv.txt"; then
   echo "Java-platform bosatsu did not preserve the worker parameter-file argument" >&2
   diff -u "$EXPECTED_BOSATSU" "$WORKDIR/bosatsu-java-argv.txt" >&2 || true
+  exit 1
+fi
+
+ARGV_OUTPUT="$WORKDIR/bosatsu-java-persistent-argv.txt" PATH="$FAKE_BIN:$PATH" \
+  bash -c 'cd "$1" && ./bosatsu --artifact "$2" tool bazel-worker --persistent_worker' \
+  _ "$TEST_REPO" "$WORKDIR/fake-java-artifact.jar"
+EXPECTED_BOSATSU_PERSISTENT="$WORKDIR/expected-bosatsu-java-persistent.txt"
+{
+  printf '%s\n' -jar "$TEST_REPO/.bosatsuc/cli/test-version/bosatsu.jar" \
+    tool bazel-worker --persistent_worker
+} > "$EXPECTED_BOSATSU_PERSISTENT"
+if ! cmp -s "$EXPECTED_BOSATSU_PERSISTENT" "$WORKDIR/bosatsu-java-persistent-argv.txt"; then
+  echo "Java-platform bosatsu did not preserve --persistent_worker" >&2
+  diff -u "$EXPECTED_BOSATSU_PERSISTENT" "$WORKDIR/bosatsu-java-persistent-argv.txt" >&2 || true
   exit 1
 fi
