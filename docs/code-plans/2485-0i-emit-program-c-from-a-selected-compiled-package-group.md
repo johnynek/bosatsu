@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2485` 0i: Emit program C from a selected compiled package group
-- Pending steps: `1`
-- Completed steps: `3`
+- Pending steps: `0`
+- Completed steps: `4`
 - Total steps: `4`
 
 ## Summary
@@ -134,7 +134,7 @@ Validate the candidate with `sbt "coreJVM/test; cli/test; coreJS/test; cli/assem
 
 Extended the native harness to compile separate Prog/Types/Api/Main bundles, emit with an empty PATH using only declared bundles and the runtime manifest, and link a program that exits 7. The existing private Test/ProgTest cases still exit 0, 1, and 1; the action-file inventory check passed. Updated the design command contract, shared publication and external-binding guarantees, and tracker 0i implementation references. `sbt "coreJVM/test; cli/test; coreJS/test; cli/assembly"`, `./test_cli.sh`, the native harness, and the explicit candidate-jar worker harness passed. Focused coverage passed all 30 EmitCCommand tests and generated reports. The full coverage command stopped at Issue1633Test’s 30-second timeout under instrumentation; that test passed in the uninstrumented full run. `git diff --check` and Python syntax validation passed.
 
-4. [ ] `step_4` Declare the main runner at the shared rendering boundary and qualify generated headers
+4. [x] `step_4` Declare the main runner at the shared rendering boundary and qualify generated headers
 
 Invariant family: native-main-runner-declaration
 
@@ -166,3 +166,7 @@ Run focused ClangGen tests on JVM and Scala.js while implementing, then `sbt "co
 - A valid Main callback using another package's declared external and no direct Prog external emits C without a Prog external-header dependency, compiles under the same strict declaration check, and exits 7.
 - Legacy and explicit standard-resolver rendering remain equivalent, while denied direct and first-class external references still fail.
 - The native private Test/ProgTest cases retain exits 0, 1 and 1, and the action directory contains only declared inputs and outputs.
+
+#### Completion Notes
+
+Declared the supplied runner at the shared `Env.renderMain` boundary before generated `main`, and added JVM regressions for both overloads with and without reachable `Bosatsu/Prog` externals. Updated generated-C snapshots, the CLI output hash, and the runner call-order assertion. The native harness compiled with generated headers first and implicit declarations treated as errors; both program cases exited 7 and private Test/ProgTest cases retained their 0/1/1 outcomes. Focused JVM/Scala.js ClangGen tests, `cli/test`, `coreJS/test`, assembly, native harness, and candidate-jar worker harness passed. Repeated full `coreJVM/test` attempts intermittently timed out in unrelated `CompileCacheTest` and once `PackageTest`; the focused CompileCache suite and pre-step supervised required-tests gate passed.

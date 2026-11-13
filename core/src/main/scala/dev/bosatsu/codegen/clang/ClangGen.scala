@@ -211,7 +211,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
   }
 
   // the Code.Ident should be a function with signature:
-  // int run_main(BValue main_value, int argc, char** args)
+  // int run_main(BValue main_value, int argc, char** argv)
   def renderMain(
       pn: PackageName,
       value: Bindable,
@@ -1735,7 +1735,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
           }
 
           // the Code.Ident should be a function with signature:
-          // int run_main(BValue main_value, int argc, char** args)
+          // int run_main(BValue main_value, int argc, char** argv)
           def renderMain(
               p: PackageName,
               b: Bindable,
@@ -1753,6 +1753,20 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
              */
             globalIdent(ns.rootKey, p, b).flatMap { mainCons =>
               val mainValue = Code.Ident("main_value")
+              val mainRunDeclaration = Code.DeclareFn(
+                Nil,
+                Code.TypeIdent.Int,
+                mainRun,
+                List(
+                  Code.Param(Code.TypeIdent.BValue, mainValue),
+                  Code.Param(Code.TypeIdent.Int, Code.Ident("argc")),
+                  Code.Param(
+                    Code.TypeIdent.Char.ptr.ptr,
+                    Code.Ident("argv")
+                  )
+                ),
+                None
+              )
               val mainBody = Code.Statements(
                 Code.Ident("GC_init")().stmt,
                 Code.Ident("init_statics")().stmt,
@@ -1771,7 +1785,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
               )
 
               val mainFn = Code.declareMain(mainBody)
-              appendStatement(mainFn)
+              appendStatement(mainRunDeclaration) *> appendStatement(mainFn)
             } *> StateT { s =>
               result(
                 s.include(Code.Include.angle("stdlib.h"))

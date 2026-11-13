@@ -187,6 +187,8 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_build__List(BValue __bsts_b_fn0) {
         alloc_enum0(0));
 }
 
+int run_main(BValue main_value, int argc, char** argv);
+
 int main(int argc, char** argv) {
     GC_init();
     init_statics();
@@ -223,6 +225,8 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_foldr__List(BValue __bsts_b_list0,
     BValue __bsts_b_acc0) {
     return __bsts_t_lambda__loop0(__bsts_b_acc0, __bsts_b_fn0, __bsts_b_list0);
 }
+
+int run_main(BValue main_value, int argc, char** argv);
 
 int main(int argc, char** argv) {
     GC_init();
@@ -1019,6 +1023,8 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_reverse__concat(BValue __bsts_b_front0,
     }
     return __bsts_a_11;
 }
+
+int run_main(BValue main_value, int argc, char** argv);
 
 int main(int argc, char** argv) {
     GC_init();
@@ -1902,5 +1908,51 @@ main = same
       deniedFirstClass.swap.toOption.exists(_.isInstanceOf[ClangGen.Error.UnknownValue]),
       deniedFirstClass.toString
     )
+  }
+
+  test("main rendering declares its runner with and without Prog externals") {
+    val progPackage =
+      """package Bosatsu/Prog
+        |
+        |export (Prog, pure)
+        |
+        |external type Prog[err: +*, res: +*]
+        |external def pure[err, res](value: res) -> Prog[err, res]
+        |""".stripMargin
+    val rootPackage = PackageName.parts("Test")
+    val mainName = Identifier.Name("main")
+    val runner = Code.Ident("run_main")
+
+    for {
+      usesProgExternal <- List(false, true)
+      explicitResolver <- List(false, true)
+    } {
+      val mainPackage =
+        if (usesProgExternal) "package Test\nfrom Bosatsu/Prog import pure\nmain = pure(1)"
+        else "package Test\nmain = 1"
+      val sources =
+        if (usesProgExternal) List(progPackage, mainPackage)
+        else List(mainPackage)
+      val rendered = Par.withEC {
+        val gen = ClangGen(typeCheckPackages(sources))
+        if (explicitResolver)
+          gen.renderMain(
+            rootPackage,
+            mainName,
+            runner,
+            gen.ExternalResolver.stdExternals
+          )
+        else gen.renderMain(rootPackage, mainName, runner)
+      }.fold(err => fail(err.toString), _.render(120))
+
+      val declaration = "int run_main(BValue main_value, int argc, char** argv);"
+      val declarationIndex = rendered.indexOf(declaration)
+      val mainIndex = rendered.indexOf("int main(")
+      val callIndex = rendered.indexOf("run_main(main_value, argc, argv)")
+      assert(declarationIndex >= 0, rendered)
+      assert(declarationIndex < mainIndex, rendered)
+      assert(mainIndex < callIndex, rendered)
+      assertEquals(rendered.contains("bosatsu_ext_Bosatsu_l_Prog.h"), usesProgExternal)
+    }
   }
 }
