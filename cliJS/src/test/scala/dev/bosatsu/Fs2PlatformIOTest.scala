@@ -3,6 +3,7 @@ package dev.bosatsu
 import cats.effect.IO
 import cats.effect.unsafe.implicits.global
 import cats.syntax.all._
+import dev.bosatsu.hashing.Algo
 import dev.bosatsu.tool.ExitCode
 import fs2.io.file.{Files, Path}
 import munit.FunSuite
@@ -10,6 +11,54 @@ import org.typelevel.paiges.Doc
 import scala.scalajs.js
 
 class Fs2PlatformIOTest extends FunSuite {
+  test("verify-toolchain runs portably and preserves a stamp after validation failure") {
+    val fs = Files.forIO
+    val module = new MainModule(Fs2PlatformIO)
+    def run(args: String*): IO[ExitCode] =
+      IO.fromEither(
+        module.run("tool" :: args.toList).leftMap(h => new IllegalArgumentException(h.toString))
+      )
+        .flatten.flatMap(_.report(Fs2PlatformIO))
+    fs.tempDirectory.use { dir =>
+      val manifest = dir / "manifest.json"
+      val compiler = dir / "compiler.jar"
+      val stamp = dir / "stamp"
+      val compilerBytes = "node candidate jar".getBytes("UTF-8")
+      def sha(bytes: Array[Byte]): String = Algo.hashBytes[Algo.Sha256](bytes).hex
+      val emptyHash = sha(Array.emptyByteArray)
+      val manifestBytes =
+        s"""{
+           |"schema_version":1,
+           |"compiler":{"uri":"unused","sha256":"${sha(compilerBytes)}"},
+           |"core":{"library_name":"bosatsu","version":"1.2.3","uri":"unused","sha256":"$emptyHash"},
+           |"c_runtime":{"uri":"unused","sha256":"$emptyHash"}
+           |}""".stripMargin.getBytes("UTF-8")
+      def verify: IO[ExitCode] = run(
+        "verify-toolchain",
+        "--manifest", manifest.toString,
+        "--compiler-jar", compiler.toString,
+        "--out", stamp.toString
+      )
+      for {
+        _ <- Fs2PlatformIO.writeBytes(manifest, manifestBytes)
+        _ <- Fs2PlatformIO.writeBytes(compiler, compilerBytes)
+        valid <- verify.attempt
+        _ = assertEquals(valid.toOption, Some(ExitCode.Success))
+        stampContent <- Fs2PlatformIO.readUtf8(stamp)
+        _ = assertEquals(stampContent, "ok")
+        _ <- Fs2PlatformIO.writeDoc(stamp, Doc.text("sentinel"))
+        _ <- Fs2PlatformIO.writeBytes(compiler, "altered candidate".getBytes("UTF-8"))
+        invalid <- verify.attempt
+        _ = assert(
+          invalid.swap.toOption.exists(_.getMessage.contains("compiler jar SHA-256 mismatch")),
+          invalid
+        )
+        previous <- Fs2PlatformIO.readUtf8(stamp)
+        _ = assertEquals(previous, "sentinel")
+      } yield ()
+    }.unsafeToFuture()
+  }
+
   test("emit-c resolves pending output aliases and creates the declared header directory") {
     val fs = Files.forIO
     val module = new MainModule(Fs2PlatformIO)

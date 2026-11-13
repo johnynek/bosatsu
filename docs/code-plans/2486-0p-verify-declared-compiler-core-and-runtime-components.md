@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2486` 0p: Verify declared compiler, core and runtime components
-- Pending steps: `2`
-- Completed steps: `2`
+- Pending steps: `1`
+- Completed steps: `3`
 - Total steps: `4`
 
 ## Summary
@@ -104,7 +104,7 @@ Add shared tests using the existing `MemoryMain` platform and small read-countin
 
 Added the typed version-1 manifest reader and requested-component verifier, including strict UTF-8 and duplicate-field checks, SHA-256 pin validation, core identity/version checks, and advertised runtime-hash verification. `coreJVM/testOnly dev.bosatsu.ToolchainManifestTest` and `coreJS/testOnly dev.bosatsu.ToolchainManifestTest` both passed (7 tests each).
 
-3. [ ] `step_3` Expose verification through the existing file-command lifecycle
+3. [x] `step_3` Expose verification through the existing file-command lifecycle
 
 Add `core/src/main/scala/dev/bosatsu/tool_command/VerifyToolchainCommand.scala`. Require `--manifest FILE`, `--compiler-jar FILE` and `--out STAMP`; accept optional `--core-library FILE`, repeatable `--core-source FILE`, and optional `--runtime-archive FILE`. Reject simultaneous binary and source core inputs. Read the manifest and invoke the verifier from step 2, passing the running build's `BuildInfo.cRuntimeArchiveHash`. Produce `Output.Basic` with an `ok` stamp only after the entire verification effect succeeds; do not write directly during validation.
 
@@ -130,6 +130,10 @@ Add `cli/src/test/scala/dev/bosatsu/VerifyToolchainCommandTest.scala` using `Fil
 - Run good/bad/good requests with files edited at reused paths to prove verification does not reuse stale results.
 - Force publication failure and verify preservation of existing files, cleanup, and a subsequent successful request.
 - Execute the command under Node with valid fixtures and a mismatch that preserves the previous stamp.
+
+#### Completion Notes
+
+Added `tool verify-toolchain` using the shared manifest verifier and generated runtime hash, and registered it with the ordinary file runner and one-shot worker. Added JVM command, runner, worker-parity and Node coverage for source selection, success stamps, failure preservation and publication retry. Focused JVM/Node suites passed; `./test_cli.sh` passed, including the candidate worker checks and final eval assertion.
 
 4. [ ] `step_4` Qualify exact candidate jars and document the implemented policy
 

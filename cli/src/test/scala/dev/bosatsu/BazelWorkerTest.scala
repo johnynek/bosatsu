@@ -138,10 +138,16 @@ class BazelWorkerTest extends FileCommandFixtures {
     }
   }
 
-  test("only the four registered build operations are classified for workers") {
+  test("all registered build operations are classified for workers") {
     assertEquals(
       BazelWorker.Operation.registered.map(_.commandName),
-      List("headers", "compile-packages", "validate-graph", "emit-c")
+      List(
+        "headers",
+        "compile-packages",
+        "validate-graph",
+        "verify-toolchain",
+        "emit-c"
+      )
     )
     assertEquals(
       BazelWorker.Operation.registered.flatMap(op =>
