@@ -7,9 +7,9 @@
 
 - Flow: `small_job`
 - Issue: `#2484` 0k: Add the singleplex persistent JSON JVM worker
-- Pending steps: `0`
+- Pending steps: `1`
 - Completed steps: `5`
-- Total steps: `5`
+- Total steps: `6`
 
 ## Summary
 
@@ -17,19 +17,19 @@ All five implementation steps are complete: the persistent worker extends BazelW
 
 Preserve the accepted authorization for the persistent-worker family to exceed the 1,000-line churn guideline within the named acceptance inventory and existing implementation, test, harness and design surfaces. No unrelated compiler semantic change, publication refactor, new operation, inference cache, alternate engine or generic test framework is authorized.
 
-The final required-tests failure is provisionally classified as a timing flake after the unchanged failing core test passed in isolation at the tested candidate SHA. No repository repair is warranted by the available evidence; leave no pending steps. MergeXO owns the supervised required-tests rerun, which must pass before publication.
+The latest required-test run passed CLI testing but stalled during core testing with multiple timeouts and sustained GC pressure. Replace the previous rerun-only disposition with one bounded investigation and repair step covering resource ownership and the existing shared-JVM test boundary. Any repository repair must follow diagnostic evidence; an infrastructure-only finding may close the step without code changes. MergeXO owns the subsequent supervised required-tests rerun, which must pass before publication.
 
 Plan trajectory: initial steps 3; review revisions 0; review-origin steps 0.
 
 ## Current State
 
-At candidate da82242972af8642681a03e1632bd5ef41e0d297, steps step_1, step_2, step_3a, step_3b and step_3c are completed, and no pending step already covers corrective work. Their immutable completion notes record the worker implementation, candidate-JVM transport/parity and strict-interface matrices, focused lifecycle coverage, assembly, launcher and CLI qualification, and design/tracker updates.
+At candidate 194d27d606aebe2ae53c5ac9af54f90a2fb39817, step_1, step_2, step_3a, step_3b and step_3c are completed. Their immutable completion notes record the worker implementation, candidate-JVM transport/parity and strict-interface matrices, lifecycle coverage, assembly, launcher and CLI qualification, and design/tracker updates. No existing pending step covers corrective work.
 
-Supervised gate/run 01a1d30d140e73e2b20e30f076d0e304 tested that exact SHA with scripts/test_basic.sh and failed with exit code 1, class test_failure. The complete report and streams show the CLI suite passing, followed by one core failure: BosatsuIntRuntimeTest, 'Bosatsu Int tests exercise optimized runtime special cases', exceeded its 30-second test timeout at 32.016 seconds. The other 2,196 core tests passed; stderr was empty.
+Supervised gate/run 01a1d31bc70f7e31832a53cf11846fe6 tested that exact SHA with scripts/test_basic.sh and failed with status failed, no exit code, and failure class infra_timeout after exhausting the configured 2400-second wall-clock limit. Complete stdout shows CLI testing passing with 180 passed and one skipped, followed by 30-second core test timeouts in TestUtilsTypeValidationTest, Regressions, LibBuildImplicitPackageTest, Issue1654Test and dev.bosatsu.codegen.clang.ClangGenTest. The final warning reports 894.666 of 897 seconds spent in GC (99.8%); stderr is empty.
 
-Investigation found that the failing test, its IntRuntimeCases fixture, core implementation and build configuration are unchanged by this candidate. The test uses TestUtils.runBosatsuTest through MemoryMain rather than the changed CLI worker path. At the same SHA, sbt -batch "coreJVM/testOnly dev.bosatsu.BosatsuIntRuntimeTest" passed its single test in 14.031 seconds with the existing timeout unchanged. HEAD remained unchanged and the worktree stayed clean.
+The earlier gate/run 01a1d30d140e73e2b20e30f076d0e304 at da82242972af8642681a03e1632bd5ef41e0d297 failed on a BosatsuIntRuntimeTest timeout, and that test subsequently passed in isolation. That isolated pass remains diagnostic evidence, but does not explain the newer broad GC stall. The latest candidate commit changes only plan artifacts. Relative to main, core/base code, build.sbt, JVM options and scripts/test_basic.sh are unchanged. The required-test script executes CLI and core tests sequentially in one sbt JVM; .jvmopts already selects G1GC with an 8GB maximum heap.
 
-This supports treating the observed failure as a likely timing flake rather than planning a speculative code change or increasing timeouts. Leave no pending repair steps and allow MergeXO to rerun the supervised gate. The isolated pass is diagnostic evidence only; the required gate remains failed until a subsequent supervised run passes.
+The evidence establishes severe GC pressure during the failed run, without identifying whether its cause is retained candidate resources, shared-JVM test execution or host pressure. One pending investigation step now covers that root-cause family and any justified minimal repair. The supervised required gate remains failed and must pass before publication.
 
 ## Problem
 
@@ -206,3 +206,30 @@ Update only relevant persistent-worker passages and tracker 0k in `docs/design/h
 #### Completion Notes
 
 Updated `docs/design/hermetic-bazel-rules.md` with the implemented v1 worker behavior and candidate-jar qualification instructions; marked tracker 0k complete while preserving 0j. Added focused transport decoding/error and request-publication failure coverage, and raised the harness response timeout to 60 seconds after `./test_cli.sh` exposed a timeout on a loaded run. `sbt "coverage; clean; coreJVM/test; cli/test; coverageReport"` stopped on an Issue1633 timeout under coverage (2/2 passed when rerun without coverage); `sbt "coverage; cli/test; coverageReport"` passed (177 passed, 1 skipped) and reported 100% branch coverage for the changed BazelWorker and FileCommandRunner lifecycle branches. `sbt "cli/test; cli/assembly"` passed (180 passed, 1 skipped). The candidate-jar worker harness and launcher passthrough passed; the final `./test_cli.sh` rerun exited successfully, including the candidate harness and 6,918 Bosatsu tests. `git diff --check` passed.
+
+6. [ ] `step_4_gc_stall` Investigate and close the required-test GC stall
+
+Investigate the resource-pressure failure in gate/run 01a1d31bc70f7e31832a53cf11846fe6 at candidate 194d27d606aebe2ae53c5ac9af54f90a2fb39817: scripts/test_basic.sh passed CLI testing, then reported five core test timeouts, 99.8% GC time over 897 seconds, and exhausted the configured 2400-second wall-clock limit. This serves the existing required-test gate and worker resource-lifecycle contract. All existing steps are completed, so none can absorb this investigation.
+
+Use bounded diagnostic runs comparing the affected core suites alone with the same suites after BazelWorkerTest and FileCommandRunnerTest in one sbt JVM. Include TestUtilsTypeValidationTest, Regressions, LibBuildImplicitPackageTest, Issue1654Test, dev.bosatsu.codegen.clang.ClangGenTest and the previously timed-out BosatsuIntRuntimeTest. Capture JVM GC/heap and executor/thread observations alongside available host/container resources. Inspect the existing FileCommandRunner resource and request finalizers, IOPlatformIO.parResource, changed test fixtures, and scripts/test_basic.sh's shared CLI/core JVM execution. The repository already configures G1GC; do not prescribe a collector or heap increase from the warning alone.
+
+Apply the smallest repair supported by the findings: extend the existing resource owner if candidate work retains resources, or adjust the existing required-test execution boundary if shared-JVM pressure is demonstrated. Preserve both suites and failure propagation. If diagnostics instead support an infrastructure-only failure, close this step without speculative code changes and record that disposition. Completion notes must record the tested revision, diagnostic commands, concise results, causal limits and any repair validation. Use focused checks for changed behavior; MergeXO owns the full supervised gate rerun.
+
+Required-test repair provenance: tested SHA `194d27d606aebe2ae53c5ac9af54f90a2fb39817`; gate/run ID `01a1d31bc70f7e31832a53cf11846fe6`; status `failed`; configured gate `required_tests`; failure: infra_timeout required gate failed with exit code None.
+
+#### Invariants
+
+- Required suites, assertions, failure propagation and the configured gate timeout remain intact; timeouts are not increased to hide resource pressure.
+- Worker requests retain the existing executor ownership, request cleanup, publication and recovery guarantees.
+- Repairs stay limited to a demonstrated cause of this gate failure; no compiler semantic change, inference cache or replacement execution engine is introduced.
+- Diagnostic passes do not certify the required gate; publication still requires a successful supervised run.
+
+#### Property Tests
+
+- If resource ownership changes, exercise repeated successful and failing requests through the existing runner boundary and assert request-owned work is released while the runner remains reusable.
+- If required-test orchestration changes, verify that both suite invocations remain mandatory and failure from either produces a nonzero script result.
+
+#### Assertion Tests
+
+- Compare the six named core suites alone and after the changed worker suites, recording GC/resource observations with unchanged test timeouts.
+- Run focused regression checks for any demonstrated lifecycle or test-execution repair; if production worker behavior changes, also run the candidate-jar worker harness and launcher passthrough checks.
