@@ -23,9 +23,9 @@ case class PackageName(parts: NonEmptyList[String]) derives CanEqual {
 
   def isPredef: Boolean = this == PackageName.PredefName
 
-  /** `Bosatsu/...` packages are reserved for the compiler's Predef and the
-    * core library. The compiler gives some of their bindings built-in meaning
-    * by name.
+  /** `Bosatsu/...` packages are reserved for the compiler's Predef and the core
+    * library. The compiler gives some of their bindings built-in meaning by
+    * name.
     */
   def isReserved: Boolean = parts.head == PackageName.ReservedRoot
 }

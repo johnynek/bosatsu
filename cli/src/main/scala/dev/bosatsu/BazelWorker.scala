@@ -32,7 +32,10 @@ object BazelWorker {
   }
 
   /** Read one @file argument without shell parsing or recursive expansion. */
-  def readParameterFile(directory: Path, parameterArgument: String): IO[Invocation] =
+  def readParameterFile(
+      directory: Path,
+      parameterArgument: String
+  ): IO[Invocation] =
     IO.blocking {
       parameterArgument match {
         case value if value.startsWith("@") && value.length > 1 =>
@@ -59,7 +62,7 @@ object BazelWorker {
       }
     }.handleErrorWith {
       case err: CliException => IO.raiseError(err)
-      case err =>
+      case err               =>
         val filename = parameterArgument.stripPrefix("@")
         IO.raiseError(
           CliException.Basic(

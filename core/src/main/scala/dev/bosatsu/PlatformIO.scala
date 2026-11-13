@@ -56,7 +56,10 @@ trait PlatformIO[F[_], Path] {
         }
       }
 
-  final inline def getOrError[A](oa: Option[A], inline msg: => Throwable): F[A] =
+  final inline def getOrError[A](
+      oa: Option[A],
+      inline msg: => Throwable
+  ): F[A] =
     oa match {
       case Some(a) => moduleIOMonad.pure(a)
       case None    => moduleIOMonad.raiseError(msg)
@@ -64,17 +67,23 @@ trait PlatformIO[F[_], Path] {
 
   def readPackages(paths: List[Path]): F[List[Package.Compiled]]
   def readPackageBundle(path: Path): F[proto.Packages] =
-    readBytes(path).flatMap(bytes => canPromiseF.compute(proto.Packages.parseFrom(bytes)))
+    readBytes(path).flatMap(bytes =>
+      canPromiseF.compute(proto.Packages.parseFrom(bytes))
+    )
 
   def writePackageBundle(bundle: proto.Packages, path: Path): F[Unit] =
     writeBytes(path, bundle.toByteArray)
   def readInterfaceBundle(path: Path): F[proto.Interfaces] =
-    readBytes(path).flatMap(bytes => moduleIOMonad.fromTry(Try(proto.Interfaces.parseFrom(bytes))))
+    readBytes(path).flatMap(bytes =>
+      moduleIOMonad.fromTry(Try(proto.Interfaces.parseFrom(bytes)))
+    )
 
   def readInterfaces(paths: List[Path]): F[List[Package.Interface]] =
     paths.parTraverse(readInterfaceBundle).flatMap { bundles =>
       moduleIOMonad
-        .fromTry(ProtoConverter.packagesFromProto(bundles.flatMap(_.interfaces), Nil))
+        .fromTry(
+          ProtoConverter.packagesFromProto(bundles.flatMap(_.interfaces), Nil)
+        )
         .map(_._1)
     }
 
@@ -103,9 +112,12 @@ trait PlatformIO[F[_], Path] {
   type FileKey
   def fileKeyHash: Hash[FileKey]
   def existingFileKey(path: Path): F[Option[FileKey]]
+
   /** Resolve a prospective output name without creating it. */
   def pendingOutputPath(path: Path): F[Path]
-  /** Use the destination filesystem's naming rules when probing output aliases. */
+
+  /** Use the destination filesystem's naming rules when probing output aliases.
+    */
   def withTempDirectoryIn[A](parent: Path)(fn: Path => F[A]): F[A]
 
   def fileExists(p: Path): F[Boolean] =
@@ -162,7 +174,7 @@ trait PlatformIO[F[_], Path] {
       fsDataType(current).flatMap {
         case Some(PlatformIO.FSDataType.Dir) =>
           hasGitMetadataEntry(current).map {
-            case true => Right(Some(current))
+            case true  => Right(Some(current))
             case false =>
               parent(current) match {
                 case Some(next) if !pathOrdering.equiv(next, current) =>
@@ -177,7 +189,7 @@ trait PlatformIO[F[_], Path] {
     moduleIOMonad.tailRecM(start)(searchStep)
   }
 
-  def gitTopLevel: F[Option[Path]] = {
+  def gitTopLevel: F[Option[Path]] =
     path(".") match {
       case Valid(a)   => gitTopLevelFrom(a)
       case Invalid(e) =>
@@ -185,7 +197,6 @@ trait PlatformIO[F[_], Path] {
           new Exception(s"could not find current directory: $e")
         )
     }
-  }
 
   final def writeOut(doc: Doc, out: Option[Path]): F[Unit] =
     out match {

@@ -107,7 +107,7 @@ class Z3ApiTest extends munit.FunSuite {
       case Right(res) =>
         assertEquals(res.status, Z3Api.Status.Sat)
         assertEquals(res.model, None)
-      case Left(err)  =>
+      case Left(err) =>
         fail(s"unexpected error: ${err.message}")
     }
   }
@@ -138,7 +138,7 @@ class Z3ApiTest extends munit.FunSuite {
       case Right(res) =>
         assertEquals(res.status, Z3Api.Status.Sat)
         assertEquals(res.model, None)
-      case Left(err)  =>
+      case Left(err) =>
         fail(s"unexpected error: ${err.message}")
     }
   }

@@ -303,7 +303,9 @@ class FileCommandRunnerTest extends FileCommandFixtures {
     }
   }
 
-  test("an overlong output path returns an error and the runner remains usable") {
+  test(
+    "an overlong output path returns an error and the runner remains usable"
+  ) {
     withRunner { (root, runner) =>
       assume(Files.getFileStore(root).supportsFileAttributeView("posix"))
       val headers = List("headers", "--src", input, "--out")
@@ -338,9 +340,15 @@ class FileCommandRunnerTest extends FileCommandFixtures {
             code <- report(Doc.defer(Doc.empty))
             _ = assertEquals(code, ExitCode.Error)
             _ = assertEquals(out.size(), 0)
-            _ = assertEquals(err.toString(UTF_8), "problem" + System.lineSeparator())
+            _ = assertEquals(
+              err.toString(UTF_8),
+              "problem" + System.lineSeparator()
+            )
             _ <- report(Doc.defer(Doc.text("detail")))
-            _ = assertEquals(out.toString(UTF_8), "detail" + System.lineSeparator())
+            _ = assertEquals(
+              out.toString(UTF_8),
+              "detail" + System.lineSeparator()
+            )
           } yield ()
         }
     }

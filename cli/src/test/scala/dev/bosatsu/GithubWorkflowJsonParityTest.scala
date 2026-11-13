@@ -83,7 +83,9 @@ class GithubWorkflowJsonParityTest extends munit.FunSuite {
     }
   }
 
-  test("ci workflow uses the current top-level fetch command for protobuf validation") {
+  test(
+    "ci workflow uses the current top-level fetch command for protobuf validation"
+  ) {
     val out = run(
       "json",
       "write",
@@ -100,8 +102,12 @@ class GithubWorkflowJsonParityTest extends munit.FunSuite {
         fail(s"expected JSON output, got: $other")
     }
 
-    assert(rendered.contains("./bosatsuj fetch --repo_root . --name core_alpha"))
-    assert(!rendered.contains("./bosatsuj lib fetch --repo_root . --name core_alpha"))
+    assert(
+      rendered.contains("./bosatsuj fetch --repo_root . --name core_alpha")
+    )
+    assert(
+      !rendered.contains("./bosatsuj lib fetch --repo_root . --name core_alpha")
+    )
   }
 
   test("ci workflow constrains native-image threads in the graal build step") {
@@ -132,7 +138,10 @@ class GithubWorkflowJsonParityTest extends munit.FunSuite {
         .getOrElse(fail("missing build native image step"))
 
     assertEquals(
-      buildNativeImageStep.path("env").path("BOSATSU_NATIVE_IMAGE_THREADS").asText(),
+      buildNativeImageStep
+        .path("env")
+        .path("BOSATSU_NATIVE_IMAGE_THREADS")
+        .asText(),
       "2"
     )
   }

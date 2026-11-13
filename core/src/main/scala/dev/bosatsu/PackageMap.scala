@@ -151,27 +151,26 @@ object PackageMap {
       val canonicalCycles = rawCyclesRev.reverse.map(canonicalCycle)
       val byStart = canonicalCycles.groupBy(_.head)
 
-      val minimalCycles: List[List[PackageName]] = byStart.iterator
-        .flatMap { case (_, cycles) =>
+      val minimalCycles: List[List[PackageName]] = byStart.iterator.flatMap {
+        case (_, cycles) =>
           val minSize = cycles.iterator.map(_.size).min
           cycles.filter(_.size == minSize)
-        }
-        .toList
+      }.toList
 
       implicit val cycleOrdering: Ordering[List[PackageName]] =
         ListOrdering.onType(PackageName.packageNameOrdering)
 
       val normalizedCircularErrs: List[PackageError] =
-        minimalCycles
-          .distinct
-          .sorted
+        minimalCycles.distinct.sorted
           .map { cycle =>
             val from = cycle.head
             val path = NonEmptyList.fromListUnsafe(cycle.tail)
             PackageError.CircularDependency(from, path)
           }
 
-      NonEmptyList.fromListUnsafe(normalizedCircularErrs ::: otherErrsRev.reverse)
+      NonEmptyList.fromListUnsafe(
+        normalizedCircularErrs ::: otherErrsRev.reverse
+      )
     }
   }
 
@@ -327,15 +326,17 @@ object PackageMap {
       A
     ]] =
       packagesByName.get(i.pack) match {
-        case Some(_)    => Right(Import(Right(i.pack), i.items))
-        case None       =>
+        case Some(_) => Right(Import(Right(i.pack), i.items))
+        case None    =>
           interfaceMap.get(i.pack) match {
             case Some(iface) =>
               Right(Import(Left(iface), i.items))
             case None =>
-              Left(NonEmptyChain.one(
-                PackageError.UnknownImportPackage(i.pack, from)
-              ))
+              Left(
+                NonEmptyChain.one(
+                  PackageError.UnknownImportPackage(i.pack, from)
+                )
+              )
           }
       }
 
@@ -374,25 +375,28 @@ object PackageMap {
           }
 
           val depsOr =
-            traverseList(p.imports) { i => getImport(i, pname) }
+            traverseList(p.imports)(i => getImport(i, pname))
 
           depsOr match {
             case Right(deps) =>
               // recursing can throw if we don't have a dag. We need to catch each call
               val maybeFns =
-                try Some(deps.map { i =>
-                  i.pack match {
-                    case Right(depName) =>
-                      // This recursion can throw if we don't have a dag
-                      rec(depName).map { dep =>
-                        Import(Package.fix[A, B, C](Right(dep)), i.items)
+                try
+                  Some(
+                    deps.map { i =>
+                      i.pack match {
+                        case Right(depName) =>
+                          // This recursion can throw if we don't have a dag
+                          rec(depName).map { dep =>
+                            Import(Package.fix[A, B, C](Right(dep)), i.items)
+                          }
+                        case Left(iface) =>
+                          Right(
+                            Import(Package.fix[A, B, C](Left(iface)), i.items)
+                          )
                       }
-                    case Left(iface) =>
-                      Right(
-                        Import(Package.fix[A, B, C](Left(iface)), i.items)
-                      )
-                  }
-                })
+                    }
+                  )
                 catch {
                   case Memoize.NotDagException(_) =>
                     // we don't have a dag. Fall back to the slow case to find the error
@@ -410,7 +414,7 @@ object PackageMap {
                   // there was a circular dependency error in the transitive set of imports
                   def internalDeps(from: PackageName): List[PackageName] =
                     packagesByName.get(from) match {
-                      case None => Nil
+                      case None       => Nil
                       case Some(pack) =>
                         pack.imports.iterator
                           .map(_.pack)
@@ -443,19 +447,27 @@ object PackageMap {
                           loopNodes.sorted.flatMap { from =>
                             Paths.allCycle0(from)(loopDeps).map { path =>
                               val reversedPath =
-                                NonEmptyList.ofInitLast(path.toList.init.reverse, from)
-                              PackageError.CircularDependency(from, reversedPath)
+                                NonEmptyList.ofInitLast(
+                                  path.toList.init.reverse,
+                                  from
+                                )
+                              PackageError.CircularDependency(
+                                from,
+                                reversedPath
+                              )
                             }
                           }
 
-                        NonEmptyChain.fromSeq(cycleErrors).getOrElse(
-                          NonEmptyChain.one(
-                            PackageError.CircularDependency(
-                              pname,
-                              NonEmptyList.one(pname)
+                        NonEmptyChain
+                          .fromSeq(cycleErrors)
+                          .getOrElse(
+                            NonEmptyChain.one(
+                              PackageError.CircularDependency(
+                                pname,
+                                NonEmptyList.one(pname)
+                              )
                             )
                           )
-                        )
                     }
 
                   Left(circularErrors)
@@ -492,7 +504,11 @@ object PackageMap {
             .uniqueByKey(neps)(_.packageName)
             .fold(
               a => (a.toSortedMap, SortedMap.empty[PackageName, SU]),
-              b => (SortedMap.empty[PackageName, (SU, NonEmptyList[SU])], b.toSortedMap),
+              b =>
+                (
+                  SortedMap.empty[PackageName, (SU, NonEmptyList[SU])],
+                  b.toSortedMap
+                ),
               (a, b) => (a.toSortedMap, b.toSortedMap)
             )
         case None =>
@@ -557,9 +573,10 @@ object PackageMap {
         (SU, ImportMap[PackageName, Unit])
       ]
 
-      m.foldLeft((List.empty[PackageError], initPm)) { case ((errs, pm), (_, source)) =>
-        val (lerrs, pp) = toProg(source)
-        (lerrs.toList ::: errs, pm + pp)
+      m.foldLeft((List.empty[PackageError], initPm)) {
+        case ((errs, pm), (_, source)) =>
+          val (lerrs, pp) = toProg(source)
+          (lerrs.toList ::: errs, pm + pp)
       }
     }
 
@@ -590,7 +607,7 @@ object PackageMap {
   // One node per interface, shared by packages in this compilation. Only the
   // immediate exposed edges are retained. A diamond visits its shared node
   // once, and neither a private dependency nor its hash enters a consumer key.
-  private final class InterfaceNode(
+  final private class InterfaceNode(
       input: Package.Interface,
       edges: => List[InterfaceNode]
   ) {
@@ -658,7 +675,10 @@ object PackageMap {
 
     lazy val externalByName: Map[PackageName, InterfaceNode] =
       externalInterfaces.iterator.map { iface =>
-        iface.name -> new InterfaceNode(iface, iface.exposedDepPackages.flatMap(externalByName.get))
+        iface.name -> new InterfaceNode(
+          iface,
+          iface.exposedDepPackages.flatMap(externalByName.get)
+        )
       }.toMap
 
     val inferPack: PackageName => F[ErrorOr[CompiledPack]] =
@@ -669,7 +689,8 @@ object PackageMap {
           }
           pack match {
             case Package(nm, imports, exports, (source, imps), exposes) =>
-              val depResultsF: F[ErrorOr[SortedMap[PackageName, CompiledPack]]] =
+              val depResultsF
+                  : F[ErrorOr[SortedMap[PackageName, CompiledPack]]] =
                 imports.foldLeft(
                   Monad[F].pure(
                     Ior.right[NonEmptyList[PackageError], SortedMap[
@@ -692,104 +713,114 @@ object PackageMap {
                   }
                 }
 
-              IorT(depResultsF)
-                .flatMap { depResults =>
-                  def directNode(resolved: ResolvedFix): InterfaceNode =
-                    Package.unfix(resolved) match {
-                      case Left(iface) => externalByName(iface.name)
-                      case Right(p)    => depResults(p.name).api
-                    }
+              IorT(depResultsF).flatMap { depResults =>
+                def directNode(resolved: ResolvedFix): InterfaceNode =
+                  Package.unfix(resolved) match {
+                    case Left(iface) => externalByName(iface.name)
+                    case Right(p)    => depResults(p.name).api
+                  }
 
-                  def inferOnMiss(
-                      depIfaces: SortedMap[PackageName, Package.Interface],
-                      scope: SortedMap[PackageName, InterfaceNode]
-                  ): F[ErrorOr[Package.Compiled]] = {
-                    // Import exactly the view that was hashed, including for a source
-                    // in this group. Its implementation is only used to explain a
-                    // missing private name; it cannot supply a successful import.
-                    val inferImports = imps.parTraverse { (from, item) =>
-                      val iface = depIfaces(from)
-                      val resolved = iface.getImportIface(nm, item).leftMap { err =>
-                        depResults.get(from).flatMap(
+                def inferOnMiss(
+                    depIfaces: SortedMap[PackageName, Package.Interface],
+                    scope: SortedMap[PackageName, InterfaceNode]
+                ): F[ErrorOr[Package.Compiled]] = {
+                  // Import exactly the view that was hashed, including for a source
+                  // in this group. Its implementation is only used to explain a
+                  // missing private name; it cannot supply a successful import.
+                  val inferImports = imps.parTraverse { (from, item) =>
+                    val iface = depIfaces(from)
+                    val resolved = iface.getImportIface(nm, item).leftMap { err =>
+                      depResults
+                        .get(from)
+                        .flatMap(
                           _.compiled.getImport(nm, item).left.toOption
-                        ).getOrElse(err)
-                      }
-                      Ior.fromEither(resolved.map((iface, _)).leftMap(NonEmptyList.one))
+                        )
+                        .getOrElse(err)
                     }
+                    Ior.fromEither(
+                      resolved.map((iface, _)).leftMap(NonEmptyList.one)
+                    )
+                  }
 
-                    source.loadParsed.flatMap { parsed =>
-                      inferImports.flatTraverse { impMap =>
-                        val ilist = impMap.toList(using Package.orderByName)
-                        // Type inference plus assembly is the heaviest
-                        // per-package CPU step on a cache miss.
-                        summon[CanPromise[F]].compute {
-                          for {
-                            (_, program) <- Package.inferBodyUnopt(
-                              nm,
-                              ilist,
-                              exports,
-                              parsed.program,
-                              scope.valuesIterator.foldLeft(TypeEnv.empty: TypeEnv[Kind.Arg])(_ ++ _.types)
-                            )
-                            asm <- PackageCustoms.assemble(
-                              nm,
-                              ilist,
-                              impMap,
-                              exports,
-                              program,
-                              exposes
-                            )
-                            finished =
-                              phases.finishPackage(asm, depIfaces, compileOptions)
-                          } yield Package.toCompiled(finished)
-                        }
+                  source.loadParsed.flatMap { parsed =>
+                    inferImports.flatTraverse { impMap =>
+                      val ilist = impMap.toList(using Package.orderByName)
+                      // Type inference plus assembly is the heaviest
+                      // per-package CPU step on a cache miss.
+                      summon[CanPromise[F]].compute {
+                        for {
+                          (_, program) <- Package.inferBodyUnopt(
+                            nm,
+                            ilist,
+                            exports,
+                            parsed.program,
+                            scope.valuesIterator.foldLeft(
+                              TypeEnv.empty: TypeEnv[Kind.Arg]
+                            )(_ ++ _.types)
+                          )
+                          asm <- PackageCustoms.assemble(
+                            nm,
+                            ilist,
+                            impMap,
+                            exports,
+                            program,
+                            exposes
+                          )
+                          finished =
+                            phases.finishPackage(asm, depIfaces, compileOptions)
+                        } yield Package.toCompiled(finished)
                       }
                     }
                   }
+                }
 
-                  import IorT.liftF
+                import IorT.liftF
 
-                  val scope = exposureClosure(imports.map(i => directNode(i.pack)))
-                  val depIfaces = scope.map { case (pn, node) => pn -> node.iface }
+                val scope =
+                  exposureClosure(imports.map(i => directNode(i.pack)))
+                val depIfaces = scope.map { case (pn, node) =>
+                  pn -> node.iface
+                }
 
-                  (for {
-                    key <- liftF(
-                      cache.generateKey(
-                        (
-                          nm,
-                          source.sourceHash,
-                          depIfaces,
-                          compileOptions,
-                          CompileCache.compilerIdentity,
-                          phases.id
-                        )
+                (for {
+                  key <- liftF(
+                    cache.generateKey(
+                      (
+                        nm,
+                        source.sourceHash,
+                        depIfaces,
+                        compileOptions,
+                        CompileCache.compilerIdentity,
+                        phases.id
                       )
                     )
-                    getRes <- liftF(cache.get(key))
-                    res <- getRes match {
-                      case Some(hit) =>
-                        IorT.rightT[F, NonEmptyList[PackageError]](hit)
-                      case None =>
-                        // Cache entries store a compiled package only. Writing a
-                        // partial success here would erase its diagnostics on a hit.
-                        IorT(inferOnMiss(depIfaces, scope).flatTap {
-                          case Ior.Right(compiled) => cache.put(key, compiled)
-                          case _                   => Monad[F].unit
-                        })
-                    }
-                    api = phases.dependencyInterface(res)
-                    // Warn/lax inference may return a package with an invalid
-                    // exposes declaration. Such a source cannot grant types
-                    // to its consumers merely by leaking them in an export.
-                    publicDeps = exposes match {
-                      case declared :: Nil =>
-                        val names = declared.distinct.sorted
-                        if (names == api.exposedDepPackages) names.flatMap(scope.get) else Nil
-                      case _ => Nil
-                    }
-                  } yield CompiledPack(res, new InterfaceNode(api, publicDeps)))
-                }
-                .value
+                  )
+                  getRes <- liftF(cache.get(key))
+                  res <- getRes match {
+                    case Some(hit) =>
+                      IorT.rightT[F, NonEmptyList[PackageError]](hit)
+                    case None =>
+                      // Cache entries store a compiled package only. Writing a
+                      // partial success here would erase its diagnostics on a hit.
+                      IorT(inferOnMiss(depIfaces, scope).flatTap {
+                        case Ior.Right(compiled) => cache.put(key, compiled)
+                        case _                   => Monad[F].unit
+                      })
+                  }
+                  api = phases.dependencyInterface(res)
+                  // Warn/lax inference may return a package with an invalid
+                  // exposes declaration. Such a source cannot grant types
+                  // to its consumers merely by leaking them in an export.
+                  publicDeps = exposes match {
+                    case declared :: Nil =>
+                      val names = declared.distinct.sorted
+                      if (names == api.exposedDepPackages)
+                        names.flatMap(scope.get)
+                      else Nil
+                    case _ => Nil
+                  }
+                } yield CompiledPack(res, new InterfaceNode(api, publicDeps)))
+              }.value
           }
       }
 
@@ -806,7 +837,8 @@ object PackageMap {
       }
 
     allResults.map { resultMap =>
-      val missingKeys = resolvedByName.keySet.diff(resultMap.keySet).toList.sorted
+      val missingKeys =
+        resolvedByName.keySet.diff(resultMap.keySet).toList.sorted
       if (missingKeys.nonEmpty) {
         sys.error(
           s"invariant violation: missing inference results for: ${missingKeys.mkString(", ")}"
@@ -814,7 +846,7 @@ object PackageMap {
       } else {
         val sequenced =
           resultMap.traverse {
-            case Ior.Left(errs)          =>
+            case Ior.Left(errs) =>
               Ior.both(errs, Option.empty[CompiledPack])
             case Ior.Right(compiledPack) =>
               Ior.right(Some(compiledPack))
@@ -834,14 +866,16 @@ object PackageMap {
           } match {
           case Ior.Both(errs, compiled) if compiled.toMap.isEmpty =>
             Ior.left(errs)
-          case other                                              =>
+          case other =>
             other
         }
       }
     }
   }
 
-  private def resolveThenInferSourceUnits[F[_]: Monad: Parallel: CanPromise, A: Show](
+  private def resolveThenInferSourceUnits[F[
+      _
+  ]: Monad: Parallel: CanPromise, A: Show](
       ps: List[SourceUnit[F, A]],
       ifs: List[Package.Interface],
       compileOptions: CompileOptions,
@@ -891,7 +925,7 @@ object PackageMap {
   ): List[SourceUnit[F, A]] =
     sources.map(_.withImport(predefImports))
 
-  private[bosatsu] final case class EffectiveSourceUnits[F[_], A](
+  final private[bosatsu] case class EffectiveSourceUnits[F[_], A](
       sourceUnits: List[SourceUnit[F, A]],
       usesInternalPredefSource: Boolean
   )
@@ -914,12 +948,12 @@ object PackageMap {
       )
 
     predefIface match {
-      case None       =>
+      case None =>
         EffectiveSourceUnits(
           SourceUnit.predef(predefKey, mode) :: withPredefImports,
           usesInternalPredefSource = true
         )
-      case Some(_)    =>
+      case Some(_) =>
         EffectiveSourceUnits(
           withPredefImports,
           usesInternalPredefSource = false
@@ -1068,8 +1102,11 @@ object PackageMap {
               "<predef>"
             )
           )
-          val diagnostics = errs.iterator.map(_.message(map, LocationMap.Colorize.None))
-          sys.error(diagnostics.mkString("failed to compile Predef:\n", "\n", ""))
+          val diagnostics =
+            errs.iterator.map(_.message(map, LocationMap.Colorize.None))
+          sys.error(
+            diagnostics.mkString("failed to compile Predef:\n", "\n", "")
+          )
       }
     }
 
@@ -1139,9 +1176,11 @@ object PackageMap {
       ps: List[Package.Parsed],
       mode: CompileOptions.Mode
   ): List[Package.Parsed] =
-    Package.predefPackageForMode(mode) :: ps.map(_.withImport(
-      predefImportsForMode(mode)
-    ))
+    Package.predefPackageForMode(mode) :: ps.map(
+      _.withImport(
+        predefImportsForMode(mode)
+      )
+    )
 
   def withPredefA[A](
       predefA: A,

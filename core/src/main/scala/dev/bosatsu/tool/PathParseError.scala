@@ -38,7 +38,7 @@ object PathParseError {
           canPromiseF.compute {
             PathParseError.parseString(p, path, str)
           }
-        case Left(err)  =>
+        case Left(err) =>
           moduleIOMonad.pure(
             Validated.invalidNel(PathParseError.FileError(path, err))
           )

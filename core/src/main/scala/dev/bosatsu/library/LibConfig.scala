@@ -53,7 +53,6 @@ case class LibConfig(
   def defaultMain: Option[PackageName] = default_main
   def docBaseUrl: Option[String] = doc_base_url
 
-
   /** validate then unvalidatedAssemble
     */
   def assemble[A: HasRegion](
@@ -264,7 +263,8 @@ case class LibConfig(
       LibConfig.unusedTransitiveDepDescriptors(publicDepLibs.map(_.arg))
 
     // 10. only the core library may define Bosatsu/ packages
-    val prop10 = deps.traverse_(dep => LibConfig.validateReservedPackages(dep.arg))
+    val prop10 =
+      deps.traverse_(dep => LibConfig.validateReservedPackages(dep.arg))
 
     prop7_8 *> prop10 *> prop9.map(ValidationResult(_))
   }
@@ -294,7 +294,7 @@ case class LibConfig(
     *   5. all public deps appear somewhere on an API
     *   6. all private deps are used somewhere
     *   11. no package is in the reserved `Bosatsu/` namespace unless this is
-    *      the core library (validateDepArtifacts checks 7-10)
+    *       the core library (validateDepArtifacts checks 7-10)
     */
   def validatePacks(
       previous: Option[DecodedLibrary[Algo.Blake3]],
@@ -577,7 +577,9 @@ case class LibConfig(
       prop5 *> prop6
     }
 
-    val prop11 = validateLocalPackageNames(packsNoPredef.map(p => (p.name, None)))
+    val prop11 = validateLocalPackageNames(
+      packsNoPredef.map(p => (p.name, None))
+    )
 
     prop11 *> prop1 *> prop2 *> prop4.andThen(_ => prop3) *> prop5_6
   }
@@ -675,8 +677,8 @@ object LibConfig {
 
   /** A library that is not the core library must not contain `Bosatsu/`
     * packages. Every library embeds the compiled `Bosatsu/Predef` of the
-    * compiler that built it, which is allowed. Check the encoded names so
-    * this runs before decoding.
+    * compiler that built it, which is allowed. Check the encoded names so this
+    * runs before decoding.
     */
   def validateReservedPackages(lib: proto.Library): ValidatedNec[Error, Unit] =
     if (mayDefineReservedPackages(Name(lib.name))) Validated.unit
@@ -1011,7 +1013,8 @@ object LibConfig {
       next_version = ver,
       previous = None,
       exported_packages = Nil,
-      all_packages = LibConfig.PackageFilter.Regex(Pattern.compile(".*")) :: Nil,
+      all_packages =
+        LibConfig.PackageFilter.Regex(Pattern.compile(".*")) :: Nil,
       public_deps = Nil,
       private_deps = Nil,
       default_main = None,

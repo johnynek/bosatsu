@@ -9,7 +9,11 @@ import java.nio.file.{Files, Path}
 import java.nio.file.attribute.FileTime
 
 class BazelWorkerTest extends FileCommandFixtures {
-  private def writeBytes(root: Path, relative: String, bytes: Array[Byte]): IO[Unit] =
+  private def writeBytes(
+      root: Path,
+      relative: String,
+      bytes: Array[Byte]
+  ): IO[Unit] =
     IO.blocking {
       val path = root.resolve(relative)
       Files.createDirectories(path.getParent)
@@ -23,8 +27,9 @@ class BazelWorkerTest extends FileCommandFixtures {
       content: String
   ): IO[FileCommandRunner.Result] =
     write(root, "worker.params", content) *>
-      BazelWorker.readParameterFile(root, "@worker.params").flatMap { invocation =>
-        runner.runWorker(root, invocation.commandArguments)
+      BazelWorker.readParameterFile(root, "@worker.params").flatMap {
+        invocation =>
+          runner.runWorker(root, invocation.commandArguments)
       }
 
   private def encoded(
@@ -81,7 +86,15 @@ class BazelWorkerTest extends FileCommandFixtures {
       } yield List(operation.commandName, argument)
       val vectors = List(
         List("headers"),
-        List("headers", "", "with spaces", "雪", "'quoted'", "\\slash", "@nested.params"),
+        List(
+          "headers",
+          "",
+          "with spaces",
+          "雪",
+          "'quoted'",
+          "\\slash",
+          "@nested.params"
+        ),
         List("headers", "", ""),
         List("emit-c", "--out", "")
       ) ::: generated
@@ -90,7 +103,8 @@ class BazelWorkerTest extends FileCommandFixtures {
         _ <- vectors.zipWithIndex.toList.traverse_ { case (values, index) =>
           lineEndings.zipWithIndex.traverse_ { case (delimiter, endingIndex) =>
             List(false, true).traverse_ { finalTerminator =>
-              val name = s"params-$index-$endingIndex-${if (finalTerminator) 1 else 0}"
+              val name =
+                s"params-$index-$endingIndex-${if (finalTerminator) 1 else 0}"
               val text = encoded(values, delimiter, finalTerminator)
               for {
                 _ <- write(root, name, text)
@@ -110,7 +124,9 @@ class BazelWorkerTest extends FileCommandFixtures {
     }
   }
 
-  test("empty, malformed, unreadable, and invalid parameter-file arguments fail") {
+  test(
+    "empty, malformed, unreadable, and invalid parameter-file arguments fail"
+  ) {
     withRunner { (root, _) =>
       val invalid = List("", "@", "params", "@@")
       for {
@@ -121,19 +137,37 @@ class BazelWorkerTest extends FileCommandFixtures {
         }
         _ <- write(root, "empty.params", "")
         empty <- BazelWorker.readParameterFile(root, "@empty.params").attempt
-        _ = assert(empty.swap.toOption.exists(_.getMessage.contains("is empty")))
+        _ = assert(
+          empty.swap.toOption.exists(_.getMessage.contains("is empty"))
+        )
         _ <- write(root, "empty-operation.params", "\nargument")
         emptyOperation <- BazelWorker
           .readParameterFile(root, "@empty-operation.params")
           .attempt
         _ = assert(
-          emptyOperation.swap.toOption.exists(_.getMessage.contains("empty worker operation"))
+          emptyOperation.swap.toOption.exists(
+            _.getMessage.contains("empty worker operation")
+          )
         )
-        _ <- writeBytes(root, "invalid-utf8.params", Array(0xc3.toByte, 0x28.toByte))
-        badUtf8 <- BazelWorker.readParameterFile(root, "@invalid-utf8.params").attempt
-        _ = assert(badUtf8.swap.toOption.exists(_.getMessage.contains("not valid UTF-8")))
-        missing <- BazelWorker.readParameterFile(root, "@missing.params").attempt
-        _ = assert(missing.swap.toOption.exists(_.getMessage.contains("cannot read parameter file")))
+        _ <- writeBytes(
+          root,
+          "invalid-utf8.params",
+          Array(0xc3.toByte, 0x28.toByte)
+        )
+        badUtf8 <- BazelWorker
+          .readParameterFile(root, "@invalid-utf8.params")
+          .attempt
+        _ = assert(
+          badUtf8.swap.toOption.exists(_.getMessage.contains("not valid UTF-8"))
+        )
+        missing <- BazelWorker
+          .readParameterFile(root, "@missing.params")
+          .attempt
+        _ = assert(
+          missing.swap.toOption.exists(
+            _.getMessage.contains("cannot read parameter file")
+          )
+        )
       } yield ()
     }
   }
@@ -152,7 +186,9 @@ class BazelWorkerTest extends FileCommandFixtures {
     assertEquals(BazelWorker.Operation.fromCommandName("check"), None)
   }
 
-  test("worker and standalone operations produce the same outputs and diagnostics") {
+  test(
+    "worker and standalone operations produce the same outputs and diagnostics"
+  ) {
     withRunner { (base, runner) =>
       val direct = base.resolve("direct")
       val worker = base.resolve("worker")
@@ -172,9 +208,19 @@ class BazelWorkerTest extends FileCommandFixtures {
         }
         _ <- write(direct, headerSource, headerSourceText)
         _ <- write(worker, headerSource, headerSourceText)
-        headerArgs = List("headers", "--out", "gen/headers.json", "--src", headerSource)
+        headerArgs = List(
+          "headers",
+          "--out",
+          "gen/headers.json",
+          "--src",
+          headerSource
+        )
         headerDirect <- runner.run(direct, headerArgs)
-        headerWorker <- parameterInvocation(runner, worker, encoded(headerArgs, "\n", true))
+        headerWorker <- parameterInvocation(
+          runner,
+          worker,
+          encoded(headerArgs, "\n", true)
+        )
         _ = assertEquals(headerWorker, headerDirect)
         _ <- compareOutput(direct, worker, "gen/headers.json")
 
@@ -190,7 +236,11 @@ class BazelWorkerTest extends FileCommandFixtures {
           "src/Package.bosatsu"
         )
         compileDirect <- runner.run(direct, compileArgs)
-        compileWorker <- parameterInvocation(runner, worker, encoded(compileArgs, "\r\n", true))
+        compileWorker <- parameterInvocation(
+          runner,
+          worker,
+          encoded(compileArgs, "\r\n", true)
+        )
         _ = assertEquals(compileWorker, compileDirect)
         _ <- compareOutput(direct, worker, "gen/unit.pkg")
         _ <- compareOutput(direct, worker, "gen/unit.sig")
@@ -205,7 +255,11 @@ class BazelWorkerTest extends FileCommandFixtures {
           "gen/validated"
         )
         graphDirect <- runner.run(direct, graphArgs)
-        graphWorker <- parameterInvocation(runner, worker, encoded(graphArgs, "\n", false))
+        graphWorker <- parameterInvocation(
+          runner,
+          worker,
+          encoded(graphArgs, "\n", false)
+        )
         _ = assertEquals(graphWorker, graphDirect)
         _ <- compareOutput(direct, worker, "gen/validated")
 
@@ -236,20 +290,42 @@ class BazelWorkerTest extends FileCommandFixtures {
           "gen/tests.c"
         )
         emitDirect <- runner.run(direct, emitArgs)
-        emitWorker <- parameterInvocation(runner, worker, encoded(emitArgs, "\r\n", true))
+        emitWorker <- parameterInvocation(
+          runner,
+          worker,
+          encoded(emitArgs, "\r\n", true)
+        )
         _ = assertEquals(emitWorker, emitDirect)
         _ <- compareOutput(direct, worker, "gen/tests.c")
 
-        missingHeaders = List("headers", "--out", "bad/headers.json", "--src", "missing.bosatsu")
+        missingHeaders = List(
+          "headers",
+          "--out",
+          "bad/headers.json",
+          "--src",
+          "missing.bosatsu"
+        )
         badHeadersDirect <- runner.run(worker, missingHeaders)
-        badHeadersWorker <- parameterInvocation(runner, worker, encoded(missingHeaders, "\n", true))
+        badHeadersWorker <- parameterInvocation(
+          runner,
+          worker,
+          encoded(missingHeaders, "\n", true)
+        )
         _ = assertEquals(badHeadersWorker, badHeadersDirect)
         _ = failure(badHeadersDirect)
         _ = assert(!Files.exists(direct.resolve("bad/headers.json")))
         _ = assert(!Files.exists(worker.resolve("bad/headers.json")))
 
-        _ <- write(direct, "Invalid.bosatsu", "package Example/Invalid\nexport value\nvalue = missing_name\n")
-        _ <- write(worker, "Invalid.bosatsu", "package Example/Invalid\nexport value\nvalue = missing_name\n")
+        _ <- write(
+          direct,
+          "Invalid.bosatsu",
+          "package Example/Invalid\nexport value\nvalue = missing_name\n"
+        )
+        _ <- write(
+          worker,
+          "Invalid.bosatsu",
+          "package Example/Invalid\nexport value\nvalue = missing_name\n"
+        )
         invalidCompile = List(
           "compile-packages",
           "--packages-out",
@@ -260,13 +336,27 @@ class BazelWorkerTest extends FileCommandFixtures {
           "Invalid.bosatsu"
         )
         invalidCompileDirect <- runner.run(worker, invalidCompile)
-        invalidCompileWorker <- parameterInvocation(runner, worker, encoded(invalidCompile, "\r\n", true))
+        invalidCompileWorker <- parameterInvocation(
+          runner,
+          worker,
+          encoded(invalidCompile, "\r\n", true)
+        )
         _ = assertEquals(invalidCompileWorker, invalidCompileDirect)
         _ = failure(invalidCompileDirect)
 
-        missingGraph = List("validate-graph", "--root", "missing.json", "--out", "bad/validated")
+        missingGraph = List(
+          "validate-graph",
+          "--root",
+          "missing.json",
+          "--out",
+          "bad/validated"
+        )
         missingGraphDirect <- runner.run(worker, missingGraph)
-        missingGraphWorker <- parameterInvocation(runner, worker, encoded(missingGraph, "\n", true))
+        missingGraphWorker <- parameterInvocation(
+          runner,
+          worker,
+          encoded(missingGraph, "\n", true)
+        )
         _ = assertEquals(missingGraphWorker, missingGraphDirect)
         _ = failure(missingGraphDirect)
 
@@ -280,13 +370,27 @@ class BazelWorkerTest extends FileCommandFixtures {
           "bad/tests.c"
         )
         missingEmitDirect <- runner.run(worker, missingEmit)
-        missingEmitWorker <- parameterInvocation(runner, worker, encoded(missingEmit, "\n", true))
+        missingEmitWorker <- parameterInvocation(
+          runner,
+          worker,
+          encoded(missingEmit, "\n", true)
+        )
         _ = assertEquals(missingEmitWorker, missingEmitDirect)
         _ = failure(missingEmitDirect)
         _ = assert(!Files.exists(worker.resolve("bad/tests.c")))
 
-        literalAt = List("headers", "--out", "@literal-output.json", "--src", headerSource)
-        literalAtResult <- parameterInvocation(runner, worker, encoded(literalAt, "\n", true))
+        literalAt = List(
+          "headers",
+          "--out",
+          "@literal-output.json",
+          "--src",
+          headerSource
+        )
+        literalAtResult <- parameterInvocation(
+          runner,
+          worker,
+          encoded(literalAt, "\n", true)
+        )
         _ = success(literalAtResult)
         _ = assert(Files.isRegularFile(worker.resolve("@literal-output.json")))
         _ = assert(!listPaths(worker).exists(_.contains(".bosatsu-stage-")))
@@ -294,7 +398,9 @@ class BazelWorkerTest extends FileCommandFixtures {
     }
   }
 
-  test("worker requests reject legacy operations and parser-owned cache options") {
+  test(
+    "worker requests reject legacy operations and parser-owned cache options"
+  ) {
     withRunner { (root, runner) =>
       val unsupported = List(
         "fetch",
@@ -320,13 +426,13 @@ class BazelWorkerTest extends FileCommandFixtures {
             "--cache_dir=cache" -> "--cache_dir",
             "--not-a-worker-option" -> "--not-a-worker-option"
           ).traverse_ { case (option, expectedDiagnostic) =>
-              runner.runWorker(root, List(operation, option)).map { result =>
-                failure(result)
-                assert(
-                  result.stderr.contains(expectedDiagnostic),
-                  result.stderr
-                )
-              }
+            runner.runWorker(root, List(operation, option)).map { result =>
+              failure(result)
+              assert(
+                result.stderr.contains(expectedDiagnostic),
+                result.stderr
+              )
+            }
           }
         }
         _ = assert(!Files.exists(root.resolve("cache")))
@@ -353,7 +459,10 @@ class BazelWorkerTest extends FileCommandFixtures {
         _ <- IO.blocking(Files.createDirectory(root.resolve("out/package.pkg")))
         failed <- parameterInvocation(runner, root, encoded(args, "\n", true))
         _ = failure(failed)
-        _ = assert(failed.stderr.contains("expected a regular output file"), failed.stderr)
+        _ = assert(
+          failed.stderr.contains("expected a regular output file"),
+          failed.stderr
+        )
         oldSignature <- read(root, "out/signature.sig")
         _ = assertEquals(oldSignature, "previous signature")
         _ = assert(Files.isDirectory(root.resolve("out/package.pkg")))
@@ -368,17 +477,31 @@ class BazelWorkerTest extends FileCommandFixtures {
     }
   }
 
-  test("worker publication retains identical bytes and follows output symlinks") {
+  test(
+    "worker publication retains identical bytes and follows output symlinks"
+  ) {
     withRunner { (root, runner) =>
-      val args = List("headers", "--out", "alias.json", "--src", "Source.bosatsu")
+      val args =
+        List("headers", "--out", "alias.json", "--src", "Source.bosatsu")
       for {
-        _ <- write(root, "Source.bosatsu", "package Example/Source\nexport value\nvalue = 1\n")
-        _ <- IO.blocking(Files.createSymbolicLink(root.resolve("alias.json"), Path.of("generated/headers.json")))
+        _ <- write(
+          root,
+          "Source.bosatsu",
+          "package Example/Source\nexport value\nvalue = 1\n"
+        )
+        _ <- IO.blocking(
+          Files.createSymbolicLink(
+            root.resolve("alias.json"),
+            Path.of("generated/headers.json")
+          )
+        )
         first <- parameterInvocation(runner, root, encoded(args, "\n", true))
         _ = success(first)
         target = root.resolve("generated/headers.json")
         firstBytes <- bytes(root, "generated/headers.json")
-        _ <- IO.blocking(Files.setLastModifiedTime(target, FileTime.fromMillis(100000L)))
+        _ <- IO.blocking(
+          Files.setLastModifiedTime(target, FileTime.fromMillis(100000L))
+        )
         timestamp = Files.getLastModifiedTime(target)
         second <- parameterInvocation(runner, root, encoded(args, "\r\n", true))
         _ = success(second)
@@ -386,12 +509,17 @@ class BazelWorkerTest extends FileCommandFixtures {
         _ = assertEquals(secondBytes, firstBytes)
         _ = assertEquals(Files.getLastModifiedTime(target), timestamp)
         _ = assert(Files.isSymbolicLink(root.resolve("alias.json")))
-        _ = assertEquals(Files.readSymbolicLink(root.resolve("alias.json")), Path.of("generated/headers.json"))
+        _ = assertEquals(
+          Files.readSymbolicLink(root.resolve("alias.json")),
+          Path.of("generated/headers.json")
+        )
       } yield ()
     }
   }
 
-  test("the streaming worker route rejects an absent or unregistered operation") {
+  test(
+    "the streaming worker route rejects an absent or unregistered operation"
+  ) {
     withRunner { (root, runner) =>
       for {
         empty <- runWorkerTo(runner, root, Nil)
@@ -399,7 +527,10 @@ class BazelWorkerTest extends FileCommandFixtures {
         _ = assertEquals(empty.stderr, "expected a bazel worker operation\n")
         unsupported <- runWorkerTo(runner, root, List("fetch"))
         _ = assertEquals(unsupported.exitCode, ExitCode.Error)
-        _ = assertEquals(unsupported.stderr, "unsupported bazel worker operation: fetch\n")
+        _ = assertEquals(
+          unsupported.stderr,
+          "unsupported bazel worker operation: fetch\n"
+        )
       } yield ()
     }
   }

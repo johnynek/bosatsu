@@ -14,7 +14,11 @@ object DebugAliasPackage {
     implicit val showInt: Show[Int] = Show.fromToString
     Par.noParallelism {
       PackageMap
-        .resolveThenInfer(ps.toList.zipWithIndex.map(_.swap), Nil, CompileOptions.Default)
+        .resolveThenInfer(
+          ps.toList.zipWithIndex.map(_.swap),
+          Nil,
+          CompileOptions.Default
+        )
         .strictToValidated
     }
   }
@@ -28,9 +32,9 @@ object DebugAliasPackage {
     val result = resolveThenInfer(programs.map(parse))
     println(result)
     result match {
-      case Validated.Valid(_) if expectValid     => println(s"passed: $name")
-      case Validated.Invalid(_) if !expectValid  => println(s"passed: $name")
-      case other                                 =>
+      case Validated.Valid(_) if expectValid    => println(s"passed: $name")
+      case Validated.Invalid(_) if !expectValid => println(s"passed: $name")
+      case other                                =>
         sys.error(s"unexpected result for $name: $other")
     }
   }

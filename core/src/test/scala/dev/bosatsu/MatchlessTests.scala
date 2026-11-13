@@ -178,11 +178,14 @@ class MatchlessTest extends munit.ScalaCheckSuite {
         case Matchless.PrevNat(of) =>
           loopExpr(of)
         case Matchless.MakeEnum(_, _, _) | Matchless.MakeStruct(_) |
-            Matchless.ZeroNat | Matchless.SuccNat | (_: Matchless.CheapExpr[Unit]) =>
+            Matchless.ZeroNat | Matchless.SuccNat |
+            (_: Matchless.CheapExpr[Unit]) =>
           Nil
       }
 
-    def loopBool(b: Matchless.BoolExpr[Unit]): List[Matchless.SwitchVariant[Unit]] =
+    def loopBool(
+        b: Matchless.BoolExpr[Unit]
+    ): List[Matchless.SwitchVariant[Unit]] =
       b match {
         case Matchless.CompareLit(e, _, _) =>
           loopExpr(e)
@@ -245,7 +248,8 @@ class MatchlessTest extends munit.ScalaCheckSuite {
   )
   private val issue1688StructCtorType: rankn.Type =
     rankn.Type.Fun(
-      NonEmptyList.of(rankn.Type.IntType, rankn.Type.IntType, rankn.Type.IntType),
+      NonEmptyList
+        .of(rankn.Type.IntType, rankn.Type.IntType, rankn.Type.IntType),
       issue1688StructType
     )
   private val listIntType: rankn.Type =
@@ -255,9 +259,9 @@ class MatchlessTest extends munit.ScalaCheckSuite {
     {
       case (`issue1688Package`, `issue1688Struct`) =>
         Some(DataRepr.Struct(3))
-      case (`issue1688Package`, `issue1688Enum0`)  =>
+      case (`issue1688Package`, `issue1688Enum0`) =>
         Some(DataRepr.Enum(0, 3, 3 :: 0 :: Nil))
-      case (`issue1688Package`, `issue1688Enum1`)  =>
+      case (`issue1688Package`, `issue1688Enum1`) =>
         Some(DataRepr.Enum(1, 0, 3 :: 0 :: Nil))
       case (pn, cons) =>
         base(pn, cons)
@@ -278,7 +282,9 @@ class MatchlessTest extends munit.ScalaCheckSuite {
 
   private def evalExpr(expr: Matchless.Expr[Unit]): Value =
     MatchlessToValue
-      .traverse[Vector, Unit](Vector(expr))((_, _, _) => Eval.now(Value.UnitValue))
+      .traverse[Vector, Unit](Vector(expr))((_, _, _) =>
+        Eval.now(Value.UnitValue)
+      )
       .head
       .value
 
@@ -326,7 +332,8 @@ class MatchlessTest extends munit.ScalaCheckSuite {
 
   private def issue1688StructCall(a: Int, b: Int, c: Int): TypedExpr[Unit] =
     TypedExpr.App(
-      TypedExpr.Global(issue1688Package, issue1688Struct, issue1688StructCtorType, ()),
+      TypedExpr
+        .Global(issue1688Package, issue1688Struct, issue1688StructCtorType, ()),
       NonEmptyList.of(intLit(a), intLit(b), intLit(c)),
       issue1688StructType,
       ()
@@ -352,7 +359,11 @@ class MatchlessTest extends munit.ScalaCheckSuite {
 
   private def matchlessNatOf(value: Int): Matchless.Expr[Unit] =
     if (value <= 0) Matchless.ZeroNat
-    else Matchless.applyArgs(Matchless.SuccNat, NonEmptyList.one(matchlessNatOf(value - 1)))
+    else
+      Matchless.applyArgs(
+        Matchless.SuccNat,
+        NonEmptyList.one(matchlessNatOf(value - 1))
+      )
 
   private def hasLetBool(expr: Matchless.Expr[Unit]): Boolean =
     exprBoolSubexpressions(expr).exists {
@@ -377,8 +388,8 @@ class MatchlessTest extends munit.ScalaCheckSuite {
           loopBool(cond) || loopExpr(thenExpr) || loopExpr(elseExpr)
         case Matchless.SwitchVariant(on, _, cases, default) =>
           loopExpr(on) ||
-            cases.toList.exists { case (_, branch) => loopExpr(branch) } ||
-            default.exists(loopExpr)
+          cases.toList.exists { case (_, branch) => loopExpr(branch) } ||
+          default.exists(loopExpr)
         case Matchless.Always(cond, thenExpr) =>
           loopBool(cond) || loopExpr(thenExpr)
         case Matchless.GetEnumElement(of, _, _, _) =>
@@ -444,7 +455,11 @@ class MatchlessTest extends munit.ScalaCheckSuite {
     }
     Par.withEC {
       val comp =
-        MatchlessFromTypedExpr.compile((), pm, Matchless.LocalPassOptions.Default)
+        MatchlessFromTypedExpr.compile(
+          (),
+          pm,
+          Matchless.LocalPassOptions.Default
+        )
       fn(comp)
     }
   }
@@ -572,7 +587,9 @@ class MatchlessTest extends munit.ScalaCheckSuite {
           loopBool(cond) + loopExpr(thenExpr) + loopExpr(elseExpr)
         case Matchless.SwitchVariant(on, _, cases, default) =>
           loopExpr(on) +
-            cases.foldLeft(0) { case (acc, (_, branch)) => acc + loopExpr(branch) } +
+            cases.foldLeft(0) { case (acc, (_, branch)) =>
+              acc + loopExpr(branch)
+            } +
             default.foldLeft(0)(_ + loopExpr(_))
         case Matchless.Always(cond, thenExpr) =>
           loopBool(cond) + loopExpr(thenExpr)
@@ -636,7 +653,9 @@ class MatchlessTest extends munit.ScalaCheckSuite {
           loopBool(cond) + loopExpr(thenExpr) + loopExpr(elseExpr)
         case Matchless.SwitchVariant(on, _, cases, default) =>
           loopExpr(on) +
-            cases.foldLeft(0) { case (acc, (_, branch)) => acc + loopExpr(branch) } +
+            cases.foldLeft(0) { case (acc, (_, branch)) =>
+              acc + loopExpr(branch)
+            } +
             default.foldLeft(0)(_ + loopExpr(_))
         case Matchless.Always(cond, thenExpr) =>
           loopBool(cond) + loopExpr(thenExpr)
@@ -720,10 +739,15 @@ class MatchlessTest extends munit.ScalaCheckSuite {
               val strs =
                 Value.VList
                   .unapply(list)
-                  .getOrElse(fail(s"expected list argument to concat_String, got: $list"))
+                  .getOrElse(
+                    fail(s"expected list argument to concat_String, got: $list")
+                  )
                   .map {
                     case Value.Str(str) => str
-                    case other          => fail(s"expected string in concat_String list, got: $other")
+                    case other          =>
+                      fail(
+                        s"expected string in concat_String list, got: $other"
+                      )
                   }
               Value.Str(strs.mkString)
             case args =>
@@ -741,7 +765,9 @@ class MatchlessTest extends munit.ScalaCheckSuite {
                 else {
                   val left = str.substring(0, idx)
                   val right = str.substring(idx + sep.length)
-                  Value.VOption.some(Value.Tuple(Value.Str(left), Value.Str(right)))
+                  Value.VOption.some(
+                    Value.Tuple(Value.Str(left), Value.Str(right))
+                  )
                 }
               }
             case args =>
@@ -755,15 +781,22 @@ class MatchlessTest extends munit.ScalaCheckSuite {
               if (str.isEmpty) Value.VOption.none
               else {
                 val next = str.offsetByCodePoints(0, 1)
-                  Value.VOption.some(
-                    Value.Tuple(Value.Str(str.substring(0, next)), Value.Str(str.substring(next)))
+                Value.VOption.some(
+                  Value.Tuple(
+                    Value.Str(str.substring(0, next)),
+                    Value.Str(str.substring(next))
                   )
+                )
               }
             case args =>
               fail(s"unexpected uncons_String args: $args")
           }
         )
-      case ((), PackageName.PredefName, Identifier.Name("tail_or_empty_String")) =>
+      case (
+            (),
+            PackageName.PredefName,
+            Identifier.Name("tail_or_empty_String")
+          ) =>
         Eval.now(
           Value.FnValue {
             case NonEmptyList(Value.Str(str), Nil) =>
@@ -912,7 +945,8 @@ class MatchlessTest extends munit.ScalaCheckSuite {
         case Matchless.PrevNat(of) =>
           exprHasIf(of)
         case Matchless.MakeEnum(_, _, _) | Matchless.MakeStruct(_) |
-            Matchless.ZeroNat | Matchless.SuccNat | (_: Matchless.CheapExpr[Unit]) =>
+            Matchless.ZeroNat | Matchless.SuccNat |
+            (_: Matchless.CheapExpr[Unit]) =>
           false
       }
 
@@ -978,7 +1012,8 @@ class MatchlessTest extends munit.ScalaCheckSuite {
         case Matchless.PrevNat(of) =>
           loopExpr(of)
         case Matchless.MakeEnum(_, _, _) | Matchless.MakeStruct(_) |
-            Matchless.ZeroNat | Matchless.SuccNat | (_: Matchless.CheapExpr[Unit]) =>
+            Matchless.ZeroNat | Matchless.SuccNat |
+            (_: Matchless.CheapExpr[Unit]) =>
           false
       }
 
@@ -1003,10 +1038,14 @@ class MatchlessTest extends munit.ScalaCheckSuite {
         case Matchless.LetMut(_, in) =>
           withinWhileExpr(in)
         case Matchless.If(cond, thenExpr, elseExpr) =>
-          withinWhileBool(cond) + withinWhileExpr(thenExpr) + withinWhileExpr(elseExpr)
+          withinWhileBool(cond) + withinWhileExpr(thenExpr) + withinWhileExpr(
+            elseExpr
+          )
         case Matchless.SwitchVariant(on, _, cases, default) =>
           withinWhileExpr(on) +
-            cases.toList.map { case (_, branch) => withinWhileExpr(branch) }.sum +
+            cases.toList.map { case (_, branch) =>
+              withinWhileExpr(branch)
+            }.sum +
             default.toList.map(withinWhileExpr).sum
         case Matchless.Always(cond, thenExpr) =>
           withinWhileBool(cond) + withinWhileExpr(thenExpr)
@@ -1016,11 +1055,11 @@ class MatchlessTest extends munit.ScalaCheckSuite {
           withinWhileExpr(ge.arg)
         case gs: Matchless.GetStructElement[?] =>
           withinWhileExpr(gs.arg)
-        case Matchless.Local(_) | Matchless.Global(_, _, _) | Matchless.ClosureSlot(_) |
-            Matchless.LocalAnon(_) | Matchless.LocalAnonMut(_) | Matchless.Literal(_) |
-            Matchless.LitInt64(_) |
-            Matchless.MakeEnum(_, _, _) | Matchless.MakeStruct(_) | Matchless.ZeroNat |
-            Matchless.SuccNat =>
+        case Matchless.Local(_) | Matchless.Global(_, _, _) |
+            Matchless.ClosureSlot(_) | Matchless.LocalAnon(_) |
+            Matchless.LocalAnonMut(_) | Matchless.Literal(_) |
+            Matchless.LitInt64(_) | Matchless.MakeEnum(_, _, _) |
+            Matchless.MakeStruct(_) | Matchless.ZeroNat | Matchless.SuccNat =>
           0
       }
 
@@ -1039,11 +1078,15 @@ class MatchlessTest extends munit.ScalaCheckSuite {
         case Matchless.And(l, r) =>
           withinWhileBool(l) + withinWhileBool(r)
         case Matchless.CheckVariant(e, _, size, famArities) =>
-          withinWhileExpr(e) + (if ((size == 2) && (famArities == matchlessListFamArities)) 1
-                                else 0)
+          withinWhileExpr(
+            e
+          ) + (if ((size == 2) && (famArities == matchlessListFamArities)) 1
+               else 0)
         case Matchless.CheckVariantSet(e, _, size, famArities) =>
-          withinWhileExpr(e) + (if ((size == 2) && (famArities == matchlessListFamArities)) 1
-                                else 0)
+          withinWhileExpr(
+            e
+          ) + (if ((size == 2) && (famArities == matchlessListFamArities)) 1
+               else 0)
         case Matchless.SetMut(_, e) =>
           withinWhileExpr(e)
         case Matchless.TrueConst =>
@@ -1108,11 +1151,11 @@ class MatchlessTest extends munit.ScalaCheckSuite {
           findWhiles(ge.arg)
         case gs: Matchless.GetStructElement[?] =>
           findWhiles(gs.arg)
-        case Matchless.Local(_) | Matchless.Global(_, _, _) | Matchless.ClosureSlot(_) |
-            Matchless.LocalAnon(_) | Matchless.LocalAnonMut(_) | Matchless.Literal(_) |
-            Matchless.LitInt64(_) |
-            Matchless.MakeEnum(_, _, _) | Matchless.MakeStruct(_) | Matchless.ZeroNat |
-            Matchless.SuccNat =>
+        case Matchless.Local(_) | Matchless.Global(_, _, _) |
+            Matchless.ClosureSlot(_) | Matchless.LocalAnon(_) |
+            Matchless.LocalAnonMut(_) | Matchless.Literal(_) |
+            Matchless.LitInt64(_) | Matchless.MakeEnum(_, _, _) |
+            Matchless.MakeStruct(_) | Matchless.ZeroNat | Matchless.SuccNat =>
           0
       }
 
@@ -1223,7 +1266,10 @@ class MatchlessTest extends munit.ScalaCheckSuite {
       expr: Matchless.Expr[Unit],
       arity: Int
   ): Boolean = {
-    def loopCheap(c: Matchless.CheapExpr[Unit], inConditionalBranch: Boolean): Boolean =
+    def loopCheap(
+        c: Matchless.CheapExpr[Unit],
+        inConditionalBranch: Boolean
+    ): Boolean =
       c match {
         case Matchless.GetEnumElement(arg, _, _, _) =>
           loopCheap(arg, inConditionalBranch)
@@ -1244,11 +1290,20 @@ class MatchlessTest extends munit.ScalaCheckSuite {
         case Matchless.CompareLit(e, _, _) =>
           loopCheap(e, inConditionalBranch)
         case Matchless.CompareInt(left, _, right) =>
-          loopCheap(left, inConditionalBranch) || loopCheap(right, inConditionalBranch)
+          loopCheap(left, inConditionalBranch) || loopCheap(
+            right,
+            inConditionalBranch
+          )
         case Matchless.CompareInt64(left, _, right) =>
-          loopCheap(left, inConditionalBranch) || loopCheap(right, inConditionalBranch)
+          loopCheap(left, inConditionalBranch) || loopCheap(
+            right,
+            inConditionalBranch
+          )
         case Matchless.CompareFloat64(left, _, right) =>
-          loopCheap(left, inConditionalBranch) || loopCheap(right, inConditionalBranch)
+          loopCheap(left, inConditionalBranch) || loopCheap(
+            right,
+            inConditionalBranch
+          )
         case Matchless.EqualsNat(e, _) =>
           loopCheap(e, inConditionalBranch)
         case Matchless.And(l, r) =>
@@ -1457,9 +1512,12 @@ class MatchlessTest extends munit.ScalaCheckSuite {
         case Matchless.WhileExpr(_, effectExpr, _) =>
           Some(effectExpr)
         case Matchless.Lambda(captures, _, _, body) =>
-          captures.iterator.map(loop).collectFirst {
-            case Some(found) => found
-          }.orElse(loop(body))
+          captures.iterator
+            .map(loop)
+            .collectFirst { case Some(found) =>
+              found
+            }
+            .orElse(loop(body))
         case Matchless.App(fn, args) =>
           loop(fn).orElse(
             args.iterator.map(loop).collectFirst { case Some(found) => found }
@@ -1471,19 +1529,24 @@ class MatchlessTest extends munit.ScalaCheckSuite {
         case Matchless.If(_, thenExpr, elseExpr) =>
           loop(thenExpr).orElse(loop(elseExpr))
         case Matchless.SwitchVariant(on, _, cases, default) =>
-          loop(on).orElse {
-            cases.iterator.map { case (_, branch) =>
-              loop(branch)
-            }.collectFirst {
-              case Some(found) => found
+          loop(on)
+            .orElse {
+              cases.iterator
+                .map { case (_, branch) =>
+                  loop(branch)
+                }
+                .collectFirst { case Some(found) =>
+                  found
+                }
             }
-          }.orElse(default.flatMap(loop))
+            .orElse(default.flatMap(loop))
         case Matchless.Always(_, thenExpr) =>
           loop(thenExpr)
         case Matchless.PrevNat(of) =>
           loop(of)
         case Matchless.MakeEnum(_, _, _) | Matchless.MakeStruct(_) |
-            Matchless.ZeroNat | Matchless.SuccNat | (_: Matchless.CheapExpr[?]) =>
+            Matchless.ZeroNat | Matchless.SuccNat |
+            (_: Matchless.CheapExpr[?]) =>
           None
       }
 
@@ -1815,7 +1878,8 @@ main = select
     Par.withEC {
       TestUtils.testInferred(
         List(src),
-        "Matchless/BoolSelectorScrutinee", { (pm, packName) =>
+        "Matchless/BoolSelectorScrutinee",
+        { (pm, packName) =>
           val compiled =
             MatchlessFromTypedExpr.compile(
               (),
@@ -1850,12 +1914,14 @@ main = select
   ) {
     val intType = rankn.Type.IntType
     val boolType = rankn.Type.BoolType
-    val comparisonType = rankn.Type.TyConst(rankn.Type.Const.predef("Comparison"))
+    val comparisonType =
+      rankn.Type.TyConst(rankn.Type.Const.predef("Comparison"))
     val argName = Identifier.Name("i")
     val cmpName = Identifier.Name("c")
     val argExpr = TypedExpr.Local(argName, intType, ())
     val cmpLocal = TypedExpr.Local(cmpName, comparisonType, ())
-    val cmpIntType = rankn.Type.Fun(NonEmptyList.of(intType, intType), comparisonType)
+    val cmpIntType =
+      rankn.Type.Fun(NonEmptyList.of(intType, intType), comparisonType)
     val cmpIntExpr = TypedExpr.Global(
       PackageName.PredefName,
       Identifier.Name("cmp_Int"),
@@ -1885,15 +1951,15 @@ main = select
       {
         case (PackageName.PredefName, Constructor("False")) =>
           Some(DataRepr.Enum(0, 0, boolFamArities))
-        case (PackageName.PredefName, Constructor("True"))  =>
+        case (PackageName.PredefName, Constructor("True")) =>
           Some(DataRepr.Enum(1, 0, boolFamArities))
-        case (PackageName.PredefName, Constructor("LT"))    =>
+        case (PackageName.PredefName, Constructor("LT")) =>
           Some(DataRepr.Enum(0, 0, comparisonFamArities))
-        case (PackageName.PredefName, Constructor("EQ"))    =>
+        case (PackageName.PredefName, Constructor("EQ")) =>
           Some(DataRepr.Enum(1, 0, comparisonFamArities))
-        case (PackageName.PredefName, Constructor("GT"))    =>
+        case (PackageName.PredefName, Constructor("GT")) =>
           Some(DataRepr.Enum(2, 0, comparisonFamArities))
-        case (pn, cons)                                     =>
+        case (pn, cons) =>
           base(pn, cons)
       }
     }
@@ -1925,7 +1991,8 @@ main = select
         TypedExpr.Match(
           argExpr,
           NonEmptyList.of(
-            TypedExpr.Branch(Pattern.WildCard, Some(guardExpr), intLit(onGuardTrue)),
+            TypedExpr
+              .Branch(Pattern.WildCard, Some(guardExpr), intLit(onGuardTrue)),
             TypedExpr.Branch(Pattern.WildCard, None, intLit(onGuardFalse))
           ),
           ()
@@ -1935,7 +2002,11 @@ main = select
       )
 
       val typed =
-        TypedExpr.AnnotatedLambda(NonEmptyList.one((argName, intType)), body, ())
+        TypedExpr.AnnotatedLambda(
+          NonEmptyList.one((argName, intType)),
+          body,
+          ()
+        )
       Matchless.fromLet(
         (),
         Identifier.Name(outName),
@@ -2013,7 +2084,8 @@ main = (cmp_guard, enum_guard)
     Par.withEC {
       TestUtils.testInferred(
         List(src),
-        "Matchless/GuardCoverage", { (pm, packName) =>
+        "Matchless/GuardCoverage",
+        { (pm, packName) =>
           val compiled =
             MatchlessFromTypedExpr.compile(
               (),
@@ -2130,7 +2202,9 @@ main = (cmp_guard, enum_guard)
             fail(s"expected pushed SwitchVariant default App, found: $other")
         }
       case other =>
-        fail(s"expected SwitchVariant after applyArgs push-through, found: $other")
+        fail(
+          s"expected SwitchVariant after applyArgs push-through, found: $other"
+        )
     }
 
     val capture = Identifier.Name("cap")
@@ -2179,21 +2253,27 @@ main = (cmp_guard, enum_guard)
 
     assertNotEquals(Matchless.Expr.exprOrder[Unit].compare(switchA, switchB), 0)
     assertNotEquals(
-      Matchless.Expr.exprOrder[Unit].compare(
-        Matchless.SuccNat,
-        Matchless.PrevNat(Matchless.ZeroNat)
-      ),
+      Matchless.Expr
+        .exprOrder[Unit]
+        .compare(
+          Matchless.SuccNat,
+          Matchless.PrevNat(Matchless.ZeroNat)
+        ),
       0
     )
     assertNotEquals(
-      Matchless.Expr.exprOrder[Unit].compare(
-        Matchless.GetEnumElement(Matchless.Local(on), 0, 0, 1),
-        Matchless.GetStructElement(Matchless.Local(on), 0, 1)
-      ),
+      Matchless.Expr
+        .exprOrder[Unit]
+        .compare(
+          Matchless.GetEnumElement(Matchless.Local(on), 0, 0, 1),
+          Matchless.GetStructElement(Matchless.Local(on), 0, 1)
+        ),
       0
     )
     assertNotEquals(
-      Matchless.Expr.exprOrder[Unit].compare(Matchless.ZeroNat, Matchless.SuccNat),
+      Matchless.Expr
+        .exprOrder[Unit]
+        .compare(Matchless.ZeroNat, Matchless.SuccNat),
       0
     )
     assertNotEquals(
@@ -2791,7 +2871,9 @@ main = (cmp_guard, enum_guard)
     assertEquals(Matchless.Expr.readsMutable(Matchless.LocalAnon(77L)), false)
   }
 
-  test("Matchless.Expr and Matchless.BoolExpr reference helpers respect shadowing") {
+  test(
+    "Matchless.Expr and Matchless.BoolExpr reference helpers respect shadowing"
+  ) {
     val target = Identifier.Name("target")
     val other = Identifier.Name("other")
 
@@ -2803,8 +2885,14 @@ main = (cmp_guard, enum_guard)
         Matchless.Literal(Lit.fromInt(1)),
         Matchless.EqualsLit(Matchless.Local(target), Lit.fromInt(1))
       )
-    assertEquals(Matchless.BoolExpr.referencesBindable(directCond, target), true)
-    assertEquals(Matchless.BoolExpr.referencesBindable(shadowedCond, target), false)
+    assertEquals(
+      Matchless.BoolExpr.referencesBindable(directCond, target),
+      true
+    )
+    assertEquals(
+      Matchless.BoolExpr.referencesBindable(shadowedCond, target),
+      false
+    )
 
     val directExpr: Matchless.Expr[Unit] =
       Matchless.App(
@@ -2837,7 +2925,10 @@ main = (cmp_guard, enum_guard)
         Matchless.LocalAnon(target.ident)
       )
 
-    assertEquals(Matchless.Expr.referencesLocalAnon(directExpr, target.ident), true)
+    assertEquals(
+      Matchless.Expr.referencesLocalAnon(directExpr, target.ident),
+      true
+    )
     assertEquals(
       Matchless.Expr.referencesLocalAnon(shadowedExpr, target.ident),
       false
@@ -2888,11 +2979,13 @@ main = (cmp_guard, enum_guard)
           0 -> Matchless.UnitExpr,
           1 -> Matchless.UnitExpr
         ),
-        Some(Matchless.WhileExpr(
-          Matchless.TrueConst,
-          Matchless.GetStructElement(Matchless.LocalAnonMut(701L), 0, 1),
-          Matchless.LocalAnonMut(702L)
-        ))
+        Some(
+          Matchless.WhileExpr(
+            Matchless.TrueConst,
+            Matchless.GetStructElement(Matchless.LocalAnonMut(701L), 0, 1),
+            Matchless.LocalAnonMut(702L)
+          )
+        )
       )
     assertEquals(Matchless.Expr.containsWhileExpr(defaultOnlySwitch), true)
     assertEquals(Matchless.Expr.readsMutable(defaultOnlySwitch), true)
@@ -2935,18 +3028,25 @@ main = (cmp_guard, enum_guard)
             0 -> Matchless.UnitExpr,
             1 -> Matchless.UnitExpr
           ),
-          Some(Matchless.WhileExpr(
-            Matchless.TrueConst,
-            Matchless.UnitExpr,
-            Matchless.LocalAnonMut(703L)
-          ))
+          Some(
+            Matchless.WhileExpr(
+              Matchless.TrueConst,
+              Matchless.UnitExpr,
+              Matchless.LocalAnonMut(703L)
+            )
+          )
         )
       ),
       true
     )
 
     val lamA: Matchless.Expr[Unit] =
-      Matchless.Lambda(Nil, None, NonEmptyList.one(lamArg), Matchless.Local(lamArg))
+      Matchless.Lambda(
+        Nil,
+        None,
+        NonEmptyList.one(lamArg),
+        Matchless.Local(lamArg)
+      )
     val lamB: Matchless.Expr[Unit] =
       Matchless.Lambda(
         Nil,
@@ -2972,7 +3072,9 @@ main = (cmp_guard, enum_guard)
             fail(s"expected recovered SwitchVariant body, found: $other")
         }
       case other =>
-        fail(s"expected recovered top-level lambda from SwitchVariant, found: $other")
+        fail(
+          s"expected recovered top-level lambda from SwitchVariant, found: $other"
+        )
     }
   }
 
@@ -3021,7 +3123,9 @@ main = (cmp_guard, enum_guard)
     }
   }
 
-  test("Matchless.hoistInvariantLoopLets hoists non-trivial constructor allocations") {
+  test(
+    "Matchless.hoistInvariantLoopLets hoists non-trivial constructor allocations"
+  ) {
     val runMut = Matchless.LocalAnonMut(1005L)
     val resultMut = Matchless.LocalAnonMut(1006L)
     val z = Identifier.Name("z")
@@ -3143,7 +3247,10 @@ main = (cmp_guard, enum_guard)
         )
       )
     )
-    assertEquals(Matchless.hoistInvariantLoopLets(cheapAliasInput), cheapAliasInput)
+    assertEquals(
+      Matchless.hoistInvariantLoopLets(cheapAliasInput),
+      cheapAliasInput
+    )
 
     val mutableReadInput = canonicalRecLoop(
       runMut,
@@ -3167,7 +3274,8 @@ main = (cmp_guard, enum_guard)
       resultMut,
       Matchless.Let(
         Right(sideName),
-        Matchless.WhileExpr(Matchless.TrueConst, Matchless.UnitExpr, sideResult),
+        Matchless
+          .WhileExpr(Matchless.TrueConst, Matchless.UnitExpr, sideResult),
         Matchless.App(
           Matchless.MakeStruct(1),
           NonEmptyList.one(Matchless.Local(sideName))
@@ -3219,7 +3327,8 @@ main = (cmp_guard, enum_guard)
     val z = Identifier.Name("z")
     val branchCall: Matchless.Expr[Unit] =
       Matchless.App(
-        Matchless.Global((), TestUtils.testPackage, Identifier.Name("branch_call")),
+        Matchless
+          .Global((), TestUtils.testPackage, Identifier.Name("branch_call")),
         NonEmptyList.one(Matchless.Literal(Lit.fromInt(42)))
       )
     val branchExpr: Matchless.Expr[Unit] =
@@ -3274,10 +3383,15 @@ main = (cmp_guard, enum_guard)
         )
       )
 
-    assertEquals(Matchless.hoistInvariantLoopLets(nonCanonicalLoop), nonCanonicalLoop)
+    assertEquals(
+      Matchless.hoistInvariantLoopLets(nonCanonicalLoop),
+      nonCanonicalLoop
+    )
   }
 
-  test("Matchless.fromLet hoists invariant loop lets out of WhileExpr effects") {
+  test(
+    "Matchless.fromLet hoists invariant loop lets out of WhileExpr effects"
+  ) {
     val intType = rankn.Type.IntType
     val loopArg = Identifier.Name("loop_arg")
     val hoisted = Identifier.Name("hoisted")
@@ -3472,7 +3586,8 @@ def matches_five(xs):
         TypedExpr.Local(arg, issue1688StructType, ()),
         NonEmptyList.one(
           TypedExpr.Branch(
-            Pattern.PositionalStruct((issue1688Package, issue1688Struct), params),
+            Pattern
+              .PositionalStruct((issue1688Package, issue1688Struct), params),
             None,
             rhs
           )
@@ -3481,7 +3596,9 @@ def matches_five(xs):
       )
 
       val lowered =
-        Matchless.fromLet((), out, RecursionKind.NonRecursive, expr)(issue1688Fn)
+        Matchless.fromLet((), out, RecursionKind.NonRecursive, expr)(
+          issue1688Fn
+        )
 
       val projected =
         collectProjectionIndices(lowered) {
@@ -3517,7 +3634,8 @@ def matches_five(xs):
         TypedExpr.Local(arg, issue1688EnumTypeValue, ()),
         NonEmptyList.of(
           TypedExpr.Branch(
-            Pattern.PositionalStruct((issue1688Package, issue1688Enum0), params),
+            Pattern
+              .PositionalStruct((issue1688Package, issue1688Enum0), params),
             None,
             e0Rhs
           ),
@@ -3531,7 +3649,9 @@ def matches_five(xs):
       )
 
       val lowered =
-        Matchless.fromLet((), out, RecursionKind.NonRecursive, expr)(issue1688Fn)
+        Matchless.fromLet((), out, RecursionKind.NonRecursive, expr)(
+          issue1688Fn
+        )
 
       val projected =
         collectProjectionIndices(lowered) {
@@ -3593,24 +3713,38 @@ def pick(v):
       val switches = exprSwitchSubexpressions(pickExpr)
       assert(switches.nonEmpty, s"expected SwitchVariant, got: $pickExpr")
 
-      val withUnionCases = switches.find { sw =>
-        val variants = sw.cases.map(_._1).toList.toSet
-        variants(1) && variants(2)
-      }.getOrElse {
-        fail(s"expected switch cases for B|C variants in: $switches")
-      }
+      val withUnionCases = switches
+        .find { sw =>
+          val variants = sw.cases.map(_._1).toList.toSet
+          variants(1) && variants(2)
+        }
+        .getOrElse {
+          fail(s"expected switch cases for B|C variants in: $switches")
+        }
 
       val famArities = withUnionCases.famArities
       val evalExprs = Vector(
-        Matchless.App(pickExpr, NonEmptyList.one(Matchless.MakeEnum(1, 0, famArities))),
-        Matchless.App(pickExpr, NonEmptyList.one(Matchless.MakeEnum(2, 0, famArities))),
-        Matchless.App(pickExpr, NonEmptyList.one(Matchless.MakeEnum(5, 0, famArities)))
+        Matchless.App(
+          pickExpr,
+          NonEmptyList.one(Matchless.MakeEnum(1, 0, famArities))
+        ),
+        Matchless.App(
+          pickExpr,
+          NonEmptyList.one(Matchless.MakeEnum(2, 0, famArities))
+        ),
+        Matchless.App(
+          pickExpr,
+          NonEmptyList.one(Matchless.MakeEnum(5, 0, famArities))
+        )
       )
       val evaluated =
         MatchlessToValue
           .traverse(evalExprs)((_, _, _) => Eval.now(Value.UnitValue))
           .map(_.value)
-      assertEquals(evaluated, Vector(Value.VInt(1), Value.VInt(1), Value.VInt(4)))
+      assertEquals(
+        evaluated,
+        Vector(Value.VInt(1), Value.VInt(1), Value.VInt(4))
+      )
     }
   }
 
@@ -3777,7 +3911,8 @@ def classify_small(n):
   test("selector guard fast path falls back on non-boolean integer literals") {
     val pkg = PackageName.parts("Issue2059", "GuardIntFallback")
     val enumTypeName = TypeName(Constructor("Five"))
-    val enumType = rankn.Type.TyConst(rankn.Type.Const.Defined(pkg, enumTypeName))
+    val enumType =
+      rankn.Type.TyConst(rankn.Type.Const.Defined(pkg, enumTypeName))
     val arg = Identifier.Name("v")
     val out = Identifier.Name("guard_int_fallback")
     val famArities = 0 :: 0 :: 0 :: 0 :: 0 :: Nil
@@ -3788,7 +3923,9 @@ def classify_small(n):
     val cD = Constructor("D")
     val cE = Constructor("E")
 
-    def ctorPat(c: Constructor): Pattern[(PackageName, Constructor), rankn.Type] =
+    def ctorPat(
+        c: Constructor
+    ): Pattern[(PackageName, Constructor), rankn.Type] =
       Pattern.PositionalStruct((pkg, c), Nil)
 
     val selectorAsInts = TypedExpr.Match(
@@ -3830,7 +3967,7 @@ def classify_small(n):
           Some(DataRepr.Enum(3, 0, famArities))
         case (`pkg`, `cE`) =>
           Some(DataRepr.Enum(4, 0, famArities))
-        case (pn, cons)    =>
+        case (pn, cons) =>
           base(pn, cons)
       }
     }
@@ -3846,7 +3983,9 @@ def classify_small(n):
     )
   }
 
-  test("tail-recursive switch lowering rewrites recursive SwitchVariant branches") {
+  test(
+    "tail-recursive switch lowering rewrites recursive SwitchVariant branches"
+  ) {
     TestUtils.checkMatchless("""
 enum Nat:
   Z
@@ -3923,7 +4062,10 @@ def pick(v):
       val byName = binds(TestUtils.testPackage).toMap
       val expr = byName(Identifier.Name("pick"))
       val switches = exprSwitchSubexpressions(expr)
-      assert(switches.nonEmpty, s"expected SwitchVariant in payload case match, got: $expr")
+      assert(
+        switches.nonEmpty,
+        s"expected SwitchVariant in payload case match, got: $expr"
+      )
       assert(
         collectProjectionIndices(expr) {
           case Matchless.GetEnumElement(_, 0, idx, 1) => idx
@@ -3946,9 +4088,9 @@ def pick(v):
     val pairAndStructFn: Fn = {
       val base = fnFromTypeEnv(rankn.TypeEnv.empty)
       {
-        case (`issue1732Package`, `issue1732Pair`)    =>
+        case (`issue1732Package`, `issue1732Pair`) =>
           Some(DataRepr.Struct(2))
-        case (`issue1688Package`, `issue1688Struct`)  =>
+        case (`issue1688Package`, `issue1688Struct`) =>
           Some(DataRepr.Struct(3))
         case (pn, cons) =>
           base(pn, cons)
@@ -3979,7 +4121,11 @@ def pick(v):
       NonEmptyList.of(
         TypedExpr.Branch(
           pairPat(
-            structPat(Pattern.Var(leftField), Pattern.WildCard, Pattern.WildCard),
+            structPat(
+              Pattern.Var(leftField),
+              Pattern.WildCard,
+              Pattern.WildCard
+            ),
             Pattern.Literal(Lit.fromInt(0))
           ),
           None,
@@ -3987,7 +4133,11 @@ def pick(v):
         ),
         TypedExpr.Branch(
           pairPat(
-            structPat(Pattern.WildCard, Pattern.Var(midField), Pattern.WildCard),
+            structPat(
+              Pattern.WildCard,
+              Pattern.Var(midField),
+              Pattern.WildCard
+            ),
             Pattern.Literal(Lit.fromInt(1))
           ),
           None,
@@ -3995,7 +4145,11 @@ def pick(v):
         ),
         TypedExpr.Branch(
           pairPat(
-            structPat(Pattern.WildCard, Pattern.WildCard, Pattern.Var(rightField)),
+            structPat(
+              Pattern.WildCard,
+              Pattern.WildCard,
+              Pattern.Var(rightField)
+            ),
             Pattern.WildCard
           ),
           None,
@@ -4006,7 +4160,9 @@ def pick(v):
     )
 
     val lowered =
-      Matchless.fromLet((), out, RecursionKind.NonRecursive, expr)(pairAndStructFn)
+      Matchless.fromLet((), out, RecursionKind.NonRecursive, expr)(
+        pairAndStructFn
+      )
 
     val wideProjectionFields =
       collectProjectionIndices(lowered) {
@@ -4057,7 +4213,9 @@ def pick(v):
     assertEquals(tupleProjections, Set.empty[Int])
   }
 
-  test("ordered matcher also elides tuple allocation for non-orthogonal suffix") {
+  test(
+    "ordered matcher also elides tuple allocation for non-orthogonal suffix"
+  ) {
     val out = Identifier.Name("ordered_elide")
     val listPattern = Pattern.ListPat(
       Pattern.ListPart.WildList ::
@@ -4105,7 +4263,9 @@ def pick(v):
     assertEquals(tupleProjections, Set.empty[Int])
   }
 
-  test("ordered matcher handles annotated glob-first list pattern (wild glob)") {
+  test(
+    "ordered matcher handles annotated glob-first list pattern (wild glob)"
+  ) {
     val out = Identifier.Name("list_glob_wild")
     val annotated = Pattern.Annotation(
       Pattern.ListPat(
@@ -4132,7 +4292,9 @@ def pick(v):
     assertEquals(countStructConstructorApps(lowered, 2), 0)
   }
 
-  test("ordered matcher handles annotated glob-first list pattern (named glob)") {
+  test(
+    "ordered matcher handles annotated glob-first list pattern (named glob)"
+  ) {
     val out = Identifier.Name("list_glob_named")
     val prefix = Identifier.Name("prefix")
     val annotated = Pattern.Annotation(
@@ -4172,7 +4334,9 @@ def suffix_exact(xs):
     }
   }
 
-  test("fixed-width middle list search keeps one list-spine check inside WhileExpr") {
+  test(
+    "fixed-width middle list search keeps one list-spine check inside WhileExpr"
+  ) {
     TestUtils.checkMatchless("""
 def middle_window(xs):
   match xs:
@@ -4222,7 +4386,9 @@ test = TestSuite("guarded list search", [
     }
   }
 
-  test("guarded exact list search preserves left bias and retries after guard failure") {
+  test(
+    "guarded exact list search preserves left bias and retries after guard failure"
+  ) {
     TestUtils.checkMatchless("""
 def guarded_middle_retry(xs):
   match xs:
@@ -4281,7 +4447,9 @@ def guarded_trailing_exact(xs):
         trailingEvaluated,
         Vector(
           Value.VList(List(Value.VInt(1))),
-          Value.VList(List(Value.VInt(0), Value.VInt(1), Value.VInt(2), Value.VInt(3)))
+          Value.VList(
+            List(Value.VInt(0), Value.VInt(1), Value.VInt(2), Value.VInt(3))
+          )
         )
       )
     }
@@ -4297,9 +4465,14 @@ def suffix_prefix(xs):
       val byName = binds(TestUtils.testPackage).toMap
       val expr = byName(Identifier.Name("suffix_prefix"))
       val evalExprs = Vector(
-        Matchless.App(expr, NonEmptyList.one(matchlessListOfInts(1 :: 2 :: 3 :: Nil))),
-        Matchless.App(expr, NonEmptyList.one(matchlessListOfInts(1 :: 4 :: 2 :: 3 :: Nil))),
-        Matchless.App(expr, NonEmptyList.one(matchlessListOfInts(2 :: 3 :: Nil))),
+        Matchless
+          .App(expr, NonEmptyList.one(matchlessListOfInts(1 :: 2 :: 3 :: Nil))),
+        Matchless.App(
+          expr,
+          NonEmptyList.one(matchlessListOfInts(1 :: 4 :: 2 :: 3 :: Nil))
+        ),
+        Matchless
+          .App(expr, NonEmptyList.one(matchlessListOfInts(2 :: 3 :: Nil))),
         Matchless.App(expr, NonEmptyList.one(matchlessListOfInts(2 :: Nil)))
       )
       val evaluated =
@@ -4317,7 +4490,9 @@ def suffix_prefix(xs):
     }
   }
 
-  test("fixed-width middle list search preserves left-biased named prefix and suffix bindings") {
+  test(
+    "fixed-width middle list search preserves left-biased named prefix and suffix bindings"
+  ) {
     TestUtils.checkMatchless("""
 def middle_prefix(xs):
   match xs:
@@ -4335,18 +4510,34 @@ def middle_suffix_named(xs):
       val prefixEvalExprs = Vector(
         Matchless.App(
           prefixExpr,
-          NonEmptyList.one(matchlessListOfInts(9 :: 2 :: 3 :: 8 :: 2 :: 3 :: 7 :: Nil))
+          NonEmptyList.one(
+            matchlessListOfInts(9 :: 2 :: 3 :: 8 :: 2 :: 3 :: 7 :: Nil)
+          )
         ),
-        Matchless.App(prefixExpr, NonEmptyList.one(matchlessListOfInts(2 :: 3 :: Nil))),
-        Matchless.App(prefixExpr, NonEmptyList.one(matchlessListOfInts(5 :: 2 :: 4 :: 3 :: Nil)))
+        Matchless.App(
+          prefixExpr,
+          NonEmptyList.one(matchlessListOfInts(2 :: 3 :: Nil))
+        ),
+        Matchless.App(
+          prefixExpr,
+          NonEmptyList.one(matchlessListOfInts(5 :: 2 :: 4 :: 3 :: Nil))
+        )
       )
       val suffixEvalExprs = Vector(
         Matchless.App(
           suffixExpr,
-          NonEmptyList.one(matchlessListOfInts(9 :: 2 :: 3 :: 8 :: 2 :: 3 :: 7 :: Nil))
+          NonEmptyList.one(
+            matchlessListOfInts(9 :: 2 :: 3 :: 8 :: 2 :: 3 :: 7 :: Nil)
+          )
         ),
-        Matchless.App(suffixExpr, NonEmptyList.one(matchlessListOfInts(2 :: 3 :: Nil))),
-        Matchless.App(suffixExpr, NonEmptyList.one(matchlessListOfInts(5 :: 2 :: 4 :: 3 :: Nil)))
+        Matchless.App(
+          suffixExpr,
+          NonEmptyList.one(matchlessListOfInts(2 :: 3 :: Nil))
+        ),
+        Matchless.App(
+          suffixExpr,
+          NonEmptyList.one(matchlessListOfInts(5 :: 2 :: 4 :: 3 :: Nil))
+        )
       )
       val prefixEvaluated =
         MatchlessToValue
@@ -4362,21 +4553,29 @@ def middle_suffix_named(xs):
         Vector(
           Value.VList(List(Value.VInt(9))),
           Value.VList(Nil),
-          Value.VList(List(Value.VInt(5), Value.VInt(2), Value.VInt(4), Value.VInt(3)))
+          Value.VList(
+            List(Value.VInt(5), Value.VInt(2), Value.VInt(4), Value.VInt(3))
+          )
         )
       )
       assertEquals(
         suffixEvaluated,
         Vector(
-          Value.VList(List(Value.VInt(8), Value.VInt(2), Value.VInt(3), Value.VInt(7))),
+          Value.VList(
+            List(Value.VInt(8), Value.VInt(2), Value.VInt(3), Value.VInt(7))
+          ),
           Value.VList(Nil),
-          Value.VList(List(Value.VInt(5), Value.VInt(2), Value.VInt(4), Value.VInt(3)))
+          Value.VList(
+            List(Value.VInt(5), Value.VInt(2), Value.VInt(4), Value.VInt(3))
+          )
         )
       )
     }
   }
 
-  test("fixed-width middle list search with wildcard prefix binds suffix without reverse") {
+  test(
+    "fixed-width middle list search with wildcard prefix binds suffix without reverse"
+  ) {
     TestUtils.checkMatchless("""
 def middle_suffix(xs):
   match xs:
@@ -4388,10 +4587,16 @@ def middle_suffix(xs):
       val evalExprs = Vector(
         Matchless.App(
           expr,
-          NonEmptyList.one(matchlessListOfInts(9 :: 2 :: 3 :: 8 :: 2 :: 3 :: 7 :: Nil))
+          NonEmptyList.one(
+            matchlessListOfInts(9 :: 2 :: 3 :: 8 :: 2 :: 3 :: 7 :: Nil)
+          )
         ),
-        Matchless.App(expr, NonEmptyList.one(matchlessListOfInts(2 :: 3 :: Nil))),
-        Matchless.App(expr, NonEmptyList.one(matchlessListOfInts(5 :: 2 :: 4 :: 3 :: Nil)))
+        Matchless
+          .App(expr, NonEmptyList.one(matchlessListOfInts(2 :: 3 :: Nil))),
+        Matchless.App(
+          expr,
+          NonEmptyList.one(matchlessListOfInts(5 :: 2 :: 4 :: 3 :: Nil))
+        )
       )
       val evaluated =
         MatchlessToValue
@@ -4399,15 +4604,21 @@ def middle_suffix(xs):
           .map(_.value)
 
       val expected = Vector(
-        Value.VList(List(Value.VInt(8), Value.VInt(2), Value.VInt(3), Value.VInt(7))),
+        Value.VList(
+          List(Value.VInt(8), Value.VInt(2), Value.VInt(3), Value.VInt(7))
+        ),
         Value.VList(Nil),
-        Value.VList(List(Value.VInt(5), Value.VInt(2), Value.VInt(4), Value.VInt(3)))
+        Value.VList(
+          List(Value.VInt(5), Value.VInt(2), Value.VInt(4), Value.VInt(3))
+        )
       )
       assertEquals(evaluated, expected)
     }
   }
 
-  test("segmented list search returns the leftmost candidate before a trailing suffix") {
+  test(
+    "segmented list search returns the leftmost candidate before a trailing suffix"
+  ) {
     TestUtils.checkMatchless("""
 def find_before_one(xs):
   match xs:
@@ -4417,16 +4628,26 @@ def find_before_one(xs):
       val byName = binds(TestUtils.testPackage).toMap
       val expr = byName(Identifier.Name("find_before_one"))
       val evalExprs = Vector(
-        Matchless.App(expr, NonEmptyList.one(matchlessListOfInts(5 :: 6 :: 1 :: Nil))),
-        Matchless.App(expr, NonEmptyList.one(matchlessListOfInts(5 :: 1 :: 6 :: 1 :: Nil))),
-        Matchless.App(expr, NonEmptyList.one(matchlessListOfInts(5 :: 6 :: Nil)))
+        Matchless
+          .App(expr, NonEmptyList.one(matchlessListOfInts(5 :: 6 :: 1 :: Nil))),
+        Matchless.App(
+          expr,
+          NonEmptyList.one(matchlessListOfInts(5 :: 1 :: 6 :: 1 :: Nil))
+        ),
+        Matchless.App(
+          expr,
+          NonEmptyList.one(matchlessListOfInts(5 :: 6 :: Nil))
+        )
       )
       val evaluated =
         MatchlessToValue
           .traverse(evalExprs)((_, _, _) => Eval.now(Value.UnitValue))
           .map(_.value)
 
-      assertEquals(evaluated, Vector(Value.VInt(5), Value.VInt(5), Value.VInt(0)))
+      assertEquals(
+        evaluated,
+        Vector(Value.VInt(5), Value.VInt(5), Value.VInt(0))
+      )
     }
   }
 
@@ -4473,7 +4694,9 @@ def segmented_pair(xs):
             Vector(
               Matchless.App(
                 midExpr,
-                NonEmptyList.one(matchlessListOfInts(9 :: 2 :: 8 :: 2 :: 7 :: 3 :: 6 :: Nil))
+                NonEmptyList.one(
+                  matchlessListOfInts(9 :: 2 :: 8 :: 2 :: 7 :: 3 :: 6 :: Nil)
+                )
               ),
               Matchless.App(
                 midExpr,
@@ -4492,7 +4715,9 @@ def segmented_pair(xs):
               ),
               Matchless.App(
                 pairExpr,
-                NonEmptyList.one(matchlessListOfInts(9 :: 1 :: 8 :: 2 :: 7 :: Nil))
+                NonEmptyList.one(
+                  matchlessListOfInts(9 :: 1 :: 8 :: 2 :: 7 :: Nil)
+                )
               )
             )
           )((_, _, _) => Eval.now(Value.UnitValue))
@@ -4532,8 +4757,12 @@ def guarded(xs):
       val byName = binds(TestUtils.testPackage).toMap
       val expr = byName(Identifier.Name("guarded"))
       val evalExprs = Vector(
-        Matchless.App(expr, NonEmptyList.one(matchlessListOfInts(3 :: 2 :: 1 :: Nil))),
-        Matchless.App(expr, NonEmptyList.one(matchlessListOfInts(3 :: 4 :: 1 :: Nil)))
+        Matchless
+          .App(expr, NonEmptyList.one(matchlessListOfInts(3 :: 2 :: 1 :: Nil))),
+        Matchless.App(
+          expr,
+          NonEmptyList.one(matchlessListOfInts(3 :: 4 :: 1 :: Nil))
+        )
       )
       val evaluated =
         MatchlessToValue
@@ -4544,7 +4773,9 @@ def guarded(xs):
     }
   }
 
-  test("segmented list search only stop-fails after the full exact block matches") {
+  test(
+    "segmented list search only stop-fails after the full exact block matches"
+  ) {
     TestUtils.checkMatchless("""
 def exact_block(xs):
   match xs:
@@ -4554,8 +4785,14 @@ def exact_block(xs):
       val byName = binds(TestUtils.testPackage).toMap
       val expr = byName(Identifier.Name("exact_block"))
       val evalExprs = Vector(
-        Matchless.App(expr, NonEmptyList.one(matchlessListOfInts(1 :: 1 :: 2 :: 3 :: Nil))),
-        Matchless.App(expr, NonEmptyList.one(matchlessListOfInts(1 :: 2 :: 4 :: Nil)))
+        Matchless.App(
+          expr,
+          NonEmptyList.one(matchlessListOfInts(1 :: 1 :: 2 :: 3 :: Nil))
+        ),
+        Matchless.App(
+          expr,
+          NonEmptyList.one(matchlessListOfInts(1 :: 2 :: 4 :: Nil))
+        )
       )
       val evaluated =
         MatchlessToValue
@@ -4566,7 +4803,9 @@ def exact_block(xs):
     }
   }
 
-  test("segmented multi-glob list search lowers to loop-based search without tuple reconstruction") {
+  test(
+    "segmented multi-glob list search lowers to loop-based search without tuple reconstruction"
+  ) {
     TestUtils.checkMatchless("""
 def segmented_shape(xs):
   match xs:
@@ -4601,9 +4840,18 @@ def between_foo_bar(s):
         MatchlessToValue
           .traverse(
             Vector(
-              Matchless.App(prefixExpr, NonEmptyList.one(Matchless.Literal(Lit.Str("aafooxbar")))),
-              Matchless.App(prefixExpr, NonEmptyList.one(Matchless.Literal(Lit.Str("aafooxfooybar")))),
-              Matchless.App(prefixExpr, NonEmptyList.one(Matchless.Literal(Lit.Str("aafoox"))))
+              Matchless.App(
+                prefixExpr,
+                NonEmptyList.one(Matchless.Literal(Lit.Str("aafooxbar")))
+              ),
+              Matchless.App(
+                prefixExpr,
+                NonEmptyList.one(Matchless.Literal(Lit.Str("aafooxfooybar")))
+              ),
+              Matchless.App(
+                prefixExpr,
+                NonEmptyList.one(Matchless.Literal(Lit.Str("aafoox")))
+              )
             )
           )(matchlessEvalResolveReverseAndStrings)
           .map(_.value)
@@ -4611,8 +4859,16 @@ def between_foo_bar(s):
         MatchlessToValue
           .traverse(
             Vector(
-              Matchless.App(midExpr, NonEmptyList.one(Matchless.Literal(Lit.Str("aafooxxbarfooyybar")))),
-              Matchless.App(midExpr, NonEmptyList.one(Matchless.Literal(Lit.Str("aafooxx"))))
+              Matchless.App(
+                midExpr,
+                NonEmptyList.one(
+                  Matchless.Literal(Lit.Str("aafooxxbarfooyybar"))
+                )
+              ),
+              Matchless.App(
+                midExpr,
+                NonEmptyList.one(Matchless.Literal(Lit.Str("aafooxx")))
+              )
             )
           )(matchlessEvalResolveReverseAndStrings)
           .map(_.value)
@@ -4641,8 +4897,16 @@ def guarded(s):
         MatchlessToValue
           .traverse(
             Vector(
-              Matchless.App(expr, NonEmptyList.one(Matchless.Literal(Lit.Str("foozzbarfoookbar")))),
-              Matchless.App(expr, NonEmptyList.one(Matchless.Literal(Lit.Str("foozzbarfoonopebar"))))
+              Matchless.App(
+                expr,
+                NonEmptyList.one(Matchless.Literal(Lit.Str("foozzbarfoookbar")))
+              ),
+              Matchless.App(
+                expr,
+                NonEmptyList.one(
+                  Matchless.Literal(Lit.Str("foozzbarfoonopebar"))
+                )
+              )
             )
           )(matchlessEvalResolveReverseAndStrings)
           .map(_.value)
@@ -4807,15 +5071,16 @@ def prefix_before_f(s):
           Value.False,
           Value.Str("zz"),
           Value.Str("#"),
-          Value.Str("aa")
-          ,
+          Value.Str("aa"),
           Value.Str("#")
         )
       )
     }
   }
 
-  test("segmented string matcher covers char, literal, trailing-glob, and retry behaviors") {
+  test(
+    "segmented string matcher covers char, literal, trailing-glob, and retry behaviors"
+  ) {
     TestUtils.checkMatchless("""
 def seg_final_char_some(s):
   match s:
@@ -4951,7 +5216,8 @@ def seg_final_literal_char(s):
   test("ordered matcher visits simplified string patterns") {
     val out = Identifier.Name("ordered_str_simplify")
     val strType = rankn.Type.StrType
-    val literal = Pattern.StrPat(NonEmptyList.one(Pattern.StrPart.LitStr("abc")))
+    val literal =
+      Pattern.StrPat(NonEmptyList.one(Pattern.StrPart.LitStr("abc")))
     val listSearch = Pattern.ListPat(
       Pattern.ListPart.WildList ::
         Pattern.ListPart.Item(Pattern.Literal(Lit.fromInt(2))) ::
@@ -5161,7 +5427,9 @@ def seg_final_literal_char(s):
     assertEquals(structProjections, Set.empty[Int])
   }
 
-  test("whole-root binding can eliminate reconstruction when only bound fields are read") {
+  test(
+    "whole-root binding can eliminate reconstruction when only bound fields are read"
+  ) {
     val x2 = Identifier.Name("x2")
     val pairAlias = Identifier.Name("pair_alias")
     val out = Identifier.Name("whole_root")
@@ -5287,7 +5555,9 @@ def seg_final_literal_char(s):
         TypedExpr.Branch.fromGuardNode(
           outerPattern,
           Some(
-            TypedExpr.MatchGuard(probeCall, guardPattern, None)(using Region.empty)
+            TypedExpr.MatchGuard(probeCall, guardPattern, None)(using
+              Region.empty
+            )
           ),
           TypedExpr.Local(evenX, intType, ())
         ),
@@ -5302,7 +5572,9 @@ def seg_final_literal_char(s):
     assertEquals(countGlobalCalls(lowered, TestUtils.testPackage, probeName), 1)
   }
 
-  test("MatchGuard without new bindings lowers directly and preserves semantics") {
+  test(
+    "MatchGuard without new bindings lowers directly and preserves semantics"
+  ) {
     val src = """
 package Bosatsu/Num/Nat
 
@@ -5638,7 +5910,9 @@ def pick(v):
     assertEquals(Matchless.Expr.referencesBindable(lowered, loopArg), false)
   }
 
-  test("optimized Matchless always inlines Bosatsu/Predef.and and Bosatsu/Predef.or") {
+  test(
+    "optimized Matchless always inlines Bosatsu/Predef.and and Bosatsu/Predef.or"
+  ) {
     val pack = PackageName.parts("Matchless", "Global", "Bool")
     val useAnd = Identifier.Name("use_and")
     val useOr = Identifier.Name("use_or")
@@ -5658,16 +5932,29 @@ def pick(v):
       val byName = compiled(pack).toMap
 
       assertEquals(
-        containsGlobal(byName(useAnd), PackageName.PredefName, Identifier.Name("and")),
+        containsGlobal(
+          byName(useAnd),
+          PackageName.PredefName,
+          Identifier.Name("and")
+        ),
         false
       )
       assertEquals(
-        containsGlobal(byName(useOr), PackageName.PredefName, Identifier.Name("or")),
+        containsGlobal(
+          byName(useOr),
+          PackageName.PredefName,
+          Identifier.Name("or")
+        ),
         false
       )
 
       Matchless.recoverTopLevelLambda(byName(useAnd)) match {
-        case Matchless.Lambda(Nil, None, args, Matchless.If(cond, thenExpr, elseExpr)) =>
+        case Matchless.Lambda(
+              Nil,
+              None,
+              args,
+              Matchless.If(cond, thenExpr, elseExpr)
+            ) =>
           val List(x, y) = args.toList
           assertEquals(Matchless.BoolExpr.referencesBindable(cond, x), true)
           assertEquals(thenExpr, Matchless.Local(y))
@@ -5677,7 +5964,12 @@ def pick(v):
       }
 
       Matchless.recoverTopLevelLambda(byName(useOr)) match {
-        case Matchless.Lambda(Nil, None, args, Matchless.If(cond, thenExpr, elseExpr)) =>
+        case Matchless.Lambda(
+              Nil,
+              None,
+              args,
+              Matchless.If(cond, thenExpr, elseExpr)
+            ) =>
           val List(x, y) = args.toList
           assertEquals(Matchless.BoolExpr.referencesBindable(cond, x), true)
           assertEquals(thenExpr, Matchless.TrueExpr)
@@ -5765,21 +6057,28 @@ def pick(v):
 
       assertEquals(containsGlobal(useExpr, helperPack, plus), false)
       assertEquals(containsGlobal(useExpr, callerPack, foo), false)
-      assertEquals(containsGlobal(useExpr, PackageName.PredefName, foldlName), false)
+      assertEquals(
+        containsGlobal(useExpr, PackageName.PredefName, foldlName),
+        false
+      )
       assertEquals(Matchless.Expr.containsWhileExpr(useExpr), true)
     }
   }
 
-  test("optimized Matchless applies a per-definition budget to repeated loop helper inlining") {
+  test(
+    "optimized Matchless applies a per-definition budget to repeated loop helper inlining"
+  ) {
     val pack = PackageName.parts("Matchless", "Global", "Budget")
     val smallName = Identifier.Name("small")
     val largeName = Identifier.Name("large")
     val foldlName = Identifier.Name("foldl_List")
     val repeatedCalls = 10
     val tmpLines =
-      (0 until repeatedCalls).map { idx =>
-        s"|  tmp$idx = items.foldl_List($idx, add)"
-      }.mkString("\n")
+      (0 until repeatedCalls)
+        .map { idx =>
+          s"|  tmp$idx = items.foldl_List($idx, add)"
+        }
+        .mkString("\n")
     val summed =
       (0 until repeatedCalls)
         .map(idx => s"tmp$idx")
@@ -5813,7 +6112,9 @@ ${tmpLines}
     }
   }
 
-  test("optimized Matchless expands tiny capture-free helper references generically") {
+  test(
+    "optimized Matchless expands tiny capture-free helper references generically"
+  ) {
     val helperPack = PackageName.parts("Helper", "Ref")
     val callerPack = PackageName.parts("Caller", "Ref")
     val helperName = Identifier.Name("choose")
@@ -5863,13 +6164,20 @@ ${tmpLines}
 
     assertEquals(containsGlobal(useExpr, helperPack, helperName), false)
     Matchless.recoverTopLevelLambda(useExpr) match {
-      case Matchless.Lambda(Nil, None, args, Matchless.If(cond, thenExpr, elseExpr)) =>
+      case Matchless.Lambda(
+            Nil,
+            None,
+            args,
+            Matchless.If(cond, thenExpr, elseExpr)
+          ) =>
         val List(flagArg, onTrueArg) = args.toList
         assertEquals(Matchless.BoolExpr.referencesBindable(cond, flagArg), true)
         assertEquals(thenExpr, Matchless.Local(onTrueArg))
         assertEquals(elseExpr, Matchless.Literal(Lit.fromInt(0)))
       case other =>
-        fail(s"expected generic helper reference to inline to a lambda, found: $other")
+        fail(
+          s"expected generic helper reference to inline to a lambda, found: $other"
+        )
     }
   }
 
@@ -5976,7 +6284,9 @@ ${tmpLines}
     )
   }
 
-  test("optimized Matchless inlines tiny pure struct values through local aliases") {
+  test(
+    "optimized Matchless inlines tiny pure struct values through local aliases"
+  ) {
     val helperPack = PackageName.parts("Helper", "Value")
     val callerPack = PackageName.parts("Caller", "Value")
     val helperName = Identifier.Name("pair")
@@ -6028,7 +6338,9 @@ ${tmpLines}
     assertEquals(useExpr, Matchless.Literal(Lit.fromInt(2)))
   }
 
-  test("optimized Matchless folds enum payload projections from tiny pure values") {
+  test(
+    "optimized Matchless folds enum payload projections from tiny pure values"
+  ) {
     val helperPack = PackageName.parts("Helper", "EnumValue")
     val callerPack = PackageName.parts("Caller", "EnumValue")
     val helperName = Identifier.Name("some_value")
@@ -6078,7 +6390,9 @@ ${tmpLines}
     assertEquals(useExpr, Matchless.Literal(Lit.fromInt(9)))
   }
 
-  test("optimized Matchless inlines cross-package helpers with deferrable arguments") {
+  test(
+    "optimized Matchless inlines cross-package helpers with deferrable arguments"
+  ) {
     val helperPack = PackageName.parts("Helper", "Branch")
     val callerPack = PackageName.parts("Caller", "Branch")
     val chooseName = Identifier.Name("choose")
@@ -6120,7 +6434,9 @@ ${tmpLines}
         case Matchless.Lambda(Nil, None, _, Matchless.Literal(lit)) =>
           assertEquals(lit, Lit.fromInt(0))
         case other =>
-          fail(s"expected inlined branch helper to collapse to 0, found: $other")
+          fail(
+            s"expected inlined branch helper to collapse to 0, found: $other"
+          )
       }
     }
   }
@@ -6206,7 +6522,9 @@ ${tmpLines}
     }
   }
 
-  test("optimized Matchless keeps lambda-argument inlining with mixed eager args") {
+  test(
+    "optimized Matchless keeps lambda-argument inlining with mixed eager args"
+  ) {
     val helperPack = PackageName.parts("Helper", "MixedLambda")
     val callerPack = PackageName.parts("Caller", "MixedLambda")
     val helperName = Identifier.Name("choose_apply")
@@ -6246,7 +6564,9 @@ ${tmpLines}
         case Matchless.Lambda(Nil, None, args, body) =>
           assertEquals(body, Matchless.Local(args.head))
         case other =>
-          fail(s"expected mixed lambda helper to beta-reduce to the argument, found: $other")
+          fail(
+            s"expected mixed lambda helper to beta-reduce to the argument, found: $other"
+          )
       }
     }
   }
@@ -6357,19 +6677,25 @@ ${tmpLines}
           case Matchless.Lambda(Nil, None, _, Matchless.Literal(lit)) =>
             assertEquals(lit, Lit.fromInt(0))
           case other =>
-            fail(s"expected inlined benefit helper to collapse to 0, found: $other")
+            fail(
+              s"expected inlined benefit helper to collapse to 0, found: $other"
+            )
         }
       }
 
       assertEquals(
-        Matchless.exprWeight(useNoPayoff) <= Matchless.exprWeight(directNoPayoff),
+        Matchless.exprWeight(useNoPayoff) <= Matchless.exprWeight(
+          directNoPayoff
+        ),
         true,
         s"no-payoff helper grew relative to the direct form: use=$useNoPayoff direct=$directNoPayoff"
       )
     }
   }
 
-  test("optimized Matchless inlines constructor-branch helpers across direct alias and wrapper calls") {
+  test(
+    "optimized Matchless inlines constructor-branch helpers across direct alias and wrapper calls"
+  ) {
     val pack = PackageName.parts("Test", "KnownBranch")
     val unwrapName = Identifier.Name("unwrap")
     val wrapName = Identifier.Name("wrap")
@@ -6448,7 +6774,9 @@ ${tmpLines}
     }
   }
 
-  test("optimized Matchless can inline helpers that already lower to WhileExpr") {
+  test(
+    "optimized Matchless can inline helpers that already lower to WhileExpr"
+  ) {
     val helperPack = PackageName.parts("Helper", "While")
     val callerPack = PackageName.parts("Caller", "While")
     val helperName = Identifier.Name("drop_arg")
@@ -6518,7 +6846,9 @@ ${tmpLines}
     assertEquals(Matchless.Expr.containsWhileExpr(useExpr), true)
   }
 
-  test("optimized Matchless sinks let-wrapped deferred helper args into branches") {
+  test(
+    "optimized Matchless sinks let-wrapped deferred helper args into branches"
+  ) {
     val helperPack = PackageName.parts("Helper", "Deferred")
     val callerPack = PackageName.parts("Caller", "Deferred")
     val helperName = Identifier.Name("choose")
@@ -6587,7 +6917,10 @@ ${tmpLines}
         )
       )
 
-    Matchless.postLoweringCleanup(expr, Matchless.LocalPassOptions.Default) match {
+    Matchless.postLoweringCleanup(
+      expr,
+      Matchless.LocalPassOptions.Default
+    ) match {
       case Matchless.If(
             cond,
             Matchless.Let(
@@ -6606,7 +6939,9 @@ ${tmpLines}
     }
   }
 
-  test("postLoweringCleanup keeps lets outside If when the condition needs them") {
+  test(
+    "postLoweringCleanup keeps lets outside If when the condition needs them"
+  ) {
     val delayed = Identifier.Name("delayed")
     val expensive: Matchless.Expr[Unit] =
       Matchless.App(
@@ -6624,11 +6959,18 @@ ${tmpLines}
         )
       )
 
-    Matchless.postLoweringCleanup(expr, Matchless.LocalPassOptions.Default) match {
+    Matchless.postLoweringCleanup(
+      expr,
+      Matchless.LocalPassOptions.Default
+    ) match {
       case Matchless.Let(
             Right(bound),
             `expensive`,
-            Matchless.If(cond, Matchless.Literal(ifTrue), Matchless.Literal(ifFalse))
+            Matchless.If(
+              cond,
+              Matchless.Literal(ifTrue),
+              Matchless.Literal(ifFalse)
+            )
           ) =>
         assertEquals(bound, delayed)
         assertEquals(Matchless.BoolExpr.referencesBindable(cond, delayed), true)
@@ -6657,13 +6999,22 @@ ${tmpLines}
           0 :: 0 :: Nil,
           NonEmptyList.of(
             (0, Matchless.Literal(Lit.fromInt(0))),
-            (1, Matchless.App(Matchless.Local(consume), NonEmptyList.one(Matchless.Local(delayed))))
+            (
+              1,
+              Matchless.App(
+                Matchless.Local(consume),
+                NonEmptyList.one(Matchless.Local(delayed))
+              )
+            )
           ),
           None
         )
       )
 
-    Matchless.postLoweringCleanup(expr, Matchless.LocalPassOptions.Default) match {
+    Matchless.postLoweringCleanup(
+      expr,
+      Matchless.LocalPassOptions.Default
+    ) match {
       case Matchless.SwitchVariant(on, _, cases, None) =>
         assertEquals(Matchless.Expr.referencesBindable(on, selector), true)
         assertEquals(cases.toList.head._2, Matchless.Literal(Lit.fromInt(0)))
@@ -6683,7 +7034,9 @@ ${tmpLines}
     }
   }
 
-  test("postLoweringCleanup reaches a small fixpoint after simplification exposes branch-only work") {
+  test(
+    "postLoweringCleanup reaches a small fixpoint after simplification exposes branch-only work"
+  ) {
     val flag = Identifier.Name("flag")
     val delayed = Identifier.Name("delayed")
     val consume = Identifier.Name("consume")
@@ -6739,11 +7092,15 @@ ${tmpLines}
         assertEquals(appliedArgs.toList, Matchless.Local(delayed) :: Nil)
         assertEquals(lit, Lit.fromInt(0))
       case other =>
-        fail(s"expected fixpoint cleanup to expose the branch-sunk If, found: $other")
+        fail(
+          s"expected fixpoint cleanup to expose the branch-sunk If, found: $other"
+        )
     }
   }
 
-  test("postLoweringCleanup beta reduces local lambda callees through alias lets") {
+  test(
+    "postLoweringCleanup beta reduces local lambda callees through alias lets"
+  ) {
     val fn0 = Identifier.Name("fn0")
     val fn1 = Identifier.Name("fn1")
     val arg = Identifier.Name("arg")
@@ -6782,7 +7139,9 @@ ${tmpLines}
     )
   }
 
-  test("postLoweringCleanup devirtualizes projected direct callees from known local structs") {
+  test(
+    "postLoweringCleanup devirtualizes projected direct callees from known local structs"
+  ) {
     val dict = Identifier.Name("dict")
     val fn = Identifier.Name("fn")
     val arg = Identifier.Name("arg")
@@ -6835,7 +7194,9 @@ ${tmpLines}
     val noReuse =
       Matchless.postLoweringCleanup(
         expr,
-        Matchless.LocalPassOptions(Set(Matchless.LocalPass.HoistInvariantLoopLets))
+        Matchless.LocalPassOptions(
+          Set(Matchless.LocalPass.HoistInvariantLoopLets)
+        )
       )
 
     assertNotEquals(reused, noReuse)
@@ -7015,7 +7376,10 @@ ${tmpLines}
 
         assertEquals(
           evalBoolExpr(predicate),
-          Matchless.compareRelHolds(rel, PredefImpl.compareFloat64Total(left, right))
+          Matchless.compareRelHolds(
+            rel,
+            PredefImpl.compareFloat64Total(left, right)
+          )
         )
     }
   }
@@ -7056,7 +7420,9 @@ ${tmpLines}
     }
   }
 
-  test("CompareLit String predicates use Bosatsu code point ordering for astral Unicode") {
+  test(
+    "CompareLit String predicates use Bosatsu code point ordering for astral Unicode"
+  ) {
     val left = Lit.Str("\uE000")
     val right = Lit.Str(new String(Character.toChars(0x10000)))
     val compareRels = List(
@@ -7088,7 +7454,9 @@ ${tmpLines}
     }
   }
 
-  test("comparisonObservation matches Comparison constructor subset semantics") {
+  test(
+    "comparisonObservation matches Comparison constructor subset semantics"
+  ) {
     val observationGen =
       Gen.oneOf(Matchless.comparisonTrueVariants.subsets.map(_.toSet).toList)
 
@@ -7104,7 +7472,7 @@ ${tmpLines}
           Matchless.comparisonObservation(trueVariants) match {
             case Left(value) =>
               value
-            case Right(rel)  =>
+            case Right(rel) =>
               Matchless.compareRelHolds(rel, cmp)
           }
 
@@ -7112,7 +7480,9 @@ ${tmpLines}
     }
   }
 
-  test("literal Int64 conversions lower to LitInt64 and direct Option constructors") {
+  test(
+    "literal Int64 conversions lower to LitInt64 and direct Option constructors"
+  ) {
     val src =
       """package Test
         |
@@ -7127,7 +7497,8 @@ ${tmpLines}
     Par.withEC {
       TestUtils.testInferred(
         List(int64Pack, src),
-        "Test", { (pm, packName) =>
+        "Test",
+        { (pm, packName) =>
           val compiled =
             MatchlessFromTypedExpr.compile(
               (),
@@ -7140,7 +7511,10 @@ ${tmpLines}
           val tooBig = byName(Identifier.Name("too_big"))
 
           assertEquals(lowBits, Matchless.LitInt64(-1L))
-          assert(safe.toString.contains("LitInt64(-9223372036854775808)"), safe.toString)
+          assert(
+            safe.toString.contains("LitInt64(-9223372036854775808)"),
+            safe.toString
+          )
           assert(
             !tooBig.toString.contains("int__to__Int64"),
             tooBig.toString

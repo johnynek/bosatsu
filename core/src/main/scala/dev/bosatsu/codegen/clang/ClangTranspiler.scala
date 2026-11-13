@@ -87,9 +87,13 @@ case object ClangTranspiler extends Transpiler {
             packageName: PackageName,
             bindable: Identifier.Bindable
         ) extends SelectionMode {
-          def sourceFilter: Option[PackageName => Boolean] = Some(_ == packageName)
+          def sourceFilter: Option[PackageName => Boolean] = Some(
+            _ == packageName
+          )
           def filterRegexes: NonEmptyList[String] =
-            NonEmptyList.one(show"${packageName.asString}::${bindable.sourceCodeRepr}")
+            NonEmptyList.one(
+              show"${packageName.asString}::${bindable.sourceCodeRepr}"
+            )
         }
       }
     }
@@ -104,10 +108,12 @@ case object ClangTranspiler extends Transpiler {
 
       def values[K](
           ns: CompilationNamespace[K]
-      ): Either[Exception & CliException, List[(
-        PackageName,
-        Package.TestEntry[Any]
-      )]] =
+      ): Either[Exception & CliException, List[
+        (
+            PackageName,
+            Package.TestEntry[Any]
+        )
+      ]] =
         selection match {
           case Test.SelectionMode.ByFilter(_, filter) =>
             val filtered = (filter match {
@@ -144,7 +150,8 @@ case object ClangTranspiler extends Transpiler {
                       )
                     )
                   } else {
-                    val exportedTests = exportedTestValues.map(_.sourceCodeRepr).sorted
+                    val exportedTests =
+                      exportedTestValues.map(_.sourceCodeRepr).sorted
                     Left(
                       InvalidTestValueSelection(
                         packageName,
@@ -169,7 +176,7 @@ case object ClangTranspiler extends Transpiler {
                   ns.exportedTestEntry(packageName, bindable) match {
                     case Some(entry) =>
                       Right((packageName, entry) :: Nil)
-                    case None        =>
+                    case None =>
                       Left(
                         InvalidTestValueSelection(
                           packageName,
@@ -183,7 +190,7 @@ case object ClangTranspiler extends Transpiler {
         }
     }
 
-    private implicit val testValueArgument: Argument[Test.ValueSelector] =
+    implicit private val testValueArgument: Argument[Test.ValueSelector] =
       new Argument[Test.ValueSelector] {
         def defaultMetavar: String = "valueIdent"
 
@@ -194,7 +201,7 @@ case object ClangTranspiler extends Transpiler {
             .parseAll(string) match {
             case Right((pack, bindable: Identifier.Bindable)) =>
               Validated.valid((pack, bindable))
-            case Right((pack, cons: Identifier.Constructor))  =>
+            case Right((pack, cons: Identifier.Constructor)) =>
               Validated.invalidNel(
                 show"${pack.asString}::${cons.asString} is a constructor or type name, not a value. A top-level value is required."
               )
@@ -213,7 +220,7 @@ case object ClangTranspiler extends Transpiler {
         )
         .orNone
         .mapValidated {
-          case None      =>
+          case None =>
             Validated.valid(
               Test.SelectionMode.ByFilter(
                 NonEmptyList.one(".*"),
@@ -229,7 +236,7 @@ case object ClangTranspiler extends Transpiler {
                     Some(pn => pats.exists(_.matcher(pn.asString).matches()))
                   )
                 )
-              case Failure(e)    =>
+              case Failure(e) =>
                 Validated.invalidNel(
                   s"could not parse pattern: $res\n\n${e.getMessage}"
                 )
@@ -574,7 +581,10 @@ case object ClangTranspiler extends Transpiler {
     s"invalid main package `${mainPack.asString}`: unknown package.$suggestion\n${packageCountMsg(knownPacks.size)}"
   }
 
-  private def invalidMainPackMsg(mainPack: PackageName, detail: String): String =
+  private def invalidMainPackMsg(
+      mainPack: PackageName,
+      detail: String
+  ): String =
     s"invalid main package `${mainPack.asString}`: $detail"
 
   private def invalidTestValueMsg(
@@ -699,9 +709,11 @@ case object ClangTranspiler extends Transpiler {
             " ?"
           )) :: Nil
         case many =>
-          val listed = Doc.intercalate(Doc.line, many.map(pack => Doc.text(pack.asString)))
-          (Doc.text("Did you mean one of:") + (Doc.line + listed).nested(2))
-            .grouped :: Nil
+          val listed =
+            Doc.intercalate(Doc.line, many.map(pack => Doc.text(pack.asString)))
+          (Doc.text("Did you mean one of:") + (Doc.line + listed).nested(
+            2
+          )).grouped :: Nil
       }
 
     Doc.intercalate(
@@ -723,11 +735,16 @@ case object ClangTranspiler extends Transpiler {
   }
 
   private[bosatsu] def discoveredTests[A](
-      entries: List[(PackageName, Either[Package.TestDiscoveryError, Package.TestEntry[A]])]
+      entries: List[
+        (PackageName, Either[Package.TestDiscoveryError, Package.TestEntry[A]])
+      ]
   ): Either[InvalidTestDiscovery, List[(PackageName, Package.TestEntry[A])]] =
-    NonEmptyList.fromList(entries.collect { case (pn, Left(err)) => (pn, err) }) match {
+    NonEmptyList.fromList(
+      entries.collect { case (pn, Left(err)) => (pn, err) }
+    ) match {
       case Some(errors) => Left(InvalidTestDiscovery(errors))
-      case None => Right(entries.collect { case (pn, Right(entry)) => (pn, entry) })
+      case None         =>
+        Right(entries.collect { case (pn, Right(entry)) => (pn, entry) })
     }
 
   case class InvalidTestDiscovery(
@@ -832,7 +849,7 @@ case object ClangTranspiler extends Transpiler {
               test.values(ns) match {
                 case Left(err) =>
                   moduleIOMonad.raiseError(err)
-                case Right(tvs)   =>
+                case Right(tvs) =>
                   if (tvs.isEmpty) {
                     moduleIOMonad.raiseError(
                       NoTestsFound(ns.rootPackages.toList, test.filterRegexes)
@@ -860,7 +877,10 @@ case object ClangTranspiler extends Transpiler {
                           else exeName
                         val exeArgs = if (quiet) "--quiet" :: Nil else Nil
                         args.platformIO
-                          .system(args.platformIO.showPath.show(exePath), exeArgs)
+                          .system(
+                            args.platformIO.showPath.show(exePath),
+                            exeArgs
+                          )
                           .handleErrorWith {
                             case _: CliException =>
                               moduleIOMonad.raiseError(TestExecutionFailed)
