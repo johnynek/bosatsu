@@ -7,33 +7,35 @@
 
 - Flow: `small_job`
 - Issue: `#2484` 0k: Add the singleplex persistent JSON JVM worker
-- Pending steps: `0`
+- Pending steps: `1`
 - Completed steps: `6`
-- Total steps: `6`
+- Total steps: `7`
 
 ## Summary
 
-All five implementation steps are complete: the persistent worker extends BazelWorker.Operation and FileCommandRunner/StagedOutputs, with candidate-jar parity, recovery, framing and strict-interface coverage, plus the v1 design and tracker update. Roadmap #2482 and issue #2484 remain aligned.
+The persistent worker implementation and prior qualification steps are completed. One corrective step remains to enforce JSON string syntax at the shared request-decoding boundary and independently test valid and malformed wire requests. This repairs issue #2484's existing JSON transport contract and remains aligned with roadmap #2482.
 
-Preserve the accepted authorization for the persistent-worker family to exceed the 1,000-line churn guideline within the named acceptance inventory and existing implementation, test, harness and design surfaces. No unrelated compiler semantic change, publication refactor, new operation, inference cache, alternate engine or generic test framework is authorized.
+Reuse the existing Json grammar, BazelWorker.Operation registry and FileCommandRunner/StagedOutputs lifecycle. A minimal shared-parser extension supplies strict strings for worker requests without migrating other JSON callers. Preserve the accepted authorization for the persistent-worker family to exceed the 1,000-line churn guideline within its acceptance inventory; no unrelated compiler semantic change, publication refactor, new operation, inference cache, alternate engine or generic test framework is authorized.
 
-The latest required-test run passed CLI testing but stalled during core testing with multiple timeouts and sustained GC pressure. Replace the previous rerun-only disposition with one bounded investigation and repair step covering resource ownership and the existing shared-JVM test boundary. Any repository repair must follow diagnostic evidence; an infrastructure-only finding may close the step without code changes. MergeXO owns the subsequent supervised required-tests rerun, which must pass before publication.
+The completed GC investigation did not reproduce candidate resource retention and justified no speculative code change. MergeXO owns the supervised required-tests gate after corrective implementation.
 
-Plan trajectory: initial steps 3; review revisions 0; review-origin steps 0.
+Plan trajectory: initial steps 3; review revisions 1; review-origin steps 1.
 
 ## Current State
 
-At candidate 194d27d606aebe2ae53c5ac9af54f90a2fb39817, step_1, step_2, step_3a, step_3b and step_3c are completed. Their immutable completion notes record the worker implementation, candidate-JVM transport/parity and strict-interface matrices, lifecycle coverage, assembly, launcher and CLI qualification, and design/tracker updates. No existing pending step covers corrective work.
+At candidate 052850d9ce46267f7fb5375d2905dec5a8ab8dc7, all six existing steps are completed. Their immutable completion notes retain implementation, qualification and GC-investigation evidence. No pending step covers the newly demonstrated decoder defect.
 
-Supervised gate/run 01a1d31bc70f7e31832a53cf11846fe6 tested that exact SHA with scripts/test_basic.sh and failed with status failed, no exit code, and failure class infra_timeout after exhausting the configured 2400-second wall-clock limit. Complete stdout shows CLI testing passing with 180 passed and one skipped, followed by 30-second core test timeouts in TestUtilsTypeValidationTest, Regressions, LibBuildImplicitPackageTest, Issue1654Test and dev.bosatsu.codegen.clang.ClangGenTest. The final warning reports 894.666 of 897 seconds spent in GC (99.8%); stderr is empty.
+Inspection of the authoritative candidate patch and current source confirms that BazelWorker.decodeRequest delegates to Json.parserFile. Its JsonStringUtil string parser inherits non-JSON syntax from GenericStringUtil: escaped slashes fail, while hexadecimal escapes and literal control characters can be accepted. The entire persistent-frame path already funnels through decodeRequest before dispatch, so one strict document-parsing repair can cover recognized fields, object keys and ignored nested values. Existing generated request checks use the repository renderer and do not independently establish wire compatibility.
 
-The earlier gate/run 01a1d30d140e73e2b20e30f076d0e304 at da82242972af8642681a03e1632bd5ef41e0d297 failed on a BosatsuIntRuntimeTest timeout, and that test subsequently passed in isolation. That isolated pass remains diagnostic evidence, but does not explain the newer broad GC stall. The latest candidate commit changes only plan artifacts. Relative to main, core/base code, build.sbt, JVM options and scripts/test_basic.sh are unchanged. The required-test script executes CLI and core tests sequentially in one sbt JVM; .jvmopts already selects G1GC with an 8GB maximum heap.
-
-The evidence establishes severe GC pressure during the failed run, without identifying whether its cause is retained candidate resources, shared-JVM test execution or host pressure. One pending investigation step now covers that root-cause family and any justified minimal repair. The supervised required gate remains failed and must pass before publication.
+One corrective step now covers that boundary repair and independent unit/property and assembled-JVM regressions. This planning revision ran no tests or builds. Earlier qualification and resource-investigation results remain historical evidence; the repaired candidate must pass its named checks and MergeXO's supervised required-tests gate before publication.
 
 ## Problem
 
 Bazel cannot currently keep the JVM alive across file actions. Tracker 0k requires a singleplex JSON transport that shares the completed dispatcher and request lifecycle, captures diagnostics, responds only after request work and cleanup finish, survives ordinary action failures and recomputes from current files. Unit tests alone cannot establish real process framing, immediate flushing, restart behavior or parity with direct and @params invocations.
+
+## Technical Debt Notes
+
+Follow-up proposal: audit non-worker Json.parser/parserFile consumers and decide whether to migrate them from the existing permissive string grammar to strict JSON syntax. Those callers predate this worker change and are outside issue #2484's transport boundary. Preserve their current behavior in this repair. Estimated follow-up churn: 100–250 lines for caller compatibility coverage, migration and removal of obsolete JSON-specific permissive parsing, depending on discovered dependencies; Bosatsu language string syntax must remain unchanged.
 
 ## Steps
 
@@ -237,3 +239,42 @@ Required-test repair provenance: tested SHA `194d27d606aebe2ae53c5ac9af54f90a2fb
 #### Completion Notes
 
 Investigated the failure against code revision `194d27d606aebe2ae53c5ac9af54f90a2fb39817`; intervening changes through HEAD `657b7234b` touched only plan artifacts. In one bounded sbt process with GC/heap logging, ran the six named `coreJVM/testOnly` suites, then `cli/testOnly dev.bosatsu.BazelWorkerTest dev.bosatsu.FileCommandRunnerTest`, then the same core suites again. Results: 55/55 core tests in 64 s, 31/31 worker tests in 22 s, and 55/55 core tests in 37 s; process exit 0. At a mid-run sample, `jstat -gc` showed 52 young, 0 full and 18 concurrent collections, with 1.498 s cumulative GC; the 139 s run logged 69 young pauses, no full GC, 2.29 s total pause time and 93.6 ms maximum. JVM RSS was about 2.19 GB with 96–100 threads; `jcmd Thread.print` found no ForkJoinPool workers after the worker suites. The existing runner resource chain and `withRunner` fixture close their pool, supervisor, staged outputs and temporary directories; the focused checks showed no retained worker threads or slower following core suites. The host exposed 8 CPUs and no cgroup memory cap; available RAM varied from 6.1 to 10.3 GB, and a post-run load sample was 10.23/42.91/136.61 for 1/5/15 minutes, consistent with shared-host contention. No candidate leak or worker-suite shared-JVM pressure was reproduced, so no speculative code change is justified. The original 99.8%/897 s event's precise cause remains unproven, and this diagnostic does not certify the full required gate; MergeXO must rerun `scripts/test_basic.sh` before publication.
+
+7. [ ] `step_5_worker_json_syntax` Enforce JSON string syntax before worker dispatch
+
+Invariant family: worker-json-syntax
+
+Correct the decoder introduced by step_1 and qualified by step_3c. BazelWorker.decodeRequest currently uses Json.parserFile, whose GenericStringUtil-based string grammar rejects the valid JSON escape \/ and accepts non-JSON escapes and literal control characters. This violates issue #2484's JSON compatibility and malformed-input retirement requirements. All existing steps are completed; no pending work can absorb this repair.
+
+Extend the existing grammar in core/src/main/scala/dev/bosatsu/Json.scala with a strict complete-document entry point. Factor its construction only enough to select the string parser, using the existing cats-parse dependency's cats.parse.strings.Json.delimited.parser for strict strings. That parser supports JSON escapes and rejects literal control characters and non-JSON escapes; see the [dependency source](https://github.com/typelevel/cats-parse/blob/v1.1.0/core/shared/src/main/scala/cats/parse/strings/Json.scala). Preserve the existing parser/parserFile behavior for other callers. This small core change is justified by the demonstrated worker defect: the current shared grammar hardcodes its string parser, and extending it avoids copying the recursive JSON grammar or adding another dependency. Retain the ordered Json.JObject representation and existing field-decoding semantics.
+
+Route BazelWorker.decodeRequest through the strict entry point. Every persistent frame already passes through this boundary before action dispatch or cancellation classification. Parse the entire document strictly, including every object key and strings inside unknown nested fields, before ignoring fields. This closes the whole request-string family without per-field checks, input rewriting, or a parallel validation pass. Preserve protobuf defaults, aliases, duplicate handling, opaque digests, UTF-8 framing, and the shared Operation/FileCommandRunner lifecycle.
+
+Add focused strict-entry coverage in core/src/test/scala/dev/bosatsu/JsonTest.scala and independent request properties and regressions in cli/src/test/scala/dev/bosatsu/BazelWorkerTest.scala. Replace repository-renderer-only request generation with independent JSON encoding, while retaining response tests. Exercise standard escapes, Unicode escapes and supplementary characters, escaped field names, and malformed strings in recognized fields, object keys, input metadata and ignored nested fields.
+
+Extend scripts/test_bazel_worker.py using its existing PersistentWorker raw-frame, response, snapshot and cleanup mechanisms. Send literal wire requests containing escaped slashes in real source/output paths and an escaped operation name; require successful execution, matching IDs and direct/@params output parity, with the response received while stdin remains open. For malformed strings, send otherwise executable headers requests, including the non-JSON escaped operation and invalid ignored fields. Require nonzero process exit, transport diagnostics on stderr, no response for the malformed frame, unchanged prior outputs, no new action outputs or scratch, and successful execution after restarting the worker.
+
+Run focused parser/worker tests during implementation, then sbt "cli/test; cli/assembly", the candidate-jar worker harness with the resolved assembly, ./scripts/test_launcher_passthrough.sh and ./test_cli.sh. Completion requires passing independent syntax properties and actual-JVM regressions for both acceptance and rejection. MergeXO owns the subsequent supervised required-tests gate.
+
+#### Invariants
+
+- Every persistent request passes through complete strict JSON parsing before field omission, control classification or action dispatch.
+- All JSON string positions accept standard JSON escapes and reject non-JSON escapes and unescaped U+0000 through U+001F characters.
+- Malformed frames cannot execute an action or publish outputs, and retire the worker through the existing transport-error path.
+- Valid requests retain existing protobuf decoding, shared dispatch, request cleanup and immediately flushed response behavior.
+- Other JSON callers retain their existing parsing behavior; the strict entry point shares the existing document grammar.
+
+#### Property Tests
+
+- Generate request strings with an independent JSON encoder, including quotes, backslashes, slash variants, escaped controls, Unicode and supplementary characters; decoding preserves recognized values and argument order.
+- Inject invalid escapes, malformed Unicode escape sequences and each literal control character into object keys and string values across recognized and ignored nested fields; decodeRequest always rejects them.
+- For valid generated envelopes, alternative standard escape spellings and valid unknown nested fields preserve the decoded request.
+
+#### Assertion Tests
+
+- A literal wire request using src\/A.bosatsu and escaped output-path separators executes successfully, matches its request ID and produces bytes equal to direct and @params execution before stdin closes.
+- Cover all standard short JSON escapes and four-hex-digit Unicode escapes, including escaped recognized field names and supplementary characters.
+- Reject non-JSON hexadecimal, octal, uppercase-U and apostrophe escapes, incomplete or nonhex Unicode escapes, and literal controls, including inside otherwise ignored fields.
+- An otherwise valid headers request whose operation uses the non-JSON hexadecimal escape for h exits nonzero with stderr transport diagnostics, no response and no action outputs.
+- Malformed nested unknown fields cannot bypass parsing; workspace snapshots and scratch checks remain unchanged, and a restarted worker handles a valid request.
+- Existing codec, CLI, candidate-jar parity, launcher and CLI integration checks pass against the repaired assembly.
