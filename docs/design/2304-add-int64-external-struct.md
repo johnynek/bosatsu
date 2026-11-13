@@ -119,6 +119,8 @@ The most important behavioral property is not any single example; it is that eve
 
 This issue does not need parser, typer, or literal support changes. `Int64` is a normal opaque `external type` in a library package. The new Bosatsu source lives alongside `Float64`, exports the functions above, and adds small pure wrappers for `eq_Int64` plus the arithmetic and bitwise operators where Bosatsu syntax exists. That keeps the compiler unaware of `Int64` while still making the type first-class in user code.
 
+Update: the compiler now treats a few of these bindings as intrinsics. Matchless lowers `eq_Int64` and `cmp_Int64` to the builtin compare, and folds `int_to_Int64` and `int_low_bits_to_Int64` applied to a literal into constants. The `Bosatsu/` namespace is reserved for the compiler and the core library. Any `Bosatsu/Num/Int64` in a compilation must declare `external type Int64` and the core types for those bindings (`core/src/main/scala/dev/bosatsu/Int64Intrinsics.scala`).
+
 The first non-trivial internal consumer should be `Bosatsu/Rand`. Once the package exists, the local `UInt64` wrapper and repeated `Int` bitmasking in `test_workspace/Rand.bosatsu` should be replaced with `Int64` state transitions and conversions.
 
 ### C codegen

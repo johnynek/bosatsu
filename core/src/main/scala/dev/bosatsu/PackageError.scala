@@ -1924,6 +1924,18 @@ object PackageError {
       )
   }
 
+  // Matchless and codegen rewrite Bosatsu/Num/Int64 intrinsics by name, so
+  // a source package with that name must match the core declarations.
+  case class Int64IntrinsicMismatch(mismatch: Int64Intrinsics.Mismatch)
+      extends PackageError {
+    def message(
+        sourceMap: Map[PackageName, (LocationMap, String)],
+        errColor: Colorize
+    ) =
+      (sourceMap.headLine(Int64Intrinsics.packageName, None) +
+        Doc.hardLine + Doc.text(mismatch.message)).render(80)
+  }
+
   case class TodoUsage(
       pack: PackageName,
       regions: NonEmptyList[Region]

@@ -172,7 +172,7 @@ object EmitCCommand {
   )(
       render: ClangGen[Unit] => Either[ClangGen.Error, (Doc, SortedMap[String, Doc])]
   )(using Par.EC): Either[Throwable, Output[P]] = {
-    val ns = CompilationSource.packageMapSource[Region](useStandardInt64 = false)
+    val ns = CompilationSource.packageMapSrc[Region]
       .namespace(scope.packages).treeShake(roots)
     val gen = new ClangGen(ns)
     for {
@@ -236,7 +236,7 @@ object EmitCCommand {
         show"main package $mainPackage is not a member of the selected program bundle"
       ))
     else {
-      val ns = CompilationSource.packageMapSource[Region](useStandardInt64 = false)
+      val ns = CompilationSource.packageMapSrc[Region]
         .namespace(scope.packages)
       ns.mainValues(ClangTranspiler.validMain(_).isRight).get(mainPackage) match {
         case None =>

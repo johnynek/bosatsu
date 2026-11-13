@@ -3,7 +3,7 @@ package dev.bosatsu
 import _root_.bosatsu.{TypedAst => proto}
 import cats.effect.IO
 import cats.syntax.all._
-import java.nio.file.{Files, Path}
+import java.nio.file.{Files, Path, Paths}
 import java.nio.file.attribute.FileTime
 
 class EmitCCommandTest extends FileCommandFixtures {
@@ -591,25 +591,66 @@ class EmitCCommandTest extends FileCommandFixtures {
     }
   }
 
-  test("a local Int64-named external with a literal argument uses its declared native binding") {
+  // The intrinsic for int_low_bits_to_Int64 would treat this Int result as a
+  // packed Int64, so the package must be rejected rather than lowered.
+  private val fakeInt64 =
+    "package Bosatsu/Num/Int64\nexport int_low_bits_to_Int64\n" +
+      "external def int_low_bits_to_Int64(x: Int) -> Int\n"
+  private val fakeInt64Errors = List(
+    "Bosatsu/Num/Int64 must match the core library",
+    "Int64 must be declared `external type Int64`",
+    "int_low_bits_to_Int64 must have type Int -> Int64, found Int -> Int"
+  )
+
+  test("compiling a Bosatsu/Num/Int64 that differs from core fails") {
     withRunner { (root, runner) =>
-      val api = "package Bosatsu/Num/Int64\nexport int_low_bits_to_Int64\n" +
-        "external def int_low_bits_to_Int64(x: Int) -> Int\n"
-      val use = "package Client\nfrom Bosatsu/Num/Int64 import int_low_bits_to_Int64\n" +
-        "checks = Assertion(int_low_bits_to_Int64(4) matches 7, \"custom native implementation\")\n"
-      val files = List("root.pkg", "native.pkg")
       for {
-        _ <- compile(runner, root, "native", List("Native.bosatsu" -> api), Nil)
-        _ <- compile(runner, root, "root", List("Client.bosatsu" -> use), List("native"))
-        _ <- manifest(root, files, Nil)
-        unbound <- emit(runner, root, "root.pkg", "out.c")
-        _ = failure(unbound)
-        _ = assert(unbound.stderr.contains("missing native binding for Bosatsu/Num/Int64::int_low_bits_to_Int64"), unbound.stderr)
-        _ <- manifest(root, files, List("Bosatsu/Num/Int64" -> List("int_low_bits_to_Int64")))
-        bound <- emit(runner, root, "root.pkg", "out.c")
-        _ = success(bound)
+        _ <- write(root, "Native.bosatsu", fakeInt64)
+        result <- runner.run(root, List("compile-packages", "--packages-out", "native.pkg",
+          "--sig-out", "native.sig", "--src", "Native.bosatsu"))
+        _ = failure(result)
+        _ = fakeInt64Errors.foreach(msg => assert(result.stderr.contains(msg), result.stderr))
+      } yield ()
+    }
+  }
+
+  test("emitting from a bundle with a Bosatsu/Num/Int64 that differs from core fails") {
+    withRunner { (root, runner) =>
+      // Today's compiler cannot produce this bundle, so rename a compiled one.
+      val renamed = fakeInt64.replace("package Bosatsu/Num/Int64", "package Fake/Num/Int64")
+      for {
+        _ <- compile(runner, root, "native", List("Native.bosatsu" -> renamed), Nil)
+        _ <- IO.blocking {
+          val path = root.resolve("native.pkg")
+          val packs = proto.Packages.parseFrom(Files.readAllBytes(path)).packages.map { p =>
+            p.withStrings(p.strings.map(str => if (str == "Fake/Num/Int64") "Bosatsu/Num/Int64" else str))
+          }
+          Files.write(path, proto.Packages(packs).toByteArray)
+        }
+        _ <- manifest(root, List("native.pkg"), List("Bosatsu/Num/Int64" -> List("int_low_bits_to_Int64")))
+        result <- emit(runner, root, "native.pkg", "out.c")
+        _ = failure(result)
+        _ = assert(result.stderr.contains("invalid local implementation graph"), result.stderr)
+        _ = fakeInt64Errors.foreach(msg => assert(result.stderr.contains(msg), result.stderr))
+        _ <- IO.blocking(assert(!Files.exists(root.resolve("out.c"))))
+      } yield ()
+    }
+  }
+
+  test("literal Int64 conversions from the core Int64 source fold to constants") {
+    withRunner { (root, runner) =>
+      val use = "package Client\nfrom Bosatsu/Num/Int64 import int_low_bits_to_Int64, int64_to_Int\n" +
+        "checks = Assertion(int64_to_Int(int_low_bits_to_Int64(4)) matches 4, \"folded literal\")\n"
+      for {
+        int64 <- IO.blocking(Files.readString(Paths.get("test_workspace", "Int64.bosatsu")))
+        _ <- compile(runner, root, "int64", List("Int64.bosatsu" -> int64), Nil)
+        _ <- compile(runner, root, "root", List("Client.bosatsu" -> use), List("int64"))
+        _ <- manifest(root, List("root.pkg", "int64.pkg"), List("Bosatsu/Num/Int64" -> List("int64_to_Int")))
+        result <- emit(runner, root, "root.pkg", "out.c")
+        _ = success(result)
         c <- read(root, "out.c")
-        _ = assert(c.contains("___bsts_g_Bosatsu_l_Num_l_Int64_l_int__low__bits__to__Int64("), c)
+        _ = assert(c.contains("bsts_int64_from_int64(4)"), c)
+        _ = assert(!c.contains("___bsts_g_Bosatsu_l_Num_l_Int64_l_int__low__bits__to__Int64"), c)
       } yield ()
     }
   }
