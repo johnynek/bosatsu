@@ -68,7 +68,8 @@ class ReservedNamespaceTest extends munit.FunSuite {
     assertEquals(
       LibConfig.validateReservedPackages(bad.arg),
       Validated.invalidNec(
-        LibConfig.Error.ReservedPackageInDependency(bad.arg, NonEmptyList.one(anything))
+        LibConfig.Error
+          .ReservedPackageInDependency(bad.arg, NonEmptyList.one(anything))
       )
     )
   }
@@ -85,7 +86,9 @@ class ReservedNamespaceTest extends munit.FunSuite {
     }
   }
 
-  test("decoding a library graph rejects a non-core library with Bosatsu/ packages") {
+  test(
+    "decoding a library graph rejects a non-core library with Bosatsu/ packages"
+  ) {
     val bad = library("bad", anythingSrc, Nil)
     val mid = library("mid", "package Mid/Lib\nexport x\nx = 1\n", bad :: Nil)
     val app = library("app", "package App/Main\nexport x\nx = 1\n", mid :: Nil)

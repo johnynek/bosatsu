@@ -36,15 +36,17 @@ object PathModule extends MainModule[IO, Path](IOPlatformIO) {
         )
     }
 
-    invocation.flatMap { parsed =>
-      FileCommandRunner.resource.use { runner =>
-        runner.runWorkerTo(
-          directory,
-          parsed.commandArguments,
-          System.out,
-          System.err
-        )
+    invocation
+      .flatMap { parsed =>
+        FileCommandRunner.resource.use { runner =>
+          runner.runWorkerTo(
+            directory,
+            parsed.commandArguments,
+            System.out,
+            System.err
+          )
+        }
       }
-    }.handleErrorWith(reportException)
+      .handleErrorWith(reportException)
   }
 }

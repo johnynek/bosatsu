@@ -14,7 +14,9 @@ class PackageNameTest extends munit.ScalaCheckSuite {
   implicit val arbPackageName: Arbitrary[PackageName] =
     Arbitrary(NTypeGen.packageNameGen)
 
-  property("PackageName equality agrees with legacy parts equality for valid names") {
+  property(
+    "PackageName equality agrees with legacy parts equality for valid names"
+  ) {
     forAll { (left: PackageName, right: PackageName) =>
       assertEquals(left == right, left.parts.toList == right.parts.toList)
       if (left == right) {
@@ -23,7 +25,9 @@ class PackageNameTest extends munit.ScalaCheckSuite {
     }
   }
 
-  property("PackageName ordering agrees with legacy parts ordering for valid names") {
+  property(
+    "PackageName ordering agrees with legacy parts ordering for valid names"
+  ) {
     forAll { (left: PackageName, right: PackageName, third: PackageName) =>
       assertEquals(
         Integer.signum(Order[PackageName].compare(left, right)),

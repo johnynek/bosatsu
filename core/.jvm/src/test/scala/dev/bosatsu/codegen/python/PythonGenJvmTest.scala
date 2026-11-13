@@ -48,8 +48,10 @@ class PythonGenJvmTest extends munit.FunSuite {
     } finally walk.close()
   }
 
-  private def readProgExternals
-      : Map[(PackageName, Identifier.Bindable), (PythonGen.Module, Code.Ident)] = {
+  private def readProgExternals: Map[
+    (PackageName, Identifier.Bindable),
+    (PythonGen.Module, Code.Ident)
+  ] = {
     val externalsFile = Path.of("test_workspace/Prog.bosatsu_externals")
     Parser
       .unsafeParse(
@@ -160,7 +162,10 @@ class PythonGenJvmTest extends munit.FunSuite {
           )
 
         writeModules(packages, root)
-        Files.copy(Path.of("test_workspace/ProgExt.py"), root.resolve("ProgExt.py"))
+        Files.copy(
+          Path.of("test_workspace/ProgExt.py"),
+          root.resolve("ProgExt.py")
+        )
 
         val runner = root.resolve("run_array_tests.py")
         Files.writeString(
@@ -178,10 +183,12 @@ class PythonGenJvmTest extends munit.FunSuite {
         val stderr = new StringBuilder
         val exit =
           Process(Seq("python3", runner.toString), root.toFile)
-            .!(ProcessLogger(
-              line => stdout.append(line).append('\n'): Unit,
-              line => stderr.append(line).append('\n'): Unit
-            ))
+            .!(
+              ProcessLogger(
+                line => stdout.append(line).append('\n'): Unit,
+                line => stderr.append(line).append('\n'): Unit
+              )
+            )
 
         assertEquals(
           exit,
@@ -206,7 +213,10 @@ class PythonGenJvmTest extends munit.FunSuite {
           modulePath(root, packages(PackageName.parts("Int64WrapperSmoke"))._1)
 
         writeModules(packages, root)
-        Files.copy(Path.of("test_workspace/ProgExt.py"), root.resolve("ProgExt.py"))
+        Files.copy(
+          Path.of("test_workspace/ProgExt.py"),
+          root.resolve("ProgExt.py")
+        )
 
         val runner = root.resolve("run_predef_tests.py")
         Files.writeString(
@@ -224,10 +234,12 @@ class PythonGenJvmTest extends munit.FunSuite {
         val stderr = new StringBuilder
         val exit =
           Process(Seq("python3", runner.toString), root.toFile)
-            .!(ProcessLogger(
-              line => stdout.append(line).append('\n'): Unit,
-              line => stderr.append(line).append('\n'): Unit
-            ))
+            .!(
+              ProcessLogger(
+                line => stdout.append(line).append('\n'): Unit,
+                line => stderr.append(line).append('\n'): Unit
+              )
+            )
 
         assertEquals(
           exit,

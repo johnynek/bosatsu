@@ -38,25 +38,37 @@ class IOPlatformIO extends PlatformIO[IO, JPath] {
   def pendingOutputPath(path: Path): IO[Path] = IO.blocking {
     def target(p: Path, links: Set[Path]): Eval[Path] = Eval.defer {
       try Eval.now(p.toRealPath())
-      catch { case err: NoSuchFileException =>
-        val parent = Option(p.getParent).getOrElse(throw err)
-        target(parent, links).flatMap { dir =>
-          // Resolve the parent before '..'. Publishing can create a missing
-          // directory or follow a dangling link before processing that segment.
-          val leaf = dir.resolve(p.getFileName).normalize()
-          if (!Files.isSymbolicLink(leaf)) Eval.now(leaf)
-          else if (links(leaf)) throw new FileSystemLoopException(leaf.toString)
-          else target(leaf.resolveSibling(Files.readSymbolicLink(leaf)), links + leaf)
-        }
+      catch {
+        case err: NoSuchFileException =>
+          val parent = Option(p.getParent).getOrElse(throw err)
+          target(parent, links).flatMap { dir =>
+            // Resolve the parent before '..'. Publishing can create a missing
+            // directory or follow a dangling link before processing that segment.
+            val leaf = dir.resolve(p.getFileName).normalize()
+            if (!Files.isSymbolicLink(leaf)) Eval.now(leaf)
+            else if (links(leaf))
+              throw new FileSystemLoopException(leaf.toString)
+            else
+              target(
+                leaf.resolveSibling(Files.readSymbolicLink(leaf)),
+                links + leaf
+              )
+          }
       }
     }
     target(diskPath(path).toAbsolutePath, Set.empty).value
   }
 
   def withTempDirectoryIn[A](parent: Path)(fn: Path => IO[A]): IO[A] =
-    Resource.make(IO.blocking(Files.createTempDirectory(diskPath(parent), ".bosatsu-probe-")))(
-      deleteRecursively
-    ).use(fn)
+    Resource
+      .make(
+        IO.blocking(
+          Files.createTempDirectory(diskPath(parent), ".bosatsu-probe-")
+        )
+      )(
+        deleteRecursively
+      )
+      .use(fn)
 
   def existingFileKey(path: Path): IO[Option[FileKey]] = IO.blocking {
     val target = diskPath(path)
@@ -139,9 +151,8 @@ class IOPlatformIO extends PlatformIO[IO, JPath] {
       }
     }
 
-  val gitShaHead: IO[String] = {
+  val gitShaHead: IO[String] =
     systemStdout("git", "rev-parse" :: "HEAD" :: Nil).map(_.trim)
-  }
 
   def env(name: String): IO[Option[String]] =
     IO(Option(System.getenv(name)))
@@ -317,7 +328,10 @@ class IOPlatformIO extends PlatformIO[IO, JPath] {
   override def readInterfaceBundle(path: Path): IO[proto.Interfaces] =
     read[proto.Interfaces](path)
 
-  override def writeInterfaceBundle(bundle: proto.Interfaces, path: Path): IO[Unit] =
+  override def writeInterfaceBundle(
+      bundle: proto.Interfaces,
+      path: Path
+  ): IO[Unit] =
     write(bundle, path)
 
   override def readInterfaces(paths: List[Path]): IO[List[Package.Interface]] =
@@ -407,7 +421,10 @@ class IOPlatformIO extends PlatformIO[IO, JPath] {
                           .move(
                             source = tempPath,
                             target = Fs2Path.fromNioPath(path),
-                            CopyFlags(CopyFlag.AtomicMove, CopyFlag.ReplaceExisting)
+                            CopyFlags(
+                              CopyFlag.AtomicMove,
+                              CopyFlag.ReplaceExisting
+                            )
                           )
                           .as(Right(()))
                       } else {
@@ -424,7 +441,9 @@ class IOPlatformIO extends PlatformIO[IO, JPath] {
                     }
                 } else {
                   IO.pure(
-                    Left(FetchHashFailure.HttpStatus(uri, response.status.toString))
+                    Left(
+                      FetchHashFailure.HttpStatus(uri, response.status.toString)
+                    )
                   )
                 }
               }
@@ -444,9 +463,13 @@ class IOPlatformIO extends PlatformIO[IO, JPath] {
     IO.fromTry(ProtoConverter.packagesToProto(packages))
       .flatMap(writePackageBundle(_, path))
 
-  override def readPackageBundle(path: Path): IO[proto.Packages] = read[proto.Packages](path)
+  override def readPackageBundle(path: Path): IO[proto.Packages] =
+    read[proto.Packages](path)
 
-  override def writePackageBundle(bundle: proto.Packages, path: Path): IO[Unit] = write(bundle, path)
+  override def writePackageBundle(
+      bundle: proto.Packages,
+      path: Path
+  ): IO[Unit] = write(bundle, path)
 
   def writeLibrary(lib: proto.Library, path: Path): IO[Unit] =
     write(lib, path)

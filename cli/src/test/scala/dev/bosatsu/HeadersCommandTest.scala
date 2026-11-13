@@ -259,7 +259,13 @@ class HeadersCommandTest extends FileCommandFixtures {
 
   test("header keywords and their prefixes can start legal body bindings") {
     withRunner { (root, runner) =>
-      List("fromage = 1", "exported = 1", "package = 1", "export: Int = 1", "from = 1")
+      List(
+        "fromage = 1",
+        "exported = 1",
+        "package = 1",
+        "export: Int = 1",
+        "from = 1"
+      )
         .traverse_ { binding =>
           val source = s"package Example/Api\nexposes ()\n# body\n$binding\n"
           assert(Package.parser.parseAll(source).isRight, source)

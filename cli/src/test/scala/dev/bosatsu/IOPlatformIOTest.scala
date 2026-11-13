@@ -64,9 +64,11 @@ class IOPlatformIOTest extends munit.ScalaCheckSuite {
       val original = Files.writeString(root.resolve("original"), "contents")
       val other = Files.writeString(root.resolve("other"), "contents")
       val hard = Files.createLink(root.resolve("hard"), original)
-      val symbolic = Files.createSymbolicLink(root.resolve("symbolic"), original)
+      val symbolic =
+        Files.createSymbolicLink(root.resolve("symbolic"), original)
       val paths = List(original, original, hard, symbolic, other)
-      val keys = paths.traverse(IOPlatformIO.existingFileKey).unsafeRunSync().flatten
+      val keys =
+        paths.traverse(IOPlatformIO.existingFileKey).unsafeRunSync().flatten
       assertEquals(keys.size, paths.size)
       // This fixture must exercise native identities. A resolved-path fallback
       // alone cannot equate distinct hard-link names.

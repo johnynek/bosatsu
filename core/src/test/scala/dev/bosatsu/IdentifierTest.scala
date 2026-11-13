@@ -6,7 +6,9 @@ import dev.bosatsu.hashing.{Algo, Hashable}
 import scala.collection.immutable.SortedSet
 
 class IdentifierTest extends munit.FunSuite {
-  test("synthetic identifiers are disjoint from same-text non-synthetic names") {
+  test(
+    "synthetic identifiers are disjoint from same-text non-synthetic names"
+  ) {
     val synthetic = Identifier.synthetic("x")
     val backticked = Identifier.Backticked("_x")
 

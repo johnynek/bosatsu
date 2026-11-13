@@ -30,17 +30,23 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
   val fileKeyHash: Hash[FileKey] = Hash[FileKey]
 
   def withTempDirectoryIn[A](parent: Path)(fn: Path => IO[A]): IO[A] =
-    Resource.make(FilesIO.createTempDirectory(Some(parent), ".bosatsu-probe-", None))(
-      FilesIO.deleteRecursively(_)
-    ).use(fn)
+    Resource
+      .make(FilesIO.createTempDirectory(Some(parent), ".bosatsu-probe-", None))(
+        FilesIO.deleteRecursively(_)
+      )
+      .use(fn)
 
   def existingFileKey(path: Path): IO[Option[FileKey]] =
-    FilesIO.getBasicFileAttributes(path, followLinks = true).flatMap { attrs =>
-      attrs.fileKey match {
-        case Some(key) => IO.pure(Some(Right(key)): Option[FileKey])
-        case None => FilesIO.realPath(path).map(p => Some(Left(p)): Option[FileKey])
+    FilesIO
+      .getBasicFileAttributes(path, followLinks = true)
+      .flatMap { attrs =>
+        attrs.fileKey match {
+          case Some(key) => IO.pure(Some(Right(key)): Option[FileKey])
+          case None      =>
+            FilesIO.realPath(path).map(p => Some(Left(p)): Option[FileKey])
+        }
       }
-    }.recover { case _: NoSuchFileException => None }
+      .recover { case _: NoSuchFileException => None }
 
   def pendingOutputPath(path: Path): IO[Path] = {
     // realpath requires the leaf to exist. Resolve its parent or, for a
@@ -49,12 +55,21 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
       FilesIO.realPath(p).recoverWith { case _: NoSuchFileException =>
         target(p.parent.getOrElse(Path(".")), links).flatMap { dir =>
           val leaf = dir.resolve(p.fileName).normalize
-          FilesIO.isSymbolicLink(leaf).recover { case _: NoSuchFileException => false }.flatMap {
-            case true if links(leaf) => IO.raiseError(new java.io.IOException(s"output symlink cycle at $leaf"))
-            case true => IO.fromPromise(IO(ReadLink(leaf.toString)))
-              .flatMap(s => target(leaf.resolveSibling(Path(s)), links + leaf))
-            case false => IO.pure(leaf)
-          }
+          FilesIO
+            .isSymbolicLink(leaf)
+            .recover { case _: NoSuchFileException => false }
+            .flatMap {
+              case true if links(leaf) =>
+                IO.raiseError(
+                  new java.io.IOException(s"output symlink cycle at $leaf")
+                )
+              case true =>
+                IO.fromPromise(IO(ReadLink(leaf.toString)))
+                  .flatMap(s =>
+                    target(leaf.resolveSibling(Path(s)), links + leaf)
+                  )
+              case false => IO.pure(leaf)
+            }
         }
       }
     target(path, Set.empty)
@@ -294,7 +309,10 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
   override def readInterfaceBundle(path: Path): IO[proto.Interfaces] =
     read[proto.Interfaces](path)
 
-  override def writeInterfaceBundle(bundle: proto.Interfaces, path: Path): IO[Unit] =
+  override def writeInterfaceBundle(
+      bundle: proto.Interfaces,
+      path: Path
+  ): IO[Unit] =
     write(bundle, path)
 
   def readLibrary(path: Path): IO[Hashed[Algo.Blake3, proto.Library]] =
@@ -373,7 +391,10 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
                             source = tempPath,
                             target = path,
                             // Reflink tries to do an atomic copy, and falls back to non-atomic if not
-                            CopyFlags(CopyFlag.Reflink, CopyFlag.ReplaceExisting)
+                            CopyFlags(
+                              CopyFlag.Reflink,
+                              CopyFlag.ReplaceExisting
+                            )
                           )
                           .as(Right(()))
                       } else {
@@ -390,7 +411,9 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
                     }
                 } else {
                   IO.pure(
-                    Left(FetchHashFailure.HttpStatus(uri, response.status.toString))
+                    Left(
+                      FetchHashFailure.HttpStatus(uri, response.status.toString)
+                    )
                   )
                 }
               }
@@ -427,7 +450,9 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
 
   def writeDoc(p: Path, d: Doc): IO[Unit] = {
     val pipe = FilesIO.writeUtf8(p)
-    p.parent.traverse_(FilesIO.createDirectories(_)) *> pipe(docStream(d)).compile.drain
+    p.parent.traverse_(FilesIO.createDirectories(_)) *> pipe(
+      docStream(d)
+    ).compile.drain
   }
 
   private def onParts(doc: Doc)(fn: String => IO[Unit]): IO[Unit] =

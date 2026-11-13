@@ -5,7 +5,12 @@ import cats.data.NonEmptyList
 import dev.bosatsu.IorMethods.IorExtension
 import dev.bosatsu.codegen.CompilationSource
 import dev.bosatsu.hashing.Algo
-import dev.bosatsu.library.{DecodedLibrary, DecodedLibraryWithDeps, Name, Version}
+import dev.bosatsu.library.{
+  DecodedLibrary,
+  DecodedLibraryWithDeps,
+  Name,
+  Version
+}
 import dev.bosatsu.rankn.Type
 import scala.collection.immutable.SortedMap
 import scala.util.{Failure, Success, Try}
@@ -83,7 +88,7 @@ class Int64IntrinsicsTest extends munit.FunSuite {
           loopBool(cond) || loop(thenExpr) || loop(elseExpr)
         case Matchless.SwitchVariant(on, _, cases, default) =>
           loop(on) || cases.exists { case (_, branch) => loop(branch) } ||
-            default.exists(loop)
+          default.exists(loop)
         case Matchless.Always(cond, thenExpr) =>
           loopBool(cond) || loop(thenExpr)
         case Matchless.PrevNat(of) =>
@@ -161,7 +166,9 @@ class Int64IntrinsicsTest extends munit.FunSuite {
     }
   }
 
-  test("eq_Int64 and cmp_Int64 lower to the builtin compare through a package map") {
+  test(
+    "eq_Int64 and cmp_Int64 lower to the builtin compare through a package map"
+  ) {
     val pm = typeCheck(coreInt64Src :: clientSrc :: Nil, Nil)
     val compiled = Par.withEC {
       CompilationSource
@@ -171,7 +178,9 @@ class Int64IntrinsicsTest extends munit.FunSuite {
     assertBuiltinCompares(compiled(())(clientName))
   }
 
-  test("eq_Int64 and cmp_Int64 lower to the builtin compare through a decoded library") {
+  test(
+    "eq_Int64 and cmp_Int64 lower to the builtin compare through a decoded library"
+  ) {
     type Library = DecodedLibraryWithDeps[Algo.Blake3]
     val predef = Package.interfaceOf(PackageMap.predefCompiled)
 
@@ -189,8 +198,9 @@ class Int64IntrinsicsTest extends munit.FunSuite {
       val raw = proto.Library(
         name = name,
         descriptor = Some(proto.LibDescriptor(version = Some(version.toProto))),
-        exportedIfaces =
-          List(ProtoConverter.interfaceToProto(Package.interfaceOf(compiled)).get),
+        exportedIfaces = List(
+          ProtoConverter.interfaceToProto(Package.interfaceOf(compiled)).get
+        ),
         internalPackages = List(ProtoConverter.packageToProto(compiled).get),
         privateDependencies = deps.map(_.lib.toDep)
       )
@@ -212,7 +222,8 @@ class Int64IntrinsicsTest extends munit.FunSuite {
       )
     }
 
-    val core = library("core_alpha", coreInt64Src, Int64Intrinsics.packageName, Nil)
+    val core =
+      library("core_alpha", coreInt64Src, Int64Intrinsics.packageName, Nil)
     val app = library("app", clientSrc, clientName, core :: Nil)
     val compiled = Par.withEC {
       CompilationSource
@@ -245,7 +256,10 @@ class Int64IntrinsicsTest extends munit.FunSuite {
     val pm = typeCheck(coreInt64Src :: Nil, Nil)
     val pack = pm.toMap(Int64Intrinsics.packageName)
     assertEquals(Int64Intrinsics.checkPackage(pack), None)
-    assertEquals(Int64Intrinsics.checkInterface(Package.interfaceOf(pack)), None)
+    assertEquals(
+      Int64Intrinsics.checkInterface(Package.interfaceOf(pack)),
+      None
+    )
   }
 
   test("other packages are never checked") {
@@ -255,7 +269,10 @@ class Int64IntrinsicsTest extends munit.FunSuite {
     )
     val pack = pm.toMap(PackageName.parts("Fake", "Int64"))
     assertEquals(Int64Intrinsics.checkPackage(pack), None)
-    assertEquals(Int64Intrinsics.checkInterface(Package.interfaceOf(pack)), None)
+    assertEquals(
+      Int64Intrinsics.checkInterface(Package.interfaceOf(pack)),
+      None
+    )
   }
 
   test("a source Bosatsu/Num/Int64 must match the core declarations") {
@@ -279,7 +296,10 @@ class Int64IntrinsicsTest extends munit.FunSuite {
       header + "export Int64, eq_Int64\nexternal type Int64\n" +
         "def eq_Int64(a: Int64, b: Int64) -> Bool: True\n"
     ).getOrElse(fail("expected a mismatch"))
-    assertEquals(letEq.violations.toList, Violation.NotExternalDef(Intrinsic.EqInt64) :: Nil)
+    assertEquals(
+      letEq.violations.toList,
+      Violation.NotExternalDef(Intrinsic.EqInt64) :: Nil
+    )
     assert(
       letEq.message.contains(
         "eq_Int64 must be declared `external def` with type (Int64, Int64) -> Bool"
@@ -312,13 +332,17 @@ class Int64IntrinsicsTest extends munit.FunSuite {
       "package Bosatsu/Num/Int64\nexport Int64, cmp_Int64\nexternal type Int64\n" +
         "external def cmp_Int64(a: Int64, b: Int64) -> Bool\n"
     )
-    val mismatch = errs.collect { case e: PackageError.Int64IntrinsicMismatch => e }
+    val mismatch = errs.collect { case e: PackageError.Int64IntrinsicMismatch =>
+      e
+    }
     assertEquals(mismatch.length, 1, errs)
     assert(!PackageError.isPostponable(mismatch.head))
     val msg = mismatch.head.message(Map.empty, LocationMap.Colorize.None)
     assert(msg.contains("package Bosatsu/Num/Int64"), msg)
     assert(
-      msg.contains("cmp_Int64 must have type (Int64, Int64) -> Comparison, found (Int64, Int64) -> Bool"),
+      msg.contains(
+        "cmp_Int64 must have type (Int64, Int64) -> Comparison, found (Int64, Int64) -> Bool"
+      ),
       msg
     )
   }
@@ -345,28 +369,42 @@ class Int64IntrinsicsTest extends munit.FunSuite {
       Nil
     ).toMap(PackageName.parse(fakeName).get)
     def rename(strings: Seq[String]): Seq[String] =
-      strings.map(s => if (s == fakeName) Int64Intrinsics.packageName.asString else s)
+      strings.map(s =>
+        if (s == fakeName) Int64Intrinsics.packageName.asString else s
+      )
     val iface = ProtoConverter.interfaceToProto(Package.interfaceOf(pack)).get
     val impl = ProtoConverter.packageToProto(pack).get
-    (iface.withStrings(rename(iface.strings)), impl.withStrings(rename(impl.strings)))
+    (
+      iface.withStrings(rename(iface.strings)),
+      impl.withStrings(rename(impl.strings))
+    )
   }
 
   private def assertDecodeRejects[A](result: Try[A], expected: String): Unit =
     result match {
       case Success(value) => fail(s"expected decode failure, got: $value")
-      case Failure(err) =>
+      case Failure(err)   =>
         val msg = Option(err.getMessage).getOrElse(err.toString)
-        assert(msg.contains("Bosatsu/Num/Int64 must match the core library"), msg)
+        assert(
+          msg.contains("Bosatsu/Num/Int64 must match the core library"),
+          msg
+        )
         assert(msg.contains(expected), msg)
     }
 
-  test("decoding a Bosatsu/Num/Int64 package or interface that differs from core fails") {
+  test(
+    "decoding a Bosatsu/Num/Int64 package or interface that differs from core fails"
+  ) {
     val (iface, impl) = renamedToInt64(
       "package Bosatsu/Num/Int64\nexport Int64, eq_Int64\nexternal type Int64\n" +
         "external def eq_Int64(a: Int64, b: Int64) -> Int\n"
     )
-    val expected = "eq_Int64 must have type (Int64, Int64) -> Bool, found (Int64, Int64) -> Int"
-    assertDecodeRejects(ProtoConverter.packagesFromProto(Nil, impl :: Nil), expected)
+    val expected =
+      "eq_Int64 must have type (Int64, Int64) -> Bool, found (Int64, Int64) -> Int"
+    assertDecodeRejects(
+      ProtoConverter.packagesFromProto(Nil, impl :: Nil),
+      expected
+    )
     assertDecodeRejects(ProtoConverter.interfaceFromProto(iface), expected)
   }
 
@@ -385,7 +423,8 @@ class Int64IntrinsicsTest extends munit.FunSuite {
   }
 
   test("decoding the core Int64 package and interface succeeds") {
-    val pack = typeCheck(coreInt64Src :: Nil, Nil).toMap(Int64Intrinsics.packageName)
+    val pack =
+      typeCheck(coreInt64Src :: Nil, Nil).toMap(Int64Intrinsics.packageName)
     val iface = ProtoConverter.interfaceToProto(Package.interfaceOf(pack)).get
     val impl = ProtoConverter.packageToProto(pack).get
     assert(ProtoConverter.packagesFromProto(Nil, impl :: Nil).isSuccess)

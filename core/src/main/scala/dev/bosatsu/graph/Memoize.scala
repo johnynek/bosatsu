@@ -7,7 +7,8 @@ import dev.bosatsu.Par
 import scala.collection.immutable.SortedMap
 
 object Memoize {
-  case class NotDagException(arg: Any) extends Exception(s"loop found while evaluating $arg")
+  case class NotDagException(arg: Any)
+      extends Exception(s"loop found while evaluating $arg")
 
   /** This memoizes using a sorted map (not a hashMap) in a non-threadsafe
     * manner returning None, means we cannot compute this function because it
@@ -102,7 +103,9 @@ object Memoize {
           }
           .flatMap { case (prom, prevProm) =>
             if (prevProm eq null) {
-              canPromise.completeWith(prom, fn(a, self)) *> canPromise.wait(prom)
+              canPromise.completeWith(prom, fn(a, self)) *> canPromise.wait(
+                prom
+              )
             } else {
               canPromise.wait(prevProm)
             }

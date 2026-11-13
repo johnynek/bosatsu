@@ -34,9 +34,9 @@ class NameMapTest extends munit.ScalaCheckSuite {
     assertEquals(nameMap.superNames.keySet, superPattern.names.toSet)
 
     val mappedTargets = nameMap.superNames.iterator.flatMap {
-      case (from, Rename.Same)    => Some(from)
-      case (_, Rename.To(name))   => Some(name)
-      case (_, Rename.Removed)    => None
+      case (from, Rename.Same)  => Some(from)
+      case (_, Rename.To(name)) => Some(name)
+      case (_, Rename.Removed)  => None
     }.toSet
 
     assert(mappedTargets.subsetOf(subPattern.names.toSet))
@@ -45,9 +45,9 @@ class NameMapTest extends munit.ScalaCheckSuite {
     nameMap.superNames.foreach { case (from, rename) =>
       val expected =
         rename match {
-          case Rename.Same    => Some(from)
+          case Rename.Same     => Some(from)
           case Rename.To(name) => Some(name)
-          case Rename.Removed => None
+          case Rename.Removed  => None
         }
       assertEquals(nameMap.superToSub(from), expected)
     }
@@ -61,7 +61,10 @@ class NameMapTest extends munit.ScalaCheckSuite {
     val superNames = superPattern.names.toSet
     val subNames = subPattern.names.toSet
 
-    assertEquals(nameMap.substitutionAlternatives(Set.empty).toSet, Set(Map.empty))
+    assertEquals(
+      nameMap.substitutionAlternatives(Set.empty).toSet,
+      Set(Map.empty)
+    )
 
     (superNames.map(Set(_)) + superNames).foreach { fromNames =>
       nameMap.substitutionAlternatives(fromNames).foreach { alt =>
@@ -73,9 +76,15 @@ class NameMapTest extends munit.ScalaCheckSuite {
 
   test("alignSubsumedPatternNames records rename and removal cases") {
     val superPattern: TestPattern =
-      Pattern.PositionalStruct("Pair", List(Pattern.Var(b("a")), Pattern.Var(b("b"))))
+      Pattern.PositionalStruct(
+        "Pair",
+        List(Pattern.Var(b("a")), Pattern.Var(b("b")))
+      )
     val subPattern: TestPattern =
-      Pattern.PositionalStruct("Pair", List(Pattern.Var(b("x")), Pattern.WildCard))
+      Pattern.PositionalStruct(
+        "Pair",
+        List(Pattern.Var(b("x")), Pattern.WildCard)
+      )
 
     val actual = NameMap.alignSubsumedPatternNames(superPattern, subPattern)
     val expected = NameMap(
@@ -91,9 +100,15 @@ class NameMapTest extends munit.ScalaCheckSuite {
 
   test("alignSubsumedPatternNames captures added names in sub pattern") {
     val superPattern: TestPattern =
-      Pattern.PositionalStruct("Pair", List(Pattern.Var(b("a")), Pattern.WildCard))
+      Pattern.PositionalStruct(
+        "Pair",
+        List(Pattern.Var(b("a")), Pattern.WildCard)
+      )
     val subPattern: TestPattern =
-      Pattern.PositionalStruct("Pair", List(Pattern.WildCard, Pattern.Var(b("c"))))
+      Pattern.PositionalStruct(
+        "Pair",
+        List(Pattern.WildCard, Pattern.Var(b("c")))
+      )
 
     val actual = NameMap.alignSubsumedPatternNames(superPattern, subPattern)
     val expected = NameMap(
@@ -129,14 +144,25 @@ class NameMapTest extends munit.ScalaCheckSuite {
     assertEquals(actual, Some(expected))
   }
 
-  test("alignSubsumedPatternNames keeps disjunctive alternatives for union conflicts") {
+  test(
+    "alignSubsumedPatternNames keeps disjunctive alternatives for union conflicts"
+  ) {
     val superPattern: TestPattern =
       Pattern.union(
-        Pattern.PositionalStruct("Pair", List(Pattern.Var(b("a")), Pattern.WildCard)),
-        Pattern.PositionalStruct("Pair", List(Pattern.WildCard, Pattern.Var(b("a")))) :: Nil
+        Pattern.PositionalStruct(
+          "Pair",
+          List(Pattern.Var(b("a")), Pattern.WildCard)
+        ),
+        Pattern.PositionalStruct(
+          "Pair",
+          List(Pattern.WildCard, Pattern.Var(b("a")))
+        ) :: Nil
       )
     val subPattern: TestPattern =
-      Pattern.PositionalStruct("Pair", List(Pattern.Var(b("x")), Pattern.Var(b("y"))))
+      Pattern.PositionalStruct(
+        "Pair",
+        List(Pattern.Var(b("x")), Pattern.Var(b("y")))
+      )
 
     val actual = NameMap.alignSubsumedPatternNames(superPattern, subPattern)
     assert(actual.nonEmpty)
@@ -169,7 +195,9 @@ class NameMapTest extends munit.ScalaCheckSuite {
     )
   }
 
-  test("alignSubsumedPatternNames returns coherent maps for generated aligned pairs") {
+  test(
+    "alignSubsumedPatternNames returns coherent maps for generated aligned pairs"
+  ) {
     forAll(genPatternPairNoUnion) { case (superPattern, subPattern) =>
       NameMap.alignSubsumedPatternNames(superPattern, subPattern) match {
         case Some(nameMap) =>
@@ -177,7 +205,11 @@ class NameMapTest extends munit.ScalaCheckSuite {
             case Some(_) =>
               assertCoherent(superPattern, subPattern, nameMap)
             case None =>
-              assertAlternativesRespectPatterns(superPattern, subPattern, nameMap)
+              assertAlternativesRespectPatterns(
+                superPattern,
+                subPattern,
+                nameMap
+              )
           }
         case None =>
           ()
@@ -194,12 +226,16 @@ class NameMapTest extends munit.ScalaCheckSuite {
           assert(nameMap.superNames.valuesIterator.forall(_ == Rename.Removed))
           assertEquals(nameMap.addedInSub, Set.empty)
         case None =>
-          fail(s"expected alignment success for super=$superPattern sub=$subPattern")
+          fail(
+            s"expected alignment success for super=$superPattern sub=$subPattern"
+          )
       }
     }
   }
 
-  test("alignSubsumedPatternNames keeps viable whole-pattern alias alternatives") {
+  test(
+    "alignSubsumedPatternNames keeps viable whole-pattern alias alternatives"
+  ) {
     val superPattern: Pattern.Parsed =
       Pattern.ListPat(
         List(Pattern.ListPart.NamedList(Identifier.Name("lzjqp9ilw")))
@@ -212,7 +248,8 @@ class NameMapTest extends munit.ScalaCheckSuite {
         )
       )
 
-    val d0 = NameMap.alignSubsumedPatternNames(superPattern, subPattern).isDefined
+    val d0 =
+      NameMap.alignSubsumedPatternNames(superPattern, subPattern).isDefined
     val d1 = NameMap
       .alignSubsumedPatternNames(superPattern.unbind, subPattern)
       .isDefined
@@ -229,35 +266,45 @@ class NameMapTest extends munit.ScalaCheckSuite {
     assertEquals(d3, true)
   }
 
-  test("successful alignment survives adding a fresh whole-pattern alias around sub pattern") {
+  test(
+    "successful alignment survives adding a fresh whole-pattern alias around sub pattern"
+  ) {
     val alias = Identifier.synthetic("pnm_sub_alias")
 
     forAll(genPatternPairNoUnion) { case (superPattern, subPattern) =>
       NameMap.alignSubsumedPatternNames(superPattern, subPattern) match {
         case Some(_) =>
           val aliasedSub = Pattern.Named(alias, subPattern)
-          assert(NameMap.alignSubsumedPatternNames(superPattern, aliasedSub).nonEmpty)
+          assert(
+            NameMap.alignSubsumedPatternNames(superPattern, aliasedSub).nonEmpty
+          )
         case None =>
           ()
       }
     }
   }
 
-  test("successful alignment survives adding a fresh whole-pattern alias around super pattern") {
+  test(
+    "successful alignment survives adding a fresh whole-pattern alias around super pattern"
+  ) {
     val alias = Identifier.synthetic("pnm_super_alias")
 
     forAll(genPatternPairNoUnion) { case (superPattern, subPattern) =>
       NameMap.alignSubsumedPatternNames(superPattern, subPattern) match {
         case Some(_) =>
           val aliasedSuper = Pattern.Named(alias, superPattern)
-          assert(NameMap.alignSubsumedPatternNames(aliasedSuper, subPattern).nonEmpty)
+          assert(
+            NameMap.alignSubsumedPatternNames(aliasedSuper, subPattern).nonEmpty
+          )
         case None =>
           ()
       }
     }
   }
 
-  test("successful namemap alternatives are stable under simultaneous injective substitute") {
+  test(
+    "successful namemap alternatives are stable under simultaneous injective substitute"
+  ) {
     forAll(genPatternPairNoUnion) { case (superPattern, subPattern) =>
       NameMap.alignSubsumedPatternNames(superPattern, subPattern) match {
         case Some(nameMap) =>
@@ -271,7 +318,9 @@ class NameMapTest extends munit.ScalaCheckSuite {
           assert(next.nonEmpty)
 
           val sourceSets =
-            (superPattern.names.toSet.map(Set(_)) + superPattern.names.toSet + Set.empty[
+            (superPattern.names.toSet.map(
+              Set(_)
+            ) + superPattern.names.toSet + Set.empty[
               Identifier.Bindable
             ])
 
@@ -279,9 +328,13 @@ class NameMapTest extends munit.ScalaCheckSuite {
             val expected =
               nameMap
                 .substitutionAlternatives(fromNames)
-                .map(_.iterator.map { case (from, to) =>
-                  subst(from) -> subst(to)
-                }.toMap)
+                .map(
+                  _.iterator
+                    .map { case (from, to) =>
+                      subst(from) -> subst(to)
+                    }
+                    .toMap
+                )
                 .toSet
 
             val actual =

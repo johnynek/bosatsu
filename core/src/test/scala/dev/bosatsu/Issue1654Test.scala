@@ -212,7 +212,9 @@ late = Assertion(True, "plain test after prog test")
               ) =>
             assertEquals(packageName, progPackage)
           case other =>
-            fail(s"expected discovery error while evaluating tests, got: $other")
+            fail(
+              s"expected discovery error while evaluating tests, got: $other"
+            )
         }
       }
     )

@@ -12,7 +12,7 @@ object ParserHints {
 
   private val rules: List[Rule] =
     interpolationStartInStringRule ::
-    elseIfRule ::
+      elseIfRule ::
       elseifSpellingRule ::
       assignmentInConditionRule ::
       matchesHeaderKeywordRule ::
@@ -80,7 +80,7 @@ object ParserHints {
   private def unescapedInterpolationStartBefore(
       source: String,
       pos: Int
-  ): Option[Int] = {
+  ): Option[Int] =
     if (source.isEmpty) {
       None
     } else {
@@ -108,7 +108,6 @@ object ParserHints {
 
       loop(searchFrom)
     }
-  }
 
   private def elseifSpellingRule(
       source: String,
@@ -280,9 +279,7 @@ object ParserHints {
       error: ParseFailure
   ): Option[Doc] = {
     val pos = error.position
-    if (
-      pos < 0 || pos >= source.length || !isIndentChar(source.charAt(pos))
-    ) {
+    if (pos < 0 || pos >= source.length || !isIndentChar(source.charAt(pos))) {
       None
     } else {
       for {
@@ -290,7 +287,12 @@ object ParserHints {
         if isSignificantLine(line)
         actualIndent = leadingIndent(line)
         if col <= actualIndent.length
-        expected <- expectedIndentColumnsAt(error.expected, pos, col, actualIndent)
+        expected <- expectedIndentColumnsAt(
+          error.expected,
+          pos,
+          col,
+          actualIndent
+        )
         if actualIndent.length > expected
       } yield {
         val actual = actualIndent.length
@@ -314,7 +316,11 @@ object ParserHints {
         // Sometimes block indentation has already been consumed and the parser
         // is expecting either a comment (`#`) or an expression token.
         Option.when(
-          expectsCharNear(expected, position, '#') && (column < actualIndent.length)
+          expectsCharNear(
+            expected,
+            position,
+            '#'
+          ) && (column < actualIndent.length)
         )(column)
       }
 
@@ -354,10 +360,10 @@ object ParserHints {
     e match {
       case P.Expectation.InRange(offset, lower, upper) =>
         (math.abs(offset - position) <= 1) &&
-          (lower == char) && (upper == char)
+        (lower == char) && (upper == char)
       case P.Expectation.OneOfStr(offset, strs: List[String]) =>
         (math.abs(offset - position) <= 1) &&
-          strs.exists(s => (s.length == 1) && (s.charAt(0) == char))
+        strs.exists(s => (s.length == 1) && (s.charAt(0) == char))
       case P.Expectation.WithContext(_, inner) =>
         expectationMentionsCharNear(inner, position, char)
       case _ =>
@@ -396,7 +402,9 @@ object ParserHints {
 
   private def leadingIndent(line: String): String = {
     var i = 0
-    while (i < line.length && (line.charAt(i) == ' ' || line.charAt(i) == '\t')) {
+    while (
+      i < line.length && (line.charAt(i) == ' ' || line.charAt(i) == '\t')
+    ) {
       i = i + 1
     }
     line.substring(0, i)
@@ -476,7 +484,10 @@ object ParserHints {
   private def isWordChar(c: Char): Boolean =
     c == '_' || c.isLetterOrDigit
 
-  private def startsExpressionLikePrefix(line: String, wordStart: Int): Boolean = {
+  private def startsExpressionLikePrefix(
+      line: String,
+      wordStart: Int
+  ): Boolean = {
     val prevSignificant =
       line.take(wordStart).reverseIterator.find(!_.isWhitespace)
     prevSignificant.forall("=([{,:".contains(_))

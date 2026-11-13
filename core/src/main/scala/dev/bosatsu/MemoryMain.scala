@@ -192,7 +192,7 @@ object MemoryMain {
       type FileKey = Chain[String]
       val fileKeyHash: Hash[FileKey] = Hash[FileKey]
 
-      private sealed trait PromiseState[+A]
+      sealed private trait PromiseState[+A]
       private object PromiseState {
         final case class Empty[A]() extends PromiseState[A]
         final case class Pending[A](run: F[A]) extends PromiseState[A]
@@ -200,7 +200,7 @@ object MemoryMain {
             extends PromiseState[A]
       }
 
-      private final class PromiseBox[A] {
+      final private class PromiseBox[A] {
         private var state: PromiseState[A] = PromiseState.Empty()
         def setPending(run: F[A]): Unit =
           state = PromiseState.Pending(run)
@@ -457,12 +457,16 @@ object MemoryMain {
               .map(_.flatten)
           }
 
-      override def readInterfaces(paths: List[Path]): F[List[Package.Interface]] =
+      override def readInterfaces(
+          paths: List[Path]
+      ): F[List[Package.Interface]] =
         StateT.get[G, MemoryMain.State].flatMap { files =>
           // In-memory fixtures can supply already decoded interfaces without
           // their source artifacts. Keep that fast path for existing callers.
           paths.traverse { path =>
-            files.get(path).collect { case Right(FileContent.Interfaces(ifs)) => ifs }
+            files.get(path).collect { case Right(FileContent.Interfaces(ifs)) =>
+              ifs
+            }
           } match {
             case Some(ready) => moduleIOMonad.pure(ready.flatten)
             case None        => super.readInterfaces(paths)
