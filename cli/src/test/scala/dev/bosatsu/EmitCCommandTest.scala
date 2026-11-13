@@ -33,6 +33,31 @@ class EmitCCommandTest extends FileCommandFixtures {
       |checks = Assertion(active(9) matches 9, "native binding")
       |""".stripMargin
   private val nativeHeader = "bosatsu_ext_Demo_l_Native.h"
+  private val progHeader = "bosatsu_ext_Bosatsu_l_Prog.h"
+  private val progApi =
+    """package Bosatsu/Prog
+      |export Prog, Main(), pure
+      |external type Prog[err: +*, res: +*]
+      |external def pure[err, res](value: res) -> Prog[err, res]
+      |struct Main(run: List[String] -> forall err. Prog[err, Int])
+      |""".stripMargin
+  private val programNative =
+    """package Demo/Native
+      |export active
+      |external def active(x: Int) -> Int
+      |""".stripMargin
+  private val programMain =
+    """package Demo/Program
+      |from Bosatsu/Prog import Main, Prog, pure
+      |from Demo/Native import active
+      |export main, marker
+      |exposes Bosatsu/Prog
+      |def run(args: List[String]) -> forall err. Prog[err, Int]:
+      |  _ = args
+      |  pure(active(7))
+      |main = Main(run)
+      |marker = 1
+      |""".stripMargin
 
   private def compile(
       runner: FileCommandRunner,
@@ -69,6 +94,27 @@ class EmitCCommandTest extends FileCommandFixtures {
     runner.run(root, List("emit-c", "--runtime-manifest", "runtime.json",
       "--test-packages", selected, "--out", output) ::: headers.toList.flatMap(p => List("--extern-header-out", p)))
 
+  private def emitProgram(
+      runner: FileCommandRunner,
+      root: Path,
+      selected: String,
+      mainPackage: String,
+      output: String,
+      headers: String*
+  ): IO[FileCommandRunner.Result] =
+    runner.run(root, List("emit-c", "--runtime-manifest", "runtime.json",
+      "--main-packages", selected, "--main-package", mainPackage, "--out", output) :::
+      headers.toList.flatMap(p => List("--extern-header-out", p)))
+
+  private def programGraph(root: Path, runner: FileCommandRunner): IO[Unit] =
+    for {
+      _ <- compile(runner, root, "prog", List("Prog.bosatsu" -> progApi), Nil)
+      _ <- compile(runner, root, "native", List("ProgramNative.bosatsu" -> programNative), Nil)
+      _ <- compile(runner, root, "program", List("Program.bosatsu" -> programMain), List("prog", "native"))
+      _ <- manifest(root, List("program.pkg", "native.pkg", "prog.pkg"),
+        List("Bosatsu/Prog" -> List("pure"), "Demo/Native" -> List("active")))
+    } yield ()
+
   private def simpleGraph(root: Path, runner: FileCommandRunner): IO[Unit] =
     for {
       _ <- compile(runner, root, "helper", List("Helper.bosatsu" -> helper), Nil)
@@ -98,6 +144,169 @@ class EmitCCommandTest extends FileCommandFixtures {
         changed <- read(root, "out/helper.c")
         _ = assert(changed.contains("dependency assertion"), changed)
         _ = assert(!changed.contains("root assertion") && !changed.contains("\"Demo/Other\""), changed)
+      } yield ()
+    }
+  }
+
+  test("emit a selected program main with deterministic C and declared native headers") {
+    withRunner { (root, runner) =>
+      for {
+        _ <- programGraph(root, runner)
+        first <- emitProgram(runner, root, "program.pkg", "Demo/Program", "program.c",
+          progHeader, nativeHeader)
+        _ = success(first)
+        c <- read(root, "program.c")
+        prog <- read(root, progHeader)
+        native <- read(root, nativeHeader)
+        _ = assert(c.contains("int main("), c)
+        _ = assert(c.contains("bsts_Bosatsu_Prog_run_main"), c)
+        _ = assert(c.contains("___bsts_g_Demo_l_Program_l_main"), c)
+        _ = assert(c.contains("bosatsu_ext_Bosatsu_l_Prog.h") && c.contains(nativeHeader), c)
+        _ = assert(prog.contains("___bsts_g_Bosatsu_l_Prog_l_pure("), prog)
+        _ = assert(native.contains("___bsts_g_Demo_l_Native_l_active("), native)
+        again <- emitProgram(runner, root, "program.pkg", "Demo/Program", "program.c",
+          progHeader, nativeHeader)
+        _ = success(again)
+        stable <- read(root, "program.c")
+        _ = assertEquals(stable, c)
+      } yield ()
+    }
+  }
+
+  test("program selectors must be complete and mutually exclusive before inputs are read") {
+    withRunner { (root, runner) =>
+      val base = List("emit-c", "--runtime-manifest", "missing-runtime.json", "--out", "program.c")
+      val invalid = List(
+        Nil,
+        List("--main-packages", "program.pkg"),
+        List("--main-package", "Demo/Program"),
+        List("--test-packages", "program.pkg", "--main-packages", "program.pkg", "--main-package", "Demo/Program")
+      )
+      invalid.traverse_ { selector =>
+        runner.run(root, base ::: selector).map { result =>
+          failure(result)
+          assert(result.stderr.contains("exactly one complete selector"), result.stderr)
+          assert(!result.stderr.contains("missing-runtime.json"), result.stderr)
+        }
+      }
+    }
+  }
+
+  test("program selection rejects absent bundles, absent root packages, and dependency-only mains") {
+    withRunner { (root, runner) =>
+      val rootSource =
+        "package Demo/ProgramRoot\nfrom Demo/Program import marker\nvalue = marker\n"
+      for {
+        _ <- programGraph(root, runner)
+        absentBundle <- emitProgram(runner, root, "absent.pkg", "Demo/Program", "program.c")
+        _ = failure(absentBundle)
+        _ = assert(absentBundle.stderr.contains("program bundle absent.pkg is absent"), absentBundle.stderr)
+        absentPackage <- emitProgram(runner, root, "program.pkg", "Demo/Missing", "program.c")
+        _ = failure(absentPackage)
+        _ = assert(absentPackage.stderr.contains("Demo/Missing") && absentPackage.stderr.contains("selected program bundle"), absentPackage.stderr)
+        _ <- compile(runner, root, "root", List("ProgramRoot.bosatsu" -> rootSource), List("program", "prog"))
+        _ <- manifest(root, List("root.pkg", "program.pkg", "native.pkg", "prog.pkg"),
+          List("Bosatsu/Prog" -> List("pure"), "Demo/Native" -> List("active")))
+        dependency <- emitProgram(runner, root, "root.pkg", "Demo/Program", "program.c")
+        _ = failure(dependency)
+        _ = assert(dependency.stderr.contains("Demo/Program") && dependency.stderr.contains("selected program bundle"), dependency.stderr)
+        _ = assert(!Files.exists(root.resolve("program.c")))
+      } yield ()
+    }
+  }
+
+  test("program selection rejects invalid mains and incompatible native Prog layouts") {
+    withRunner { (root, runner) =>
+      val invalidMain = "package Demo/InvalidMain\nmain = 7\n"
+      val badMainLayout =
+        "package Bosatsu/Prog\nexport Prog, Main()\n" +
+          "external type Prog[err: +*, res: +*]\nstruct Main(run: Int)\n"
+      val badProgLayout =
+        "package Bosatsu/Prog\nexport Prog, Main(), pure\n" +
+          "enum Prog[err: +*, res: +*]: Finished(value: res)\n" +
+          "external def pure[err, res](value: res) -> Prog[err, res]\n" +
+          "struct Main(run: List[String] -> forall err. Prog[err, Int])\n"
+      val layoutCases = List(
+        ("wrong-main", badMainLayout, "from Bosatsu/Prog import Main\nmain = Main(1)\n"),
+        ("wrong-prog", badProgLayout,
+          "from Bosatsu/Prog import Main, Prog, pure\n" +
+            "def run(args: List[String]) -> forall err. Prog[err, Int]:\n  _ = args\n  pure(7)\n" +
+            "main = Main(run)\n")
+      )
+      for {
+        _ <- compile(runner, root, "invalid", List("InvalidMain.bosatsu" -> invalidMain), Nil)
+        _ <- manifest(root, List("invalid.pkg"), Nil)
+        invalid <- emitProgram(runner, root, "invalid.pkg", "Demo/InvalidMain", "program.c")
+        _ = failure(invalid)
+        _ = assert(invalid.stderr.contains("no valid Bosatsu/Prog::Main value found"), invalid.stderr)
+        _ <- layoutCases.traverse_ { case (name, prog, mainBody) =>
+          val mainSource = s"package Demo/LayoutMain\n$mainBody"
+          for {
+            _ <- compile(runner, root, "prog", List("Prog.bosatsu" -> prog), Nil)
+            _ <- compile(runner, root, "layout", List("LayoutMain.bosatsu" -> mainSource), List("prog"))
+            _ <- manifest(root, List("layout.pkg", "prog.pkg"), Nil)
+            result <- emitProgram(runner, root, "layout.pkg", "Demo/LayoutMain", s"$name.c")
+            _ = failure(result)
+            _ = assert(result.stderr.contains("incompatible Bosatsu/Prog::Main"), result.stderr)
+            _ = assert(!Files.exists(root.resolve(s"$name.c")))
+          } yield ()
+        }
+      } yield ()
+    }
+  }
+
+  test("program rendering checks reachable externals and program outputs cannot alias inputs") {
+    withRunner { (root, runner) =>
+      for {
+        _ <- programGraph(root, runner)
+        _ <- manifest(root, List("program.pkg", "native.pkg", "prog.pkg"),
+          List("Bosatsu/Prog" -> List("pure")))
+        missing <- emitProgram(runner, root, "program.pkg", "Demo/Program", "program.c")
+        _ = failure(missing)
+        _ = assert(missing.stderr.contains("missing native binding for Demo/Native::active"), missing.stderr)
+        _ = assert(!Files.exists(root.resolve("program.c")))
+        alias <- emitProgram(runner, root, "program.pkg", "Demo/Program", "program.pkg")
+        _ = failure(alias)
+        _ = assert(alias.stderr.contains("also a runtime input"), alias.stderr)
+        manifestAlias <- emitProgram(runner, root, "program.pkg", "Demo/Program", "runtime.json")
+        _ = failure(manifestAlias)
+        _ = assert(manifestAlias.stderr.contains("also a runtime input"), manifestAlias.stderr)
+        _ <- manifest(root, List("program.pkg", "native.pkg", "prog.pkg"),
+          List("Bosatsu/Prog" -> List("pure"), "Demo/Native" -> List("active")))
+        bound <- emitProgram(runner, root, "program.pkg", "Demo/Program", "program.c")
+        _ = success(bound)
+      } yield ()
+    }
+  }
+
+  test("a program header publication failure preserves prior siblings and can be retried") {
+    withRunner { (root, runner) =>
+      val generated = "generated"
+      val oldC = "previous C"
+      val oldProgHeader = "previous Prog header"
+      val generatedProgHeader = s"$generated/$progHeader"
+      val generatedNativeHeader = s"$generated/$nativeHeader"
+      for {
+        _ <- programGraph(root, runner)
+        _ <- write(root, "program.c", oldC)
+        _ <- write(root, generatedProgHeader, oldProgHeader)
+        _ <- IO.blocking(Files.createDirectories(root.resolve(generatedNativeHeader)))
+        failed <- emitProgram(runner, root, "program.pkg", "Demo/Program", "program.c",
+          generatedProgHeader, generatedNativeHeader)
+        _ = failure(failed)
+        _ = assert(failed.stderr.contains("expected a regular output file"), failed.stderr)
+        c <- read(root, "program.c")
+        prog <- read(root, generatedProgHeader)
+        _ = assertEquals(c, oldC)
+        _ = assertEquals(prog, oldProgHeader)
+        _ <- IO.blocking(Files.delete(root.resolve(generatedNativeHeader)))
+        retry <- emitProgram(runner, root, "program.pkg", "Demo/Program", "program.c",
+          generatedProgHeader, generatedNativeHeader)
+        _ = success(retry)
+        updated <- read(root, "program.c")
+        native <- read(root, generatedNativeHeader)
+        _ = assertNotEquals(updated, oldC)
+        _ = assert(native.contains("___bsts_g_Demo_l_Native_l_active("), native)
       } yield ()
     }
   }

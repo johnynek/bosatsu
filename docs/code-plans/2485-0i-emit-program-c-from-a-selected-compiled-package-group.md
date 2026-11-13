@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2485` 0i: Emit program C from a selected compiled package group
-- Pending steps: `2`
-- Completed steps: `1`
+- Pending steps: `1`
+- Completed steps: `2`
 - Total steps: `3`
 
 ## Summary
@@ -59,7 +59,7 @@ Add focused regressions in `core/src/test/scala/dev/bosatsu/codegen/clang/ClangG
 
 Added the explicit-resolver `renderMain` overload and kept the existing overload delegating to standard externals. Regressions cover legacy/explicit output parity, allowed and rejected direct externals, and first-class external references. `coreJVM/test:compile`, focused JVM tests, and focused Scala.js tests passed; each suite reported 33 passing tests.
 
-2. [ ] `step_2` Implement checked program selection through the shared local emission boundary
+2. [x] `step_2` Implement checked program selection through the shared local emission boundary
 
 Extend `core/src/main/scala/dev/bosatsu/tool_command/EmitCCommand.scala` with a private checked emission-mode representation: tests select one bundle, while programs select one bundle and PackageName. Parse exactly one complete mode: `--test-packages FILE` or the pair `--main-packages FILE --main-package NAME`. Reject missing, incomplete and conflicting selectors before loading inputs or producing outputs.
 
@@ -99,6 +99,10 @@ The complete production-site inventory for the new local contract is `EmitCComma
 - Program C excludes unreachable dependency assertions and root test code, while the existing selected-test behavior remains passing.
 - C and header paths cannot replace the manifest or a bundle through direct paths, symlinks or hard links; existing filesystem case-alias coverage remains passing.
 - A real output publication failure preserves previous C/header siblings, leaves no new output files and is followed by a successful retry.
+
+#### Completion Notes
+
+Added mutually exclusive test/program selectors, root-bundle membership checks, Main binding selection, and native Main/Prog layout validation. Both modes share local loading, declared-external rendering, header validation, and staged publication. `sbt "cli/testOnly dev.bosatsu.EmitCCommandTest"` passed (30 tests); focused ClangGen tests passed (33), StagedOutputs tests passed (9, 1 skipped), and `git diff --check` passed.
 
 3. [ ] `step_3` Qualify compiled-only program emission and document the command contract
 
