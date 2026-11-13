@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 """Compare one-shot Bazel parameter-file requests with direct JVM commands."""
 import argparse
+import hashlib
+import io
 import json
 from pathlib import Path
 import shutil
 import subprocess
+import tarfile
 import tempfile
+import zipfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -147,6 +151,7 @@ def compare_command(
     final_newline: bool = True,
     expect_success: bool = True,
     compare_diagnostics: bool = True,
+    preserve_outputs_on_failure: bool = False,
 ) -> subprocess.CompletedProcess[bytes]:
     parameter_path = Path("parameter files 雪") / f"{name}.params"
     parameter_file = cwd / parameter_path
@@ -156,7 +161,16 @@ def compare_command(
         content += line_ending
     parameter_file.write_bytes(content.encode("utf-8"))
 
-    remove_outputs(cwd, outputs)
+    preserved_outputs: dict[str, bytes] = {}
+    if expect_success or not preserve_outputs_on_failure:
+        remove_outputs(cwd, outputs)
+    else:
+        for output in outputs:
+            path = cwd / output
+            path.parent.mkdir(parents=True, exist_ok=True)
+            preserved_outputs[output] = b"previous successful toolchain stamp\n"
+            path.write_bytes(preserved_outputs[output])
+
     direct = invoke(java, jar, cwd, "tool", *command)
     direct_outputs = output_bytes(cwd, outputs) if direct.returncode == 0 else {}
     if expect_success and direct.returncode != 0:
@@ -166,10 +180,19 @@ def compare_command(
         )
     if not expect_success and direct.returncode == 0:
         raise AssertionError(f"direct {name} command unexpectedly succeeded")
-    if direct.returncode != 0 and any((cwd / output).exists() for output in outputs):
-        raise AssertionError(f"direct {name} left an output behind after failure")
+    if direct.returncode != 0:
+        if preserve_outputs_on_failure:
+            actual = {output: (cwd / output).read_bytes() for output in outputs}
+            if actual != preserved_outputs:
+                raise AssertionError(f"direct {name} changed a previously published output after failure")
+        elif any((cwd / output).exists() for output in outputs):
+            raise AssertionError(f"direct {name} left an output behind after failure")
 
-    remove_outputs(cwd, outputs)
+    if preserve_outputs_on_failure and not expect_success:
+        for output, content in preserved_outputs.items():
+            (cwd / output).write_bytes(content)
+    else:
+        remove_outputs(cwd, outputs)
     worker = invoke(java, jar, cwd, "tool", "bazel-worker", "@" + parameter_path.as_posix())
     if compare_diagnostics:
         check_result(name, direct, worker)
@@ -186,11 +209,267 @@ def compare_command(
         worker_outputs = output_bytes(cwd, outputs)
         if direct_outputs != worker_outputs:
             raise AssertionError(f"{name} output bytes differ between direct and worker invocation")
+    elif preserve_outputs_on_failure:
+        actual = {output: (cwd / output).read_bytes() for output in outputs}
+        if actual != preserved_outputs:
+            raise AssertionError(f"worker {name} changed a previously published output after failure")
     elif any((cwd / output).exists() for output in outputs):
         raise AssertionError(f"{name} left an output behind after failure")
     if expect_success != (worker.returncode == 0):
         raise AssertionError(f"{name} returned unexpected status {worker.returncode}")
     return worker
+
+
+TOOLCHAIN_MANIFEST = "manifests 雪/toolchain.json"
+TOOLCHAIN_STAMP = "generated files 雪/toolchain stamp"
+TOOLCHAIN_CORE = "components 雪/core.bosatsu_lib"
+TOOLCHAIN_SOURCE = "sources 雪/Prog.bosatsu"
+TOOLCHAIN_RUNTIME = "components 雪/c-runtime.tar.gz"
+
+
+def sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def protobuf_varint(value: int) -> bytes:
+    encoded = bytearray()
+    while value > 0x7F:
+        encoded.append((value & 0x7F) | 0x80)
+        value >>= 7
+    encoded.append(value)
+    return bytes(encoded)
+
+
+def protobuf_bytes(field_number: int, value: bytes) -> bytes:
+    return protobuf_varint((field_number << 3) | 2) + protobuf_varint(len(value)) + value
+
+
+def core_library_fixture(
+    name: str = "core_alpha", repo: str = "https://example.invalid/core"
+) -> bytes:
+    # Minimal bosatsu.Library protobuf: name (field 1), repo_uri (field 4),
+    # and descriptor.version (fields 5 and 1) for version 1.2.3.
+    version = b"\x08\x01\x10\x02\x18\x03"
+    descriptor = protobuf_bytes(1, version)
+    return (
+        protobuf_bytes(1, name.encode("utf-8"))
+        + protobuf_bytes(4, repo.encode("utf-8"))
+        + protobuf_bytes(5, descriptor)
+    )
+
+
+def runtime_archive_fixture() -> bytes:
+    archive = io.BytesIO()
+    content = b"local runtime fixture\n"
+    with tarfile.open(fileobj=archive, mode="w:gz") as tar:
+        info = tarfile.TarInfo("c_runtime/fixture.txt")
+        info.size = len(content)
+        info.mtime = 0
+        tar.addfile(info, io.BytesIO(content))
+    return archive.getvalue()
+
+
+def write_toolchain_manifest(
+    cwd: Path,
+    *,
+    compiler_bytes: bytes,
+    core_bytes: bytes = b"",
+    runtime_bytes: bytes = b"",
+    core_sources: dict[str, bytes] | None = None,
+    core_name: str = "core_alpha",
+) -> None:
+    manifest = {
+        "schema_version": 1,
+        "compiler": {
+            "uri": "https://unused.invalid/compiler.jar",
+            "sha256": sha256(compiler_bytes),
+        },
+        "core": {
+            "library_name": core_name,
+            "version": "1.2.3",
+            "uri": "https://unused.invalid/core.bosatsu_lib",
+            "sha256": sha256(core_bytes),
+        },
+        "c_runtime": {
+            "uri": "https://unused.invalid/c-runtime.tar.gz",
+            "sha256": sha256(runtime_bytes),
+        },
+    }
+    if core_sources is not None:
+        manifest["core_sources"] = {
+            package: sha256(source) for package, source in core_sources.items()
+        }
+    path = cwd / TOOLCHAIN_MANIFEST
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(manifest, sort_keys=True), encoding="utf-8")
+
+
+def toolchain_command(
+    compiler_jar: Path,
+    *,
+    core_library: str | None = None,
+    core_sources: list[str] | None = None,
+    runtime_archive: str | None = None,
+) -> list[str]:
+    command = [
+        "verify-toolchain",
+        "--manifest",
+        TOOLCHAIN_MANIFEST,
+        "--compiler-jar",
+        compiler_jar.as_posix(),
+        "--out",
+        TOOLCHAIN_STAMP,
+    ]
+    if core_library is not None:
+        command.extend(["--core-library", core_library])
+    for source in core_sources or []:
+        command.extend(["--core-source", source])
+    if runtime_archive is not None:
+        command.extend(["--runtime-archive", runtime_archive])
+    return command
+
+
+def test_toolchain_verification(java: str, candidate_jar: Path, work: Path) -> None:
+    cwd = work / "toolchain verification workspace"
+    cwd.mkdir()
+    candidate_name = Path("candidate compiler 雪.jar")
+    shutil.copyfile(candidate_jar, cwd / candidate_name)
+    candidate_bytes = (cwd / candidate_name).read_bytes()
+    write_toolchain_manifest(cwd, compiler_bytes=candidate_bytes)
+
+    # The selected candidate jar is also the exact jar launched for verification.
+    compare_command(
+        java,
+        candidate_name,
+        cwd,
+        "toolchain-compiler-only",
+        toolchain_command(candidate_name),
+        [TOOLCHAIN_STAMP],
+    )
+
+    core = core_library_fixture()
+    (cwd / TOOLCHAIN_CORE).parent.mkdir(parents=True, exist_ok=True)
+    (cwd / TOOLCHAIN_CORE).write_bytes(core)
+    write_toolchain_manifest(cwd, compiler_bytes=candidate_bytes, core_bytes=core)
+    compare_command(
+        java,
+        candidate_name,
+        cwd,
+        "toolchain-binary-core",
+        toolchain_command(candidate_name, core_library=TOOLCHAIN_CORE),
+        [TOOLCHAIN_STAMP],
+    )
+
+    wrong_core = core_library_fixture(repo="https://example.invalid/altered-core")
+    (cwd / TOOLCHAIN_CORE).write_bytes(wrong_core)
+    compare_command(
+        java,
+        candidate_name,
+        cwd,
+        "toolchain-substituted-core",
+        toolchain_command(candidate_name, core_library=TOOLCHAIN_CORE),
+        [TOOLCHAIN_STAMP],
+        expect_success=False,
+        preserve_outputs_on_failure=True,
+    )
+
+    wrong_identity = core_library_fixture(name="other_core")
+    (cwd / TOOLCHAIN_CORE).write_bytes(wrong_identity)
+    write_toolchain_manifest(
+        cwd,
+        compiler_bytes=candidate_bytes,
+        core_bytes=wrong_identity,
+        core_name="core_alpha",
+    )
+    compare_command(
+        java,
+        candidate_name,
+        cwd,
+        "toolchain-core-identity",
+        toolchain_command(candidate_name, core_library=TOOLCHAIN_CORE),
+        [TOOLCHAIN_STAMP],
+        expect_success=False,
+    )
+
+    source = b"package Bosatsu/Prog\n\nmain = 1\n"
+    (cwd / TOOLCHAIN_SOURCE).parent.mkdir(parents=True, exist_ok=True)
+    (cwd / TOOLCHAIN_SOURCE).write_bytes(source)
+    write_toolchain_manifest(
+        cwd,
+        compiler_bytes=candidate_bytes,
+        core_sources={"Bosatsu/Prog": source},
+    )
+    compare_command(
+        java,
+        candidate_name,
+        cwd,
+        "toolchain-core-source",
+        toolchain_command(candidate_name, core_sources=[TOOLCHAIN_SOURCE]),
+        [TOOLCHAIN_STAMP],
+    )
+
+    changed_source = b"package Bosatsu/Prog\n\nmain = 2\n"
+    (cwd / TOOLCHAIN_SOURCE).write_bytes(changed_source)
+    compare_command(
+        java,
+        candidate_name,
+        cwd,
+        "toolchain-modified-core-source",
+        toolchain_command(candidate_name, core_sources=[TOOLCHAIN_SOURCE]),
+        [TOOLCHAIN_STAMP],
+        expect_success=False,
+        preserve_outputs_on_failure=True,
+    )
+    wrong_package = b"package Bosatsu/Changed\n\nmain = 1\n"
+    (cwd / TOOLCHAIN_SOURCE).write_bytes(wrong_package)
+    compare_command(
+        java,
+        candidate_name,
+        cwd,
+        "toolchain-unlisted-core-source",
+        toolchain_command(candidate_name, core_sources=[TOOLCHAIN_SOURCE]),
+        [TOOLCHAIN_STAMP],
+        expect_success=False,
+    )
+
+    runtime = runtime_archive_fixture()
+    (cwd / TOOLCHAIN_RUNTIME).parent.mkdir(parents=True, exist_ok=True)
+    (cwd / TOOLCHAIN_RUNTIME).write_bytes(runtime)
+    write_toolchain_manifest(cwd, compiler_bytes=candidate_bytes, runtime_bytes=runtime)
+    compare_command(
+        java,
+        candidate_name,
+        cwd,
+        "toolchain-native-runtime",
+        toolchain_command(candidate_name, runtime_archive=TOOLCHAIN_RUNTIME),
+        [TOOLCHAIN_STAMP],
+    )
+
+    changed_runtime = runtime_archive_fixture() + b"independently hashed substitute"
+    (cwd / TOOLCHAIN_RUNTIME).write_bytes(changed_runtime)
+    compare_command(
+        java,
+        candidate_name,
+        cwd,
+        "toolchain-substituted-runtime",
+        toolchain_command(candidate_name, runtime_archive=TOOLCHAIN_RUNTIME),
+        [TOOLCHAIN_STAMP],
+        expect_success=False,
+    )
+
+    altered_name = Path("substituted compiler 雪.jar")
+    shutil.copyfile(cwd / candidate_name, cwd / altered_name)
+    with zipfile.ZipFile(cwd / altered_name, mode="a") as jar_file:
+        jar_file.writestr("toolchain-fixture-marker.txt", b"different candidate bytes\n")
+    compare_command(
+        java,
+        altered_name,
+        cwd,
+        "toolchain-substituted-compiler",
+        toolchain_command(altered_name),
+        [TOOLCHAIN_STAMP],
+        expect_success=False,
+    )
 
 
 def write_fixture(cwd: Path) -> None:
@@ -405,6 +684,7 @@ def main() -> None:
         raise RuntimeError("java is required")
     with tempfile.TemporaryDirectory(prefix="bosatsu-bazel-worker-") as tmp:
         work = Path(tmp)
+        test_toolchain_verification(java, jar, work)
         test_worker(java, jar, work)
         test_bosatsuj(java, jar, work)
     print("candidate jar Bazel worker acceptance passed")

@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2486` 0p: Verify declared compiler, core and runtime components
-- Pending steps: `1`
-- Completed steps: `3`
+- Pending steps: `0`
+- Completed steps: `4`
 - Total steps: `4`
 
 ## Summary
@@ -135,7 +135,7 @@ Add `cli/src/test/scala/dev/bosatsu/VerifyToolchainCommandTest.scala` using `Fil
 
 Added `tool verify-toolchain` using the shared manifest verifier and generated runtime hash, and registered it with the ordinary file runner and one-shot worker. Added JVM command, runner, worker-parity and Node coverage for source selection, success stamps, failure preservation and publication retry. Focused JVM/Node suites passed; `./test_cli.sh` passed, including the candidate worker checks and final eval assertion.
 
-4. [ ] `step_4` Qualify exact candidate jars and document the implemented policy
+4. [x] `step_4` Qualify exact candidate jars and document the implemented policy
 
 Extend `scripts/test_bazel_worker.py` with local toolchain fixtures and direct-versus-parameter-file verification cases. Compute expected fixture SHA-256 independently with Python hashlib and generate small serialized core fixtures through the existing library/protobuf facilities. Use a local compressed archive and exact source fixtures; no release downloads or publishing credentials are needed.
 
@@ -164,3 +164,7 @@ Run the issue-required Linux checks: `sbt "coreJVM/test; cli/test; coreJS/test; 
 - Reject a runnable compiler substitute, altered same-identity core, manifest-pinned core with incorrect embedded identity, altered runtime and modified source replacement.
 - Check compiler-only execution with unused files absent and failure preservation for both absent and existing stamps.
 - Complete the named JVM, Scala.js, Node, assembly, candidate-worker and CLI checks.
+
+#### Completion Notes
+
+Added candidate-jar fixtures and direct/one-shot worker parity cases for matched compiler-only, binary-core, source-core, and native-runtime requests, plus mismatched compiler/core/runtime, core identity, and source replacements. Verified failures preserve existing stamps. Documented the version-1 manifest and implemented command policy, marked tracker 0p complete, and updated the CLI help-order assertion for the registered command. The requested sbt sequence passed: core JVM 2,227 passed/0 failed, CLI 182 passed/0 failed, coreJS 2,197 passed/0 failed, cliJSJS 3 passed/0 failed, and assembly built. The candidate-jar harness, `./test_cli.sh`, and `git diff --check` also passed.
