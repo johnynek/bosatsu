@@ -83,6 +83,27 @@ class BazelWorkerTest extends FileCommandFixtures {
       ()
     }
 
+  private def independentRequestJson(
+      arguments: List[String],
+      inputPath: String,
+      requestId: Int,
+      verbosity: Int
+  ): String = {
+    val request = jsonMapper.createObjectNode()
+    val argumentNodes = request.putArray("arguments")
+    arguments.foreach(argumentNodes.add)
+    val input = request.putArray("inputs").addObject()
+    input.put("path", inputPath)
+    input.putObject("unknown").put("nested", true)
+    request.put("requestId", requestId)
+    request.putNull("request_id")
+    request.put("verbosity", verbosity.toString)
+    request.putNull("cancel")
+    request.putNull("sandboxDir")
+    request.putObject("unknown").putArray("nested").add(1).add(2)
+    jsonMapper.writeValueAsString(request)
+  }
+
   private def parameterInvocation(
       runner: FileCommandRunner,
       root: Path,
@@ -171,6 +192,27 @@ class BazelWorkerTest extends FileCommandFixtures {
     )
   }
 
+  test("worker request decoding accepts strict JSON escapes in every string position") {
+    val decoded = BazelWorker.decodeRequest(
+      """{"arg\u0075ments":["headers","slash\/path","quote:\" backslash:\\ backspace:\b formfeed:\f newline:\n CR:\r tab:\t null:\u0000 unicode:\u96ea supplementary:\uD83D\uDE42"],"inputs":[{"p\u0061th":"src\/A.bosatsu","digest":"AQID","unknown":{"name":"escaped\/slash"}}],"request\u0049d":23,"unknown":{"nested":["\/","\uD83D\uDE42"]}}"""
+    )
+    val argument =
+      "quote:\" backslash:\\ backspace:\b formfeed:\f newline:\n CR:\r tab:\t null:" +
+        0.toChar + " unicode:雪 supplementary:🙂"
+    assertEquals(
+      decoded,
+      Right(
+        BazelWorker.ActionRequest(
+          List("headers", "slash/path", argument),
+          List(BazelWorker.Input("src/A.bosatsu", Vector[Byte](1, 2, 3))),
+          23,
+          0,
+          ""
+        )
+      )
+    )
+  }
+
   test("worker response encoding round trips generated values as one compact JSON line") {
     val random = new Random(2484L)
     val codePoints = Array(0, 8, 9, 10, 13, 31, 34, 39, 92, 127, 0x00e9, 0x96ea, 0x1f642)
@@ -190,27 +232,24 @@ class BazelWorkerTest extends FileCommandFixtures {
       val inputs = List(BazelWorker.Input(generatedString(24), Vector.empty))
       val requestId = random.nextInt()
       val verbosity = random.nextInt()
-      val request = Json.JObject(
-        List(
-          "arguments" -> Json.JArray(args.map(Json.JString(_)).toVector),
-          "inputs" -> Json.JArray(
-            Vector(
-              Json.JObject(
-                List("path" -> Json.JString(inputs.head.path), "unknown" -> Json.JObject(Nil))
-              )
-            )
-          ),
-          "requestId" -> Json.JNumberStr(requestId.toString),
-          "request_id" -> Json.JNull,
-          "verbosity" -> Json.JString(verbosity.toString),
-          "cancel" -> Json.JNull,
-          "sandboxDir" -> Json.JNull,
-          "unknown" -> Json.JObject(List("nested" -> Json.JArray(Vector(Json.JBool.True))))
-        )
-      ).render
+      val request = independentRequestJson(
+        args :+ "/\\\"\b\f\n\r\t'雪🙂",
+        inputs.head.path,
+        requestId,
+        verbosity
+      )
       BazelWorker.decodeRequest(request) match {
         case Right(action: BazelWorker.ActionRequest) =>
-          assertEquals(action, BazelWorker.ActionRequest(args, inputs, requestId, verbosity, ""))
+          assertEquals(
+            action,
+            BazelWorker.ActionRequest(
+              args :+ "/\\\"\b\f\n\r\t'雪🙂",
+              inputs,
+              requestId,
+              verbosity,
+              ""
+            )
+          )
         case other                                    => fail(s"expected action request, got $other")
       }
 
@@ -305,6 +344,42 @@ class BazelWorkerTest extends FileCommandFixtures {
     invalid.foreach { json =>
       val decoded = BazelWorker.decodeRequest(json)
       assert(decoded.isLeft, s"expected request to fail: $json, got $decoded")
+    }
+  }
+
+  test("worker request parsing rejects invalid strings before ignoring fields") {
+    val invalidEscapes = List(
+      "\\x41",
+      "\\o41",
+      "\\U00000041",
+      "\\'",
+      "\\q",
+      "\\u12",
+      "\\u12G4"
+    )
+    val locations: List[String => String] = List(
+      value => s"""{"arguments":["$value"]}""",
+      value => s"""{"$value":true}""",
+      value => s"""{"inputs":[{"path":"$value"}]}""",
+      value => s"""{"inputs":[{"digest":"$value"}]}""",
+      value => s"""{"unknown":{"nested":["$value"]}}"""
+    )
+    invalidEscapes.foreach { invalid =>
+      locations.foreach { document =>
+        val json = document(invalid)
+        assert(
+          BazelWorker.decodeRequest(json).isLeft,
+          s"accepted invalid JSON string at a request position: $json"
+        )
+      }
+    }
+
+    (0 until 0x20).foreach { control =>
+      val json = "{\"unknown\":{\"nested\":\"a" + control.toChar + "b\"}}"
+      assert(
+        BazelWorker.decodeRequest(json).isLeft,
+        s"accepted literal control U+${control.toHexString} in ignored field"
+      )
     }
   }
 

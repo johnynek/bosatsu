@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2484` 0k: Add the singleplex persistent JSON JVM worker
-- Pending steps: `1`
-- Completed steps: `6`
+- Pending steps: `0`
+- Completed steps: `7`
 - Total steps: `7`
 
 ## Summary
@@ -240,7 +240,7 @@ Required-test repair provenance: tested SHA `194d27d606aebe2ae53c5ac9af54f90a2fb
 
 Investigated the failure against code revision `194d27d606aebe2ae53c5ac9af54f90a2fb39817`; intervening changes through HEAD `657b7234b` touched only plan artifacts. In one bounded sbt process with GC/heap logging, ran the six named `coreJVM/testOnly` suites, then `cli/testOnly dev.bosatsu.BazelWorkerTest dev.bosatsu.FileCommandRunnerTest`, then the same core suites again. Results: 55/55 core tests in 64 s, 31/31 worker tests in 22 s, and 55/55 core tests in 37 s; process exit 0. At a mid-run sample, `jstat -gc` showed 52 young, 0 full and 18 concurrent collections, with 1.498 s cumulative GC; the 139 s run logged 69 young pauses, no full GC, 2.29 s total pause time and 93.6 ms maximum. JVM RSS was about 2.19 GB with 96–100 threads; `jcmd Thread.print` found no ForkJoinPool workers after the worker suites. The existing runner resource chain and `withRunner` fixture close their pool, supervisor, staged outputs and temporary directories; the focused checks showed no retained worker threads or slower following core suites. The host exposed 8 CPUs and no cgroup memory cap; available RAM varied from 6.1 to 10.3 GB, and a post-run load sample was 10.23/42.91/136.61 for 1/5/15 minutes, consistent with shared-host contention. No candidate leak or worker-suite shared-JVM pressure was reproduced, so no speculative code change is justified. The original 99.8%/897 s event's precise cause remains unproven, and this diagnostic does not certify the full required gate; MergeXO must rerun `scripts/test_basic.sh` before publication.
 
-7. [ ] `step_5_worker_json_syntax` Enforce JSON string syntax before worker dispatch
+7. [x] `step_5_worker_json_syntax` Enforce JSON string syntax before worker dispatch
 
 Invariant family: worker-json-syntax
 
@@ -278,3 +278,7 @@ Run focused parser/worker tests during implementation, then sbt "cli/test; cli/a
 - An otherwise valid headers request whose operation uses the non-JSON hexadecimal escape for h exits nonzero with stderr transport diagnostics, no response and no action outputs.
 - Malformed nested unknown fields cannot bypass parsing; workspace snapshots and scratch checks remain unchanged, and a restarted worker handles a valid request.
 - Existing codec, CLI, candidate-jar parity, launcher and CLI integration checks pass against the repaired assembly.
+
+#### Completion Notes
+
+Added `Json.strictParserFile` using the shared recursive grammar and cats-parse’s strict JSON string parser, then routed `BazelWorker.decodeRequest` through it while preserving existing `parserFile` behavior. Added independent request encoding, valid and malformed string coverage, assembled-JVM escaped-wire and worker-restart regressions, and documented the syntax in `docs/design/hermetic-bazel-rules.md`. Focused parser and worker tests passed; `sbt "cli/test; cli/assembly"` passed (182 passed, 1 skipped); the candidate-jar harness, launcher passthrough, and `./test_cli.sh` passed (6,918 Bosatsu tests plus fetch/eval). `git diff --check` passed.

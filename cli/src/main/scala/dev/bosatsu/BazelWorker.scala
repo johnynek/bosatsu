@@ -73,7 +73,7 @@ object BazelWorker {
 
   /** Decode one complete protobuf-JSON WorkRequest object. */
   def decodeRequest(line: String): Either[String, Envelope] =
-    Json.parserFile.parseAll(line) match {
+    Json.strictParserFile.parseAll(line) match {
       case Left(error) => Left(s"invalid worker JSON: $error")
       case Right(obj: Json.JObject) =>
         decodeRequestFields(obj.items).map { fields =>

@@ -333,6 +333,10 @@ class PersistentWorker:
         self._send(self._request_bytes(payload))
         return self._read_response(expected_id)
 
+    def request_raw(self, payload: bytes, expected_id: int) -> dict[str, object]:
+        self._send(payload)
+        return self._read_response(expected_id)
+
     def control_then_request(
         self, control: dict[str, object], payload: dict[str, object]
     ) -> dict[str, object]:
@@ -1097,6 +1101,53 @@ def check_registry_rejections(
         raise AssertionError(f"persistent worker accepted an empty command: {empty!r}")
 
 
+def check_escaped_json_request(
+    java: str, jar: Path, cwd: Path, persistent: PersistentWorker
+) -> None:
+    output = "generated files 雪/escaped/slash headers.json"
+    command = ["headers", "--src", SOURCE, "--out", output]
+    (cwd / output).parent.mkdir(parents=True, exist_ok=True)
+    params = cwd / "parameter files 雪" / "escaped JSON params.params"
+    params.parent.mkdir(parents=True, exist_ok=True)
+    params.write_text("\n".join(command) + "\n", encoding="utf-8")
+
+    direct = invoke(java, jar, cwd, "tool", *command)
+    if direct.returncode != 0:
+        raise AssertionError(f"direct escaped-path headers failed: {direct.stderr!r}")
+    expected = output_bytes(cwd, [output])
+    params_result = invoke(
+        java, jar, cwd, "tool", "bazel-worker", "@" + params.relative_to(cwd).as_posix()
+    )
+    check_result("escaped JSON @params", direct, params_result)
+    if output_bytes(cwd, [output]) != expected:
+        raise AssertionError("escaped JSON @params output differs from direct execution")
+    assert_no_scratch(cwd, "escaped JSON @params")
+
+    payload = json.dumps(
+        {
+            "arguments": command,
+            "requestId": 72,
+            "inputs": [{"path": SOURCE, "digest": ""}],
+            "unknown": {"nested": "escaped/slash"},
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    payload = payload.replace("/", r"\/")
+    payload = payload.replace('"headers"', r'"\u0068eaders"', 1)
+    if r"\/" not in payload or r"\u0068" not in payload:
+        raise AssertionError(f"escaped JSON fixture is missing its wire escapes: {payload!r}")
+    (cwd / output).unlink()
+    response = persistent.request_raw((payload + "\n").encode("utf-8"), 72)
+    if response["exitCode"] != direct.returncode or response["output"] != (
+        direct.stdout + direct.stderr
+    ).decode("utf-8", errors="strict"):
+        raise AssertionError(f"escaped JSON request differs from direct execution: {response!r}")
+    if output_bytes(cwd, [output]) != expected:
+        raise AssertionError("escaped JSON request output differs from direct and @params")
+    assert_no_scratch(cwd, "escaped JSON request")
+
+
 def test_worker(java: str, jar: Path, work: Path) -> None:
     cwd = work / "candidate workspace"
     cwd.mkdir()
@@ -1117,6 +1168,7 @@ def test_worker(java: str, jar: Path, work: Path) -> None:
         )
         if headers_result["output"] != "":
             raise AssertionError("successful headers request returned action diagnostics")
+        check_escaped_json_request(java, jar, cwd, persistent)
 
         digest_cases = (
             ("missing-input-digest", [{"path": SOURCE}]),
@@ -1397,6 +1449,8 @@ def check_transport_failures(java: str, jar: Path, work: Path) -> None:
     cwd.mkdir()
     write_fixture(cwd)
     (cwd / "generated files 雪").mkdir()
+    prior_output = cwd / "generated files 雪" / "prior output.json"
+    prior_output.write_bytes(b"preserve prior output")
 
     with PersistentWorker(java, jar, cwd) as clean:
         status, stdout, stderr = clean.finish()
@@ -1405,10 +1459,25 @@ def check_transport_failures(java: str, jar: Path, work: Path) -> None:
                 f"clean EOF failed: status={status}, stdout={stdout!r}, stderr={stderr!r}"
             )
 
+    action = [
+        "headers",
+        "--src",
+        SOURCE,
+        "--out",
+        "generated files 雪/malformed syntax output.json",
+    ]
+    invalid_operation = json.dumps(
+        {"arguments": action, "requestId": 75}, ensure_ascii=False, separators=(",", ":")
+    ).replace('"headers"', r'"\x68eaders"', 1)
+    invalid_ignored_field = json.dumps(
+        {"arguments": action, "requestId": 76}, ensure_ascii=False, separators=(",", ":")
+    )[:-1] + r',"ignored":{"nested":"\x41"}}'
     failures = (
         ("malformed JSON", b'{"arguments":[}\n', "invalid worker JSON"),
         ("truncated frame", b'{"arguments":["headers"]}', "truncated worker request"),
         ("invalid UTF-8", b"\xc3(\n", "not valid UTF-8"),
+        ("non-JSON escaped operation", (invalid_operation + "\n").encode("utf-8"), "invalid worker JSON"),
+        ("invalid ignored nested string", (invalid_ignored_field + "\n").encode("utf-8"), "invalid worker JSON"),
     )
     for label, request, expected in failures:
         before = workspace_snapshot(cwd)
