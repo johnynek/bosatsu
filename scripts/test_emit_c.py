@@ -11,6 +11,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 HEADER = "bosatsu_ext_Demo_l_Native.h"
+PROG_HEADER = "bosatsu_ext_Bosatsu_l_Prog.h"
 
 
 def exercise(jar: Path, cc_conf: Path, work: Path) -> None:
@@ -45,6 +46,25 @@ def exercise(jar: Path, cc_conf: Path, work: Path) -> None:
     (producer / "Native.bosatsu").write_text(
         "package Demo/Native\nexport native_id\nexternal def native_id(x: Int) -> Int\n"
     )
+    (producer / "Types.bosatsu").write_text(
+        "package Demo/Types\nexport Number()\nstruct Number(value: Int)\n"
+    )
+    (producer / "Api.bosatsu").write_text(
+        "package Demo/Api\nfrom Demo/Types import Number\n"
+        "export answer\nexposes Demo/Types\nanswer = Number(7)\n"
+    )
+    (producer / "Main.bosatsu").write_text(
+        "package Demo/Main\n"
+        "from Bosatsu/Prog import Main, Prog, pure\n"
+        "from Demo/Api import answer\n"
+        "from Demo/Types import Number\n"
+        "export main\nexposes Bosatsu/Prog\n"
+        "def run(args: List[String]) -> forall err. Prog[err, Int]:\n"
+        "  _ = args\n"
+        "  match answer:\n"
+        "    case Number(value): pure(value)\n"
+        "main = Main(run)\n"
+    )
     (producer / "Dep.bosatsu").write_text(
         "package Demo/Dep\nfrom Demo/Native import native_id\nexport answer\n"
         "answer = native_id(7)\nchecks = Assertion(False, \"dependency must not run\")\n"
@@ -61,10 +81,16 @@ def exercise(jar: Path, cc_conf: Path, work: Path) -> None:
     compile_group("prog", ["Prog"], [])
     compile_group("native", ["Native"], [])
     compile_group("dep", ["Dep"], ["native"])
+    compile_group("types", ["Types"], [])
+    compile_group("api", ["Api"], ["types"])
+    compile_group("main", ["Main"], ["api", "types", "prog"])
 
     manifest = {
         "schema_version": 1, "kind": "local",
-        "packages": ["dep.pkg", "suite.pkg", "native.pkg", "prog.pkg"],
+        "packages": [
+            "api.pkg", "dep.pkg", "main.pkg", "native.pkg", "prog.pkg",
+            "suite.pkg", "types.pkg",
+        ],
         "externals": [
             {"package": "Demo/Native", "symbols": ["native_id"]},
             {"package": "Bosatsu/Prog", "symbols": ["pure"]},
@@ -110,6 +136,38 @@ def exercise(jar: Path, cc_conf: Path, work: Path) -> None:
         if not prog_ok and "effect expectation" not in report:
             raise AssertionError(report)
         print(f"native suite passed fixture with plain={plain_ok}, prog={prog_ok}, exit={expected}")
+
+    # The emission action sees only copied implementation bundles and its
+    # declared runtime manifest. Sources, signatures and native tool settings
+    # stay outside the action directory.
+    tool(action, "emit-c", "--main-packages", "main.pkg", "--main-package", "Demo/Main",
+         "--runtime-manifest", "runtime.json", "--out", "program.c",
+         "--extern-header-out", "include/" + PROG_HEADER)
+    subprocess.run(
+        [cc["cc_path"], *cc["flags"], *cc["iflags"], "-I", action / "include",
+         action / "program.c", *cc["libs"], "-o", work / "program"],
+        check=True,
+    )
+    result = subprocess.run([work / "program"], cwd=work, capture_output=True,
+                            text=True, timeout=60)
+    if result.returncode != 7:
+        raise AssertionError(
+            f"expected program exit 7, got {result.returncode}\n{result.stdout}{result.stderr}"
+        )
+    expected_action_files = {
+        "runtime.json", "api.pkg", "dep.pkg", "main.pkg", "native.pkg", "prog.pkg",
+        "suite.pkg", "types.pkg", "program.c", "test.c",
+        "include/" + HEADER, "include/" + PROG_HEADER,
+    }
+    actual_action_files = {
+        path.relative_to(action).as_posix() for path in action.rglob("*") if path.is_file()
+    }
+    if actual_action_files != expected_action_files:
+        raise AssertionError(
+            f"unexpected emission action files: {sorted(actual_action_files)}; "
+            f"expected {sorted(expected_action_files)}"
+        )
+    print("native program emitted from declared bundles and exited 7")
 
 
 if __name__ == "__main__":

@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2485` 0i: Emit program C from a selected compiled package group
-- Pending steps: `1`
-- Completed steps: `2`
+- Pending steps: `0`
+- Completed steps: `3`
 - Total steps: `3`
 
 ## Summary
@@ -104,7 +104,7 @@ The complete production-site inventory for the new local contract is `EmitCComma
 
 Added mutually exclusive test/program selectors, root-bundle membership checks, Main binding selection, and native Main/Prog layout validation. Both modes share local loading, declared-external rendering, header validation, and staged publication. `sbt "cli/testOnly dev.bosatsu.EmitCCommandTest"` passed (30 tests); focused ClangGen tests passed (33), StagedOutputs tests passed (9, 1 skipped), and `git diff --check` passed.
 
-3. [ ] `step_3` Qualify compiled-only program emission and document the command contract
+3. [x] `step_3` Qualify compiled-only program emission and document the command contract
 
 Extend `scripts/test_emit_c.py` using its existing producer/action split and `compile_group` helper. Compile the source-built Bosatsu/Prog, Demo/Types, Demo/Api and Demo/Main groups separately, with Main using Api and Api exposing Types so the fixture exercises implementation edges and interface exposure requirements. Main must construct a valid Main callback returning a Prog whose result is 7. Copy only implementation bundles into the emission action directory and write its local runtime manifest with the native symbols actually supplied by the fixture/runtime. Invoke `emit-c --main-packages main.pkg --main-package Demo/Main` under the existing empty-PATH environment using the resolved Java executable. Keep sources, signature files, compiler configuration and installed runtime outside that action directory.
 
@@ -131,3 +131,7 @@ Validate the candidate with `sbt "coreJVM/test; cli/test; coreJS/test; cli/assem
 - The action directory contains only declared compiled inputs, its manifest and declared emission outputs; no source, signature or inferred runtime/configuration files are needed.
 - The existing native test cases still yield exits 0, 1 and 1 and never run dependency assertions.
 - The named JVM, CLI, Scala.js, CLI regression and candidate-jar worker checks pass; changed rejection and publication/recovery branches receive focused coverage.
+
+#### Completion Notes
+
+Extended the native harness to compile separate Prog/Types/Api/Main bundles, emit with an empty PATH using only declared bundles and the runtime manifest, and link a program that exits 7. The existing private Test/ProgTest cases still exit 0, 1, and 1; the action-file inventory check passed. Updated the design command contract, shared publication and external-binding guarantees, and tracker 0i implementation references. `sbt "coreJVM/test; cli/test; coreJS/test; cli/assembly"`, `./test_cli.sh`, the native harness, and the explicit candidate-jar worker harness passed. Focused coverage passed all 30 EmitCCommand tests and generated reports. The full coverage command stopped at Issue1633Test’s 30-second timeout under instrumentation; that test passed in the uninstrumented full run. `git diff --check` and Python syntax validation passed.
