@@ -216,7 +216,12 @@ object BazelWorker {
       case _ => Left(s"worker field '$field' must be a base64 string")
     }
 
-  /** Encode the fixed WorkResponse shape without pretty-print line breaks. */
+  /** Encode the fixed WorkResponse shape without pretty-print line breaks.
+    * JsonStringUtil.escape encodes diagnostic newlines as literal `\n` escapes.
+    * BazelWorkerTest's "worker response encoding round trips generated values as
+    * one compact JSON line" checks LF/CR escaping and independent JSON decoding,
+    * including a long multiline diagnostic.
+    */
   def encodeResponse(response: Response): String =
     s"{\"requestId\":${response.requestId},\"exitCode\":${response.exitCode}," +
       s"\"output\":\"${JsonStringUtil.escape('"', response.output)}\"," +
@@ -258,6 +263,11 @@ object BazelWorker {
 
     def respond(request: ActionRequest): IO[Unit] = {
       val response =
+        // V1 deliberately supports only the startup working directory (issue #2484).
+        // Supporting sandboxDir requires resolving all action reads and staged
+        // outputs against that request's directory. Reject it before dispatch:
+        // ignoring it would run against the wrong tree; changing the JVM's
+        // process-wide working directory is not a request-local solution.
         if (request.sandboxDir.nonEmpty)
           IO.pure(
             Response(
