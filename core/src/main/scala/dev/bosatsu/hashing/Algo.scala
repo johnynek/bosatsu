@@ -4,6 +4,7 @@ import cats.arrow.FunctionK
 import cats.parse.Parser
 import dev.bosatsu.Json
 import pt.kcry.blake3.{Blake3 => B3, Hasher => B3Hasher}
+import pt.kcry.sha.Sha2_256
 
 sealed abstract class Algo[A] {
   def name: String
@@ -34,6 +35,9 @@ object Algo {
   trait Blake3
   object Blake3 extends Blake3
 
+  trait Sha256
+  object Sha256 extends Sha256
+
   implicit def apply[A](implicit algo: Algo[A]): Algo[A] = algo
 
   implicit val blake3Algo: Algo[Blake3] =
@@ -57,6 +61,45 @@ object Algo {
       def finishHash(h: Hasher): HashValue[Blake3] =
         HashValue(h.doneHex(64))
     }
+
+  implicit val sha256Algo: Algo[Sha256] =
+    new Algo[Sha256] {
+      def name: String = "sha256"
+      def hexLen: Int = 64
+      def hashBytes(bytes: Array[Byte]): HashValue[Sha256] =
+        HashValue(toHex(Sha2_256.hash(bytes)))
+
+      type Hasher = Sha2_256
+      def newHasher(): Hasher = new Sha2_256()
+      def hashBytes(
+          h: Hasher,
+          bytes: Array[Byte],
+          offset: Int,
+          len: Int
+      ): Hasher = {
+        h.update(bytes, offset, len)
+        h
+      }
+      def finishHash(h: Hasher): HashValue[Sha256] = {
+        val bytes = new Array[Byte](32)
+        h.finish(bytes, 0)
+        HashValue(toHex(bytes))
+      }
+    }
+
+  private val hexDigits = "0123456789abcdef"
+
+  private def toHex(bytes: Array[Byte]): String = {
+    val result = new StringBuilder(bytes.length * 2)
+    var idx = 0
+    while (idx < bytes.length) {
+      val byte = bytes(idx) & 0xff
+      result.append(hexDigits.charAt(byte >>> 4))
+      result.append(hexDigits.charAt(byte & 0x0f))
+      idx += 1
+    }
+    result.result()
+  }
 
   sealed abstract class WithAlgo[F[_]] {
     type A
@@ -115,13 +158,16 @@ object Algo {
 
   private val hexChar = Parser.charIn(('0' to '9') ++ ('a' to 'f'))
 
+  def parseHashHex[A](algo: Algo[A]): Parser[HashValue[A]] =
+    hexChar
+      .repExactlyAs[String](algo.hexLen)
+      .map(hex => HashValue[A](hex))
+
   def parseHashValue[A](algo: Algo[A]): Parser[HashValue[A]] =
-    Parser.string(algo.name) *> Parser.char(':') *> {
-      hexChar
-        .repExactlyAs[String](algo.hexLen)
-        .map(hex => HashValue[A](hex))
-    }
+    Parser.string(algo.name) *> Parser.char(':') *> parseHashHex(algo)
 
   val parseIdent: Parser[WithAlgo[HashValue]] =
-    parseHashValue(blake3Algo).map(WithAlgo(blake3Algo, _))
+    parseHashValue(blake3Algo)
+      .map(WithAlgo(blake3Algo, _))
+      .orElse(parseHashValue(sha256Algo).map(WithAlgo(sha256Algo, _)))
 }

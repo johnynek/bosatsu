@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2486` 0p: Verify declared compiler, core and runtime components
-- Pending steps: `4`
-- Completed steps: `0`
+- Pending steps: `3`
+- Completed steps: `1`
 - Total steps: `4`
 
 ## Summary
@@ -35,7 +35,7 @@ Roadmap follow-up: `qualify_cli` owns generating and pinning detached manifests 
 
 ## Steps
 
-1. [ ] `step_1` Extend the shared digest abstraction with portable SHA-256
+1. [x] `step_1` Extend the shared digest abstraction with portable SHA-256
 
 Add a pinned `sha` dependency in `project/Dependencies.scala` and the shared core dependencies in `build.sbt`: `"pt.kcry" %%% "sha" % "2.0.2"`. Both Scala 3 JVM and Scala.js artifacts are published. Its [upstream API](https://github.com/kcrypt/scala-sha) supplies synchronous incremental hashing compatible with the current `Algo` interface.
 
@@ -60,6 +60,10 @@ Add shared tests in `core/src/test/scala/dev/bosatsu/hashing/AlgoTest.scala` and
 - Check known empty, abc, multi-block and long-input SHA-256 vectors on coreJVM and coreJS.
 - Pin existing BLAKE3 vectors and reject unsupported algorithms, wrong-length hex, invalid characters and trailing input.
 - Run existing CompileCacheTest coverage to detect changes to BLAKE3-selected cache behavior.
+
+#### Completion Notes
+
+Added the pinned SHA-256 dependency, incremental and one-shot support in `Algo`, `sha256:<hex>` and shared bare-hex parsing, plus cross-platform vectors, parser, partitioning, and JVM reference tests. Made existing generic library-hash calls explicitly select BLAKE3. The focused JVM and Scala.js digest suites, JVM reference suite, and `CompileCacheTest` passed.
 
 2. [ ] `step_2` Implement the typed manifest and requested-component verifier
 

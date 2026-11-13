@@ -557,7 +557,7 @@ object MemoryMain {
         writeFC(path, FileContent.Bytes(bytes.clone()))
 
       def writeLibrary(lib: proto.Library, path: Path): F[Unit] = {
-        val hash = Algo.hashBytes(lib.toByteArray)
+        val hash = Algo.hashBytes[Algo.Blake3](lib.toByteArray)
         val hashed = Hashed(hash, lib)
         writeFC(path, FileContent.Lib(hashed))
       }
