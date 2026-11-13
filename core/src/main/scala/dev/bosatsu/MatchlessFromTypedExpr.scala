@@ -12,14 +12,7 @@ object MatchlessFromTypedExpr {
       from: K,
       pm: PackageMap.Typed[A]
   )(implicit ec: Par.EC): Compiled[K] =
-    compileRaw(from, pm, standardInt64Intrinsics = true)
-
-  private[bosatsu] def compileRaw[K: Order, A](
-      from: K,
-      pm: PackageMap.Typed[A],
-      standardInt64Intrinsics: Boolean
-  )(implicit ec: Par.EC): Compiled[K] =
-    Par.await(startCompileRaw(from, pm, standardInt64Intrinsics))
+    Par.await(startCompileRaw(from, pm))
 
   /** Start compileRaw's per-package tasks without waiting for them. Callers
     * compiling several package maps can start them all and await once, rather
@@ -27,8 +20,7 @@ object MatchlessFromTypedExpr {
     */
   private[bosatsu] def startCompileRaw[K: Order, A](
       from: K,
-      pm: PackageMap.Typed[A],
-      standardInt64Intrinsics: Boolean
+      pm: PackageMap.Typed[A]
   )(implicit ec: Par.EC): Par.F[Compiled[K]] = {
 
     val gdr = pm.getDataRepr
@@ -71,7 +63,7 @@ object MatchlessFromTypedExpr {
                 lets
                   .traverse { case (name, rec, te) =>
                     Matchless
-                      .fromLetRaw(from, name, rec, te, variantOf, c, standardInt64Intrinsics)
+                      .fromLetRaw(from, name, rec, te, variantOf, c)
                       .map((name, _))
                   }
               }

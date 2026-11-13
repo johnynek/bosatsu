@@ -27,6 +27,7 @@ class PathModuleTest extends munit.FunSuite {
     } finally walk.close()
   }
 
+  // The library supplies Bosatsu/Prog, which only the core library may do.
   private def withLibraryRepo[A](fn: Path => A): A = {
     val repo = Files.createTempDirectory("bosatsu-path-module-")
     try {
@@ -37,7 +38,7 @@ class PathModuleTest extends munit.FunSuite {
           "--repo_root",
           repo.toString,
         "--name",
-        "mylib",
+        "core_alpha",
         "--repo_uri",
         "https://example.com/mylib",
           "--src_root",

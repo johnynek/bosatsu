@@ -22,6 +22,12 @@ case class PackageName(parts: NonEmptyList[String]) derives CanEqual {
   final override val hashCode: Int = asString.hashCode
 
   def isPredef: Boolean = this == PackageName.PredefName
+
+  /** `Bosatsu/...` packages are reserved for the compiler's Predef and the
+    * core library. The compiler gives some of their bindings built-in meaning
+    * by name.
+    */
+  def isReserved: Boolean = parts.head == PackageName.ReservedRoot
 }
 
 object PackageName {
@@ -61,8 +67,10 @@ object PackageName {
   implicit val packageNameOrdering: Ordering[PackageName] =
     order.toOrdering
 
+  val ReservedRoot: String = "Bosatsu"
+
   val PredefName: PackageName =
-    PackageName(NonEmptyList.of("Bosatsu", "Predef"))
+    PackageName(NonEmptyList.of(ReservedRoot, "Predef"))
 
   implicit val argPack: Argument[PackageName] =
     new Argument[PackageName] {

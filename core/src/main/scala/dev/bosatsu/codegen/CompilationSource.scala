@@ -38,17 +38,11 @@ object CompilationSource {
   implicit def packageMapSrc[A](implicit
       ec: Par.EC
   ): CompilationSource[PackageMap.Typed[A]] { type ScopeKey = Unit } =
-    packageMapSource(useStandardInt64 = true)
-
-  private[bosatsu] def packageMapSource[A](useStandardInt64: Boolean)(implicit
-      ec: Par.EC
-  ): CompilationSource[PackageMap.Typed[A]] { type ScopeKey = Unit } =
     new CompilationSource[PackageMap.Typed[A]] { self =>
       type ScopeKey = Unit
 
       def namespace(pm: PackageMap.Typed[A]): CompilationNamespace[Unit] =
         new CompilationNamespace[Unit] {
-          override def standardInt64Intrinsics: Boolean = useStandardInt64
           implicit val keyOrder: Ordering[ScopeKey] = new Ordering[Unit] {
             def compare(x: Unit, y: Unit): Int = 0
           }
@@ -65,7 +59,7 @@ object CompilationSource {
               localPassOptions: Matchless.LocalPassOptions,
               enableGlobalInlining: Boolean
           ): SortedMap[ScopeKey, MatchlessFromTypedExpr.Compiled[ScopeKey]] = {
-            val raw = MatchlessFromTypedExpr.compileRaw((), pm, useStandardInt64)
+            val raw = MatchlessFromTypedExpr.compileRaw((), pm)
             if (enableGlobalInlining)
               MatchlessGlobalInlining.optimize(
                 SortedMap(() -> raw),

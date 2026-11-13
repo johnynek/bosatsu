@@ -532,6 +532,24 @@ object Command {
       private val inputRes =
         PackageResolver.ExplicitOnly[F, P]()
 
+      // Every lib command that type-checks this library's sources loads them
+      // here. Only the core library may define Bosatsu/ packages; reject any
+      // other before type checking, so this is the first error reported.
+      private def loadLibrarySources(
+          inputs: NonEmptyList[P],
+          colorize: Colorize
+      ): F[NonEmptyList[PackageResolver.SourceFile[F, P]]] =
+        CompilerApi
+          .loadSources(platformIO, inputs, inputRes, colorize)
+          .flatTap { sources =>
+            val named = sources.toList.map { src =>
+              (src.packageName, Some(platformIO.pathToString(src.path)))
+            }
+            moduleIOMonad.fromTry(
+              LibConfig.Error.toTry(conf.validateLocalPackageNames(named))
+            )
+          }
+
       private def parsedPackageMetaFor(
           path: P
       ): F[ValidatedNel[PathParseError[P], (PackageName, List[PackageName])]] =
@@ -678,23 +696,24 @@ object Command {
               selectedInputsF.flatMap { selectedInputs =>
                 NonEmptyList.fromList(selectedInputs) match {
                   case Some(inputNel) =>
-                    platformIO
-                      .withEC {
-                        CompilerApi.typeCheckWithLintMode(
-                          platformIO,
-                          inputNel,
-                          pubDecodes.flatMap(_.interfaces) ::: privDecodes
-                            .flatMap(
-                              _.interfaces
-                            ),
-                          colorize,
-                          inputRes,
-                          compileOptions,
-                          lintMode,
-                          compileCacheDirOpt
-                        )
-                      }
-                      .map(_._1)
+                    loadLibrarySources(inputNel, colorize).flatMap { sources =>
+                      platformIO
+                        .withEC {
+                          CompilerApi.typeCheckLoadedWithLintMode(
+                            platformIO,
+                            sources,
+                            pubDecodes.flatMap(_.interfaces) ::: privDecodes
+                              .flatMap(
+                                _.interfaces
+                              ),
+                            colorize,
+                            compileOptions,
+                            lintMode,
+                            compileCacheDirOpt
+                          )
+                        }
+                        .map(_._1)
+                    }
                   case None =>
                     moduleIOMonad.pure(PackageMap.empty)
                 }
@@ -745,15 +764,15 @@ object Command {
                 CliException.Basic("no source files found to generate docs")
               )
           }
+          sources <- loadLibrarySources(inputNel, colorize)
           checked <- platformIO.withEC {
-            CompilerApi.typeCheck(
+            CompilerApi.typeCheckLoaded(
               platformIO,
-              inputNel,
+              sources,
               cs.pubDecodes.flatMap(_.interfaces) ::: cs.privDecodes.flatMap(
                 _.interfaces
               ),
               colorize,
-              inputRes,
               CompileOptions.Default,
               compileCacheDirOpt
             )
