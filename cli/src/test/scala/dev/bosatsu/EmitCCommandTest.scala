@@ -174,22 +174,30 @@ class EmitCCommandTest extends FileCommandFixtures {
   }
 
   test("program selectors must be complete and mutually exclusive before inputs are read") {
-    withRunner { (root, runner) =>
-      val base = List("emit-c", "--runtime-manifest", "missing-runtime.json", "--out", "program.c")
-      val invalid = List(
-        Nil,
-        List("--main-packages", "program.pkg"),
-        List("--main-package", "Demo/Program"),
-        List("--test-packages", "program.pkg", "--main-packages", "program.pkg", "--main-package", "Demo/Program")
-      )
-      invalid.traverse_ { selector =>
-        runner.run(root, base ::: selector).map { result =>
-          failure(result)
-          assert(result.stderr.contains("exactly one complete selector"), result.stderr)
-          assert(!result.stderr.contains("missing-runtime.json"), result.stderr)
-        }
+    val module = new MainModule(IOPlatformIO)
+    val base = List("tool", "emit-c", "--runtime-manifest", "missing-runtime.json", "--out", "program.c")
+    val selectors = List(
+      List("--test-packages", "program.pkg"),
+      List("--main-packages", "program.pkg"),
+      List("--main-package", "Demo/Program")
+    )
+    // Check every subset and ordering at the parser boundary without running I/O.
+    selectors.toSet.subsets().foreach { subset =>
+      val valid = subset == Set(selectors.head) || subset == selectors.tail.toSet
+      subset.toList.permutations.foreach { ordered =>
+        val args = base ::: ordered.flatten
+        assertEquals(module.run(args).isRight, valid, args.mkString(" "))
       }
     }
+  }
+
+  test("emit-c help describes the required alternative root selectors") {
+    val help = new MainModule(IOPlatformIO).run(List("tool", "emit-c", "--help"))
+      .swap.toOption.getOrElse(fail("expected emit-c help")).toString
+    val usage = help.linesIterator.drop(1).takeWhile(_.nonEmpty).toList
+    assertEquals(usage.length, 2, help)
+    assert(usage.exists(_.contains("--test-packages <path> --out")), help)
+    assert(usage.exists(_.contains("--main-packages <path> --main-package <packageName> --out")), help)
   }
 
   test("program selection rejects absent bundles, absent root packages, and dependency-only mains") {

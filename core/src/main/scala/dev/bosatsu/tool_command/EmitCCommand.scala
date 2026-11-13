@@ -15,30 +15,6 @@ import org.typelevel.paiges.Doc
 import scala.collection.immutable.{SortedMap, SortedSet}
 
 object EmitCCommand {
-  private sealed trait EmissionMode[P] {
-    def selected: P
-  }
-
-  private object EmissionMode {
-    final case class Tests[P](selected: P) extends EmissionMode[P]
-    final case class Program[P](selected: P, mainPackage: PackageName)
-        extends EmissionMode[P]
-
-    def checked[P](
-        testPackages: Option[P],
-        mainPackages: Option[P],
-        mainPackage: Option[PackageName]
-    ): Either[CliException.Basic, EmissionMode[P]] =
-      (testPackages, mainPackages, mainPackage) match {
-        case (Some(selected), None, None) => Right(Tests(selected))
-        case (None, Some(selected), Some(main)) => Right(Program(selected, main))
-        case _ => Left(CliException.Basic(
-          "emit-c requires exactly one complete selector: --test-packages FILE or " +
-            "--main-packages FILE --main-package NAME"
-        ))
-      }
-  }
-
   private def fileName[F[_], P](platform: PlatformIO[F, P], path: P): String =
     platform.pathToString(platform.parent(path).flatMap(platform.relativize(_, path)).getOrElse(path))
 
@@ -264,48 +240,50 @@ object EmitCCommand {
 
   def opts[F[_], P](platform: PlatformIO[F, P]): Opts[F[Output[P]]] = {
     import platform.{moduleIOMonad, pathArg, pathOrdering, showPath}
+    val modeOpts = Opts
+      .option[P]("test-packages", "implementation bundle whose package tests to run")
+      .map(_.asLeft[(P, PackageName)])
+      .orElse(
+        Opts.option[P]("main-packages", "implementation bundle containing the program main package")
+          .product(Opts.option[PackageName]("main-package", "package containing a Bosatsu/Prog::Main value"))
+          .map(_.asRight[P])
+      )
     Opts.subcommand("emit-c", "emit C from declared compiled packages") {
       (
         Opts.option[P]("runtime-manifest", "local runtime graph JSON"),
-        Opts.option[P]("test-packages", "implementation bundle whose package tests to run").orNone,
-        Opts.option[P]("main-packages", "implementation bundle containing the program main package").orNone,
-        Opts.option[PackageName]("main-package", "package containing a Bosatsu/Prog::Main value").orNone,
+        modeOpts,
         Opts.option[P]("out", "generated C translation unit"),
         Opts.options[P]("extern-header-out", "generated external declaration header (repeatable)").orEmpty
-      ).mapN { (file, testPackages, mainPackages, mainPackage, out, headerPaths) =>
+      ).mapN { (file, mode, out, headerPaths) =>
         platform.withEC {
-          EmissionMode.checked(testPackages, mainPackages, mainPackage) match {
-            case Left(error) => moduleIOMonad.raiseError(error)
-            case Right(mode) =>
-              val selected = mode.selected
-              for {
-                manifest <- LocalRuntimeManifest.read(platform, file)
-                _ <- moduleIOMonad.raiseUnless(manifest.packages.exists(pathOrdering.equiv(_, selected)))(
-                  mode match {
-                    case EmissionMode.Tests(_) =>
-                      CliException.Basic(show"test bundle $selected is absent from runtime manifest $file")
-                    case EmissionMode.Program(_, _) =>
-                      CliException.Basic(show"program bundle $selected is absent from runtime manifest $file")
-                  }
-                )
-                inputs = SortedSet.from(manifest.packages.toList) + file
-                outputs = out :: headerPaths
-                _ <- moduleIOMonad.raiseWhen(SortedSet.from(outputs).size != outputs.size)(
-                  CliException.Basic("emit-c requires distinct C and header output paths"))
-                _ <- outputs.find(inputs).traverse_(p =>
-                  moduleIOMonad.raiseError[Unit](CliException.Basic(show"output $p is also a runtime input")))
-                headers = headerPaths.map(path => fileName(platform, path) -> path)
-                scope <- LocalRuntime.load(platform, manifest)
-                _ <- checkOutputFiles(platform, inputs, outputs)
-                rendered = mode match {
-                  case EmissionMode.Tests(selectedBundle) =>
-                    renderTests(scope, selectedBundle, scope.members(selectedBundle), headers, out)
-                  case EmissionMode.Program(selectedBundle, main) =>
-                    renderMain(scope, scope.members(selectedBundle), main, headers, out)
-                }
-                result <- platform.canPromiseF.compute(rendered).flatMap(moduleIOMonad.fromEither)
-              } yield result
-          }
+          val selected = mode.fold(identity, _._1)
+          for {
+            manifest <- LocalRuntimeManifest.read(platform, file)
+            _ <- moduleIOMonad.raiseUnless(manifest.packages.exists(pathOrdering.equiv(_, selected)))(
+              mode match {
+                case Left(_) =>
+                  CliException.Basic(show"test bundle $selected is absent from runtime manifest $file")
+                case Right(_) =>
+                  CliException.Basic(show"program bundle $selected is absent from runtime manifest $file")
+              }
+            )
+            inputs = SortedSet.from(manifest.packages.toList) + file
+            outputs = out :: headerPaths
+            _ <- moduleIOMonad.raiseWhen(SortedSet.from(outputs).size != outputs.size)(
+              CliException.Basic("emit-c requires distinct C and header output paths"))
+            _ <- outputs.find(inputs).traverse_(p =>
+              moduleIOMonad.raiseError[Unit](CliException.Basic(show"output $p is also a runtime input")))
+            headers = headerPaths.map(path => fileName(platform, path) -> path)
+            scope <- LocalRuntime.load(platform, manifest)
+            _ <- checkOutputFiles(platform, inputs, outputs)
+            rendered = mode match {
+              case Left(selectedBundle) =>
+                renderTests(scope, selectedBundle, scope.members(selectedBundle), headers, out)
+              case Right((selectedBundle, main)) =>
+                renderMain(scope, scope.members(selectedBundle), main, headers, out)
+            }
+            result <- platform.canPromiseF.compute(rendered).flatMap(moduleIOMonad.fromEither)
+          } yield result
         }
       }
     }
