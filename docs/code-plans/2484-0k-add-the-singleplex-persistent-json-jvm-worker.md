@@ -13,21 +13,23 @@
 
 ## Summary
 
-The persistent worker implementation and prior qualification steps are completed. One corrective step remains to enforce JSON string syntax at the shared request-decoding boundary and independently test valid and malformed wire requests. This repairs issue #2484's existing JSON transport contract and remains aligned with roadmap #2482.
+All seven implementation, qualification and corrective steps are completed. The persistent worker and strict JSON decoding repair remain aligned with issue #2484 and roadmap #2482, extending the existing Json grammar, BazelWorker.Operation registry and FileCommandRunner/StagedOutputs lifecycle.
 
-Reuse the existing Json grammar, BazelWorker.Operation registry and FileCommandRunner/StagedOutputs lifecycle. A minimal shared-parser extension supplies strict strings for worker requests without migrating other JSON callers. Preserve the accepted authorization for the persistent-worker family to exceed the 1,000-line churn guideline within its acceptance inventory; no unrelated compiler semantic change, publication refactor, new operation, inference cache, alternate engine or generic test framework is authorized.
+The latest required gate failed on two core test timeouts. A focused diagnostic at the same candidate subsequently passed both affected suites after the worker suites in one sbt JVM, with unchanged timeouts. Together with the completed resource investigation, this supports treating the failure as timing flakiness; its precise cause remains unproven. No repository repair is justified by the available evidence, so no pending work is added. MergeXO must rerun its supervised required-tests gate before publication.
 
-The completed GC investigation did not reproduce candidate resource retention and justified no speculative code change. MergeXO owns the supervised required-tests gate after corrective implementation.
+Preserve the accepted authorization for the persistent-worker family to exceed the 1,000-line churn guideline within its acceptance inventory. No unrelated compiler semantic change, publication refactor, new operation, inference cache, alternate engine or generic test framework is authorized.
 
 Plan trajectory: initial steps 3; review revisions 1; review-origin steps 1.
 
 ## Current State
 
-At candidate 052850d9ce46267f7fb5375d2905dec5a8ab8dc7, all six existing steps are completed. Their immutable completion notes retain implementation, qualification and GC-investigation evidence. No pending step covers the newly demonstrated decoder defect.
+At candidate 2712c2114057a1b776b4943b1e1d9b6730528bbf, all seven plan steps are completed and none are pending. BazelWorker.decodeRequest now uses Json.strictParserFile; other JSON callers retain their existing parsing behavior. Completed history records the implementation and candidate-jar qualification evidence.
 
-Inspection of the authoritative candidate patch and current source confirms that BazelWorker.decodeRequest delegates to Json.parserFile. Its JsonStringUtil string parser inherits non-JSON syntax from GenericStringUtil: escaped slashes fail, while hexadecimal escapes and literal control characters can be accepted. The entire persistent-frame path already funnels through decodeRequest before dispatch, so one strict document-parsing repair can cover recognized fields, object keys and ignored nested values. Existing generated request checks use the repository renderer and do not independently establish wire compatibility.
+Required-tests provenance: tested SHA 2712c2114057a1b776b4943b1e1d9b6730528bbf; gate/run ID 01a1d39bb39f747097fb118541e4b521; command scripts/test_basic.sh; status failed; exit code 1; failure class test_failure. The complete report and streams show CLI testing passed with 182 passed and one skipped. Core testing passed 2,196 tests but timed out BosatsuIntRuntimeTest's optimized runtime case and Issue1654Test's monomorphic-test-binding case after their 30-second limits. Stderr was empty; no assertion failure or GC-stall warning was reported.
 
-One corrective step now covers that boundary repair and independent unit/property and assembled-JVM regressions. This planning revision ran no tests or builds. Earlier qualification and resource-investigation results remain historical evidence; the repaired candidate must pass its named checks and MergeXO's supervised required-tests gate before publication.
+This planning revision ran sbt -batch 'cli/testOnly dev.bosatsu.BazelWorkerTest dev.bosatsu.FileCommandRunnerTest -- --log=failure' 'coreJVM/testOnly dev.bosatsu.BosatsuIntRuntimeTest dev.bosatsu.Issue1654Test -- --log=failure' at the same candidate. In one sbt JVM, all 33 worker tests passed in 34 seconds, followed by all five affected core-suite tests in 24 seconds; process exit was zero. Test timeouts were unchanged. HEAD and tracked files remained unchanged.
+
+The latest production changes concern JSON parsing, while the affected compiler tests and resource lifecycle are unchanged. The focused pass and prior completed resource investigation support a rerun without speculative code changes. They do not establish the exact timeout cause or certify the full required gate. The earlier successful supervised run at 052850d9ce46267f7fb5375d2905dec5a8ab8dc7 certifies only that earlier revision. Leave no pending steps and retain MergeXO's successful supervised scripts/test_basic.sh run as the publication requirement.
 
 ## Problem
 
