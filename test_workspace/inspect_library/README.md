@@ -53,3 +53,22 @@ builder with:
 ```sh
 sbt "coreJVM/Test/runMain dev.bosatsu.library.LibraryInspectionFixtures --write"
 ```
+
+The candidate-jar worker acceptance suite also checks the real released
+`core_alpha` 9.0.1 artifact. Prepare a local offline input directory before
+running those checks:
+
+```sh
+python3 scripts/prepare_inspect_library_fixtures.py --out-dir build/inspection-fixtures
+python3 scripts/test_bazel_worker.py \
+  --jar <candidate-assembly-jar> \
+  --inspection-fixtures build/inspection-fixtures
+```
+
+Preparation downloads
+`https://github.com/johnynek/bosatsu/releases/download/v0.0.69/core_alpha-v9.0.1.bosatsu_lib`
+and verifies its size (937080 bytes) and SHA-256
+`b6e7d87fcb786084dd90da490fe9514678fee7f6920fc17e0abdf28210a11dff` before
+staging it. The worker command tests use only the prepared local files. The
+legacy BLAKE3 pin is
+`098f5eff00611599b54b5e6bce8b7696c8fdf89f4e99f8bfbbec521764ed8927`.

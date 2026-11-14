@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2493` 0l and 0o: Inspect pinned library files and authenticate every dependency edge
-- Pending steps: `1`
-- Completed steps: `5`
+- Pending steps: `0`
+- Completed steps: `6`
 - Total steps: `6`
 
 ## Summary
@@ -203,7 +203,7 @@ Return all requested outputs to the existing JVM `FileCommandRunner`/`StagedOutp
 
 Registered `inspect-library` for pinned descriptor-only and declared-context full inspection, routed requested outputs through the existing reporting and staged-publication lifecycle, and shared output/input alias checks with `EmitCCommand`. Added in-memory, JVM filesystem, and Scala.js filesystem command coverage. Focused checks passed: core command tests (2), CLI inspection and EmitC tests (36), Scala.js filesystem tests (10), and `git diff --check`.
 
-6. [ ] `step_5` Qualify resolver traversal and the candidate jar, then complete both trackers
+6. [x] `step_5` Qualify resolver traversal and the candidate jar, then complete both trackers
 
 Extend `scripts/test_bazel_worker.py` with candidate-jar inspection cases using the committed fixtures in `test_workspace/inspect_library/`. Add an explicit prepared-fixture directory argument and a small preparation script, `scripts/prepare_inspect_library_fixtures.py`, that stages those fixtures and acquires the real legacy core before offline acceptance begins. Retain the release URI and immutable pins in the setup: core_alpha 9.0.1 from v0.0.69, 937080 bytes, SHA-256 `b6e7d87fcb786084dd90da490fe9514678fee7f6920fc17e0abdf28210a11dff`, and BLAKE3 `098f5eff00611599b54b5e6bce8b7696c8fdf89f4e99f8bfbbec521764ed8927`. Verify the acquisition SHA-256 before staging it; assert its BLAKE3 through inspection. The preparation script may acquire files, but command tests must run entirely from prepared local inputs and must fail clearly rather than skip required legacy evidence when setup is absent.
 
@@ -233,3 +233,7 @@ Finish `docs/design/hermetic-bazel-rules.md` with runnable descriptor-discovery/
 - Enumerate the constructed Parser closure file by file, authenticate the BLAKE3-only child before recording its SHA-256, and reject a tampered child before publishing descriptors.
 - Run candidate-jar diamond, private-version, alias/conflict, incomplete-context, output-preservation, and reused-path recovery regressions.
 - Complete the named JVM, Scala.js, CLI, assembly, and candidate-worker checks without requiring macOS evidence.
+
+#### Completion Notes
+
+Added prepared-fixture acquisition for the pinned legacy core and candidate-jar coverage for resolver traversal, edge authentication, projection parity, and persistent-worker recovery. Documented runnable inspection examples and contracts, linked the implementation and tests, and marked design tracker items 0l and 0o complete. The combined SBT matrix, the extended candidate-jar harness, and `./test_cli.sh` passed.

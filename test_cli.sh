@@ -6,6 +6,10 @@ check_lib_eval_output() {
   printf '%s\n' "$output" | grep -Eq '^Main \{ run: <fn arity=1> \}: Bosatsu/Prog::Main$'
 }
 
+inspection_fixture_dir="$(mktemp -d)"
+trap 'rm -rf "$inspection_fixture_dir"' EXIT
+python3 scripts/prepare_inspect_library_fixtures.py --out-dir "$inspection_fixture_dir"
+
 sbt cli/assembly
 
 jar_path="$(
@@ -15,7 +19,9 @@ if [ -z "$jar_path" ]; then
   echo "test_cli.sh: no assembly jar found after cli/assembly" >&2
   exit 1
 fi
-python3 scripts/test_bazel_worker.py --jar "$jar_path"
+python3 scripts/test_bazel_worker.py \
+  --jar "$jar_path" \
+  --inspection-fixtures "$inspection_fixture_dir"
 ./scripts/test_launcher_passthrough.sh
 time ./bosatsuj tool test \
   --input_dir test_workspace \
