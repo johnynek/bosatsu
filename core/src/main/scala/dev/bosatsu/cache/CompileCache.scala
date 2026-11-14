@@ -219,7 +219,7 @@ object CompileCache {
           val packagePath = casPath(outputHash)
           val read = platformIO.readBytes(packagePath).flatMap { bytes =>
             platformIO.canPromiseF
-              .compute(decodeValue(key, bytes))
+              .compute(decodeValue(key, bytes.unsafeReadOnlyView))
               .flatMap(moduleIOMonad.fromTry)
               .map {
                 case some @ Some(_) => some

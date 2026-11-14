@@ -1,7 +1,7 @@
 package dev.bosatsu.tool
 
 import cats.syntax.all._
-import dev.bosatsu.{Json, PlatformIO}
+import dev.bosatsu.{Bytes, Json, PlatformIO}
 import java.nio.ByteBuffer
 import java.nio.charset.{CharacterCodingException, StandardCharsets}
 
@@ -47,8 +47,8 @@ private[bosatsu] object BuildManifest {
       (s"unknown $kind fields: ${unknown.toList.sorted.mkString(", ")}", from.j, from.path))
   }
 
-  def decodeUtf8(bytes: Array[Byte]): Either[String, String] =
-    try Right(StandardCharsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(bytes)).toString)
+  def decodeUtf8(bytes: Bytes): Either[String, String] =
+    try Right(StandardCharsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(bytes.unsafeReadOnlyView)).toString)
     catch { case _: CharacterCodingException => Left("invalid UTF-8") }
 
   def read[F[_], P, A](platform: PlatformIO[F, P], file: P, reader: Json.Reader[A]): F[A] = {

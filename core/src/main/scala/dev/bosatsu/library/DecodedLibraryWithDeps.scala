@@ -214,7 +214,7 @@ object DecodedLibraryWithDeps {
       summon[Ordering[Version]]
     )
 
-    def one(
+    def step(
         state: State
     ): F[Either[
       State,
@@ -304,7 +304,7 @@ object DecodedLibraryWithDeps {
       )
     ](
       (graph.decodeOrder, SortedMap.empty, SortedMap.empty)
-    )(one)
+    )(step)
   }
 
   implicit def decodedLibraryWithDepsCompilationSource[A](implicit

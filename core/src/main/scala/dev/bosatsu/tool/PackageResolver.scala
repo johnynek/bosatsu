@@ -43,8 +43,8 @@ sealed abstract class PackageResolver[IO[_], Path] {
             // Decoding, raw hashing, and header parsing can add up across many
             // files, so keep that pure CPU work off the caller thread.
             canPromiseF.compute {
-              val source = new String(bytes, StandardCharsets.UTF_8)
-              val rawHash = Algo.hashBytes[Algo.Blake3](bytes)
+              val source = new String(bytes.unsafeReadOnlyView, StandardCharsets.UTF_8)
+              val rawHash = bytes.hash[Algo.Blake3]
               PathParseError.parseString(
                 PackageResolver.headerParserIgnoreRest,
                 path,

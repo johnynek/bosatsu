@@ -261,9 +261,9 @@ class Fs2PlatformIOTest extends FunSuite {
           dir / s"second-$failureAt",
           dir / s"third-$failureAt"
         )
-        val files = (existing -> "same".getBytes("UTF-8").toVector) ::
+        val files = (existing -> Bytes.fromUTF8String("same")) ::
           absent.zipWithIndex.map { case (path, index) =>
-            path -> s"new-$index".getBytes("UTF-8").toVector
+            path -> Bytes.fromUTF8String(s"new-$index")
           }
         val ordered = if (failureAt % 2 == 0) files.reverse else files
         for {
@@ -304,9 +304,9 @@ class Fs2PlatformIOTest extends FunSuite {
           dir / s"staged-second-$failureAt",
           dir / s"staged-third-$failureAt"
         )
-        val files = (existing -> "same".getBytes("UTF-8").toVector) ::
+        val files = (existing -> Bytes.fromUTF8String("same")) ::
           absent.zipWithIndex.map { case (path, index) =>
-            path -> s"new-$index".getBytes("UTF-8").toVector
+            path -> Bytes.fromUTF8String(s"new-$index")
           }
         for {
           _ <- Fs2PlatformIO.writeBytes(existing, "same".getBytes("UTF-8"))
@@ -351,8 +351,8 @@ class Fs2PlatformIOTest extends FunSuite {
       val caseDir = dir / name
       val existing = caseDir / "existing"
       val absent = List(caseDir / "first", caseDir / "second", caseDir / "third")
-      val outputs = (existing -> sameBytes.toVector) ::
-        absent.zip(newBytes).map { case (path, bytes) => path -> bytes.toVector }
+      val outputs = (existing -> Bytes.fromArray(sameBytes)) ::
+        absent.zip(newBytes).map { case (path, bytes) => path -> Bytes.fromArray(bytes) }
       val ordered = if (reverse) outputs.reverse else outputs
       for {
         _ <- fs.createDirectories(caseDir)
@@ -774,14 +774,14 @@ class Fs2PlatformIOTest extends FunSuite {
         _ <- fs.createDirectories(fixtureDir)
         _ <- fixtureNames.traverse_ { name =>
           Fs2PlatformIO.readBytes(Path(fixturePrefix + name)).flatMap { bytes =>
-            Fs2PlatformIO.writeBytes(fixtureDir / name, bytes)
+            Fs2PlatformIO.writeBytes(fixtureDir / name, bytes.unsafeReadOnlyView)
           }
         }
         contextText <- Fs2PlatformIO.readUtf8(sourceContext)
         contextBytes = contextText.replace(fixturePrefix, s"${fixtureDir.toString}/")
         _ <- Fs2PlatformIO.writeDoc(context, Doc.text(contextBytes))
         originalRoot <- Fs2PlatformIO.readBytes(root)
-        fullCommand = withOutputs(pinned(root, context, originalRoot), fullOptions)
+        fullCommand = withOutputs(pinned(root, context, originalRoot.unsafeReadOnlyView), fullOptions)
         first <- report(Fs2PlatformIO, fullCommand)
         _ = assertEquals(first, ExitCode.Success)
         originalOutputs <- baselineOutputs.traverse(path =>
@@ -801,7 +801,7 @@ class Fs2PlatformIOTest extends FunSuite {
         retryExposures = dir / "retry-exposures.json"
         retryMembership = dir / "retry-membership.json"
         rollbackCommand = withOutputs(
-          pinned(root, context, originalRoot),
+          pinned(root, context, originalRoot.unsafeReadOnlyView),
           List(
             "--sig-out" -> signature,
             "--exposures-out" -> retryExposures,
@@ -836,7 +836,7 @@ class Fs2PlatformIOTest extends FunSuite {
         _ = assert(retryExposure.contains("witness_path"), retryExposure)
         _ = assert(retryMember.contains("Parser"), retryMember)
 
-        library = proto.Library.parseFrom(originalRoot)
+        library = originalRoot.toMessage(proto.Library).get
         packageIndex = library.internalPackages.indexWhere(_.exports.nonEmpty)
         _ = assert(packageIndex >= 0, "fixture has no exported package")
         packageProto = library.internalPackages(packageIndex)

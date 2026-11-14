@@ -248,8 +248,8 @@ class Fs2PlatformIO private[dev] (
   def readUtf8(p: Path): IO[String] =
     FilesIO.readUtf8(p).compile.string
 
-  def readBytes(p: Path): IO[Array[Byte]] =
-    FilesIO.readAll(p).compile.to(Array)
+  def readBytes(p: Path): IO[Bytes] =
+    FilesIO.readAll(p).compile.to(Array).map(Bytes.unsafeFromArray)
 
   def fsDataType(p: Path): IO[Option[PlatformIO.FSDataType]] =
     FilesIO
@@ -447,9 +447,9 @@ class Fs2PlatformIO private[dev] (
       FilesIO.writeUtf8(p)(docStream(d)).compile.drain
 
   def writeDocAtomic(p: Path, d: Doc): IO[Unit] =
-    writeFileSetAtomic(List(p -> d.render(100).getBytes("UTF-8").toVector))
+    writeFileSetAtomic(List(p -> Bytes.fromUTF8String(d.render(100))))
 
-  def writeFileSetAtomic(files: List[(Path, Vector[Byte])]): IO[Unit] =
+  def writeFileSetAtomic(files: List[(Path, Bytes)]): IO[Unit] =
     Fs2PlatformIO.writeFilesWith(files, documentWriteOps)
 
   private def onParts(doc: Doc)(fn: String => IO[Unit]): IO[Unit] =
@@ -596,7 +596,7 @@ object Fs2PlatformIO extends Fs2PlatformIO(None) {
   private final case class PendingFile(
       destination: Path,
       staged: Path,
-      bytes: Vector[Byte]
+      bytes: Bytes
   )
 
   private[dev] def writeDocWith(
@@ -604,10 +604,10 @@ object Fs2PlatformIO extends Fs2PlatformIO(None) {
       doc: Doc,
       ops: DocumentWriteOps
   ): IO[Unit] =
-    writeFilesWith(List(path -> doc.render(100).getBytes("UTF-8").toVector), ops)
+    writeFilesWith(List(path -> Bytes.fromUTF8String(doc.render(100))), ops)
 
   private[dev] def writeFilesWith(
-      files: List[(Path, Vector[Byte])],
+      files: List[(Path, Bytes)],
       ops: DocumentWriteOps
   ): IO[Unit] = {
     val destinations = files.traverse { case (path, bytes) =>
@@ -626,7 +626,7 @@ object Fs2PlatformIO extends Fs2PlatformIO(None) {
 
         staged.use { pending =>
           pending.traverse_ { file =>
-            ops.writeStaged(file.staged, file.bytes.toArray)
+            ops.writeStaged(file.staged, file.bytes.unsafeReadOnlyView)
           } *> pending.traverse(file =>
             ops.needsInstall(file.staged, file.destination)
           ).flatMap { shouldInstall =>

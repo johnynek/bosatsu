@@ -166,8 +166,8 @@ object FileCommandRunner {
               staged.prepare(diskPath(path))
 
             // Join the request's transaction instead of publishing independently.
-            override def writeFileSetAtomic(files: List[(Path, Vector[Byte])]): IO[Unit] =
-              files.traverse_ { case (path, bytes) => writeBytes(path, bytes.toArray) }
+            override def writeFileSetAtomic(files: List[(Path, Bytes)]): IO[Unit] =
+              files.traverse_ { case (path, bytes) => writeBytes(path, bytes.unsafeReadOnlyView) }
           }
           out.report(reporter).flatMap {
             case ExitCode.Success => staged.publish.as(ExitCode.Success)

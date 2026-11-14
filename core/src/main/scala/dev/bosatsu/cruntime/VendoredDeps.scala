@@ -583,7 +583,7 @@ object VendoredDeps {
     platformIO.fsDataType(archivePath).flatMap {
       case Some(PlatformIO.FSDataType.File) =>
         platformIO.readBytes(archivePath).map { bytes =>
-          dependency.hash.algo.hashBytes(bytes).hex == dependency.hash.value.hex
+          bytes.hash(using dependency.hash.algo).hex == dependency.hash.value.hex
         }
       case _ =>
         platformIO.moduleIOMonad.pure(false)

@@ -287,13 +287,13 @@ object Version {
       major = pv.major,
       minor = pv.minor,
       patch = pv.patch,
-      preRelease = Option(pv.preRelease).flatMap {
-        case "" => None
-        case pr => Some(PreRelease(pr))
+      preRelease = pv.preRelease match {
+        case null | "" => None
+        case pr        => Some(PreRelease(pr))
       },
-      build = Option(pv.build).flatMap {
-        case "" => None
-        case b  => Some(Build(b))
+      build = pv.build match {
+        case null | "" => None
+        case b         => Some(Build(b))
       }
     )
 
@@ -302,13 +302,13 @@ object Version {
       pv.major,
       pv.minor,
       pv.patch,
-      Option(pv.preRelease).flatMap {
-        case "" => None
-        case pr => Some(PreRelease(pr))
+      pv.preRelease match {
+        case null | "" => None
+        case pr        => Some(PreRelease(pr))
       },
-      Option(pv.build).flatMap {
-        case "" => None
-        case b  => Some(Build(b))
+      pv.build match {
+        case null | "" => None
+        case b         => Some(Build(b))
       }
     )
 

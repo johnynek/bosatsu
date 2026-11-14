@@ -3,10 +3,9 @@ package dev.bosatsu.tool
 import _root_.bosatsu.{TypedAst => proto}
 import cats.data.NonEmptyList
 import cats.syntax.all._
-import dev.bosatsu.{Json, PackageName, PlatformIO}
+import dev.bosatsu.{Bytes, Json, PackageName, PlatformIO}
 import dev.bosatsu.hashing.{Algo, HashValue}
 import dev.bosatsu.library.{Library, Name, Version}
-import scala.util.Try
 
 /** The selected detached manifest must be authenticated by its caller, along
   * with the jar that is about to run. Inspecting the running jar cannot
@@ -108,7 +107,7 @@ private[bosatsu] object ToolchainManifest {
       platform: PlatformIO[F, P],
       path: P,
       component: String
-  ): F[Array[Byte]] = {
+  ): F[Bytes] = {
     import platform.moduleIOMonad
     import platform.showPath
     platform.readBytes(path).adaptError { case err =>
@@ -120,11 +119,11 @@ private[bosatsu] object ToolchainManifest {
       platform: PlatformIO[F, P],
       path: P,
       component: String,
-      bytes: Array[Byte],
+      bytes: Bytes,
       expected: HashValue[Algo.Sha256]
   ): F[Unit] = {
     import platform.{moduleIOMonad, showPath}
-    val actual = Algo.hashBytes[Algo.Sha256](bytes)
+    val actual = bytes.hash[Algo.Sha256]
     if (actual.hex == expected.hex) moduleIOMonad.pure(())
     else moduleIOMonad.raiseError(CliException.Basic(
       show"$component SHA-256 mismatch for $path: expected ${expected.hex}, found ${actual.hex}"
@@ -134,7 +133,7 @@ private[bosatsu] object ToolchainManifest {
   private def decodeSource[F[_], P](
       platform: PlatformIO[F, P],
       path: P,
-      bytes: Array[Byte],
+      bytes: Bytes,
       manifest: ToolchainManifest
   ): F[PackageName] = {
     import platform.{moduleIOMonad, showPath}
@@ -173,7 +172,7 @@ private[bosatsu] object ToolchainManifest {
       case CoreSelection.Binary(path) =>
         readBytes(platform, path, "core library").flatMap { bytes =>
           checkSha256(platform, path, "core library", bytes, manifest.core.sha256).flatMap { _ =>
-            moduleIOMonad.fromTry(Try(proto.Library.parseFrom(bytes))).adaptError { case err =>
+            moduleIOMonad.fromTry(bytes.toMessage(proto.Library)).adaptError { case err =>
               CliException.Basic(show"cannot parse core library $path: ${err.getMessage}")
             }.flatMap { library =>
               Library.getVersion(library) match {
@@ -226,7 +225,7 @@ private[bosatsu] object ToolchainManifest {
                 show"invalid advertised runtime hash '$advertisedRuntimeHash': $error"
               ))
             case Right(advertised) =>
-              val actual = advertised.algo.hashBytes(bytes)
+              val actual = bytes.hash(using advertised.algo)
               if (actual.hex == advertised.value.hex) moduleIOMonad.pure(())
               else moduleIOMonad.raiseError(CliException.Basic(
                 show"runtime archive hash mismatch for $path: advertised ${advertised.algo.name}:${advertised.value.hex}, found ${advertised.algo.name}:${actual.hex}"

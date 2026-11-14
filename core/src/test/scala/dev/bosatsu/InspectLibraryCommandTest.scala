@@ -108,6 +108,46 @@ class InspectLibraryCommandTest extends munit.FunSuite {
       case other => fail(s"expected binary output at $name, found $other")
     }
 
+  test("a nonempty expected name and at least one hash are required during option parsing") {
+    val base = args("descriptor.json", descriptorOnly = true)
+    val withoutHashes = base.zipWithIndex.collect {
+      case (arg, index) if arg != "--expected-hash" &&
+          (index == 0 || base(index - 1) != "--expected-hash") => arg
+    }
+    val cases = List(
+      base.updated(base.indexOf("--expected-name") + 1, ""),
+      withoutHashes
+    )
+    cases.foreach { command =>
+      assert(module.run(command).isLeft, s"returned an action for invalid options: $command")
+    }
+  }
+
+  test("inspection modes accept exactly their supported context and output combinations") {
+    val base = args("descriptor.json", descriptorOnly = true)
+      .takeWhile(_ != "--descriptors-only")
+    val outputOptions = List(
+      "--sig-out", "--exposures-out", "--membership-out", "--implementation-out", "--descriptor-out"
+    )
+    for {
+      onlyDescriptors <- List(false, true)
+      hasContext <- List(false, true)
+      outputMask <- 0 until (1 << outputOptions.size)
+    } {
+      val outputs = outputOptions.zipWithIndex.collect {
+        case (option, index) if (outputMask & (1 << index)) != 0 =>
+          List(option, s"output-$index")
+      }.flatten
+      val command = base :::
+        (if (onlyDescriptors) List("--descriptors-only") else Nil) :::
+        (if (hasContext) List("--dependency-context", "context.json") else Nil) ::: outputs
+      val valid =
+        if (onlyDescriptors) !hasContext && outputMask == (1 << 4)
+        else hasContext && outputMask != 0
+      assertEquals(module.run(command).isRight, valid, command.toString)
+    }
+  }
+
   test("full inspection runs through the in-memory command and emits independent projections") {
     val result = run(args("descriptor.json", descriptorOnly = false), fixtureState)
       .fold(error => fail(error.getMessage), identity)

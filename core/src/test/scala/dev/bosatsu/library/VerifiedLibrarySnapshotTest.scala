@@ -2,7 +2,7 @@ package dev.bosatsu.library
 
 import _root_.bosatsu.{TypedAst => proto}
 import cats.data.Chain
-import dev.bosatsu.{MemoryMain, PlatformIO}
+import dev.bosatsu.{Bytes, MemoryMain, PlatformIO}
 import dev.bosatsu.hashing.Algo
 import org.scalacheck.{Gen, Prop}
 import java.nio.charset.StandardCharsets
@@ -63,7 +63,7 @@ class VerifiedLibrarySnapshotTest extends munit.ScalaCheckSuite {
     override def fileKeyHash = platform.fileKeyHash
     override def existingFileKey(path: Path) = platform.existingFileKey(path)
 
-    override def readBytes(path: Path): MemoryMain.StateF[Result][Array[Byte]] = {
+    override def readBytes(path: Path): MemoryMain.StateF[Result][Bytes] = {
       pinnedReads += 1
       platform.readBytes(path)
     }

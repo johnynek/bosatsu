@@ -166,7 +166,7 @@ class BazelWorkerTest extends FileCommandFixtures {
       Right(
         BazelWorker.ActionRequest(
           List("headers", "path with spaces", "雪"),
-          List(BazelWorker.Input("雪 file", Vector[Byte](1, 2, 3))),
+          List(BazelWorker.Input("雪 file", Bytes.fromArray(Array[Byte](1, 2, 3)))),
           Int.MaxValue,
           -4,
           "work"
@@ -204,7 +204,7 @@ class BazelWorkerTest extends FileCommandFixtures {
       Right(
         BazelWorker.ActionRequest(
           List("headers", "slash/path", argument),
-          List(BazelWorker.Input("src/A.bosatsu", Vector[Byte](1, 2, 3))),
+          List(BazelWorker.Input("src/A.bosatsu", Bytes.fromArray(Array[Byte](1, 2, 3)))),
           23,
           0,
           ""
@@ -229,7 +229,7 @@ class BazelWorkerTest extends FileCommandFixtures {
 
     (0 until 100).foreach { _ =>
       val args = List.fill(random.nextInt(8))(generatedString(30))
-      val inputs = List(BazelWorker.Input(generatedString(24), Vector.empty))
+      val inputs = List(BazelWorker.Input(generatedString(24), Bytes.empty))
       val requestId = random.nextInt()
       val verbosity = random.nextInt()
       val request = independentRequestJson(
@@ -297,7 +297,7 @@ class BazelWorkerTest extends FileCommandFixtures {
         val json = s"""{"inputs":[{"digest":"$encoded"}]}"""
         assertEquals(
           BazelWorker.decodeRequest(json),
-          Right(BazelWorker.ActionRequest(Nil, List(BazelWorker.Input("", bytes.toVector)), 0, 0, ""))
+          Right(BazelWorker.ActionRequest(Nil, List(BazelWorker.Input("", Bytes.fromArray(bytes))), 0, 0, ""))
         )
       }
     }
@@ -308,9 +308,9 @@ class BazelWorkerTest extends FileCommandFixtures {
         BazelWorker.ActionRequest(
           Nil,
           List(
-            BazelWorker.Input("", Vector.empty),
-            BazelWorker.Input("", Vector.empty),
-            BazelWorker.Input("", Vector.empty)
+            BazelWorker.Input("", Bytes.empty),
+            BazelWorker.Input("", Bytes.empty),
+            BazelWorker.Input("", Bytes.empty)
           ),
           0,
           0,

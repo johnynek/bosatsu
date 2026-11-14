@@ -7,6 +7,7 @@ import cats.implicits.catsKernelOrderingForOrder
 import cats.syntax.all._
 import dev.bosatsu.{
   BosatsuInt as BInt,
+  Bytes,
   CompileOptions,
   Identifier,
   Json,
@@ -335,7 +336,7 @@ object Output {
       extends Output[Path]
 
   /** Publish fully serialized immutable bytes through one output transaction. */
-  case class AtomicFileSet[Path](files: List[(Path, Vector[Byte])])
+  case class AtomicFileSet[Path](files: List[(Path, Bytes)])
       extends Output[Path]
 
   final case class PackageGroup[Path](

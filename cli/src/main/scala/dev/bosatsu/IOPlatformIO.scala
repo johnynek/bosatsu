@@ -232,8 +232,8 @@ class IOPlatformIO extends PlatformIO[IO, JPath] {
       new String(Files.readAllBytes(diskPath(path)), StandardCharsets.UTF_8)
     )
 
-  def readBytes(path: Path): IO[Array[Byte]] =
-    IO.blocking(Files.readAllBytes(diskPath(path)))
+  def readBytes(path: Path): IO[Bytes] =
+    IO.blocking(Bytes.unsafeFromArray(Files.readAllBytes(diskPath(path))))
 
   def fsDataType(p: Path): IO[Option[PlatformIO.FSDataType]] =
     IO.blocking {
@@ -478,16 +478,16 @@ class IOPlatformIO extends PlatformIO[IO, JPath] {
 
   def writeDocAtomic(p: Path, d: Doc): IO[Unit] =
     writeFileSetAtomic(
-      List(p -> d.render(100).getBytes(StandardCharsets.UTF_8).toVector)
+      List(p -> Bytes.fromUTF8String(d.render(100)))
     )
 
-  def writeFileSetAtomic(files: List[(Path, Vector[Byte])]): IO[Unit] =
+  def writeFileSetAtomic(files: List[(Path, Bytes)]): IO[Unit] =
     StagedOutputs.resource(err =>
       errorln(s"warning: cleaning staged outputs: ${err.getMessage}")
     ).use { staged =>
       files.traverse_ { case (path, bytes) =>
         staged.prepare(diskPath(path)).flatMap { target =>
-          IO.blocking(Files.write(target, bytes.toArray)).void
+          IO.blocking(Files.write(target, bytes.unsafeReadOnlyView)).void
         }
       } *> staged.publish
     }

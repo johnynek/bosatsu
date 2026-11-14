@@ -371,25 +371,25 @@ object MemoryMain {
             }
           }
 
-      def readBytes(p: Path): F[Array[Byte]] =
+      def readBytes(p: Path): F[Bytes] =
         StateT
           .get[G, State]
           .flatMap { files =>
             files.get(p) match {
               case Some(Right(MemoryMain.FileContent.Bytes(bytes))) =>
-                moduleIOMonad.pure(bytes)
+                moduleIOMonad.pure(Bytes.fromArray(bytes))
               case Some(Right(MemoryMain.FileContent.Str(res))) =>
-                moduleIOMonad.pure(res.getBytes(StandardCharsets.UTF_8))
+                moduleIOMonad.pure(Bytes.fromUTF8String(res))
               case Some(Right(MemoryMain.FileContent.Packages(packs))) =>
                 moduleIOMonad.fromTry(
-                  ProtoConverter.packagesToProto(packs).map(_.toByteArray)
+                  ProtoConverter.packagesToProto(packs).map(Bytes.fromMessage)
                 )
               case Some(Right(MemoryMain.FileContent.Interfaces(ifs))) =>
                 moduleIOMonad.fromTry(
-                  ProtoConverter.interfacesToProto(ifs).map(_.toByteArray)
+                  ProtoConverter.interfacesToProto(ifs).map(Bytes.fromMessage)
                 )
               case Some(Right(MemoryMain.FileContent.Lib(lib))) =>
-                moduleIOMonad.pure(lib.arg.toByteArray)
+                moduleIOMonad.pure(Bytes.fromMessage(lib.arg))
               case other =>
                 moduleIOMonad.raiseError(
                   new Exception(s"expect binary content, found: $other")
@@ -546,13 +546,13 @@ object MemoryMain {
 
       def writeDocAtomic(p: Path, d: Doc): F[Unit] =
         writeFileSetAtomic(
-          List(p -> d.render(100).getBytes(StandardCharsets.UTF_8).toVector)
+          List(p -> Bytes.fromUTF8String(d.render(100)))
         )
 
-      def writeFileSetAtomic(files: List[(Path, Vector[Byte])]): F[Unit] =
+      def writeFileSetAtomic(files: List[(Path, Bytes)]): F[Unit] =
         StateT.modifyF { state =>
           files.foldLeft(Option(state)) { case (current, (path, bytes)) =>
-            current.flatMap(_.withFile(path, FileContent.Bytes(bytes.toArray)))
+            current.flatMap(_.withFile(path, FileContent.Bytes(bytes.copyToArray)))
           } match {
             case Some(next) => innerMonad.pure(next)
             case None =>
