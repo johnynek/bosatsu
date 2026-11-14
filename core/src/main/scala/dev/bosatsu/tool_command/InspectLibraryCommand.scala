@@ -127,24 +127,22 @@ object InspectLibraryCommand {
                     context <- LibraryInspection.readDependencyContext(platform, contextFile)
                     graph <- VerifiedLibraryGraph.verify(platform, snapshot, context)
                     decoded <- DecodedLibraryWithDeps.decodeVerifiedGraphWithLibraries(graph)
-                    (rootDecoded, libraries) = decoded
                     signatureBytes <- signaturePath.traverse { _ =>
                       moduleIOMonad.fromTry(
-                        LibraryInspection.signatureProjection(rootDecoded.lib)
+                        LibraryInspection.signatureProjection(decoded.root.lib)
                       ).map(Bytes.fromMessage)
                     }
                     exposures <- exposuresPath.traverse { _ =>
                       moduleIOMonad.fromEither(
                         LibraryInspection.exposureProjection(
-                          graph,
-                          libraries,
+                          decoded,
                           platform.pathToString
                         ).leftMap(CliException.Basic(_))
                       ).map(_.toDoc)
                     }
                     membership <- membershipPath.traverse { _ =>
                       moduleIOMonad.fromEither(
-                        LibraryInspection.membershipProjection(graph, libraries)
+                        LibraryInspection.membershipProjection(graph, decoded.libraries)
                           .leftMap(CliException.Basic(_))
                       ).map(_.toDoc)
                     }

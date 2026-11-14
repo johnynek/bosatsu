@@ -399,8 +399,11 @@ graph against those edges.
 The exposure projection has one record for each exported package in every
 verified scope. `owner` is the library identity that owns that package; each
 `exposes` item names a typed foreign package, its provider identity, and the
-library-identity witness path from the referring scope. Provider lookup follows
-public and legacy unused-transitive-public edges. Private implementation edges
+library-identity witness path from the referring scope. The scoped decoder
+records the selected provider identity; the witness must reach that same
+identity through public or legacy unused-transitive-public edges. Another
+version exporting the same package cannot substitute for it. If no permitted
+witness exists, exposure inspection fails. Private implementation edges
 remain in the implementation projection and cannot introduce unrelated public
 exposures. A compiler-provided `Predef` reference is represented with
 `{"kind":"compiler","name":"Predef"}` and an empty witness path, never as a

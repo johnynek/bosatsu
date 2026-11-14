@@ -186,28 +186,43 @@ object DecodedLibraryWithDeps {
   )(implicit
       F: MonadError[F, Throwable],
       C: CanPromise[F]
-  ): F[DecodedLibraryWithDeps[Algo.Blake3]] =
-    decodeVerifiedGraphWithLibraries[F](graph).map(_._1)
+  ): F[DecodedLibraryWithDeps[Algo.Blake3]] = {
+    def decode[Path](graph: VerifiedLibraryGraph[Path]): F[DecodedLibraryWithDeps[Algo.Blake3]] =
+      decodeVerifiedGraphWithLibraries[F, Path](graph).map(_.root)
+    decode(graph)
+  }
+
+  /** Provider identities are recorded alongside the exact interfaces supplied
+    * to the decoder. Inspection must not resolve those packages again from a
+    * different dependency closure.
+    */
+  private[bosatsu] final class DecodedGraph[Path] private[DecodedLibraryWithDeps] (
+      val graph: VerifiedLibraryGraph[Path],
+      val root: DecodedLibraryWithDeps[Algo.Blake3],
+      val libraries: SortedMap[LibraryIdentity, DecodedLibrary[Algo.Blake3]],
+      packageProviders: SortedMap[LibraryIdentity, SortedMap[PackageName, LibraryIdentity]]
+  ) {
+    def providerFor(scope: LibraryIdentity, packageName: PackageName): Option[LibraryIdentity] =
+      packageProviders.get(scope).flatMap(_.get(packageName))
+  }
 
   /** Decode every authenticated graph node in dependency order, retaining the
     * complete identity map for inspection metadata. The ordinary scoped tree
     * omits legacy resolution-only edges, but inspection still needs their
     * verified artifacts and package membership.
     */
-  private[bosatsu] def decodeVerifiedGraphWithLibraries[F[_]](
-      graph: VerifiedLibraryGraph[?]
+  private[bosatsu] def decodeVerifiedGraphWithLibraries[F[_], Path](
+      graph: VerifiedLibraryGraph[Path]
   )(implicit
       F: MonadError[F, Throwable],
       C: CanPromise[F]
-  ): F[(
-    DecodedLibraryWithDeps[Algo.Blake3],
-    SortedMap[LibraryIdentity, DecodedLibrary[Algo.Blake3]]
-  )] = {
+  ): F[DecodedGraph[Path]] = {
     type Identity = LibraryIdentity
     type State = (
       List[Identity],
       SortedMap[Identity, DecodedLibrary[Algo.Blake3]],
-      SortedMap[Identity, DecodedLibraryWithDeps[Algo.Blake3]]
+      SortedMap[Identity, DecodedLibraryWithDeps[Algo.Blake3]],
+      SortedMap[Identity, SortedMap[PackageName, Identity]]
     )
     given Ordering[Identity] = Ordering.Tuple2(using
       summon[Ordering[Name]],
@@ -216,19 +231,13 @@ object DecodedLibraryWithDeps {
 
     def step(
         state: State
-    ): F[Either[
-      State,
-      (
-        DecodedLibraryWithDeps[Algo.Blake3],
-        SortedMap[LibraryIdentity, DecodedLibrary[Algo.Blake3]]
-      )
-    ]] =
+    ): F[Either[State, DecodedGraph[Path]]] =
       state._1 match {
         case Nil =>
           F.fromOption(
             state._3.get(graph.rootIdentity),
             CliException.Basic("verified library graph is missing its root")
-          ).map(root => Right((root, state._2)))
+          ).map(root => Right(new DecodedGraph(graph, root, state._2, state._4)))
         case identity :: remaining =>
           graph.snapshot(identity) match {
             case None =>
@@ -289,21 +298,24 @@ object DecodedLibraryWithDeps {
                       state._3.get(childId).map(childId -> _)
                     }.to(SortedMap)
                     val value = DecodedLibraryWithDeps(decoded, children)
-                    val next = (remaining, decodedMap, state._3.updated(identity, value))
+                    // Local nodes shadow dependency interfaces in ProtoConverter.
+                    val localPackages = decoded.internalPackageNames ++ decoded.publicPackageNames
+                    val bindings = SortedMap.from(providers) ++
+                      localPackages.iterator.map(_ -> identity)
+                    val next = (
+                      remaining,
+                      decodedMap,
+                      state._3.updated(identity, value),
+                      state._4.updated(identity, bindings)
+                    )
                     Left(next)
                   }
               }
           }
       }
 
-    F.tailRecM[
-      State,
-      (
-        DecodedLibraryWithDeps[Algo.Blake3],
-        SortedMap[LibraryIdentity, DecodedLibrary[Algo.Blake3]]
-      )
-    ](
-      (graph.decodeOrder, SortedMap.empty, SortedMap.empty)
+    F.tailRecM[State, DecodedGraph[Path]](
+      (graph.decodeOrder, SortedMap.empty, SortedMap.empty, SortedMap.empty)
     )(step)
   }
 

@@ -13,6 +13,7 @@ import dev.bosatsu.library.{
   VerifiedLibrarySnapshot,
   Version
 }
+import dev.bosatsu.library.DecodedLibraryWithDeps.DecodedGraph
 import scala.collection.immutable.SortedMap
 import scala.util.Try
 
@@ -189,48 +190,46 @@ private[bosatsu] object LibraryInspection {
   ): Try[proto.Interfaces] =
     PackageSignatures.encode(library.interfaces)
 
-  private def providerPaths[Path](
+  private def providerPath[Path](
       graph: VerifiedLibraryGraph[Path],
-      decoded: SortedMap[LibraryIdentity, DecodedLibrary[Algo.Blake3]],
       referring: LibraryIdentity,
-      packageName: PackageName
-  ): List[(LibraryIdentity, List[LibraryIdentity])] = {
+      provider: LibraryIdentity
+  ): Option[List[LibraryIdentity]] = {
     @annotation.tailrec
     def loop(
         pending: List[(LibraryIdentity, List[LibraryIdentity])],
-        seen: Set[LibraryIdentity],
-        providers: SortedMap[LibraryIdentity, List[LibraryIdentity]]
-    ): SortedMap[LibraryIdentity, List[LibraryIdentity]] =
+        seen: Set[LibraryIdentity]
+    ): Option[List[LibraryIdentity]] =
       pending match {
-        case Nil => providers
+        case Nil => None
         case (current, _) :: rest if seen(current) =>
-          loop(rest, seen, providers)
+          loop(rest, seen)
+        case (current, witness) :: _ if summon[Ordering[LibraryIdentity]].equiv(current, provider) =>
+          Some(witness)
         case (current, witness) :: rest =>
-          val nextProviders =
-            if (decoded.get(current).exists(_.interfaces.exists(_.name == packageName)))
-              providers.updated(current, witness)
-            else providers
           val next = graph.dependencyEdges(current).iterator
             .filter(_.visibility != LibraryDependencyVisibility.Private)
             .map(edge => edge.targetIdentity -> (witness :+ edge.targetIdentity))
             .toList
-          loop(rest ::: next, seen + current, nextProviders)
+          loop(rest ::: next, seen + current)
       }
 
-    loop(List(referring -> List(referring)), Set.empty, SortedMap.empty).toList
+    loop(List(referring -> List(referring)), Set.empty)
   }
 
   /** Compute typed exposure ownership in each decoded scope. Public and
     * legacy unused-transitive-public edges are followed; private implementation
-    * edges remain present only in the implementation projection.
+    * edges remain present only in the implementation projection. A witness
+    * must reach the provider selected during decoding, even when another
+    * version exporting the same package is publicly reachable.
     */
   def exposureProjection[Path](
-      graph: VerifiedLibraryGraph[Path],
-      decoded: SortedMap[LibraryIdentity, DecodedLibrary[Algo.Blake3]],
+      decoded: DecodedGraph[Path],
       pathText: Path => String
   ): Either[String, Json] = {
+    val graph = decoded.graph
     def oneLibrary(identity: LibraryIdentity): Either[String, List[Json]] =
-      decoded.get(identity).toRight(
+      decoded.libraries.get(identity).toRight(
         s"missing decoded library ${identity._1.name} ${identity._2.render}"
       ).flatMap { library =>
         library.interfaces.sortBy(_.name.asString).traverse { iface =>
@@ -249,30 +248,24 @@ private[bosatsu] object LibraryInspection {
                 "witness_path" -> Json.JArray(Vector.empty)
               )))
             } else {
-              val providers = providerPaths(graph, decoded, identity, packageName)
               val sourcePath = graph.snapshot(identity).fold(identity._1.name) { snapshot =>
                 pathText(snapshot.path)
               }
-              providers match {
-                case Nil => Left(
-                  s"missing provider for exposed package ${packageName.asString} " +
+              for {
+                provider <- decoded.providerFor(identity, packageName).toRight(
+                  s"missing decoded provider for exposed package ${packageName.asString} " +
                     s"from ${identity._1.name} ${identity._2.render} at $sourcePath"
                 )
-                case (provider, witness) :: Nil => Right(Json.JObject(List(
-                  "package" -> Json.JString(packageName.asString),
-                  "provider" -> identityJson(provider),
-                  "witness_path" -> identitiesJson(witness)
-                )))
-                case many =>
-                  val details = many.map { case (provider, witness) =>
-                    val path = witness.map(id => s"${id._1.name} ${id._2.render}").mkString(" -> ")
-                    s"${provider._1.name} ${provider._2.render} via $path"
-                  }.mkString("; ")
-                  Left(
-                    s"ambiguous providers for exposed package ${packageName.asString} " +
-                      s"from ${identity._1.name} ${identity._2.render} at $sourcePath: $details"
-                  )
-              }
+                witness <- providerPath(graph, identity, provider).toRight(
+                  s"missing public witness to decoded provider ${provider._1.name} ${provider._2.render} " +
+                    s"for exposed package ${packageName.asString} " +
+                    s"from ${identity._1.name} ${identity._2.render} at $sourcePath"
+                )
+              } yield Json.JObject(List(
+                "package" -> Json.JString(packageName.asString),
+                "provider" -> identityJson(provider),
+                "witness_path" -> identitiesJson(witness)
+              ))
             }
           }.map { edges =>
             Json.JObject(List(

@@ -12,10 +12,12 @@ import dev.bosatsu.library.{
   LibraryInspectionFixtures,
   Name,
   VerifiedLibraryGraph,
-  VerifiedLibrarySnapshot
+  VerifiedLibrarySnapshot,
+  Version
 }
+import org.scalacheck.{Gen, Prop}
 
-class LibraryInspectionProjectionTest extends munit.FunSuite {
+class LibraryInspectionProjectionTest extends munit.ScalaCheckSuite {
   private type ErrorOr[A] = Either[Throwable, A]
   private type Path = Chain[String]
   private type Fixture = (String, proto.Library, Array[Byte], List[String])
@@ -79,20 +81,19 @@ class LibraryInspectionProjectionTest extends munit.FunSuite {
   ): ErrorOr[Projections] =
     graph(root, context, current).flatMap { verified =>
       DecodedLibraryWithDeps
-        .decodeVerifiedGraphWithLibraries[MemoryMain.StateF[ErrorOr]](verified)
+        .decodeVerifiedGraphWithLibraries[MemoryMain.StateF[ErrorOr], Path](verified)
         .runA(current)
-        .flatMap { case (_, decoded) =>
+        .flatMap { decoded =>
           for {
-            signature <- LibraryInspection.signatureProjection(decoded(verified.rootIdentity))
+            signature <- LibraryInspection.signatureProjection(decoded.libraries(verified.rootIdentity))
               .toEither.leftMap[Throwable](error =>
                 new Exception(Option(error.getMessage).getOrElse(error.toString))
               )
             exposure <- LibraryInspection.exposureProjection(
-              verified,
               decoded,
               platform.pathToString
             ).leftMap[Throwable](error => new Exception(error))
-            membership <- LibraryInspection.membershipProjection(verified, decoded)
+            membership <- LibraryInspection.membershipProjection(verified, decoded.libraries)
               .leftMap[Throwable](error => new Exception(error))
           } yield Projections(
             signature.toByteArray,
@@ -158,6 +159,73 @@ class LibraryInspectionProjectionTest extends munit.FunSuite {
     s"blake3:${Algo.hashBytes[Algo.Blake3](bytes).hex}",
     s"sha256:${Algo.hashBytes[Algo.Sha256](bytes).hex}"
   )
+
+  property("exposure witnesses preserve the decoder binding across competing public and private versions") {
+    Prop.forAllNoShrink(
+      Gen.pick(3, List(0, 1, 2)),
+      Gen.oneOf(true, false)
+    ) { (order, reverseEdges) =>
+      List("private", "public", "legacy").foreach { visibility =>
+        List(false, true).foreach { sameProvider =>
+          def fixture(file: String, library: proto.Library): Fixture = {
+            val bytes = library.toByteArray
+            (file, library, bytes, pins(bytes))
+          }
+          def dependency(target: Fixture): proto.LibDependency =
+            proto.LibDependency(
+              name = target._2.name,
+              desc = Some(proto.LibDescriptor(
+                version = target._2.descriptor.get.version,
+                hashes = target._4
+              ))
+            )
+
+          val common1 = fixtures.find(_._2.name == "common").get
+          val common2 = fixture("common-v2", common1._2.copy(
+            descriptor = Some(proto.LibDescriptor(version = Some(
+              Version(2, 0, 0).toProto
+            )))
+          ))
+          val wrapper = fixture("wrapper", fixtures.find(_._2.name == "legacy").get._2.copy(
+            publicDependencies = List(dependency(if (sameProvider) common1 else common2))
+          ))
+          val selected = dependency(common1)
+          val public = dependency(wrapper) :: Option.when(visibility == "public")(selected).toList
+          val root = fixture("exposure-root", fixtures.find(_._2.name == "public_child").get._2.copy(
+            publicDependencies = if (reverseEdges) public.reverse else public,
+            privateDependencies = Option.when(visibility == "private")(selected).toList,
+            unusedTransitivePublicDependencies = Option.when(visibility == "legacy")(selected).toList
+          ))
+          val children = List(common1, common2, wrapper)
+          val context = LibraryInspection.DependencyContext(order.toList.map(children).map {
+            case (file, library, _, hashes) => LibraryInspection.DeclaredLibraryFile(
+              Name(library.name), Library.getVersion(library).get, path(file), hashes
+            )
+          })
+          val current = state((root :: children).map { case (file, _, bytes, _) => file -> bytes })
+          val result = projections(root, context, current)
+          if (visibility == "private" && !sameProvider) {
+            val error = result.swap.toOption.map(_.getMessage).getOrElse(fail(
+              "inspection substituted the publicly reachable common 2.0.0 for decoded common 1.0.0"
+            ))
+            assert(error.contains("Common/Util"), error)
+            assert(error.contains("common 1.0.0"), error)
+            assert(error.contains("public_child 1.0.0"), error)
+          } else {
+            val output = result.fold(error => fail(error.getMessage), identity)
+            val entry = record(output.exposure, "public_child", "1.0.0", "Public/Child")
+            val edge = array(field(entry, "exposes")).find(edge =>
+              string(field(edge, "package")) == "Common/Util"
+            ).getOrElse(fail(entry.render))
+            assertEquals(string(field(field(edge, "provider"), "version")), "1.0.0")
+            val witness = array(field(edge, "witness_path"))
+            assertEquals(witness.last, field(edge, "provider"))
+            assertEquals(witness.size, if (visibility == "private") 3 else 2)
+          }
+        }
+      }
+    }
+  }
 
   test("descriptor projection authenticates only the pinned root before exposing children") {
     val (rootPath, library, _, hashes) = rootFixture
@@ -232,9 +300,9 @@ class LibraryInspectionProjectionTest extends munit.FunSuite {
     assertEquals(sharedEdges.toSet, Set(("left", "1.0.0"), ("right", "2.0.0")))
     val verified = graph(rootFixture, context, current).toOption.get
     val decoded = DecodedLibraryWithDeps
-      .decodeVerifiedGraphWithLibraries[MemoryMain.StateF[ErrorOr]](verified)
+      .decodeVerifiedGraphWithLibraries[MemoryMain.StateF[ErrorOr], Path](verified)
       .runA(current)
-      .toOption.get._2(verified.rootIdentity)
+      .toOption.get.libraries(verified.rootIdentity)
     assertEquals(
       LibraryInspection.signatureProjection(decoded.copy(interfaces = Nil)).toOption.get,
       proto.Interfaces(Nil)
