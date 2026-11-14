@@ -7,9 +7,9 @@
 
 - Flow: `small_job`
 - Issue: `#2493` 0l and 0o: Inspect pinned library files and authenticate every dependency edge
-- Pending steps: `0`
+- Pending steps: `1`
 - Completed steps: `9`
-- Total steps: `9`
+- Total steps: `10`
 
 ## Summary
 
@@ -17,15 +17,15 @@ Implement `tool inspect-library` and `--descriptors-only` over caller-declared, 
 
 The enforcing boundary is a privately constructed authenticated snapshot/graph consumed by inspection and its reusable scoped decoder. Extend `DecodedLibrary`, `DecodedLibraryWithDeps`, `PackageSignatures`, `BuildManifest`, and `FileCommandRunner` rather than introducing another compiler, downloader, or publication system. The required production, fixture, and test family may exceed the 1,000-line guideline; planner judgment permits that necessary work because edge authentication, scoped decoding, resolver discovery, and their acceptance tests form one inseparable outcome. Avoid a compiler-wide migration.
 
-Plan trajectory: initial steps 5; review revisions 2; review-origin steps 3.
+Plan trajectory: initial steps 5; review revisions 3; review-origin steps 4.
 
 ## Current State
 
-At this pre-PR planning revision, all eight existing steps are completed and immutable. Their completion notes report the prior Linux acceptance checks passing. Issue #2493, roadmap #2482's inspect_imports node, and the implemented toolchain-verification handoff remain aligned; no scope amendment is needed.
+At this pre-PR planning revision, all nine existing steps are completed and immutable. Their completion notes report the prior Linux acceptance checks passing. Issue #2493, roadmap #2482's inspect_imports node, and the implemented toolchain-verification handoff remain aligned. Serialized inspection identities now use checked version conversion.
 
-The candidate now publishes inspection outputs through one atomic set and distinguishes valid version spellings through the shared Version order. A residual exact-version-identity defect remains at protobuf input boundaries: unchecked Version.fromProto conversion permits malformed serialized versions such as 1.0.0-alpha. to compare equal to a valid expected identity. Fresh and cached root authentication and both dependency descriptor readers currently consume unchecked conversions.
+The authoritative candidate patch shows a remaining publication defect in Scala.js Fs2PlatformIO.writeFilesWith: installation is cancelable, handleErrorWith does not handle cancellation, and staging finalizers do not undo installed destinations. Cancellation can interrupt a multi-file commit or occur between rename completion and destination bookkeeping. This affects the existing Output.AtomicFileSet reporting path used by inspection.
 
-There are no existing pending steps to revise. Add one continuation of exact-version-identity using the existing Version.ifValid validation mechanism, validated snapshot identity, and the bounded descriptor-reader inventory. Remove unchecked inspection conversions rather than extending comparison workarounds or migrating excluded interactive loaders. Preserve the existing publication, legacy compatibility, and scoped decoding guarantees. The existing planner allowance for the inseparable implementation and acceptance-test family exceeding 1,000 lines includes this necessary correction. This revision inspected the scope artifacts, code, tests, and authoritative candidate patch without running builds or tests.
+There are no pending steps to revise. Add one continuation of inspection-output-publication, following step_6_inspection_output_publication, to protect the shared installation/bookkeeping/rollback boundary and exercise cancellation through the existing injected operations. Preserve shared singleton atomic-document behavior and the existing platform policies. The correction serves the in-scope complete-output-set contract and requires no scope amendment. This revision inspected scope artifacts, the canonical plan, the authoritative patch, implementation, and tests without running builds or tests.
 
 ## Problem
 
@@ -350,3 +350,35 @@ Run focused Version, snapshot, graph, projection, and command suites on JVM and 
 #### Completion Notes
 
 Added `Version.fromProtoChecked` backed by `Version.ifValid`; root authentication stores the checked identity, cached authentication compares it, and graph and descriptor readers reject malformed public, private, and unused-transitive-public targets before lookup or publication. Root descriptor output renders the validated snapshot version. Tests cover valid protobuf round trips, malformed roots and edges, descriptor-only and signature-only inspection, output preservation, and candidate-worker parity. Focused suites passed; the requested Linux SBT acceptance matrix and `scripts/test_bazel_worker.py` passed.
+
+10. [ ] `step_9_cancellation_safe_publication` Make the shared Scala.js file-set commit cancellation-safe
+
+Invariant family: inspection-output-publication
+
+Continue the family addressed by step_6_inspection_output_publication. That repair routed every inspection projection through Output.AtomicFileSet, but Fs2PlatformIO.writeFilesWith still permits cancellation during installation. Its handleErrorWith handles errors only, and Resource cleanup removes staging directories without removing installed destinations. Cancellation can therefore leave a partial set, including when it arrives after a rename but before the destination is recorded. This is a demonstrated defect in the existing Scala.js inspection publication lifecycle and its complete-output-set contract. All existing steps are completed; no pending step can absorb this correction.
+
+Repair cliJS/src/main/scala/dev/bosatsu/Fs2PlatformIO.scala at the shared writeFilesWith commit boundary. Keep staging and preflight cancelable under their existing Resource ownership. After preflight, use a Cats Effect cancellation mask around the entire installation sequence, rename-result bookkeeping, and error rollback. Once commit starts, a cancellation request must allow the complete set to finish publication; an installation error must finish rollback before cancellation can interrupt cleanup. Ensure the actual asynchronous rename and recording of its result remain in the same protected region. Preserve existing rollback-error reporting and staging-directory finalizers.
+
+Rework the existing installation/error-handling block rather than adding per-projection handlers, another publisher, or durable transaction state. Keep writeDocAtomic and writeDocWith delegating to the same file-set mechanism. Preserve identical existing files, inode/access metadata, changed-existing-file rejection, destination resolution, and symlink handling. The enforcing structure remains the single writeFilesWith lifecycle reached by Output.AtomicFileSet.report and singleton atomic documents, so the correction covers all inspection subsets and output orders together.
+
+Extend cliJS/src/test/scala/dev/bosatsu/Fs2PlatformIOTest.scala using the existing DocumentWriteOps injection. Use Deferred synchronization to request cancellation at each installation position, including immediately after a real rename and before the injected replace operation returns its result. Release the test barrier independently of waiting for cancellation, so a correctly masked commit can finish. Await fiber termination and resource cleanup before checking outputs. Also cover cancellation during staging and cancellation pending when a later installation errors. Vary output order and mixed identical-existing/absent destinations; assert a complete published set or complete rollback as appropriate, unchanged existing bytes and metadata, staging cleanup, and a successful retry.
+
+Run the focused Scala.js Fs2PlatformIOTest suite, including its inspection reporting and singleton atomic-document regressions. These deterministic repository tests produce the required pre-PR evidence for the changed lifecycle behavior. MergeXO runs its separate required-tests gate. Keep this continuation confined to the shared publisher and focused tests; the existing planner allowance for the cumulative implementation and acceptance-test family remains applicable.
+
+#### Invariants
+
+- After the Scala.js commit begins, cancellation cannot interrupt installation, rename bookkeeping, or error rollback and leave a partial output set.
+- Cancellation before commit leaves prior outputs unchanged and previously absent destinations absent; staging resources are cleaned after termination.
+- Every inspection projection and singleton atomic document retains the same shared publication boundary and existing access-control and destination-handling guarantees.
+
+#### Property Tests
+
+- Vary installation position, destination order, and identical-existing/absent destination combinations; synchronized cancellation during commit must leave the complete requested set after termination, with existing bytes and metadata preserved and no staging directories remaining.
+- Vary cancellation points during staging and pending cancellation alongside an installation error; after termination, destination contents and existence must match the pre-operation state, and retry must succeed.
+
+#### Assertion Tests
+
+- Cancel Output.AtomicFileSet.report after the first new destination is installed while later destinations remain pending; after the protected commit and cleanup finish, assert every requested new file contains its complete bytes.
+- Pause an injected replace after the real rename but before returning its result, request cancellation, and release it; assert no destination escapes commit/rollback bookkeeping.
+- Request cancellation while a later injected installation fails; assert earlier newly installed destinations are removed and existing destinations remain unchanged.
+- Retain the existing Scala.js inspection reporting, singleton writeDocAtomic, access-control, symlink, ordinary-error rollback, and staging-cleanup regressions.
