@@ -410,6 +410,75 @@ class Fs2PlatformIOTest extends FunSuite {
     }.unsafeToFuture()
   }
 
+  test("inspect-library authenticates descriptors without opening children on Scala.js") {
+    val fs = Files.forIO
+    val module = new MainModule(Fs2PlatformIO)
+    val version = Version.parser.parseAll("1.2.3").toOption.get
+    val missingChildHash = "blake3:" + ("a" * 64)
+    val libraryBytes = proto.Library(
+      name = "root",
+      repoUri = "unused",
+      descriptor = Some(proto.LibDescriptor(version = Some(version.toProto))),
+      publicDependencies = List(proto.LibDependency(
+        name = "missing_child",
+        desc = Some(proto.LibDescriptor(
+          version = Some(version.toProto),
+          hashes = List(missingChildHash),
+          uris = List("https://unused.invalid/missing-child")
+        ))
+      ))
+    ).toByteArray
+    val libraryHash = Algo.hashBytes[Algo.Blake3](libraryBytes).hex
+    val librarySha = Algo.hashBytes[Algo.Sha256](libraryBytes).hex
+    def run(args: List[String]): IO[ExitCode] =
+      IO.fromEither(
+        module.run("tool" :: args).leftMap(h => new IllegalArgumentException(h.toString))
+      ).flatten.flatMap(_.report(Fs2PlatformIO))
+
+    fs.tempDirectory.use { dir =>
+      val input = dir / "root.lib"
+      val context = dir / "context.json"
+      val descriptors = dir / "descriptors.json"
+      val signature = dir / "signature.bundle"
+      val pinned = List(
+        "inspect-library",
+        "--input", input.toString,
+        "--expected-name", "root",
+        "--expected-version", version.render,
+        "--expected-hash", s"blake3:$libraryHash",
+        "--expected-hash", s"sha256:$librarySha"
+      )
+      val descriptorArgs = pinned ::: List(
+        "--descriptors-only", "--descriptor-out", descriptors.toString
+      )
+      val fullArgs = pinned ::: List(
+        "--dependency-context", context.toString,
+        "--sig-out", signature.toString,
+        "--descriptor-out", descriptors.toString
+      )
+      for {
+        _ <- Fs2PlatformIO.writeBytes(input, libraryBytes)
+        _ <- Fs2PlatformIO.writeDoc(
+          context,
+          Doc.text("{\"schema_version\":1,\"libraries\":[]}")
+        )
+        inspected <- run(descriptorArgs).attempt
+        _ = assertEquals(inspected.toOption, Some(ExitCode.Success))
+        descriptorJson <- Fs2PlatformIO.readUtf8(descriptors)
+        _ = assert(descriptorJson.contains("missing_child"), descriptorJson)
+        fullFailure <- run(fullArgs).attempt
+        _ = assert(
+          fullFailure.swap.toOption.exists(_.getMessage.contains("missing declared file")),
+          fullFailure
+        )
+        after <- Fs2PlatformIO.readUtf8(descriptors)
+        _ = assertEquals(after, descriptorJson)
+        signatureExists <- fs.exists(signature)
+        _ = assert(!signatureExists)
+      } yield ()
+    }.unsafeToFuture()
+  }
+
   test("emit-c resolves pending output aliases and creates the declared header directory") {
     val fs = Files.forIO
     val module = new MainModule(Fs2PlatformIO)

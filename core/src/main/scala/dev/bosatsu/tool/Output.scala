@@ -77,6 +77,8 @@ sealed abstract class Output[+Path] {
       case Output.JsonOutput(json, pathOpt) =>
         writeOut(json.toDoc, pathOpt)
           .as(ExitCode.Success)
+      case Output.BytesOutput(bytes, path) =>
+        writeBytes(path, bytes.toArray).as(ExitCode.Success)
 
       case Output.TranspileOut(outs) =>
         outs.toList
@@ -330,6 +332,10 @@ object Output {
   ) extends Output[Nothing]
 
   case class JsonOutput[Path](json: Json, output: Option[Path])
+      extends Output[Path]
+
+  /** Write bytes that the command has fully serialized before reporting. */
+  case class BytesOutput[Path](bytes: Vector[Byte], output: Path)
       extends Output[Path]
 
   final case class PackageGroup[Path](

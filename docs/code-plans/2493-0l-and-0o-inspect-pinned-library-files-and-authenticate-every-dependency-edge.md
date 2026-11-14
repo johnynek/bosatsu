@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2493` 0l and 0o: Inspect pinned library files and authenticate every dependency edge
-- Pending steps: `2`
-- Completed steps: `4`
+- Pending steps: `1`
+- Completed steps: `5`
 - Total steps: `6`
 
 ## Summary
@@ -169,7 +169,7 @@ Allow each projection to be requested independently. Full-mode signature-only in
 
 Implemented canonical signature, descriptor, typed exposure/provider, membership, and scoped implementation projections over the authenticated snapshot and graph. Added deterministic and legacy unindexed-exposure fixtures, private implementation stability coverage, and version-1 output documentation. The focused JVM inspection/signature suites passed (34 tests); `coreJS/test:compile` and `git diff --check` passed.
 
-5. [ ] `step_4` Register the inspection command with staged publication
+5. [x] `step_4` Register the inspection command with staged publication
 
 Add `core/src/main/scala/dev/bosatsu/tool_command/InspectLibraryCommand.scala`. Require `--input FILE`, `--expected-name NAME`, `--expected-version VERSION`, and repeated `--expected-hash ALGO:HEX`. Full mode requires `--dependency-context FILE`, using an empty libraries array for a leaf, and accepts independently optional `--sig-out`, `--exposures-out`, `--membership-out`, `--implementation-out`, and `--descriptor-out`; require at least one output. `--descriptors-only` requires only the pinned root and `--descriptor-out`, and rejects full-only outputs/context instead of opening child files. Resolve all paths with the existing platform parser and request directory.
 
@@ -198,6 +198,10 @@ Return all requested outputs to the existing JVM `FileCommandRunner`/`StagedOutp
 - Cover duplicate outputs and input/output aliases using existing lexical, symlink, hardlink, and pending-path test patterns; rerun the existing EmitC alias tests after helper extraction.
 - Test good/bad/good requests and changed bytes at the same path without restarting the runner.
 - Exercise descriptor and full inspection through Scala.js file IO with successful output and tamper rejection.
+
+#### Completion Notes
+
+Registered `inspect-library` for pinned descriptor-only and declared-context full inspection, routed requested outputs through the existing reporting and staged-publication lifecycle, and shared output/input alias checks with `EmitCCommand`. Added in-memory, JVM filesystem, and Scala.js filesystem command coverage. Focused checks passed: core command tests (2), CLI inspection and EmitC tests (36), Scala.js filesystem tests (10), and `git diff --check`.
 
 6. [ ] `step_5` Qualify resolver traversal and the candidate jar, then complete both trackers
 
