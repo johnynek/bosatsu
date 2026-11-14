@@ -8,8 +8,8 @@
 - Flow: `small_job`
 - Issue: `#2493` 0l and 0o: Inspect pinned library files and authenticate every dependency edge
 - Pending steps: `5`
-- Completed steps: `0`
-- Total steps: `5`
+- Completed steps: `1`
+- Total steps: `6`
 
 ## Summary
 
@@ -39,7 +39,7 @@ The existing signature planner and local runtime remain unscoped across imported
 
 ## Steps
 
-1. [ ] `step_1` Add the shared pinned-file boundary and reusable serialized fixtures
+1. [x] `step_1` Add the shared pinned-file boundary and reusable serialized fixtures
 
 Add an authenticated snapshot abstraction in `core/src/main/scala/dev/bosatsu/library/VerifiedLibraryGraph.scala`, with construction restricted to its verification functions. Accept a declared path, expected library name, exact version, and nonempty external hash list. Read the file once through `PlatformIO.readBytes`, compute supported digests using `Algo`, verify the supplied pins, and parse `proto.Library` from that same byte array. Check the embedded name/version before returning a snapshot. Keep arrays method-local or defensively encapsulated; expose immutable identity, digests, parsed protobuf, and path provenance. Embedded self-descriptor metadata is not an authentication source.
 
@@ -68,7 +68,36 @@ Create `core/src/test/scala/dev/bosatsu/library/LibraryInspectionFixtures.scala`
 - Use an instrumented platform that would return different bytes on a second read to prove snapshot verification and parsing use one read.
 - Test version-1 context parsing, invalid UTF-8, duplicate fields, unsupported schema versions, invalid paths/identities, and preserved equal-identity aliases.
 
-2. [ ] `step_2` Verify every graph edge before scoped decoding
+#### Completion Notes
+
+Added `VerifiedLibrarySnapshot.verify` in `VerifiedLibraryGraph.scala`. It reads once, hashes and parses the same private byte snapshot, validates every supported external pin, and checks the embedded name and exact version. The focused JVM suite passed (5 tests), and `coreJS/compile` passed.
+
+2. [ ] `step_1_complete_context_and_fixtures` Complete the dependency context reader and reusable serialized fixtures
+
+Continuation of parent `step_1` in the shared pinned-file boundary and reusable serialized fixture family. Complete the remaining step_1 deliverables by adding a version-1 declared dependency-context reader in `core/src/main/scala/dev/bosatsu/tool/LibraryInspection.scala` using `BuildManifest`. Validate schema, fields, identity syntax, repeated JSON keys, and paths through the platform argument parser; preserve multiple declared paths for one identity and perform no file acquisition.
+
+Add typed-library fixture builders in `core/src/test/scala/dev/bosatsu/library/LibraryInspectionFixtures.scala`, based on `ClangGenLibraryDepsTest`, and commit their serialized bytes and pins under `test_workspace/inspect_library/` with a README containing source snippets and a regeneration command. Cover the Parser closure with public, private, and legacy unused-transitive-public children, a diamond, and wrappers selecting two incompatible Shared/Api versions. These fixtures remain in the PR for step_5 candidate-jar tests.
+
+This serves the accepted 0l/0o workflow: descriptor-only inspection must expose authenticated descriptors for resolver discovery, while full inspection requires an explicit complete dependency context. Step_2 consumes this context contract and the fixtures; keeping them in a separate upstream step gives later graph, projection, and candidate-jar work stable inputs instead of making each step invent them. Add focused context and fixture tests, including an instrumented platform assertion that verification reads a pinned file once.
+
+#### Invariants
+
+- Dependency-context paths are parsed by the platform and never fetched or interpreted as URIs.
+- Multiple declared paths for one identity remain available for later alias and conflicting-byte checks.
+- Committed serialized fixtures remain reusable by the later candidate-jar step.
+
+#### Property Tests
+
+- Permuting context entries preserves the decoded declarations, including all aliases for an identity.
+- Valid serialized fixture bytes authenticate against their recorded supported pins; changing bytes without changing pins fails.
+
+#### Assertion Tests
+
+- Reject unsupported schema versions, unknown or repeated fields, invalid identities, invalid paths, and malformed JSON while preserving useful diagnostics.
+- Verify the committed Parser closure, diamond, and both private versions from their serialized bytes and pins.
+- Use an instrumented platform to assert the pinned-file verifier reads once and parses the authenticated snapshot.
+
+3. [ ] `step_2` Verify every graph edge before scoped decoding
 
 Extend `VerifiedLibraryGraph.scala` to build an authenticated graph from a verified root and the explicit dependency-file context. Inventory the complete edge family as `publicDependencies`, `privateDependencies`, and `unusedTransitivePublicDependencies`; inspect all three on every reachable authenticated artifact. Each retained edge records the referring identity, visibility, target identity, original expected hashes/mirror URIs, selected file provenance, and a deterministic witness path.
 
@@ -98,7 +127,7 @@ The complete in-scope decoding inventory is full inspection, every full-mode pro
 - Decode the two-private-version fixture and assert each wrapper binds Shared/Api to its selected release; reject an ambiguous provider inside one referring scope.
 - Retain focused reserved Bosatsu namespace and malformed Int64 regressions through the new graph decoder.
 
-3. [ ] `step_3` Derive canonical signatures and scoped inspection projections
+4. [ ] `step_3` Derive canonical signatures and scoped inspection projections
 
 Implement inspection projections in `core/src/main/scala/dev/bosatsu/tool/LibraryInspection.scala`, consuming the authenticated snapshot for descriptor-only results and the verified graph/scoped decoder for full results. Reuse `PackageSignatures.encode` for the root's exported signature; retain its existing protobuf format and canonicalization. Do not encode artifact hashes, file paths, mirror URIs, implementation metadata, or unrelated private scopes in signature bytes.
 
@@ -128,7 +157,7 @@ Allow each projection to be requested independently. Full-mode signature-only in
 - Test each projection alone, empty exported-interface sets, and signatures that round-trip through existing signature readers.
 - Inspect a valid pinned parent with all children absent in descriptor-only mode; require full mode to reject that same incomplete context.
 
-4. [ ] `step_4` Register the inspection command with staged publication
+5. [ ] `step_4` Register the inspection command with staged publication
 
 Add `core/src/main/scala/dev/bosatsu/tool_command/InspectLibraryCommand.scala`. Require `--input FILE`, `--expected-name NAME`, `--expected-version VERSION`, and repeated `--expected-hash ALGO:HEX`. Full mode requires `--dependency-context FILE`, using an empty libraries array for a leaf, and accepts independently optional `--sig-out`, `--exposures-out`, `--membership-out`, `--implementation-out`, and `--descriptor-out`; require at least one output. `--descriptors-only` requires only the pinned root and `--descriptor-out`, and rejects full-only outputs/context instead of opening child files. Resolve all paths with the existing platform parser and request directory.
 
@@ -158,7 +187,7 @@ Return all requested outputs to the existing JVM `FileCommandRunner`/`StagedOutp
 - Test good/bad/good requests and changed bytes at the same path without restarting the runner.
 - Exercise descriptor and full inspection through Scala.js file IO with successful output and tamper rejection.
 
-5. [ ] `step_5` Qualify resolver traversal and the candidate jar, then complete both trackers
+6. [ ] `step_5` Qualify resolver traversal and the candidate jar, then complete both trackers
 
 Extend `scripts/test_bazel_worker.py` with candidate-jar inspection cases using the committed fixtures in `test_workspace/inspect_library/`. Add an explicit prepared-fixture directory argument and a small preparation script, `scripts/prepare_inspect_library_fixtures.py`, that stages those fixtures and acquires the real legacy core before offline acceptance begins. Retain the release URI and immutable pins in the setup: core_alpha 9.0.1 from v0.0.69, 937080 bytes, SHA-256 `b6e7d87fcb786084dd90da490fe9514678fee7f6920fc17e0abdf28210a11dff`, and BLAKE3 `098f5eff00611599b54b5e6bce8b7696c8fdf89f4e99f8bfbbec521764ed8927`. Verify the acquisition SHA-256 before staging it; assert its BLAKE3 through inspection. The preparation script may acquire files, but command tests must run entirely from prepared local inputs and must fail clearly rather than skip required legacy evidence when setup is absent.
 
