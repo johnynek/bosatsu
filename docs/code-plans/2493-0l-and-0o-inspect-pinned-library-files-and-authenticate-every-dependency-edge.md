@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2493` 0l and 0o: Inspect pinned library files and authenticate every dependency edge
-- Pending steps: `4`
-- Completed steps: `2`
+- Pending steps: `3`
+- Completed steps: `3`
 - Total steps: `6`
 
 ## Summary
@@ -101,7 +101,7 @@ This serves the accepted 0l/0o workflow: descriptor-only inspection must expose 
 
 Added the version-1 dependency context reader with strict field, identity, repeated-key, and platform path validation while preserving aliases; documented its JSON contract. Added a typed serialized Parser graph with public/private and legacy unused-transitive-public edges, a diamond, and wrappers selecting two private Shared versions. Committed pinned artifacts and a regeneration README. JVM focused suites passed 29 tests; Scala.js focused suites passed 12 tests, and Scala.js test compilation passed after manifest validation was consolidated in BuildManifest. Coverage includes pin tampering and an instrumented single-read assertion.
 
-3. [ ] `step_2` Verify every graph edge before scoped decoding
+3. [x] `step_2` Verify every graph edge before scoped decoding
 
 Extend `VerifiedLibraryGraph.scala` to build an authenticated graph from a verified root and the explicit dependency-file context. Inventory the complete edge family as `publicDependencies`, `privateDependencies`, and `unusedTransitivePublicDependencies`; inspect all three on every reachable authenticated artifact. Each retained edge records the referring identity, visibility, target identity, original expected hashes/mirror URIs, selected file provenance, and a deterministic witness path.
 
@@ -130,6 +130,10 @@ The complete in-scope decoding inventory is full inspection, every full-mode pro
 - Test missing dependencies in each visibility class, equal-identity aliases, conflicting-byte aliases, cycles, and a supported-hash conflict on a reused identity.
 - Decode the two-private-version fixture and assert each wrapper binds Shared/Api to its selected release; reject an ambiguous provider inside one referring scope.
 - Retain focused reserved Bosatsu namespace and malformed Int64 regressions through the new graph decoder.
+
+#### Completion Notes
+
+Implemented authenticated traversal of public, private, and legacy resolution edges, including per-path snapshot reuse, alias checks, and cycle detection. Added graph-only dependency-order decoding with per-library provider scopes. Parser fixture tests cover the second diamond edge, private versions, aliases, missing and ambiguous providers, descriptor pins and versions, cycles, reserved packages, and malformed Int64 data. The focused JVM suites passed (32 tests), and `coreJS/compile` passed.
 
 4. [ ] `step_3` Derive canonical signatures and scoped inspection projections
 
