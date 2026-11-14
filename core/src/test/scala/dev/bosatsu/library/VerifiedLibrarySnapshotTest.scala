@@ -197,6 +197,29 @@ class VerifiedLibrarySnapshotTest extends munit.ScalaCheckSuite {
     assert(failure.contains("expected 1.2.3-0"), failure)
   }
 
+  test("a correctly pinned root with a malformed serialized version is rejected") {
+    val malformedVersion = proto.Version(
+      major = 1L,
+      minor = 2L,
+      patch = 3L,
+      preRelease = "alpha."
+    )
+    val malformedLibrary = proto.Library(
+      name = "sample",
+      descriptor = Some(proto.LibDescriptor(version = Some(malformedVersion)))
+    )
+    val bytes = malformedLibrary.toByteArray
+    rejects(
+      verify(
+        bytes,
+        List(pin("sha256", bytes)),
+        expectedVersion = Version.unsafe("1.2.3-alpha")
+      ),
+      "invalid version",
+      "pinned/lib.bosatsu_lib"
+    )
+  }
+
   test("malformed protobuf and missing files fail with path provenance") {
     val malformed = "not a protobuf".getBytes(StandardCharsets.UTF_8)
     rejects(

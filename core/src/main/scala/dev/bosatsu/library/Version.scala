@@ -297,6 +297,21 @@ object Version {
       }
     )
 
+  def fromProtoChecked(pv: proto.Version): Option[Version] =
+    ifValid(
+      pv.major,
+      pv.minor,
+      pv.patch,
+      Option(pv.preRelease).flatMap {
+        case "" => None
+        case pr => Some(PreRelease(pr))
+      },
+      Option(pv.build).flatMap {
+        case "" => None
+        case b  => Some(Build(b))
+      }
+    )
+
   def ifValid(
       major: Long,
       minor: Long,

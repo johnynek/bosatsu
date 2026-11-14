@@ -14,6 +14,7 @@ import tarfile
 import tempfile
 import time
 import zipfile
+from collections.abc import Callable
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -218,6 +219,63 @@ def test_library_inspection(
             [root_descriptor_path],
             request_fields={"requestId": 300},
         )
+        resolver_root_file = resolver_cwd / INSPECTION_ROOT
+        original_root_bytes = resolver_root_file.read_bytes()
+        for request_id, (visibility, dependency_field) in enumerate(
+            (("public", 8), ("private", 9), ("unused transitive public", 10)),
+            start=301,
+        ):
+            malformed_edge = malformed_dependency_version(
+                original_root_bytes, dependency_field
+            )
+            resolver_root_file.write_bytes(malformed_edge)
+            failed_edge = compare_command(
+                java,
+                resolver_jar,
+                resolver_cwd,
+                persistent,
+                f"inspect-malformed-{visibility.replace(' ', '-')}-descriptor-version",
+                inspection_command(
+                    INSPECTION_ROOT,
+                    "parser",
+                    "1.0.0",
+                    [f"sha256:{sha256(malformed_edge)}"],
+                    descriptors_only=True,
+                    outputs={"--descriptor-out": root_descriptor_path},
+                ),
+                [root_descriptor_path],
+                expect_success=False,
+                request_fields={"requestId": request_id},
+            )
+            if "invalid version" not in str(failed_edge["output"]) or "parser 1.0.0" not in str(failed_edge["output"]):
+                raise AssertionError(
+                    f"malformed {visibility} descriptor diagnostic lost its owner: {failed_edge!r}"
+                )
+            resolver_root_file.write_bytes(original_root_bytes)
+
+        malformed_root = malformed_root_version(original_root_bytes)
+        resolver_root_file.write_bytes(malformed_root)
+        failed_root = compare_command(
+            java,
+            resolver_jar,
+            resolver_cwd,
+            persistent,
+            "inspect-malformed-root-version",
+            inspection_command(
+                INSPECTION_ROOT,
+                "parser",
+                "1.0.0",
+                [f"sha256:{sha256(malformed_root)}"],
+                descriptors_only=True,
+                outputs={"--descriptor-out": root_descriptor_path},
+            ),
+            [root_descriptor_path],
+            expect_success=False,
+            request_fields={"requestId": 304},
+        )
+        if "invalid version" not in str(failed_root["output"]):
+            raise AssertionError(f"malformed root diagnostic omitted version validation: {failed_root!r}")
+        resolver_root_file.write_bytes(original_root_bytes)
         root_descriptor = json.loads(
             (resolver_cwd / root_descriptor_path).read_text(encoding="utf-8")
         )
@@ -405,6 +463,58 @@ def test_library_inspection(
         )
         if (full_cwd / signature_only).read_bytes() != signature:
             raise AssertionError("signature-only inspection differs from the full signature projection")
+
+        original_root_bytes = (full_cwd / INSPECTION_ROOT).read_bytes()
+        malformed_target = malformed_dependency_version(original_root_bytes, 8)
+        (full_cwd / INSPECTION_ROOT).write_bytes(malformed_target)
+        malformed_signature = compare_command(
+            java,
+            full_jar,
+            full_cwd,
+            persistent,
+            "inspect-malformed-target-signature-only",
+            inspection_command(
+                INSPECTION_ROOT,
+                root["name"],
+                root["version"],
+                [f"sha256:{sha256(malformed_target)}"],
+                dependency_context=INSPECTION_CONTEXT,
+                outputs={"--sig-out": signature_only},
+            ),
+            [signature_only],
+            expect_success=False,
+            request_fields={"requestId": 359},
+        )
+        if "invalid version" not in str(malformed_signature["output"]):
+            raise AssertionError(
+                f"signature-only inspection accepted a malformed target: {malformed_signature!r}"
+            )
+
+        malformed_root = malformed_root_version(original_root_bytes)
+        (full_cwd / INSPECTION_ROOT).write_bytes(malformed_root)
+        malformed_root_signature = compare_command(
+            java,
+            full_jar,
+            full_cwd,
+            persistent,
+            "inspect-malformed-root-signature-only",
+            inspection_command(
+                INSPECTION_ROOT,
+                root["name"],
+                root["version"],
+                [f"sha256:{sha256(malformed_root)}"],
+                dependency_context=INSPECTION_CONTEXT,
+                outputs={"--sig-out": signature_only},
+            ),
+            [signature_only],
+            expect_success=False,
+            request_fields={"requestId": 360},
+        )
+        if "invalid version" not in str(malformed_root_signature["output"]):
+            raise AssertionError(
+                f"signature-only inspection accepted a malformed root: {malformed_root_signature!r}"
+            )
+        (full_cwd / INSPECTION_ROOT).write_bytes(original_root_bytes)
 
         # Reordering declarations preserves every canonical projection byte.
         reverse_context = dict(context)
@@ -1751,6 +1861,116 @@ def protobuf_varint(value: int) -> bytes:
 
 def protobuf_bytes(field_number: int, value: bytes) -> bytes:
     return protobuf_varint((field_number << 3) | 2) + protobuf_varint(len(value)) + value
+
+
+def _protobuf_read_varint(data: bytes, offset: int) -> tuple[int, int]:
+    value = 0
+    shift = 0
+    while offset < len(data):
+        byte = data[offset]
+        offset += 1
+        value |= (byte & 0x7F) << shift
+        if byte < 0x80:
+            return value, offset
+        shift += 7
+        if shift >= 70:
+            break
+    raise AssertionError("invalid or truncated protobuf varint in inspection fixture")
+
+
+def _protobuf_update_bytes_field(
+    data: bytes,
+    field_number: int,
+    update: Callable[[bytes], bytes],
+    *,
+    append_missing: bool = False,
+) -> bytes:
+    result = bytearray()
+    offset = 0
+    replaced = False
+    while offset < len(data):
+        start = offset
+        key, offset = _protobuf_read_varint(data, offset)
+        current_field = key >> 3
+        wire_type = key & 7
+        if wire_type == 0:
+            _, offset = _protobuf_read_varint(data, offset)
+        elif wire_type == 1:
+            offset += 8
+        elif wire_type == 2:
+            size, payload_start = _protobuf_read_varint(data, offset)
+            end = payload_start + size
+            if end > len(data):
+                raise AssertionError("truncated length-delimited protobuf field")
+            if current_field == field_number and not replaced:
+                replacement = update(data[payload_start:end])
+                if not isinstance(replacement, bytes):
+                    raise AssertionError("protobuf field update did not return bytes")
+                result.extend(protobuf_bytes(field_number, replacement))
+                replaced = True
+            else:
+                result.extend(data[start:end])
+            offset = end
+        elif wire_type == 5:
+            offset += 4
+        else:
+            raise AssertionError(f"unsupported protobuf wire type {wire_type}")
+        if wire_type != 2:
+            if offset > len(data):
+                raise AssertionError("truncated protobuf scalar field")
+            result.extend(data[start:offset])
+
+    if not replaced:
+        if not append_missing:
+            raise AssertionError(f"protobuf field {field_number} is absent")
+        replacement = update(b"")
+        if not isinstance(replacement, bytes):
+            raise AssertionError("protobuf field update did not return bytes")
+        result.extend(protobuf_bytes(field_number, replacement))
+    return bytes(result)
+
+
+def _protobuf_replace_message(
+    data: bytes, field_number: int, update: Callable[[bytes], bytes]
+) -> bytes:
+    return _protobuf_update_bytes_field(data, field_number, update)
+
+
+def _protobuf_set_bytes(data: bytes, field_number: int, value: bytes) -> bytes:
+    return _protobuf_update_bytes_field(
+        data,
+        field_number,
+        lambda _: value,
+        append_missing=True,
+    )
+
+
+def malformed_root_version(library: bytes) -> bytes:
+    return _protobuf_replace_message(
+        library,
+        5,
+        lambda descriptor: _protobuf_replace_message(
+            descriptor,
+            1,
+            lambda version: _protobuf_set_bytes(version, 4, b"alpha."),
+        ),
+    )
+
+
+def malformed_dependency_version(library: bytes, dependency_field: int) -> bytes:
+    return _protobuf_replace_message(
+        library,
+        dependency_field,
+        lambda dependency: _protobuf_replace_message(
+            dependency,
+            2,
+            lambda descriptor: _protobuf_replace_message(
+                descriptor,
+                1,
+                lambda version: _protobuf_set_bytes(version, 4, b"alpha."),
+            ),
+        ),
+    )
 
 
 def core_library_fixture(

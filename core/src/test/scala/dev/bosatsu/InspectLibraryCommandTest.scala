@@ -2,6 +2,7 @@ package dev.bosatsu
 
 import _root_.bosatsu.{TypedAst => proto}
 import cats.data.Chain
+import dev.bosatsu.hashing.Algo
 import dev.bosatsu.library.{LibraryInspectionFixtures, Name}
 import dev.bosatsu.tool.ExitCode
 
@@ -22,7 +23,15 @@ class InspectLibraryCommandTest extends munit.FunSuite {
   }
 
   private def args(output: String, descriptorOnly: Boolean): List[String] = {
-    val (rootPath, library, _, hashes) = parser
+    inspectionArgs(output, descriptorOnly, parser._4)
+  }
+
+  private def inspectionArgs(
+      output: String,
+      descriptorOnly: Boolean,
+      hashes: List[String]
+  ): List[String] = {
+    val (rootPath, library, _, _) = parser
     List(
       "tool",
       "inspect-library",
@@ -43,6 +52,35 @@ class InspectLibraryCommandTest extends munit.FunSuite {
         "--implementation-out", "implementation.json"
       ))
   }
+
+  private def signatureOnlyArgs(hashes: List[String]): List[String] = {
+    val (rootPath, library, _, _) = parser
+    List(
+      "tool",
+      "inspect-library",
+      "--input",
+      rootPath,
+      "--expected-name",
+      Name(library.name).name,
+      "--expected-version",
+      "1.0.0"
+    ) ++ hashes.flatMap(hash => List("--expected-hash", hash)) ++ List(
+      "--dependency-context",
+      "test_workspace/inspect_library/parser-context.json",
+      "--sig-out",
+      "signature-only.sig"
+    )
+  }
+
+  private def pins(bytes: Array[Byte]): List[String] = List(
+    s"blake3:${Algo.hashBytes[Algo.Blake3](bytes).hex}",
+    s"sha256:${Algo.hashBytes[Algo.Sha256](bytes).hex}"
+  )
+
+  private def failed(result: ErrorOr[?]): String =
+    result.swap.toOption.flatMap(error => Option(error.getMessage)).getOrElse(
+      fail("expected inspection to reject malformed serialized version")
+    )
 
   private def run(
       command: List[String],
@@ -93,5 +131,79 @@ class InspectLibraryCommandTest extends munit.FunSuite {
       .fold(error => fail(error.getMessage), identity)
     assertEquals(result._2, ExitCode.Success)
     assert(text(result._1, "root-descriptor.json").contains("public_child"))
+  }
+
+  test("serialized root and dependency versions fail before descriptor or signature output") {
+    val invalidVersion = proto.Version(
+      major = 1L,
+      minor = 0L,
+      patch = 0L,
+      preRelease = "alpha."
+    )
+    val malformedRoot = parser._2.copy(
+      descriptor = parser._2.descriptor.map(_.copy(version = Some(invalidVersion)))
+    )
+    val malformedRootBytes = malformedRoot.toByteArray
+    val rootOnly = MemoryMain.State.empty.withFile(
+      path(parser._1),
+      MemoryMain.FileContent.Bytes(malformedRootBytes)
+    ).get
+    val rootDescriptorFailure = failed(run(
+      inspectionArgs(
+        "bad-root.json",
+        descriptorOnly = true,
+        hashes = pins(malformedRootBytes)
+      ),
+      rootOnly
+    ))
+    assert(rootDescriptorFailure.contains("invalid version"), rootDescriptorFailure)
+    assert(rootDescriptorFailure.contains(parser._1), rootDescriptorFailure)
+
+    val rootFullFailure = failed(run(
+      signatureOnlyArgs(pins(malformedRootBytes)),
+      fixtureState.withFile(
+        path(parser._1),
+        MemoryMain.FileContent.Bytes(malformedRootBytes)
+      ).get
+    ))
+    assert(rootFullFailure.contains("invalid version"), rootFullFailure)
+    assert(rootFullFailure.contains(parser._1), rootFullFailure)
+
+    val malformedTargets = List(
+      parser._2.copy(publicDependencies = parser._2.publicDependencies.map { dependency =>
+        dependency.copy(desc = dependency.desc.map(_.copy(version = Some(invalidVersion))))
+      }),
+      parser._2.copy(privateDependencies = parser._2.privateDependencies.map { dependency =>
+        dependency.copy(desc = dependency.desc.map(_.copy(version = Some(invalidVersion))))
+      }),
+      parser._2.copy(
+        unusedTransitivePublicDependencies = parser._2.unusedTransitivePublicDependencies.map(
+          dependency => dependency.copy(
+            desc = dependency.desc.map(_.copy(version = Some(invalidVersion)))
+          )
+        )
+      )
+    )
+
+    malformedTargets.foreach { library =>
+      val bytes = library.toByteArray
+      val descriptorOnlyState = MemoryMain.State.empty.withFile(
+        path(parser._1),
+        MemoryMain.FileContent.Bytes(bytes)
+      ).get
+      val descriptorFailure = failed(run(
+        inspectionArgs("bad-target.json", descriptorOnly = true, hashes = pins(bytes)),
+        descriptorOnlyState
+      ))
+      assert(descriptorFailure.contains("invalid version"), descriptorFailure)
+      assert(descriptorFailure.contains("parser 1.0.0"), descriptorFailure)
+
+      val fullFailure = failed(run(signatureOnlyArgs(pins(bytes)), fixtureState.withFile(
+        path(parser._1),
+        MemoryMain.FileContent.Bytes(bytes)
+      ).get))
+      assert(fullFailure.contains("invalid version"), fullFailure)
+      assert(fullFailure.contains("parser 1.0.0"), fullFailure)
+    }
   }
 }

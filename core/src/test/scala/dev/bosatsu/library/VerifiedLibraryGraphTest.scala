@@ -415,6 +415,58 @@ class VerifiedLibraryGraphTest extends munit.ScalaCheckSuite {
     }
   }
 
+  test("all visibility descriptors reject malformed serialized target versions") {
+    val malformedVersion = proto.Version(
+      major = 1L,
+      minor = 0L,
+      patch = 0L,
+      preRelease = "alpha."
+    )
+    val changed = List(
+      rootFixture._2.copy(
+        publicDependencies = rootFixture._2.publicDependencies.map { dependency =>
+          dependency.copy(desc = dependency.desc.map(_.copy(version = Some(malformedVersion))))
+        }
+      ),
+      rootFixture._2.copy(
+        privateDependencies = rootFixture._2.privateDependencies.map { dependency =>
+          dependency.copy(desc = dependency.desc.map(_.copy(version = Some(malformedVersion))))
+        }
+      ),
+      rootFixture._2.copy(
+        unusedTransitivePublicDependencies = rootFixture._2.unusedTransitivePublicDependencies
+          .map { dependency =>
+            dependency.copy(desc = dependency.desc.map(_.copy(version = Some(malformedVersion))))
+          }
+      )
+    )
+
+    changed.foreach { library =>
+      val bytes = library.toByteArray
+      val root = (rootFixture._1, library, bytes, pins(bytes))
+      val current = state(List(rootFixture._1 -> bytes))
+      val snapshot = VerifiedLibrarySnapshot
+        .verify(
+          platform,
+          path(rootFixture._1),
+          Name(library.name),
+          Version(1, 0, 0),
+          pins(bytes)
+        )
+        .runA(current)
+        .toOption.get
+
+      val descriptorError = LibraryInspection.descriptorProjection(snapshot).swap.toOption.get
+      assert(descriptorError.contains("invalid version"), descriptorError)
+      assert(descriptorError.contains("parser 1.0.0"), descriptorError)
+
+      val graphError = message(verify(root, current = current))
+      assert(graphError.contains("invalid version"), graphError)
+      assert(graphError.contains("parser 1.0.0"), graphError)
+      assert(graphError.contains("via parser 1.0.0"), graphError)
+    }
+  }
+
   test("cycle detection reports the authenticated path that reaches the cycle") {
     val root = (Name("cycle_root"), Version(1, 0, 0))
     val left = (Name("cycle_left"), Version(1, 0, 0))

@@ -1,5 +1,6 @@
 package dev.bosatsu.library
 
+import _root_.bosatsu.{TypedAst => proto}
 import dev.bosatsu.{OrderingLaws, Platform}
 import org.scalacheck.{Gen, Prop}
 
@@ -367,6 +368,37 @@ class VersionTest extends munit.ScalaCheckSuite {
   test("00 is a valid Build but not a prerelease, which has to be numeric") {
     assert(Version.Build.parser.parseAll("00").isRight)
     assert(Version.PreRelease.parser.parseAll("00").isLeft)
+  }
+
+  test("checked protobuf conversion preserves valid spellings and rejects malformed fields") {
+    val valid = proto.Version(
+      major = 1L,
+      minor = 2L,
+      patch = 3L,
+      preRelease = "alpha-2.rc-1",
+      build = "000.build-2"
+    )
+    assertEquals(
+      Version.fromProtoChecked(valid),
+      Some(Version.unsafe("1.2.3-alpha-2.rc-1+000.build-2"))
+    )
+    assertEquals(Version.fromProtoChecked(proto.Version()), Some(Version.zero))
+    assertEquals(
+      Version.fromProtoChecked(valid.copy(preRelease = "alpha.")),
+      None
+    )
+    assertEquals(
+      Version.fromProtoChecked(valid.copy(preRelease = "alpha..1")),
+      None
+    )
+    assertEquals(Version.fromProtoChecked(valid.copy(build = "build.")), None)
+    assertEquals(Version.fromProtoChecked(valid.copy(major = -1L)), None)
+  }
+
+  property("valid versions survive checked protobuf round trips") {
+    Prop.forAll(versionGen) { version =>
+      assertEquals(Version.fromProtoChecked(version.toProto), Some(version))
+    }
   }
 
   property("show == render") {

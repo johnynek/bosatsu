@@ -56,13 +56,10 @@ private[bosatsu] final class VerifiedLibrarySnapshot[Path] private (
         (),
         s"pinned library $path has name '${protoLib.name}', expected '${expectedName.name}'"
       )
-      actualVersion <- Library.getVersion(protoLib).toRight(
-        s"pinned library $path has no version, expected ${expectedVersion.render}"
-      )
       _ <- Either.cond(
-        Version.versionOrder.eqv(actualVersion, expectedVersion),
+        Version.versionOrder.eqv(version, expectedVersion),
         (),
-        s"pinned library $path has version ${actualVersion.render}, expected ${expectedVersion.render}"
+        s"pinned library $path has version ${version.render}, expected ${expectedVersion.render}"
       )
       _ <- VerifiedLibrarySnapshot.checkPins(
         path,
@@ -147,22 +144,25 @@ private[bosatsu] object VerifiedLibrarySnapshot {
             (),
             s"pinned library $pathString has name '${library.name}', expected '${expectedName.name}'"
           )
-          actualVersion <- Library.getVersion(library).toRight(
+          versionProto <- library.descriptor.flatMap(_.version).toRight(
             s"pinned library $pathString has no version, expected ${expectedVersion.render}"
+          )
+          actualVersion <- Version.fromProtoChecked(versionProto).toRight(
+            s"pinned library $pathString has invalid version, expected ${expectedVersion.render}"
           )
           _ <- Either.cond(
             Version.versionOrder.eqv(actualVersion, expectedVersion),
             (),
             s"pinned library $pathString has version ${actualVersion.render}, expected ${expectedVersion.render}"
           )
-        } yield library
+        } yield library -> actualVersion
 
         moduleIOMonad.fromEither(result.leftMap(CliException.Basic(_))).map {
-          library =>
+          case (library, actualVersion) =>
             new VerifiedLibrarySnapshot(
               path,
               expectedName,
-              expectedVersion,
+              actualVersion,
               blake3,
               sha256,
               library,
@@ -284,6 +284,9 @@ private[bosatsu] object VerifiedLibraryGraph {
         versionProto <- descriptor.version.toRight(
           s"missing version for dependency '${dependency.name}' in $context"
         )
+        version <- Version.fromProtoChecked(versionProto).toRight(
+          s"invalid version for dependency '${dependency.name}' in $context"
+        )
         _ <- Either.cond(
           descriptor.hashes.nonEmpty,
           (),
@@ -292,7 +295,7 @@ private[bosatsu] object VerifiedLibraryGraph {
       } yield PendingEdge(
         visibility,
         dependency,
-        (Name(dependency.name), Version.fromProto(versionProto)),
+        (Name(dependency.name), version),
         descriptor.hashes.toList,
         descriptor.uris.toList
       )

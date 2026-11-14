@@ -86,12 +86,12 @@ private[bosatsu] object LibraryInspection {
     loop(left, right)
   }
 
-  private def descriptorJson(descriptor: Option[proto.LibDescriptor]): Json =
-    descriptor match {
+  private def descriptorJson(snapshot: VerifiedLibrarySnapshot[?]): Json =
+    snapshot.protoLib.descriptor match {
       case None => Json.JNull
       case Some(value) => Json.JObject(List(
-        "version" -> value.version.fold[Json](Json.JNull)(version =>
-          Json.JString(Version.fromProto(version).render)
+        "version" -> value.version.fold[Json](Json.JNull)(_ =>
+          Json.JString(snapshot.version.render)
         ),
         "hashes" -> stringsJson(value.hashes),
         "uris" -> stringsJson(value.uris)
@@ -118,6 +118,9 @@ private[bosatsu] object LibraryInspection {
         version <- descriptor.version.toRight(
           s"missing version for dependency '${dependency.name}' of $owner"
         )
+        targetVersion <- Version.fromProtoChecked(version).toRight(
+          s"invalid version for dependency '${dependency.name}' of $owner"
+        )
         _ <- Either.cond(
           descriptor.hashes.nonEmpty,
           (),
@@ -125,7 +128,7 @@ private[bosatsu] object LibraryInspection {
         )
       } yield DescriptorEntry(
         visibility,
-        (Name(dependency.name), Version.fromProto(version)),
+        (Name(dependency.name), targetVersion),
         descriptor.hashes.toList,
         descriptor.uris.toList
       )
@@ -165,7 +168,7 @@ private[bosatsu] object LibraryInspection {
         "sha256" -> Json.JString(snapshot.sha256.hex),
         "blake3" -> Json.JString(snapshot.blake3.hex)
       )),
-      "descriptor" -> descriptorJson(snapshot.protoLib.descriptor),
+      "descriptor" -> descriptorJson(snapshot),
       "dependencies" -> Json.JArray(entries.iterator.map { entry =>
         Json.JObject(List(
           "identity" -> identityJson(entry.identity),

@@ -1,5 +1,6 @@
 package dev.bosatsu
 
+import _root_.bosatsu.{TypedAst => proto}
 import cats.effect.IO
 import cats.syntax.all._
 import dev.bosatsu.hashing.Algo
@@ -35,12 +36,12 @@ class InspectLibraryCommandTest extends FileCommandFixtures {
     IO.blocking(Files.readAllBytes(root.resolve(relative)).toList)
 
   private def expectedHashes(root: Path): IO[List[String]] =
-    readBytes(root, rootLibrary).map(_.toArray).map { bytes =>
-      List(
-        s"blake3:${Algo.hashBytes[Algo.Blake3](bytes).hex}",
-        s"sha256:${Algo.hashBytes[Algo.Sha256](bytes).hex}"
-      )
-    }
+    readBytes(root, rootLibrary).map(bytes => hashes(bytes.toArray))
+
+  private def hashes(bytes: Array[Byte]): List[String] = List(
+    s"blake3:${Algo.hashBytes[Algo.Blake3](bytes).hex}",
+    s"sha256:${Algo.hashBytes[Algo.Sha256](bytes).hex}"
+  )
 
   private def args(hashes: List[String]): List[String] =
     List(
@@ -117,6 +118,53 @@ class InspectLibraryCommandTest extends FileCommandFixtures {
         afterPublicationFailure <- generatedOutputs.traverse(name => readBytes(root, name))
         _ = assertEquals(afterPublicationFailure, before)
         _ = assert(!listPaths(root).exists(_.contains(".bosatsu-stage-")))
+      } yield ()
+    }
+  }
+
+  test("malformed serialized identities preserve every prior requested output") {
+    withRunner { (root, runner) =>
+      for {
+        _ <- copyFixtures(root)
+        originalHashes <- expectedHashes(root)
+        initial <- runner.run(root, args(originalHashes))
+        _ = success(initial)
+        before <- generatedOutputs.traverse(name => readBytes(root, name))
+        invalidVersion = proto.Version(
+          major = 1L,
+          minor = 0L,
+          patch = 0L,
+          preRelease = "alpha."
+        )
+        originalRoot <- readBytes(root, rootLibrary)
+        parsedRoot = proto.Library.parseFrom(originalRoot.toArray)
+        malformedTarget = parsedRoot.copy(
+          publicDependencies = parsedRoot.publicDependencies.map { dependency =>
+            dependency.copy(
+              desc = dependency.desc.map(_.copy(version = Some(invalidVersion)))
+            )
+          }
+        )
+        targetBytes = malformedTarget.toByteArray
+        _ <- IO.blocking(Files.write(root.resolve(rootLibrary), targetBytes))
+        targetFailure <- runner.run(root, args(hashes(targetBytes)))
+        _ = failure(targetFailure)
+        _ = assert(targetFailure.stderr.contains("invalid version"), targetFailure.stderr)
+        afterTargetFailure <- generatedOutputs.traverse(name => readBytes(root, name))
+        _ = assertEquals(afterTargetFailure, before)
+        _ <- copyFixtures(root)
+        restoredRoot <- readBytes(root, rootLibrary)
+        parsedRestoredRoot = proto.Library.parseFrom(restoredRoot.toArray)
+        malformedRoot = parsedRestoredRoot.copy(
+          descriptor = parsedRestoredRoot.descriptor.map(_.copy(version = Some(invalidVersion)))
+        )
+        rootBytes = malformedRoot.toByteArray
+        _ <- IO.blocking(Files.write(root.resolve(rootLibrary), rootBytes))
+        rootFailure <- runner.run(root, args(hashes(rootBytes)))
+        _ = failure(rootFailure)
+        _ = assert(rootFailure.stderr.contains("invalid version"), rootFailure.stderr)
+        afterRootFailure <- generatedOutputs.traverse(name => readBytes(root, name))
+        _ = assertEquals(afterRootFailure, before)
       } yield ()
     }
   }

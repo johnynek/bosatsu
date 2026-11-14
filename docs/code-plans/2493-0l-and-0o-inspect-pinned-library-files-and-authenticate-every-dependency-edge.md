@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2493` 0l and 0o: Inspect pinned library files and authenticate every dependency edge
-- Pending steps: `1`
-- Completed steps: `8`
+- Pending steps: `0`
+- Completed steps: `9`
 - Total steps: `9`
 
 ## Summary
@@ -310,7 +310,7 @@ Run focused Version, snapshot, graph, and projection suites on JVM and Scala.js.
 
 Updated shared Version ordering to recognize only unsigned decimal prerelease identifiers as numeric and distinguish equal-valued build spellings, preserving numeric build order. Added correlated ordering and identity properties, hyphenated nextPreRelease coverage, pinned initial and cached identity rejection, and graph coverage for reordered private releases, package bindings, and inspection metadata. Focused Version, snapshot, graph, and projection suites passed on JVM and Scala.js (44 tests each). The Linux acceptance SBT command passed: coreJVM (2,266 passed), cli (205 passed, 1 skipped), coreJS (2,236 passed, 8 ignored), cliJSJS (12 passed), and cli assembly. `./test_cli.sh` passed, including candidate-jar worker and library inspection acceptance; `git diff --check` passed.
 
-9. [ ] `step_8_checked_serialized_versions` Validate serialized versions at inspection identity boundaries
+9. [x] `step_8_checked_serialized_versions` Validate serialized versions at inspection identity boundaries
 
 Invariant family: exact-version-identity
 
@@ -346,3 +346,7 @@ Run focused Version, snapshot, graph, projection, and command suites on JVM and 
 - A malformed second diamond descriptor must fail after a valid edge selected the child; cached identity reuse must not hide descriptor validation.
 - Cover trailing, leading, and interior empty prerelease/build components, leading-zero numeric prerelease identifiers, and invalid numeric components. Preserve valid hyphenated prereleases, leading-zero build identifiers, and real legacy projection.
 - Through shared command and candidate-jar direct/@params paths, correctly pinned malformed roots or descriptors must return failure and leave existing requested outputs unchanged.
+
+#### Completion Notes
+
+Added `Version.fromProtoChecked` backed by `Version.ifValid`; root authentication stores the checked identity, cached authentication compares it, and graph and descriptor readers reject malformed public, private, and unused-transitive-public targets before lookup or publication. Root descriptor output renders the validated snapshot version. Tests cover valid protobuf round trips, malformed roots and edges, descriptor-only and signature-only inspection, output preservation, and candidate-worker parity. Focused suites passed; the requested Linux SBT acceptance matrix and `scripts/test_bazel_worker.py` passed.
