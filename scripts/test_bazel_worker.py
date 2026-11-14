@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
-"""Compare one-shot Bazel parameter-file requests with direct JVM commands."""
+"""Compare direct, one-shot, and persistent JVM file-command invocations."""
 import argparse
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
+import select
 import shutil
 import subprocess
 import tarfile
 import tempfile
+import time
 import zipfile
 
 
@@ -19,10 +22,58 @@ SIGNATURE = "generated files 雪/test suite.sig"
 RUNTIME = "manifests 雪/runtime manifest.json"
 ROOT_GRAPH = "graphs 雪/root group.json"
 
+STRICT_SOURCES = "strict sources 雪"
+STRICT_OUTPUTS = "strict outputs 雪"
+STRICT_LEAF = f"{STRICT_SOURCES}/Leaf.bosatsu"
+STRICT_Y = f"{STRICT_SOURCES}/Y.bosatsu"
+STRICT_PRIVATE = f"{STRICT_SOURCES}/Private.bosatsu"
+STRICT_SIBLING = f"{STRICT_SOURCES}/Sibling.bosatsu"
+STRICT_X = f"{STRICT_SOURCES}/X.bosatsu"
+STRICT_CLIENT = f"{STRICT_SOURCES}/Client.bosatsu"
+STRICT_ONE = f"{STRICT_SOURCES}/One.bosatsu"
+STRICT_TWO = f"{STRICT_SOURCES}/Two.bosatsu"
+STRICT_LEFT = f"{STRICT_SOURCES}/Left.bosatsu"
+STRICT_RIGHT = f"{STRICT_SOURCES}/Right.bosatsu"
+STRICT_APP = f"{STRICT_SOURCES}/App.bosatsu"
+STRICT_LABELS = "strict interface labels 雪.json"
+
+STRICT_LEAF_SOURCE = (
+    "package Leaf\nexport Leaf, leaf\nstruct Leaf(n: Int)\nleaf = Leaf(1)\n"
+)
+STRICT_Y_SOURCE = (
+    "package Y\nfrom Leaf import Leaf, leaf\nexport Token(), token\n"
+    "exposes Leaf\nstruct Token(value: Leaf)\ntoken = Token(leaf)\n"
+)
+STRICT_PRIVATE_SOURCE = "package Private\nexport enabled\nenabled = True\n"
+STRICT_SIBLING_SOURCE = "package Sibling\nexport number\nnumber = 7\n"
+STRICT_X_SOURCE = (
+    "package X\nfrom Private import enabled\nfrom Y import token\n"
+    "export shared\nexposes Y\nshared = if enabled: token\n         else: token\n"
+)
+STRICT_X_REDUCED_SOURCE = "package X\nexport shared\nshared = 1\n"
+STRICT_CLIENT_X_SOURCE = "package Client\nfrom X import shared\nmain = [shared]\n"
+STRICT_CLIENT_SIBLING_SOURCE = (
+    "package Client\nfrom Sibling import number\nmain = number\n"
+)
+STRICT_PROVIDER_INT_SOURCE = (
+    "package Shared/Api\nexport Token(), token\nstruct Token(value: Int)\ntoken = Token(1)\n"
+)
+STRICT_PROVIDER_BOOL_SOURCE = (
+    "package Shared/Api\nexport Token(), token\nstruct Token(value: Bool)\ntoken = Token(True)\n"
+)
+STRICT_APP_BOTH_SOURCE = (
+    "package App\nfrom Left import value as x\nfrom Right import value as y\nmain = (x, y)\n"
+)
+STRICT_APP_LEFT_SOURCE = "package App\nfrom Left import value\nmain = [value]\n"
+
 
 def invoke(java: str, jar: Path, cwd: Path, *args: str) -> subprocess.CompletedProcess[bytes]:
     return subprocess.run(
-        [java, "-jar", str(jar), *args], cwd=cwd, capture_output=True, check=False
+        [java, "-jar", str(jar), *args],
+        cwd=cwd,
+        capture_output=True,
+        check=False,
+        timeout=60,
     )
 
 
@@ -42,13 +93,6 @@ def check_result(
             else:
                 detail = f"direct {field}: {expected}\nworker {field}: {actual}"
             raise AssertionError(f"{label} differs between direct and worker invocation\n{detail}")
-
-
-def remove_outputs(cwd: Path, outputs: list[str]) -> None:
-    for name in outputs:
-        path = cwd / name
-        if path.is_file() or path.is_symlink():
-            path.unlink()
 
 
 def output_bytes(cwd: Path, outputs: list[str]) -> dict[str, bytes]:
@@ -72,6 +116,273 @@ def workspace_snapshot(cwd: Path) -> dict[str, bytes]:
         elif path.is_dir():
             result[relative] = b"D\0"
     return result
+
+
+def path_states(cwd: Path, paths: list[str]) -> dict[str, tuple[str, bytes | str | None]]:
+    states: dict[str, tuple[str, bytes | str | None]] = {}
+    for name in paths:
+        path = cwd / name
+        if path.is_symlink():
+            states[name] = ("symlink", path.readlink().as_posix())
+        elif path.is_file():
+            states[name] = ("file", path.read_bytes())
+        elif path.is_dir():
+            states[name] = ("directory", None)
+        else:
+            states[name] = ("absent", None)
+    return states
+
+
+def restore_path_states(
+    cwd: Path, states: dict[str, tuple[str, bytes | str | None]]
+) -> None:
+    for name, (kind, value) in states.items():
+        path = cwd / name
+        if path.is_symlink() or path.is_file():
+            path.unlink()
+        elif path.is_dir() and kind != "directory":
+            shutil.rmtree(path)
+        if kind == "file":
+            path.parent.mkdir(parents=True, exist_ok=True)
+            assert isinstance(value, bytes)
+            path.write_bytes(value)
+        elif kind == "symlink":
+            path.parent.mkdir(parents=True, exist_ok=True)
+            assert isinstance(value, str)
+            path.symlink_to(value)
+        elif kind == "directory":
+            path.mkdir(parents=True, exist_ok=True)
+
+
+def assert_no_scratch(cwd: Path, label: str) -> None:
+    leftovers = [
+        path.relative_to(cwd).as_posix()
+        for path in cwd.rglob("*")
+        if ".bosatsu-stage-" in path.name or path.name.startswith("bosatsu-request-")
+    ]
+    if leftovers:
+        raise AssertionError(f"{label} left request scratch behind: {leftovers!r}")
+
+
+def changed_paths(before: dict[str, bytes], after: dict[str, bytes]) -> set[str]:
+    return {
+        name
+        for name in before.keys() | after.keys()
+        if before.get(name) != after.get(name)
+    }
+
+
+def without_jvm_trace_frames(message: str) -> str:
+    return "".join(
+        line for line in message.splitlines(keepends=True) if not line.startswith("\tat ")
+    )
+
+
+class PersistentWorker:
+    """One bounded, context-managed reader for a real candidate JVM process."""
+
+    def __init__(self, java: str, jar: Path, cwd: Path, timeout: float = 60):
+        self.timeout = timeout
+        self._stderr_dir = tempfile.TemporaryDirectory(prefix="bosatsu-worker-stderr-")
+        self._stderr_path = Path(self._stderr_dir.name) / "stderr.log"
+        try:
+            with self._stderr_path.open("wb") as stderr_writer:
+                self.process = subprocess.Popen(
+                    [java, "-jar", str(jar), "tool", "bazel-worker", "--persistent_worker"],
+                    cwd=cwd,
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=stderr_writer,
+                    bufsize=0,
+                )
+            assert self.process.stdin is not None
+            assert self.process.stdout is not None
+            self._stderr_reader = self._stderr_path.open("rb", buffering=0)
+            self._stdout_buffer = bytearray()
+        except BaseException:
+            process = getattr(self, "process", None)
+            if process is not None and process.poll() is None:
+                process.kill()
+                process.wait(timeout=5)
+            self._stderr_dir.cleanup()
+            raise
+
+    def __enter__(self) -> "PersistentWorker":
+        return self
+
+    def __exit__(self, _kind: object, _value: object, _traceback: object) -> None:
+        if self.process.poll() is None:
+            self._stop()
+        elif self.process.stdin is not None:
+            try:
+                self.process.stdin.close()
+            except (BrokenPipeError, OSError):
+                pass
+            self.process.stdin = None
+        if self.process.stdout is not None:
+            self.process.stdout.close()
+        self._stderr_reader.close()
+        self._stderr_dir.cleanup()
+
+    def _stop(self) -> None:
+        if self.process.stdin is not None:
+            try:
+                self.process.stdin.close()
+            except (BrokenPipeError, OSError):
+                pass
+            self.process.stdin = None
+        if self.process.poll() is None:
+            try:
+                self.process.terminate()
+            except ProcessLookupError:
+                pass
+            try:
+                self.process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+                self.process.wait(timeout=5)
+
+    def _send(self, payload: bytes) -> None:
+        if self.process.poll() is not None or self.process.stdin is None:
+            raise AssertionError("persistent worker exited before the next request")
+        try:
+            self.process.stdin.write(payload)
+            self.process.stdin.flush()
+        except (BrokenPipeError, OSError) as error:
+            raise AssertionError("persistent worker closed stdin before its response") from error
+
+    def _take_line(self) -> bytes | None:
+        newline = self._stdout_buffer.find(b"\n")
+        if newline < 0:
+            return None
+        line = bytes(self._stdout_buffer[: newline + 1])
+        del self._stdout_buffer[: newline + 1]
+        return line
+
+    def _read_line(self) -> bytes:
+        deadline = time.monotonic() + self.timeout
+        while True:
+            line = self._take_line()
+            if line is not None:
+                return line
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise AssertionError("timed out waiting for a complete persistent response line")
+            assert self.process.stdout is not None
+            ready, _, _ = select.select(
+                [self.process.stdout], [], [], min(remaining, 0.05)
+            )
+            if ready:
+                chunk = os.read(self.process.stdout.fileno(), 65536)
+                if not chunk:
+                    raise AssertionError("persistent worker closed stdout before a complete response")
+                self._stdout_buffer.extend(chunk)
+            elif self.process.poll() is not None:
+                raise AssertionError(
+                    "persistent worker exited without a response: "
+                    f"{self.stderr_bytes().decode('utf-8', errors='replace')}"
+                )
+
+    def _read_response(self, expected_id: int) -> dict[str, object]:
+        line = self._read_line()
+        if not line.endswith(b"\n") or line.count(b"\n") != 1:
+            raise AssertionError(f"worker response is not one LF-terminated frame: {line!r}")
+        try:
+            response = json.loads(line[:-1].decode("utf-8", errors="strict"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise AssertionError(f"worker wrote invalid response JSON: {line!r}") from error
+        if not isinstance(response, dict):
+            raise AssertionError(f"worker response is not a JSON object: {response!r}")
+        if set(response) != {"requestId", "exitCode", "output", "wasCancelled"}:
+            raise AssertionError(f"worker response has an unexpected shape: {response!r}")
+        if type(response["requestId"]) is not int or response["requestId"] != expected_id:
+            raise AssertionError(f"worker returned the wrong request ID: {response!r}")
+        if type(response["exitCode"]) is not int or not isinstance(response["output"], str):
+            raise AssertionError(f"worker returned invalid response fields: {response!r}")
+        if type(response["wasCancelled"]) is not bool or response["wasCancelled"]:
+            raise AssertionError(f"worker unexpectedly reported cancellation: {response!r}")
+        self._assert_no_extra_stdout()
+        self.assert_stderr_empty()
+        if self.process.poll() is not None:
+            raise AssertionError("persistent worker exited before stdin was closed")
+        return response
+
+    def _assert_no_extra_stdout(self, quiet_period: float = 0.05) -> None:
+        if self._stdout_buffer:
+            raise AssertionError(f"worker wrote extra stdout after its response: {bytes(self._stdout_buffer)!r}")
+        assert self.process.stdout is not None
+        ready, _, _ = select.select([self.process.stdout], [], [], quiet_period)
+        if ready:
+            extra = os.read(self.process.stdout.fileno(), 65536)
+            if extra:
+                raise AssertionError(f"worker wrote extra stdout after its response: {extra!r}")
+
+    def stderr_bytes(self) -> bytes:
+        self._stderr_reader.seek(0)
+        return self._stderr_reader.read()
+
+    def assert_stderr_empty(self) -> None:
+        stderr = self.stderr_bytes()
+        if stderr:
+            raise AssertionError(f"ordinary worker request wrote to stderr: {stderr!r}")
+
+    @staticmethod
+    def _request_bytes(payload: dict[str, object]) -> bytes:
+        return json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8") + b"\n"
+
+    def request(self, payload: dict[str, object]) -> dict[str, object]:
+        expected_id = payload.get("requestId", payload.get("request_id", 0))
+        if type(expected_id) is not int:
+            raise AssertionError(f"test request ID must be an integer: {expected_id!r}")
+        self._send(self._request_bytes(payload))
+        return self._read_response(expected_id)
+
+    def request_raw(self, payload: bytes, expected_id: int) -> dict[str, object]:
+        self._send(payload)
+        return self._read_response(expected_id)
+
+    def control_then_request(
+        self, control: dict[str, object], payload: dict[str, object]
+    ) -> dict[str, object]:
+        expected_id = payload.get("requestId", payload.get("request_id", 0))
+        if type(expected_id) is not int:
+            raise AssertionError(f"test request ID must be an integer: {expected_id!r}")
+        self._send(self._request_bytes(control) + self._request_bytes(payload))
+        return self._read_response(expected_id)
+
+    def raw(self, payload: bytes) -> None:
+        self._send(payload)
+
+    def finish(self) -> tuple[int, bytes, bytes]:
+        if self.process.stdin is not None:
+            try:
+                self.process.stdin.close()
+            except (BrokenPipeError, OSError):
+                pass
+            self.process.stdin = None
+        deadline = time.monotonic() + self.timeout
+        extra = bytearray(self._stdout_buffer)
+        self._stdout_buffer.clear()
+        eof = False
+        assert self.process.stdout is not None
+        while not (eof and self.process.poll() is not None):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                self._stop()
+                raise AssertionError("persistent worker did not exit after stdin EOF")
+            ready, _, _ = select.select(
+                [self.process.stdout], [], [], min(remaining, 0.05)
+            )
+            if ready:
+                chunk = os.read(self.process.stdout.fileno(), 65536)
+                if chunk:
+                    extra.extend(chunk)
+                else:
+                    eof = True
+                    if self.process.poll() is None:
+                        time.sleep(0.01)
+        status = self.process.wait(timeout=max(0.1, deadline - time.monotonic()))
+        return status, bytes(extra), self.stderr_bytes()
 
 
 def check_startup_failures(java: str, jar: Path, cwd: Path) -> None:
@@ -104,8 +415,13 @@ def check_startup_failures(java: str, jar: Path, cwd: Path) -> None:
             "requires exactly one @parameter-file argument",
         ),
         (
-            "persistent worker startup",
-            ("--persistent_worker",),
+            "mixed persistent and parameter-file startup",
+            ("--persistent_worker", "@" + (params_dir / "empty.params").as_posix()),
+            "requires exactly one @parameter-file argument",
+        ),
+        (
+            "extra persistent startup argument",
+            ("--persistent_worker", "extra"),
             "requires exactly one @parameter-file argument",
         ),
         (
@@ -143,6 +459,7 @@ def compare_command(
     java: str,
     jar: Path,
     cwd: Path,
+    persistent: PersistentWorker,
     name: str,
     command: list[str],
     outputs: list[str],
@@ -151,8 +468,10 @@ def compare_command(
     final_newline: bool = True,
     expect_success: bool = True,
     compare_diagnostics: bool = True,
-    preserve_outputs_on_failure: bool = False,
-) -> subprocess.CompletedProcess[bytes]:
+    request_fields: dict[str, object] | None = None,
+    extra_paths: list[str] | None = None,
+    control_request: dict[str, object] | None = None,
+) -> dict[str, object]:
     parameter_path = Path("parameter files 雪") / f"{name}.params"
     parameter_file = cwd / parameter_path
     parameter_file.parent.mkdir(parents=True, exist_ok=True)
@@ -161,63 +480,569 @@ def compare_command(
         content += line_ending
     parameter_file.write_bytes(content.encode("utf-8"))
 
-    preserved_outputs: dict[str, bytes] = {}
-    if expect_success or not preserve_outputs_on_failure:
-        remove_outputs(cwd, outputs)
-    else:
-        for output in outputs:
-            path = cwd / output
-            path.parent.mkdir(parents=True, exist_ok=True)
-            preserved_outputs[output] = b"previous successful toolchain stamp\n"
-            path.write_bytes(preserved_outputs[output])
+    state_paths = list(dict.fromkeys(outputs + (extra_paths or [])))
+    initial_states = path_states(cwd, state_paths)
+    direct: subprocess.CompletedProcess[bytes] | None = None
+    expected_outputs: dict[str, bytes] = {}
+    persistent_response: dict[str, object] | None = None
 
-    direct = invoke(java, jar, cwd, "tool", *command)
-    direct_outputs = output_bytes(cwd, outputs) if direct.returncode == 0 else {}
-    if expect_success and direct.returncode != 0:
+    routes = ("direct", "params", "persistent")
+    for route in routes:
+        restore_path_states(cwd, initial_states)
+        before = workspace_snapshot(cwd)
+        if route == "direct":
+            result = invoke(java, jar, cwd, "tool", *command)
+            direct = result
+            if expect_success and result.returncode != 0:
+                raise AssertionError(
+                    f"direct {name} command failed ({result.returncode}):\n"
+                    f"{result.stderr.decode('utf-8', errors='replace')}"
+                )
+            if not expect_success and result.returncode == 0:
+                raise AssertionError(f"direct {name} command unexpectedly succeeded")
+        elif route == "params":
+            if direct is None:
+                raise AssertionError("direct route did not run before @params")
+            result = invoke(java, jar, cwd, "tool", "bazel-worker", "@" + parameter_path.as_posix())
+            if compare_diagnostics:
+                check_result(name, direct, result)
+            else:
+                if (direct.returncode, direct.stdout) != (result.returncode, result.stdout):
+                    raise AssertionError(f"{name} status or stdout differs between direct and @params")
+                direct_error = without_jvm_trace_frames(direct.stderr.decode("utf-8", errors="replace"))
+                params_error = without_jvm_trace_frames(result.stderr.decode("utf-8", errors="replace"))
+                if direct_error != params_error:
+                    raise AssertionError(f"{name} diagnostics differ between direct and @params")
+        else:
+            if direct is None:
+                raise AssertionError("direct route did not run before persistent worker")
+            payload: dict[str, object] = {"arguments": command}
+            payload.update(request_fields or {})
+            if payload.get("arguments") != command:
+                raise AssertionError("request_fields cannot replace the persistent command arguments")
+            if control_request is None:
+                persistent_response = persistent.request(payload)
+            else:
+                persistent_response = persistent.control_then_request(control_request, payload)
+            if persistent_response["exitCode"] != direct.returncode:
+                raise AssertionError(
+                    f"{name} status differs through persistent worker: "
+                    f"direct={direct.returncode}, persistent={persistent_response!r}"
+                )
+            direct_output = (direct.stdout + direct.stderr).decode("utf-8", errors="strict")
+            actual_output = persistent_response["output"]
+            assert isinstance(actual_output, str)
+            if compare_diagnostics:
+                if actual_output != direct_output:
+                    raise AssertionError(
+                        f"{name} diagnostics differ through persistent worker\n"
+                        f"direct stdout+stderr:\n{direct_output}\n"
+                        f"persistent output:\n{actual_output}"
+                    )
+            elif without_jvm_trace_frames(actual_output) != without_jvm_trace_frames(direct_output):
+                raise AssertionError(f"{name} diagnostics differ through persistent worker")
+
+        after = workspace_snapshot(cwd)
+        unexpected = changed_paths(before, after) - set(outputs)
+        if unexpected:
+            raise AssertionError(f"{name} {route} route changed undeclared workspace files: {sorted(unexpected)}")
+        assert_no_scratch(cwd, f"{name} {route} route")
+        if route == "direct" and direct is not None and direct.returncode == 0:
+            expected_outputs = output_bytes(cwd, outputs)
+        if expect_success:
+            actual_outputs = output_bytes(cwd, outputs)
+            if route == "direct":
+                expected_outputs = actual_outputs
+            elif actual_outputs != expected_outputs:
+                raise AssertionError(f"{name} output bytes differ through {route}")
+        elif path_states(cwd, state_paths) != initial_states:
+            raise AssertionError(f"{name} {route} failure changed prior outputs or obstructions")
+
+    assert persistent_response is not None
+    return persistent_response
+
+
+def strict_signature(name: str) -> str:
+    return f"{STRICT_OUTPUTS}/{name}.sig"
+
+
+def strict_compile_command(
+    output: str,
+    sources: list[str],
+    interfaces: list[str],
+    *,
+    labels: str | None = None,
+) -> list[str]:
+    command = [
+        "compile-packages",
+        "--packages-out",
+        f"{output}.pkg",
+        "--sig-out",
+        f"{output}.sig",
+    ]
+    for source in sources:
+        command.extend(("--src", source))
+    for interface in interfaces:
+        command.extend(("--direct-interface", interface))
+    command.append("--error-unused-interfaces")
+    if labels is not None:
+        command.extend(("--interface-labels", labels))
+    return command
+
+
+def strict_compare(
+    java: str,
+    jar: Path,
+    cwd: Path,
+    persistent: PersistentWorker,
+    name: str,
+    output: str,
+    sources: list[str],
+    interfaces: list[str],
+    *,
+    labels: str | None = None,
+    expect_success: bool = True,
+    request_id: int = 0,
+) -> dict[str, object]:
+    return compare_command(
+        java,
+        jar,
+        cwd,
+        persistent,
+        name,
+        strict_compile_command(output, sources, interfaces, labels=labels),
+        [f"{output}.pkg", f"{output}.sig"],
+        expect_success=expect_success,
+        request_fields={"requestId": request_id},
+    )
+
+
+def strict_prepare(
+    java: str,
+    jar: Path,
+    cwd: Path,
+    name: str,
+    output: str,
+    sources: list[str],
+    interfaces: list[str],
+) -> None:
+    command = strict_compile_command(output, sources, interfaces)
+    result = invoke(java, jar, cwd, "tool", *command)
+    if result.returncode != 0:
         raise AssertionError(
-            f"direct {name} command failed ({direct.returncode}):\n"
-            f"{direct.stderr.decode('utf-8', errors='replace')}"
+            f"candidate jar could not prepare {name}:\n"
+            f"{result.stderr.decode('utf-8', errors='replace')}"
         )
-    if not expect_success and direct.returncode == 0:
-        raise AssertionError(f"direct {name} command unexpectedly succeeded")
-    if direct.returncode != 0:
-        if preserve_outputs_on_failure:
-            actual = {output: (cwd / output).read_bytes() for output in outputs}
-            if actual != preserved_outputs:
-                raise AssertionError(f"direct {name} changed a previously published output after failure")
-        elif any((cwd / output).exists() for output in outputs):
-            raise AssertionError(f"direct {name} left an output behind after failure")
+    output_bytes(cwd, [f"{output}.pkg", f"{output}.sig"])
+    assert_no_scratch(cwd, name)
 
-    if preserve_outputs_on_failure and not expect_success:
-        for output, content in preserved_outputs.items():
-            (cwd / output).write_bytes(content)
-    else:
-        remove_outputs(cwd, outputs)
-    worker = invoke(java, jar, cwd, "tool", "bazel-worker", "@" + parameter_path.as_posix())
-    if compare_diagnostics:
-        check_result(name, direct, worker)
-    else:
-        if (direct.returncode, direct.stdout) != (worker.returncode, worker.stdout):
-            raise AssertionError(f"{name} status or stdout differs between direct and worker invocation")
-        # The JVM adds effect trace frames from the two different entry paths.
-        # Compare the reported exception and message while ignoring those frames.
-        direct_diagnostic = direct.stderr.partition(b"\n\tat ")[0]
-        worker_diagnostic = worker.stderr.partition(b"\n\tat ")[0]
-        if direct_diagnostic != worker_diagnostic or b"NotDirectoryException" not in direct_diagnostic:
-            raise AssertionError(f"{name} diagnostics differ between direct and worker invocation")
-    if worker.returncode == 0:
-        worker_outputs = output_bytes(cwd, outputs)
-        if direct_outputs != worker_outputs:
-            raise AssertionError(f"{name} output bytes differ between direct and worker invocation")
-    elif preserve_outputs_on_failure:
-        actual = {output: (cwd / output).read_bytes() for output in outputs}
-        if actual != preserved_outputs:
-            raise AssertionError(f"worker {name} changed a previously published output after failure")
-    elif any((cwd / output).exists() for output in outputs):
-        raise AssertionError(f"{name} left an output behind after failure")
-    if expect_success != (worker.returncode == 0):
-        raise AssertionError(f"{name} returned unexpected status {worker.returncode}")
-    return worker
+
+def write_strict_labels(cwd: Path, entries: list[tuple[str, str]]) -> None:
+    manifest = {
+        "schema_version": 1,
+        "interfaces": [{"path": path, "label": label} for path, label in entries],
+    }
+    (cwd / STRICT_LABELS).write_text(
+        json.dumps(manifest, ensure_ascii=False), encoding="utf-8"
+    )
+
+
+def write_strict_sources(cwd: Path) -> None:
+    (cwd / STRICT_SOURCES).mkdir(parents=True, exist_ok=True)
+    (cwd / STRICT_OUTPUTS).mkdir(parents=True, exist_ok=True)
+    for path, source in (
+        (STRICT_LEAF, STRICT_LEAF_SOURCE),
+        (STRICT_Y, STRICT_Y_SOURCE),
+        (STRICT_PRIVATE, STRICT_PRIVATE_SOURCE),
+        (STRICT_SIBLING, STRICT_SIBLING_SOURCE),
+        (STRICT_X, STRICT_X_SOURCE),
+        (STRICT_CLIENT, STRICT_CLIENT_X_SOURCE),
+        (STRICT_ONE, STRICT_PROVIDER_INT_SOURCE),
+        (STRICT_TWO, STRICT_PROVIDER_BOOL_SOURCE),
+        (STRICT_LEFT, ""),
+        (STRICT_RIGHT, ""),
+        (STRICT_APP, STRICT_APP_LEFT_SOURCE),
+    ):
+        (cwd / path).write_text(source, encoding="utf-8")
+
+
+def strict_facade_source(name: str) -> str:
+    return (
+        f"package {name}\nfrom Shared/Api import token\nexport value\n"
+        "exposes Shared/Api\nvalue = token\n"
+    )
+
+
+def assert_strict_output(response: dict[str, object], *witnesses: str) -> str:
+    output = response["output"]
+    if not isinstance(output, str):
+        raise AssertionError(f"strict-interface worker output was not text: {response!r}")
+    for witness in witnesses:
+        if witness not in output:
+            raise AssertionError(
+                f"strict-interface diagnostic lacks {witness!r}: {output!r}"
+            )
+    return output
+
+
+def replay_strict_interface_matrix(
+    java: str, jar: Path, cwd: Path, persistent: PersistentWorker
+) -> None:
+    write_strict_sources(cwd)
+    leaf_sig = strict_signature("leaf")
+    y_sig = strict_signature("y")
+    private_sig = strict_signature("private")
+    wide_sig = strict_signature("wide")
+
+    for name, output, sources, interfaces in (
+        ("strict-build-leaf", f"{STRICT_OUTPUTS}/leaf", [STRICT_LEAF], []),
+        ("strict-build-y", f"{STRICT_OUTPUTS}/y", [STRICT_Y], [leaf_sig]),
+        ("strict-build-private", f"{STRICT_OUTPUTS}/private", [STRICT_PRIVATE], []),
+        (
+            "strict-build-wide",
+            f"{STRICT_OUTPUTS}/wide",
+            [STRICT_X, STRICT_SIBLING],
+            [y_sig, leaf_sig, private_sig],
+        ),
+    ):
+        strict_prepare(java, jar, cwd, name, output, sources, interfaces)
+
+    # Selecting only Sibling from the wide signature must not pull in X's exposure.
+    (cwd / STRICT_CLIENT).write_text(STRICT_CLIENT_SIBLING_SOURCE, encoding="utf-8")
+    sibling_only = strict_compare(
+        java,
+        jar,
+        cwd,
+        persistent,
+        "strict-sibling-only",
+        f"{STRICT_OUTPUTS}/sibling-only",
+        [STRICT_CLIENT],
+        [wide_sig],
+        request_id=210,
+    )
+    if sibling_only["exitCode"] != 0:
+        raise AssertionError(f"Sibling-only selection failed: {sibling_only!r}")
+
+    write_strict_labels(
+        cwd,
+        [(wide_sig, "//interfaces:wide"), (y_sig, "//interfaces:y")],
+    )
+    unused_y = strict_compare(
+        java,
+        jar,
+        cwd,
+        persistent,
+        "strict-unused-y-label",
+        f"{STRICT_OUTPUTS}/sibling-unused-y",
+        [STRICT_CLIENT],
+        [wide_sig, y_sig],
+        labels=STRICT_LABELS,
+        expect_success=False,
+        request_id=211,
+    )
+    assert_strict_output(unused_y, f"{y_sig} (//interfaces:y)")
+
+    (cwd / STRICT_CLIENT).write_text(STRICT_CLIENT_X_SOURCE, encoding="utf-8")
+    missing_y = strict_compare(
+        java,
+        jar,
+        cwd,
+        persistent,
+        "strict-missing-y",
+        f"{STRICT_OUTPUTS}/missing-y",
+        [STRICT_CLIENT],
+        [wide_sig],
+        expect_success=False,
+        request_id=212,
+    )
+    assert_strict_output(missing_y, "Client -> X -> Y")
+
+    missing_leaf = strict_compare(
+        java,
+        jar,
+        cwd,
+        persistent,
+        "strict-missing-leaf-labels",
+        f"{STRICT_OUTPUTS}/missing-leaf",
+        [STRICT_CLIENT],
+        [wide_sig, y_sig],
+        labels=STRICT_LABELS,
+        expect_success=False,
+        request_id=213,
+    )
+    assert_strict_output(
+        missing_leaf,
+        "Client -> X -> Y -> Leaf",
+        f"{wide_sig} (//interfaces:wide)",
+        f"{y_sig} (//interfaces:y)",
+    )
+
+    exact = strict_compare(
+        java,
+        jar,
+        cwd,
+        persistent,
+        "strict-exact-exposure-closure",
+        f"{STRICT_OUTPUTS}/exact-exposure",
+        [STRICT_CLIENT],
+        [leaf_sig, y_sig, wide_sig, wide_sig],
+        request_id=214,
+    )
+    if exact["exitCode"] != 0:
+        raise AssertionError(f"exact exposure closure failed: {exact!r}")
+
+    unnecessary_private = strict_compare(
+        java,
+        jar,
+        cwd,
+        persistent,
+        "strict-unnecessary-private",
+        f"{STRICT_OUTPUTS}/unnecessary-private",
+        [STRICT_CLIENT],
+        [wide_sig, leaf_sig, private_sig, y_sig],
+        expect_success=False,
+        request_id=215,
+    )
+    assert_strict_output(unnecessary_private, f"unused direct interfaces: {private_sig}")
+
+    # Reversing declarations and labels changes neither diagnostics' meaning nor outputs.
+    ordered_interfaces = [wide_sig, y_sig, leaf_sig]
+    write_strict_labels(
+        cwd,
+        [(path, f"//first:{index}") for index, path in enumerate(ordered_interfaces)],
+    )
+    ordered = strict_compare(
+        java,
+        jar,
+        cwd,
+        persistent,
+        "strict-label-order-first",
+        f"{STRICT_OUTPUTS}/label-order",
+        [STRICT_CLIENT],
+        ordered_interfaces,
+        labels=STRICT_LABELS,
+        request_id=216,
+    )
+    if ordered["exitCode"] != 0:
+        raise AssertionError(f"labelled exact closure failed: {ordered!r}")
+    ordered_bytes = output_bytes(
+        cwd, [f"{STRICT_OUTPUTS}/label-order.pkg", f"{STRICT_OUTPUTS}/label-order.sig"]
+    )
+
+    reversed_interfaces = list(reversed(ordered_interfaces))
+    write_strict_labels(
+        cwd,
+        [(path, f"@second//:{index}") for index, path in enumerate(reversed_interfaces)],
+    )
+    reordered = strict_compare(
+        java,
+        jar,
+        cwd,
+        persistent,
+        "strict-label-order-reversed",
+        f"{STRICT_OUTPUTS}/label-order",
+        [STRICT_CLIENT],
+        reversed_interfaces,
+        labels=STRICT_LABELS,
+        request_id=217,
+    )
+    if reordered["exitCode"] != 0:
+        raise AssertionError(f"reordered labelled closure failed: {reordered!r}")
+    if output_bytes(
+        cwd, [f"{STRICT_OUTPUTS}/label-order.pkg", f"{STRICT_OUTPUTS}/label-order.sig"]
+    ) != ordered_bytes:
+        raise AssertionError("declaration order changed successful package/signature bytes")
+
+    write_strict_labels(
+        cwd,
+        [(wide_sig, "//app:facade"), (y_sig, "//types:owner")],
+    )
+    labelled_missing = strict_compare(
+        java,
+        jar,
+        cwd,
+        persistent,
+        "strict-labelled-missing-leaf",
+        f"{STRICT_OUTPUTS}/label-order",
+        [STRICT_CLIENT],
+        [wide_sig, y_sig],
+        labels=STRICT_LABELS,
+        expect_success=False,
+        request_id=218,
+    )
+    assert_strict_output(
+        labelled_missing,
+        "Client -> X -> Y -> Leaf",
+        f"{wide_sig} (//app:facade)",
+        f"{y_sig} (//types:owner)",
+    )
+
+    group_local = strict_compare(
+        java,
+        jar,
+        cwd,
+        persistent,
+        "strict-group-local-owner",
+        f"{STRICT_OUTPUTS}/group-local",
+        [STRICT_CLIENT, STRICT_Y],
+        [wide_sig, leaf_sig],
+        request_id=219,
+    )
+    if group_local["exitCode"] != 0:
+        raise AssertionError(f"group-local Y did not satisfy X's exposure: {group_local!r}")
+    redundant_y = strict_compare(
+        java,
+        jar,
+        cwd,
+        persistent,
+        "strict-group-local-redundant-y",
+        f"{STRICT_OUTPUTS}/group-local",
+        [STRICT_CLIENT, STRICT_Y],
+        [wide_sig, leaf_sig, y_sig],
+        expect_success=False,
+        request_id=220,
+    )
+    assert_strict_output(redundant_y, f"unused direct interfaces: {y_sig}")
+
+    # Both wrappers expose the same package through different private providers.
+    (cwd / STRICT_LEFT).write_text(strict_facade_source("Left"), encoding="utf-8")
+    (cwd / STRICT_RIGHT).write_text(strict_facade_source("Right"), encoding="utf-8")
+    for name, output, sources, interfaces in (
+        ("strict-build-one", f"{STRICT_OUTPUTS}/one", [STRICT_ONE], []),
+        ("strict-build-two", f"{STRICT_OUTPUTS}/two", [STRICT_TWO], []),
+        ("strict-build-left", f"{STRICT_OUTPUTS}/left", [STRICT_LEFT], [strict_signature("one")]),
+        ("strict-build-right", f"{STRICT_OUTPUTS}/right", [STRICT_RIGHT], [strict_signature("two")]),
+    ):
+        strict_prepare(java, jar, cwd, name, output, sources, interfaces)
+
+    one_sig = strict_signature("one")
+    two_sig = strict_signature("two")
+    left_sig = strict_signature("left")
+    right_sig = strict_signature("right")
+    (cwd / STRICT_APP).write_text(STRICT_APP_LEFT_SOURCE, encoding="utf-8")
+    baseline = strict_compare(
+        java,
+        jar,
+        cwd,
+        persistent,
+        "strict-ambiguity-baseline",
+        f"{STRICT_OUTPUTS}/ambiguity-app",
+        [STRICT_APP],
+        [one_sig, left_sig],
+        request_id=234,
+    )
+    if baseline["exitCode"] != 0:
+        raise AssertionError(f"single provider did not compile: {baseline!r}")
+
+    provider_interfaces = [left_sig, right_sig, one_sig, two_sig]
+    write_strict_labels(
+        cwd,
+        [
+            (left_sig, "//:left"),
+            (right_sig, "//:right"),
+            (one_sig, "@shared_v1//:lib"),
+            (two_sig, "@shared_v2//:lib"),
+        ],
+    )
+    (cwd / STRICT_APP).write_text(STRICT_APP_BOTH_SOURCE, encoding="utf-8")
+    for index, interfaces in enumerate((provider_interfaces, list(reversed(provider_interfaces)))):
+        ambiguous = strict_compare(
+            java,
+            jar,
+            cwd,
+            persistent,
+            f"strict-exposed-provider-ambiguity-{index}",
+            f"{STRICT_OUTPUTS}/ambiguity-app",
+            [STRICT_APP],
+            interfaces,
+            labels=STRICT_LABELS,
+            expect_success=False,
+            request_id=235 + index,
+        )
+        assert_strict_output(
+            ambiguous,
+            "ambiguous interface App -> ",
+            " -> Shared/Api",
+            f"{one_sig} (@shared_v1//:lib), {two_sig} (@shared_v2//:lib)",
+        )
+
+    # The same wide.sig path changes exposure while the worker stays warm.
+    (cwd / STRICT_X).write_text(STRICT_X_SOURCE, encoding="utf-8")
+    (cwd / STRICT_CLIENT).write_text(STRICT_CLIENT_X_SOURCE, encoding="utf-8")
+    reused_output = f"{STRICT_OUTPUTS}/reused-client"
+    warm_success = strict_compare(
+        java,
+        jar,
+        cwd,
+        persistent,
+        "strict-reused-exposure-before-edit",
+        reused_output,
+        [STRICT_CLIENT],
+        [wide_sig, y_sig, leaf_sig],
+        request_id=240,
+    )
+    if warm_success["exitCode"] != 0:
+        raise AssertionError(f"initial reused-path client compile failed: {warm_success!r}")
+    old_client_outputs = output_bytes(cwd, [f"{reused_output}.pkg", f"{reused_output}.sig"])
+
+    (cwd / STRICT_X).write_text(STRICT_X_REDUCED_SOURCE, encoding="utf-8")
+    rebuilt = strict_compare(
+        java,
+        jar,
+        cwd,
+        persistent,
+        "strict-rebuild-wide-without-exposure",
+        f"{STRICT_OUTPUTS}/wide",
+        [STRICT_X, STRICT_SIBLING],
+        [],
+        request_id=241,
+    )
+    if rebuilt["exitCode"] != 0:
+        raise AssertionError(f"wide signature rebuild failed: {rebuilt!r}")
+
+    stale_declarations = strict_compare(
+        java,
+        jar,
+        cwd,
+        persistent,
+        "strict-reused-exposure-stale-declarations",
+        reused_output,
+        [STRICT_CLIENT],
+        [wide_sig, y_sig, leaf_sig],
+        expect_success=False,
+        request_id=242,
+    )
+    assert_strict_output(stale_declarations, f"unused direct interfaces: {leaf_sig}, {y_sig}")
+    if output_bytes(cwd, [f"{reused_output}.pkg", f"{reused_output}.sig"]) != old_client_outputs:
+        raise AssertionError("failed reused-path compile changed either prior client output")
+
+    recovered = strict_compare(
+        java,
+        jar,
+        cwd,
+        persistent,
+        "strict-reused-exposure-recovery",
+        reused_output,
+        [STRICT_CLIENT],
+        [wide_sig],
+        request_id=243,
+    )
+    if recovered["exitCode"] != 0:
+        raise AssertionError(f"reused-path client did not recover with corrected dependencies: {recovered!r}")
+
+
+def check_strict_interface_matrix(java: str, jar: Path, work: Path) -> None:
+    cwd = work / "strict interface workspace"
+    cwd.mkdir()
+    for label in ("warm", "restarted"):
+        with PersistentWorker(java, jar, cwd) as persistent:
+            replay_strict_interface_matrix(java, jar, cwd, persistent)
+            status, stdout, stderr = persistent.finish()
+            if status != 0 or stdout or stderr:
+                raise AssertionError(
+                    f"{label} strict-interface worker did not finish cleanly: "
+                    f"status={status}, stdout={stdout!r}, stderr={stderr!r}"
+                )
 
 
 def reject_input_alias(
@@ -365,202 +1190,217 @@ def toolchain_command(
 def test_toolchain_verification(java: str, candidate_jar: Path, work: Path) -> None:
     cwd = work / "toolchain verification workspace"
     cwd.mkdir()
+    (cwd / TOOLCHAIN_STAMP).parent.mkdir(parents=True)
     candidate_name = Path("candidate compiler 雪.jar")
     shutil.copyfile(candidate_jar, cwd / candidate_name)
     candidate_bytes = (cwd / candidate_name).read_bytes()
     write_toolchain_manifest(cwd, compiler_bytes=candidate_bytes)
 
-    # The selected candidate jar is also the exact jar launched for verification.
-    compare_command(
-        java,
-        candidate_name,
-        cwd,
-        "toolchain-compiler-only",
-        toolchain_command(candidate_name),
-        [TOOLCHAIN_STAMP],
-    )
-    reject_input_alias(
-        java,
-        candidate_name,
-        cwd,
-        "toolchain-manifest-alias",
-        toolchain_command(candidate_name, out=TOOLCHAIN_MANIFEST),
-        [TOOLCHAIN_MANIFEST, candidate_name.as_posix()],
-    )
-    reject_input_alias(
-        java,
-        candidate_name,
-        cwd,
-        "toolchain-candidate-alias",
-        toolchain_command(candidate_name, out="./" + candidate_name.as_posix()),
-        [TOOLCHAIN_MANIFEST, candidate_name.as_posix()],
-    )
-
-    core = core_library_fixture()
-    (cwd / TOOLCHAIN_CORE).parent.mkdir(parents=True, exist_ok=True)
-    (cwd / TOOLCHAIN_CORE).write_bytes(core)
-    write_toolchain_manifest(cwd, compiler_bytes=candidate_bytes, core_bytes=core)
-    compare_command(
-        java,
-        candidate_name,
-        cwd,
-        "toolchain-binary-core",
-        toolchain_command(candidate_name, core_library=TOOLCHAIN_CORE),
-        [TOOLCHAIN_STAMP],
-    )
-    reject_input_alias(
-        java,
-        candidate_name,
-        cwd,
-        "toolchain-core-alias",
-        toolchain_command(candidate_name, core_library=TOOLCHAIN_CORE, out=TOOLCHAIN_CORE),
-        [TOOLCHAIN_MANIFEST, candidate_name.as_posix(), TOOLCHAIN_CORE],
-    )
-
-    wrong_core = core_library_fixture(repo="https://example.invalid/altered-core")
-    (cwd / TOOLCHAIN_CORE).write_bytes(wrong_core)
-    compare_command(
-        java,
-        candidate_name,
-        cwd,
-        "toolchain-substituted-core",
-        toolchain_command(candidate_name, core_library=TOOLCHAIN_CORE),
-        [TOOLCHAIN_STAMP],
-        expect_success=False,
-        preserve_outputs_on_failure=True,
-    )
-
-    wrong_identity = core_library_fixture(name="other_core")
-    (cwd / TOOLCHAIN_CORE).write_bytes(wrong_identity)
-    write_toolchain_manifest(
-        cwd,
-        compiler_bytes=candidate_bytes,
-        core_bytes=wrong_identity,
-        core_name="core_alpha",
-    )
-    compare_command(
-        java,
-        candidate_name,
-        cwd,
-        "toolchain-core-identity",
-        toolchain_command(candidate_name, core_library=TOOLCHAIN_CORE),
-        [TOOLCHAIN_STAMP],
-        expect_success=False,
-    )
-
-    source = b"package Bosatsu/Prog\n\nmain = 1\n"
-    (cwd / TOOLCHAIN_SOURCE).parent.mkdir(parents=True, exist_ok=True)
-    (cwd / TOOLCHAIN_SOURCE).write_bytes(source)
-    write_toolchain_manifest(
-        cwd,
-        compiler_bytes=candidate_bytes,
-        core_sources={"Bosatsu/Prog": source},
-    )
-    compare_command(
-        java,
-        candidate_name,
-        cwd,
-        "toolchain-core-source",
-        toolchain_command(candidate_name, core_sources=[TOOLCHAIN_SOURCE]),
-        [TOOLCHAIN_STAMP],
-    )
-
-    second_source = b"package Example/Two\n\nvalue = 2\n"
-    (cwd / TOOLCHAIN_SECOND_SOURCE).write_bytes(second_source)
-    write_toolchain_manifest(
-        cwd,
-        compiler_bytes=candidate_bytes,
-        core_sources={"Bosatsu/Prog": source, "Example/Two": second_source},
-    )
-    for source_path in (TOOLCHAIN_SOURCE, TOOLCHAIN_SECOND_SOURCE):
+    with PersistentWorker(java, candidate_name, cwd) as persistent:
+        # The selected candidate jar is also the exact jar launched for verification.
+        compare_command(
+            java,
+            candidate_name,
+            cwd,
+            persistent,
+            "toolchain-compiler-only",
+            toolchain_command(candidate_name),
+            [TOOLCHAIN_STAMP],
+        )
         reject_input_alias(
             java,
             candidate_name,
             cwd,
-            "toolchain-source-alias-" + Path(source_path).stem,
-            toolchain_command(
-                candidate_name,
-                core_sources=[TOOLCHAIN_SOURCE, TOOLCHAIN_SECOND_SOURCE],
-                out=source_path,
-            ),
-            [
-                TOOLCHAIN_MANIFEST,
-                candidate_name.as_posix(),
-                TOOLCHAIN_SOURCE,
-                TOOLCHAIN_SECOND_SOURCE,
-            ],
+            "toolchain-manifest-alias",
+            toolchain_command(candidate_name, out=TOOLCHAIN_MANIFEST),
+            [TOOLCHAIN_MANIFEST, candidate_name.as_posix()],
+        )
+        reject_input_alias(
+            java,
+            candidate_name,
+            cwd,
+            "toolchain-candidate-alias",
+            toolchain_command(candidate_name, out="./" + candidate_name.as_posix()),
+            [TOOLCHAIN_MANIFEST, candidate_name.as_posix()],
         )
 
-    changed_source = b"package Bosatsu/Prog\n\nmain = 2\n"
-    (cwd / TOOLCHAIN_SOURCE).write_bytes(changed_source)
-    compare_command(
-        java,
-        candidate_name,
-        cwd,
-        "toolchain-modified-core-source",
-        toolchain_command(candidate_name, core_sources=[TOOLCHAIN_SOURCE]),
-        [TOOLCHAIN_STAMP],
-        expect_success=False,
-        preserve_outputs_on_failure=True,
-    )
-    wrong_package = b"package Bosatsu/Changed\n\nmain = 1\n"
-    (cwd / TOOLCHAIN_SOURCE).write_bytes(wrong_package)
-    compare_command(
-        java,
-        candidate_name,
-        cwd,
-        "toolchain-unlisted-core-source",
-        toolchain_command(candidate_name, core_sources=[TOOLCHAIN_SOURCE]),
-        [TOOLCHAIN_STAMP],
-        expect_success=False,
-    )
+        core = core_library_fixture()
+        (cwd / TOOLCHAIN_CORE).parent.mkdir(parents=True, exist_ok=True)
+        (cwd / TOOLCHAIN_CORE).write_bytes(core)
+        write_toolchain_manifest(cwd, compiler_bytes=candidate_bytes, core_bytes=core)
+        compare_command(
+            java,
+            candidate_name,
+            cwd,
+            persistent,
+            "toolchain-binary-core",
+            toolchain_command(candidate_name, core_library=TOOLCHAIN_CORE),
+            [TOOLCHAIN_STAMP],
+        )
+        reject_input_alias(
+            java,
+            candidate_name,
+            cwd,
+            "toolchain-core-alias",
+            toolchain_command(candidate_name, core_library=TOOLCHAIN_CORE, out=TOOLCHAIN_CORE),
+            [TOOLCHAIN_MANIFEST, candidate_name.as_posix(), TOOLCHAIN_CORE],
+        )
 
-    runtime = runtime_archive_fixture()
-    (cwd / TOOLCHAIN_RUNTIME).parent.mkdir(parents=True, exist_ok=True)
-    (cwd / TOOLCHAIN_RUNTIME).write_bytes(runtime)
-    write_toolchain_manifest(cwd, compiler_bytes=candidate_bytes, runtime_bytes=runtime)
-    compare_command(
-        java,
-        candidate_name,
-        cwd,
-        "toolchain-native-runtime",
-        toolchain_command(candidate_name, runtime_archive=TOOLCHAIN_RUNTIME),
-        [TOOLCHAIN_STAMP],
-    )
-    reject_input_alias(
-        java,
-        candidate_name,
-        cwd,
-        "toolchain-runtime-alias",
-        toolchain_command(candidate_name, runtime_archive=TOOLCHAIN_RUNTIME, out=TOOLCHAIN_RUNTIME),
-        [TOOLCHAIN_MANIFEST, candidate_name.as_posix(), TOOLCHAIN_RUNTIME],
-    )
+        wrong_core = core_library_fixture(repo="https://example.invalid/altered-core")
+        (cwd / TOOLCHAIN_CORE).write_bytes(wrong_core)
+        compare_command(
+            java,
+            candidate_name,
+            cwd,
+            persistent,
+            "toolchain-substituted-core",
+            toolchain_command(candidate_name, core_library=TOOLCHAIN_CORE),
+            [TOOLCHAIN_STAMP],
+            expect_success=False,
+        )
 
-    changed_runtime = runtime_archive_fixture() + b"independently hashed substitute"
-    (cwd / TOOLCHAIN_RUNTIME).write_bytes(changed_runtime)
-    compare_command(
-        java,
-        candidate_name,
-        cwd,
-        "toolchain-substituted-runtime",
-        toolchain_command(candidate_name, runtime_archive=TOOLCHAIN_RUNTIME),
-        [TOOLCHAIN_STAMP],
-        expect_success=False,
-    )
+        wrong_identity = core_library_fixture(name="other_core")
+        (cwd / TOOLCHAIN_CORE).write_bytes(wrong_identity)
+        write_toolchain_manifest(
+            cwd,
+            compiler_bytes=candidate_bytes,
+            core_bytes=wrong_identity,
+            core_name="core_alpha",
+        )
+        (cwd / TOOLCHAIN_STAMP).unlink(missing_ok=True)
+        compare_command(
+            java,
+            candidate_name,
+            cwd,
+            persistent,
+            "toolchain-core-identity",
+            toolchain_command(candidate_name, core_library=TOOLCHAIN_CORE),
+            [TOOLCHAIN_STAMP],
+            expect_success=False,
+        )
 
-    altered_name = Path("substituted compiler 雪.jar")
-    shutil.copyfile(cwd / candidate_name, cwd / altered_name)
-    with zipfile.ZipFile(cwd / altered_name, mode="a") as jar_file:
-        jar_file.writestr("toolchain-fixture-marker.txt", b"different candidate bytes\n")
-    compare_command(
-        java,
-        altered_name,
-        cwd,
-        "toolchain-substituted-compiler",
-        toolchain_command(altered_name),
-        [TOOLCHAIN_STAMP],
-        expect_success=False,
-    )
+        source = b"package Bosatsu/Prog\n\nmain = 1\n"
+        (cwd / TOOLCHAIN_SOURCE).parent.mkdir(parents=True, exist_ok=True)
+        (cwd / TOOLCHAIN_SOURCE).write_bytes(source)
+        write_toolchain_manifest(
+            cwd,
+            compiler_bytes=candidate_bytes,
+            core_sources={"Bosatsu/Prog": source},
+        )
+        compare_command(
+            java,
+            candidate_name,
+            cwd,
+            persistent,
+            "toolchain-core-source",
+            toolchain_command(candidate_name, core_sources=[TOOLCHAIN_SOURCE]),
+            [TOOLCHAIN_STAMP],
+        )
+
+        second_source = b"package Example/Two\n\nvalue = 2\n"
+        (cwd / TOOLCHAIN_SECOND_SOURCE).write_bytes(second_source)
+        write_toolchain_manifest(
+            cwd,
+            compiler_bytes=candidate_bytes,
+            core_sources={"Bosatsu/Prog": source, "Example/Two": second_source},
+        )
+        for source_path in (TOOLCHAIN_SOURCE, TOOLCHAIN_SECOND_SOURCE):
+            reject_input_alias(
+                java,
+                candidate_name,
+                cwd,
+                "toolchain-source-alias-" + Path(source_path).stem,
+                toolchain_command(
+                    candidate_name,
+                    core_sources=[TOOLCHAIN_SOURCE, TOOLCHAIN_SECOND_SOURCE],
+                    out=source_path,
+                ),
+                [
+                    TOOLCHAIN_MANIFEST,
+                    candidate_name.as_posix(),
+                    TOOLCHAIN_SOURCE,
+                    TOOLCHAIN_SECOND_SOURCE,
+                ],
+            )
+
+        changed_source = b"package Bosatsu/Prog\n\nmain = 2\n"
+        (cwd / TOOLCHAIN_SOURCE).write_bytes(changed_source)
+        compare_command(
+            java,
+            candidate_name,
+            cwd,
+            persistent,
+            "toolchain-modified-core-source",
+            toolchain_command(candidate_name, core_sources=[TOOLCHAIN_SOURCE]),
+            [TOOLCHAIN_STAMP],
+            expect_success=False,
+        )
+        wrong_package = b"package Bosatsu/Changed\n\nmain = 1\n"
+        (cwd / TOOLCHAIN_SOURCE).write_bytes(wrong_package)
+        (cwd / TOOLCHAIN_STAMP).unlink(missing_ok=True)
+        compare_command(
+            java,
+            candidate_name,
+            cwd,
+            persistent,
+            "toolchain-unlisted-core-source",
+            toolchain_command(candidate_name, core_sources=[TOOLCHAIN_SOURCE]),
+            [TOOLCHAIN_STAMP],
+            expect_success=False,
+        )
+
+        runtime = runtime_archive_fixture()
+        (cwd / TOOLCHAIN_RUNTIME).parent.mkdir(parents=True, exist_ok=True)
+        (cwd / TOOLCHAIN_RUNTIME).write_bytes(runtime)
+        write_toolchain_manifest(cwd, compiler_bytes=candidate_bytes, runtime_bytes=runtime)
+        compare_command(
+            java,
+            candidate_name,
+            cwd,
+            persistent,
+            "toolchain-native-runtime",
+            toolchain_command(candidate_name, runtime_archive=TOOLCHAIN_RUNTIME),
+            [TOOLCHAIN_STAMP],
+        )
+        reject_input_alias(
+            java,
+            candidate_name,
+            cwd,
+            "toolchain-runtime-alias",
+            toolchain_command(candidate_name, runtime_archive=TOOLCHAIN_RUNTIME, out=TOOLCHAIN_RUNTIME),
+            [TOOLCHAIN_MANIFEST, candidate_name.as_posix(), TOOLCHAIN_RUNTIME],
+        )
+
+        changed_runtime = runtime_archive_fixture() + b"independently hashed substitute"
+        (cwd / TOOLCHAIN_RUNTIME).write_bytes(changed_runtime)
+        (cwd / TOOLCHAIN_STAMP).unlink(missing_ok=True)
+        compare_command(
+            java,
+            candidate_name,
+            cwd,
+            persistent,
+            "toolchain-substituted-runtime",
+            toolchain_command(candidate_name, runtime_archive=TOOLCHAIN_RUNTIME),
+            [TOOLCHAIN_STAMP],
+            expect_success=False,
+        )
+
+        altered_name = Path("substituted compiler 雪.jar")
+        shutil.copyfile(cwd / candidate_name, cwd / altered_name)
+        with zipfile.ZipFile(cwd / altered_name, mode="a") as jar_file:
+            jar_file.writestr("toolchain-fixture-marker.txt", b"different candidate bytes\n")
+        (cwd / TOOLCHAIN_STAMP).unlink(missing_ok=True)
+        with PersistentWorker(java, altered_name, cwd) as altered_worker:
+            compare_command(
+                java,
+                altered_name,
+                cwd,
+                altered_worker,
+                "toolchain-substituted-compiler",
+                toolchain_command(altered_name),
+                [TOOLCHAIN_STAMP],
+                expect_success=False,
+            )
 
 
 def write_fixture(cwd: Path) -> None:
@@ -588,148 +1428,450 @@ def write_fixture(cwd: Path) -> None:
     runtime_path.write_text(json.dumps(runtime), encoding="utf-8")
 
 
+def compile_command() -> list[str]:
+    return ["compile-packages", "--src", SOURCE, "--packages-out", BUNDLE, "--sig-out", SIGNATURE]
+
+
+def check_registry_rejections(
+    java: str, jar: Path, cwd: Path, persistent: PersistentWorker
+) -> None:
+    for index, operation in enumerate(("check", "fetch", "transpile", "publish-artifacts")):
+        params = cwd / "parameter files 雪" / f"reject-{operation}.params"
+        params.parent.mkdir(parents=True, exist_ok=True)
+        params.write_text(operation + "\n", encoding="utf-8")
+        before = workspace_snapshot(cwd)
+        one_shot = invoke(
+            java,
+            jar,
+            cwd,
+            "tool",
+            "bazel-worker",
+            "@" + params.relative_to(cwd).as_posix(),
+        )
+        expected = f"unsupported bazel worker operation: {operation}\n"
+        if one_shot.returncode == 0 or one_shot.stdout or one_shot.stderr.decode("utf-8") != expected:
+            raise AssertionError(f"one-shot registry rejected {operation} unexpectedly: {one_shot!r}")
+        response = persistent.request({"arguments": [operation], "requestId": 100 + index})
+        if response["exitCode"] != one_shot.returncode or response["output"] != expected:
+            raise AssertionError(f"persistent registry disagrees for {operation}: {response!r}")
+        if workspace_snapshot(cwd) != before:
+            raise AssertionError(f"registry rejection for {operation} changed workspace files")
+        assert_no_scratch(cwd, f"registry rejection for {operation}")
+
+    empty = persistent.request({"arguments": [], "requestId": 104})
+    if empty["exitCode"] == 0 or empty["output"] != "expected a bazel worker operation\n":
+        raise AssertionError(f"persistent worker accepted an empty command: {empty!r}")
+
+
+def check_escaped_json_request(
+    java: str, jar: Path, cwd: Path, persistent: PersistentWorker
+) -> None:
+    output = "generated files 雪/escaped/slash headers.json"
+    command = ["headers", "--src", SOURCE, "--out", output]
+    (cwd / output).parent.mkdir(parents=True, exist_ok=True)
+    params = cwd / "parameter files 雪" / "escaped JSON params.params"
+    params.parent.mkdir(parents=True, exist_ok=True)
+    params.write_text("\n".join(command) + "\n", encoding="utf-8")
+
+    direct = invoke(java, jar, cwd, "tool", *command)
+    if direct.returncode != 0:
+        raise AssertionError(f"direct escaped-path headers failed: {direct.stderr!r}")
+    expected = output_bytes(cwd, [output])
+    params_result = invoke(
+        java, jar, cwd, "tool", "bazel-worker", "@" + params.relative_to(cwd).as_posix()
+    )
+    check_result("escaped JSON @params", direct, params_result)
+    if output_bytes(cwd, [output]) != expected:
+        raise AssertionError("escaped JSON @params output differs from direct execution")
+    assert_no_scratch(cwd, "escaped JSON @params")
+
+    payload = json.dumps(
+        {
+            "arguments": command,
+            "requestId": 72,
+            "inputs": [{"path": SOURCE, "digest": ""}],
+            "unknown": {"nested": "escaped/slash"},
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    payload = payload.replace("/", r"\/")
+    payload = payload.replace('"headers"', r'"\u0068eaders"', 1)
+    if r"\/" not in payload or r"\u0068" not in payload:
+        raise AssertionError(f"escaped JSON fixture is missing its wire escapes: {payload!r}")
+    (cwd / output).unlink()
+    response = persistent.request_raw((payload + "\n").encode("utf-8"), 72)
+    if response["exitCode"] != direct.returncode or response["output"] != (
+        direct.stdout + direct.stderr
+    ).decode("utf-8", errors="strict"):
+        raise AssertionError(f"escaped JSON request differs from direct execution: {response!r}")
+    if output_bytes(cwd, [output]) != expected:
+        raise AssertionError("escaped JSON request output differs from direct and @params")
+    assert_no_scratch(cwd, "escaped JSON request")
+
+
 def test_worker(java: str, jar: Path, work: Path) -> None:
     cwd = work / "candidate workspace"
     cwd.mkdir()
     write_fixture(cwd)
     (cwd / "generated files 雪").mkdir()
 
-    headers_result = compare_command(
-        java,
-        jar,
-        cwd,
-        "headers",
-        ["headers", "--src", SOURCE, "--out", "generated files 雪/headers.json"],
-        ["generated files 雪/headers.json"],
-    )
-    if headers_result.stdout or headers_result.stderr:
-        raise AssertionError("successful headers worker invocation must have empty stdout and stderr")
-    compare_command(
-        java,
-        jar,
-        cwd,
-        "compile-packages",
-        [
-            "compile-packages",
-            "--src",
-            SOURCE,
-            "--packages-out",
-            BUNDLE,
-            "--sig-out",
-            SIGNATURE,
-        ],
-        [BUNDLE, SIGNATURE],
-        line_ending="\r\n",
-    )
-    compare_command(
-        java,
-        jar,
-        cwd,
-        "validate-graph",
-        [
-            "validate-graph",
-            "--root",
-            ROOT_GRAPH,
-            "--out",
-            "generated files 雪/validated stamp",
-        ],
-        ["generated files 雪/validated stamp"],
-        final_newline=False,
-    )
-    compare_command(
-        java,
-        jar,
-        cwd,
-        "emit-c",
-        [
-            "emit-c",
-            "--runtime-manifest",
-            RUNTIME,
-            "--test-packages",
-            BUNDLE,
-            "--out",
-            "generated files 雪/test suite.c",
-        ],
-        ["generated files 雪/test suite.c"],
-        line_ending="\r\n",
-    )
-
-    compare_command(
-        java,
-        jar,
-        cwd,
-        "missing-source",
-        [
+    with PersistentWorker(java, jar, cwd) as persistent:
+        header_command = ["headers", "--src", SOURCE, "--out", "generated files 雪/headers.json"]
+        headers_result = compare_command(
+            java,
+            jar,
+            cwd,
+            persistent,
             "headers",
-            "--src",
-            "missing input 雪.bosatsu",
-            "--out",
-            "generated files 雪/missing.json",
-        ],
-        ["generated files 雪/missing.json"],
-        expect_success=False,
-    )
-    compare_command(
-        java,
-        jar,
-        cwd,
-        "invalid-option",
-        [
-            "compile-packages",
-            "--src",
-            SOURCE,
-            "--packages-out",
-            "generated files 雪/invalid.pkg",
-            "--sig-out",
-            "generated files 雪/invalid.sig",
-            "--cache_dir",
-            "cache",
-        ],
-        ["generated files 雪/invalid.pkg", "generated files 雪/invalid.sig"],
-        expect_success=False,
-    )
-    compare_command(
-        java,
-        jar,
-        cwd,
-        "empty-argument",
-        ["headers", "--src", "", "--out", "generated files 雪/empty-argument.json"],
-        ["generated files 雪/empty-argument.json"],
-        expect_success=False,
-    )
+            header_command,
+            ["generated files 雪/headers.json"],
+            request_fields={"unknown_worker_field": {"ignored": True}},
+        )
+        if headers_result["output"] != "":
+            raise AssertionError("successful headers request returned action diagnostics")
+        check_escaped_json_request(java, jar, cwd, persistent)
 
-    for operation in ("check", "fetch", "transpile", "publish-artifacts"):
-        params = cwd / "parameter files 雪" / f"reject-{operation}.params"
-        params.write_text(operation + "\n", encoding="utf-8")
-        result = invoke(java, jar, cwd, "tool", "bazel-worker", "@" + params.relative_to(cwd).as_posix())
-        message = result.stderr.decode("utf-8", errors="replace")
-        if result.returncode == 0 or f"unsupported bazel worker operation: {operation}" not in message:
-            raise AssertionError(f"worker accepted or misdiagnosed blocked operation {operation}:\n{message}")
+        digest_cases = (
+            ("missing-input-digest", [{"path": SOURCE}]),
+            ("empty-input-digest", [{"path": SOURCE, "digest": ""}]),
+            (
+                "repeated-opaque-digests",
+                [
+                    {"path": SOURCE, "digest": "AQID"},
+                    {"path": SOURCE, "digest": "AQID"},
+                ],
+            ),
+        )
+        for name, inputs in digest_cases:
+            compare_command(
+                java,
+                jar,
+                cwd,
+                persistent,
+                name,
+                ["headers", "--src", SOURCE, "--out", f"generated files 雪/{name}.json"],
+                [f"generated files 雪/{name}.json"],
+                request_fields={"inputs": inputs, "requestId": 0},
+            )
 
-    blocked_parent = cwd / "blocked output 雪"
-    blocked_parent.write_text("not a directory", encoding="utf-8")
-    blocked_output = "blocked output 雪/retry.json"
-    compare_command(
-        java,
-        jar,
-        cwd,
-        "blocked-write",
-        ["headers", "--src", SOURCE, "--out", blocked_output],
-        [blocked_output],
-        expect_success=False,
-        compare_diagnostics=False,
+        (cwd / SOURCE).write_text(
+            'package Demo/Suite\nexport value\nvalue = 1\nchecks = Assertion(True, "candidate 雪")\n',
+            encoding="utf-8",
+        )
+        compile_args = compile_command()
+        initial_compile = compare_command(
+            java,
+            jar,
+            cwd,
+            persistent,
+            "compile-initial",
+            compile_args,
+            [BUNDLE, SIGNATURE],
+            line_ending="\r\n",
+            request_fields={"requestId": 0, "inputs": [{"path": SOURCE, "digest": "AQID"}]},
+        )
+        if initial_compile["exitCode"] != 0:
+            raise AssertionError("initial persistent compilation failed")
+        initial_bundle = (cwd / BUNDLE).read_bytes()
+        initial_signature = (cwd / SIGNATURE).read_bytes()
+
+        (cwd / SOURCE).write_text(
+            'package Demo/Suite\nexport value\nvalue = 2\nchecks = Assertion(True, "candidate 雪")\n',
+            encoding="utf-8",
+        )
+        compare_command(
+            java,
+            jar,
+            cwd,
+            persistent,
+            "compile-body-edit",
+            compile_args,
+            [BUNDLE, SIGNATURE],
+            request_fields={
+                "requestId": 7,
+                "inputs": [{"path": SOURCE, "digest": "AQID"}, {"path": SOURCE, "digest": "AQID"}],
+            },
+        )
+        body_bundle = (cwd / BUNDLE).read_bytes()
+        if body_bundle == initial_bundle:
+            raise AssertionError("same-path body edit reused stale compiled package bytes")
+        if (cwd / SIGNATURE).read_bytes() != initial_signature:
+            raise AssertionError("private body edit unexpectedly changed exported signature bytes")
+
+        (cwd / SOURCE).write_text(
+            'package Demo/Suite\nexport value\nvalue = missing_name\nchecks = Assertion(True, "candidate 雪")\n',
+            encoding="utf-8",
+        )
+        bad_type = compare_command(
+            java,
+            jar,
+            cwd,
+            persistent,
+            "compile-type-error",
+            compile_args,
+            [BUNDLE, SIGNATURE],
+            expect_success=False,
+            request_fields={"requestId": 8, "inputs": [{"path": SOURCE, "digest": "AQID"}], "verbosity": 1},
+        )
+        if "unknown name" not in str(bad_type["output"]).lower() or "\n" not in str(bad_type["output"]):
+            raise AssertionError(f"type error did not retain its multiline diagnostic: {bad_type!r}")
+        if (cwd / BUNDLE).read_bytes() != body_bundle:
+            raise AssertionError("failed same-path compile published stale or partial package bytes")
+
+        (cwd / SOURCE).write_text(
+            'package Demo/Suite\nexport value\nvalue = "updated type"\nchecks = Assertion(True, "candidate 雪")\n',
+            encoding="utf-8",
+        )
+        compare_command(
+            java,
+            jar,
+            cwd,
+            persistent,
+            "compile-type-edit-recovery",
+            compile_args,
+            [BUNDLE, SIGNATURE],
+            request_fields={"requestId": 8, "inputs": [{"path": SOURCE, "digest": "AQID"}]},
+        )
+        type_bundle = (cwd / BUNDLE).read_bytes()
+        type_signature = (cwd / SIGNATURE).read_bytes()
+        if type_bundle == body_bundle or type_signature == initial_signature:
+            raise AssertionError("same-path type edit did not recompute implementation and signature bytes")
+
+        literal_source = "@literal source 雪.bosatsu"
+        (cwd / literal_source).write_text(
+            "package Demo/Literal\nexport value\nvalue = 9\n", encoding="utf-8"
+        )
+        compare_command(
+            java,
+            jar,
+            cwd,
+            persistent,
+            "literal-at-argument",
+            ["headers", "--src", literal_source, "--out", "generated files 雪/literal.json"],
+            ["generated files 雪/literal.json"],
+            request_fields={"requestId": 21},
+        )
+
+        compare_command(
+            java,
+            jar,
+            cwd,
+            persistent,
+            "validate-graph",
+            ["validate-graph", "--root", ROOT_GRAPH, "--out", "generated files 雪/validated stamp"],
+            ["generated files 雪/validated stamp"],
+            final_newline=False,
+            request_fields={"requestId": 29},
+        )
+        compare_command(
+            java,
+            jar,
+            cwd,
+            persistent,
+            "emit-c",
+            ["emit-c", "--runtime-manifest", RUNTIME, "--test-packages", BUNDLE, "--out", "generated files 雪/test suite.c"],
+            ["generated files 雪/test suite.c"],
+            line_ending="\r\n",
+            request_fields={"requestId": 30},
+        )
+
+        compare_command(
+            java,
+            jar,
+            cwd,
+            persistent,
+            "missing-source",
+            ["headers", "--src", "missing input 雪.bosatsu", "--out", "generated files 雪/missing.json"],
+            ["generated files 雪/missing.json"],
+            expect_success=False,
+            request_fields={"requestId": 31},
+        )
+        compare_command(
+            java,
+            jar,
+            cwd,
+            persistent,
+            "missing-graph",
+            ["validate-graph", "--root", "missing graph 雪.json", "--out", "generated files 雪/missing stamp"],
+            ["generated files 雪/missing stamp"],
+            expect_success=False,
+            request_fields={"requestId": 32},
+        )
+        compare_command(
+            java,
+            jar,
+            cwd,
+            persistent,
+            "missing-runtime",
+            ["emit-c", "--runtime-manifest", "missing runtime 雪.json", "--test-packages", BUNDLE, "--out", "generated files 雪/missing.c"],
+            ["generated files 雪/missing.c"],
+            expect_success=False,
+            request_fields={"requestId": 33},
+        )
+        compare_command(
+            java,
+            jar,
+            cwd,
+            persistent,
+            "empty-argument",
+            ["headers", "--src", "", "--out", "generated files 雪/empty-argument.json"],
+            ["generated files 雪/empty-argument.json"],
+            expect_success=False,
+            request_fields={"requestId": 34},
+        )
+
+        for index, option in enumerate(("--cache_dir", "--cache-dir", "--no-cache")):
+            compare_command(
+                java,
+                jar,
+                cwd,
+                persistent,
+                f"invalid-inference-option-{index}",
+                compile_args + [option, "cache"],
+                [BUNDLE, SIGNATURE],
+                expect_success=False,
+                request_fields={"requestId": 40 + index},
+            )
+
+        check_registry_rejections(java, jar, cwd, persistent)
+
+        before_sandbox = workspace_snapshot(cwd)
+        sandbox = persistent.request(
+            {
+                "arguments": ["headers", "--src", SOURCE, "--out", "generated files 雪/sandbox.json"],
+                "requestId": 50,
+                "sandboxDir": "unsupported sandbox 雪",
+            }
+        )
+        if sandbox["exitCode"] == 0 or "unsupported nonempty sandboxDir" not in str(sandbox["output"]):
+            raise AssertionError(f"persistent worker did not reject sandboxDir: {sandbox!r}")
+        if workspace_snapshot(cwd) != before_sandbox:
+            raise AssertionError("sandboxDir rejection changed the workspace")
+        assert_no_scratch(cwd, "sandboxDir rejection")
+
+        compare_command(
+            java,
+            jar,
+            cwd,
+            persistent,
+            "ignored-cancel-before-action",
+            ["headers", "--src", SOURCE, "--out", "generated files 雪/after-cancel.json"],
+            ["generated files 雪/after-cancel.json"],
+            request_fields={"requestId": 52},
+            control_request={"requestId": 51, "cancel": True},
+        )
+
+        previous_signature = b"previous published signature"
+        (cwd / SIGNATURE).write_bytes(previous_signature)
+        (cwd / BUNDLE).unlink()
+        (cwd / BUNDLE).mkdir()
+        failed_publication = compare_command(
+            java,
+            jar,
+            cwd,
+            persistent,
+            "multi-output-publication-failure",
+            compile_args,
+            [BUNDLE, SIGNATURE],
+            expect_success=False,
+            compare_diagnostics=False,
+            request_fields={"requestId": 60},
+        )
+        if "expected a regular output file" not in str(failed_publication["output"]):
+            raise AssertionError(f"publication failure lacks its useful diagnostic: {failed_publication!r}")
+        if (cwd / SIGNATURE).read_bytes() != previous_signature or not (cwd / BUNDLE).is_dir():
+            raise AssertionError("publication failure did not preserve prior signature and obstruction")
+
+        (cwd / BUNDLE).rmdir()
+        compare_command(
+            java,
+            jar,
+            cwd,
+            persistent,
+            "multi-output-publication-retry",
+            compile_args,
+            [BUNDLE, SIGNATURE],
+            request_fields={"requestId": 61},
+        )
+        check_startup_failures(java, jar, cwd)
+        persistent_status, extra_stdout, stderr = persistent.finish()
+        if persistent_status != 0 or extra_stdout or stderr:
+            raise AssertionError(
+                "persistent worker did not finish cleanly after EOF: "
+                f"status={persistent_status}, stdout={extra_stdout!r}, stderr={stderr!r}"
+            )
+
+    check_transport_failures(java, jar, work)
+    check_strict_interface_matrix(java, jar, work)
+
+
+def check_transport_failures(java: str, jar: Path, work: Path) -> None:
+    cwd = work / "transport workspace"
+    cwd.mkdir()
+    write_fixture(cwd)
+    (cwd / "generated files 雪").mkdir()
+    prior_output = cwd / "generated files 雪" / "prior output.json"
+    prior_output.write_bytes(b"preserve prior output")
+
+    with PersistentWorker(java, jar, cwd) as clean:
+        status, stdout, stderr = clean.finish()
+        if status != 0 or stdout or stderr:
+            raise AssertionError(
+                f"clean EOF failed: status={status}, stdout={stdout!r}, stderr={stderr!r}"
+            )
+
+    action = [
+        "headers",
+        "--src",
+        SOURCE,
+        "--out",
+        "generated files 雪/malformed syntax output.json",
+    ]
+    invalid_operation = json.dumps(
+        {"arguments": action, "requestId": 75}, ensure_ascii=False, separators=(",", ":")
+    ).replace('"headers"', r'"\x68eaders"', 1)
+    invalid_ignored_field = json.dumps(
+        {"arguments": action, "requestId": 76}, ensure_ascii=False, separators=(",", ":")
+    )[:-1] + r',"ignored":{"nested":"\x41"}}'
+    failures = (
+        ("malformed JSON", b'{"arguments":[}\n', "invalid worker JSON"),
+        ("truncated frame", b'{"arguments":["headers"]}', "truncated worker request"),
+        ("invalid UTF-8", b"\xc3(\n", "not valid UTF-8"),
+        ("non-JSON escaped operation", (invalid_operation + "\n").encode("utf-8"), "invalid worker JSON"),
+        ("invalid ignored nested string", (invalid_ignored_field + "\n").encode("utf-8"), "invalid worker JSON"),
     )
-    blocked_parent.unlink()
-    blocked_parent.mkdir()
-    compare_command(
-        java,
-        jar,
-        cwd,
-        "retry-after-blocked-write",
-        ["headers", "--src", SOURCE, "--out", blocked_output],
-        [blocked_output],
-    )
-    check_startup_failures(java, jar, cwd)
+    for label, request, expected in failures:
+        before = workspace_snapshot(cwd)
+        with PersistentWorker(java, jar, cwd) as broken:
+            broken.raw(request)
+            status, stdout, stderr = broken.finish()
+        message = stderr.decode("utf-8", errors="strict")
+        if status == 0 or stdout or "bazel worker transport error" not in message or expected not in message:
+            raise AssertionError(
+                f"{label} did not retire the worker cleanly: "
+                f"status={status}, stdout={stdout!r}, stderr={message!r}"
+            )
+        if workspace_snapshot(cwd) != before:
+            raise AssertionError(f"{label} changed workspace files")
+        assert_no_scratch(cwd, label)
+
+    with PersistentWorker(java, jar, cwd) as restarted:
+        compare_command(
+            java,
+            jar,
+            cwd,
+            restarted,
+            "request-after-restart",
+            ["headers", "--src", SOURCE, "--out", "generated files 雪/restarted.json"],
+            ["generated files 雪/restarted.json"],
+            request_fields={"requestId": 71},
+        )
+        status, stdout, stderr = restarted.finish()
+        if status != 0 or stdout or stderr:
+            raise AssertionError(
+                f"restarted worker did not finish cleanly: status={status}, stdout={stdout!r}, stderr={stderr!r}"
+            )
 
 
 def test_bosatsuj(java: str, jar: Path, work: Path) -> None:

@@ -1,14 +1,80 @@
 package dev.bosatsu
 
-import cats.effect.IO
+import cats.effect.{Deferred, IO}
 import cats.syntax.all._
+import com.fasterxml.jackson.databind.ObjectMapper
 import dev.bosatsu.tool.ExitCode
-import java.io.{ByteArrayOutputStream, PrintStream}
+import java.io.{
+  ByteArrayInputStream,
+  ByteArrayOutputStream,
+  IOException,
+  InputStream,
+  OutputStream,
+  PrintStream
+}
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.{Files, Path}
 import java.nio.file.attribute.FileTime
+import java.util.Base64
+import java.util.concurrent.{LinkedBlockingQueue, TimeUnit}
+import scala.util.Random
 
 class BazelWorkerTest extends FileCommandFixtures {
+  private val jsonMapper = new ObjectMapper()
+
+  private final class ControlledInputStream extends InputStream {
+    private val bytes = new LinkedBlockingQueue[Integer]()
+    @volatile var closed = false
+
+    def offer(value: String): Unit =
+      value.getBytes(UTF_8).foreach(byte => bytes.add(Integer.valueOf(byte & 0xff)))
+
+    def finish(): Unit = {
+      bytes.add(Integer.valueOf(-1)): Unit
+    }
+
+    override def read(): Int = bytes.take().intValue()
+
+    override def close(): Unit = closed = true
+  }
+
+  private final class FlushedLineOutputStream extends OutputStream {
+    private val current = new ByteArrayOutputStream
+    private val complete = scala.collection.mutable.Queue.empty[String]
+    private val flushed = new LinkedBlockingQueue[String]()
+    @volatile var closed = false
+
+    override def write(value: Int): Unit = synchronized {
+      if (value == '\n') {
+        complete.enqueue(current.toString(UTF_8))
+        current.reset()
+      } else current.write(value)
+    }
+
+    override def flush(): Unit = synchronized {
+      while (complete.nonEmpty) flushed.add(complete.dequeue()): Unit
+    }
+
+    def nextLine(): String =
+      Option(flushed.poll(10, TimeUnit.SECONDS)).getOrElse {
+        throw new AssertionError("persistent worker did not flush a response")
+      }
+
+    def hasExtraLine: Boolean = flushed.poll() != null
+
+    override def close(): Unit = closed = true
+  }
+
+  private final class TrackingPrintStream(out: ByteArrayOutputStream)
+      extends PrintStream(out, false, UTF_8) {
+    @volatile var closed = false
+
+    override def close(): Unit = {
+      closed = true
+      super.close()
+    }
+  }
+
   private def writeBytes(root: Path, relative: String, bytes: Array[Byte]): IO[Unit] =
     IO.blocking {
       val path = root.resolve(relative)
@@ -16,6 +82,27 @@ class BazelWorkerTest extends FileCommandFixtures {
       Files.write(path, bytes)
       ()
     }
+
+  private def independentRequestJson(
+      arguments: List[String],
+      inputPath: String,
+      requestId: Int,
+      verbosity: Int
+  ): String = {
+    val request = jsonMapper.createObjectNode()
+    val argumentNodes = request.putArray("arguments")
+    arguments.foreach(argumentNodes.add)
+    val input = request.putArray("inputs").addObject()
+    input.put("path", inputPath)
+    input.putObject("unknown").put("nested", true)
+    request.put("requestId", requestId)
+    request.putNull("request_id")
+    request.put("verbosity", verbosity.toString)
+    request.putNull("cancel")
+    request.putNull("sandboxDir")
+    request.putObject("unknown").putArray("nested").add(1).add(2)
+    jsonMapper.writeValueAsString(request)
+  }
 
   private def parameterInvocation(
       runner: FileCommandRunner,
@@ -61,6 +148,238 @@ class BazelWorkerTest extends FileCommandFixtures {
     val errStream = new PrintStream(err, false, UTF_8)
     runner.runWorkerTo(root, arguments, outStream, errStream).map { code =>
       FileCommandRunner.Result(code, out.toString(UTF_8), err.toString(UTF_8))
+    }
+  }
+
+  test("worker request envelopes use defaults, aliases, nulls, and input-order duplicates") {
+    val defaults = BazelWorker.decodeRequest("{}").toOption
+    assertEquals(
+      defaults,
+      Some(BazelWorker.ActionRequest(Nil, Nil, 0, 0, ""))
+    )
+
+    val decoded = BazelWorker.decodeRequest(
+      """{"arguments":["headers","path with spaces","雪"],"inputs":[{"path":"雪 file","digest":"AQID","ignored":{"nested":true}}],"request_id":-2147483648,"requestId":"2147483647","request_id":null,"verbosity":"-4","cancel":false,"sandbox_dir":"work","sandboxDir":null,"unknown":[1,2]}"""
+    )
+    assertEquals(
+      decoded,
+      Right(
+        BazelWorker.ActionRequest(
+          List("headers", "path with spaces", "雪"),
+          List(BazelWorker.Input("雪 file", Vector[Byte](1, 2, 3))),
+          Int.MaxValue,
+          -4,
+          "work"
+        )
+      )
+    )
+
+    assertEquals(
+      BazelWorker.decodeRequest("""{"requestId":7,"cancel":true,"arguments":["headers"]}"""),
+      Right(BazelWorker.CancelRequest(7))
+    )
+    assertEquals(
+      BazelWorker.decodeRequest("""{"arguments":null,"inputs":null,"cancel":null}"""),
+      Right(BazelWorker.ActionRequest(Nil, Nil, 0, 0, ""))
+    )
+    assertEquals(
+      BazelWorker.decodeRequest("""{"requestId":1e2,"verbosity":1.0}"""),
+      Right(BazelWorker.ActionRequest(Nil, Nil, 100, 1, ""))
+    )
+    assertEquals(
+      BazelWorker.decodeRequest("""{"request_id":"1.00e+2"}"""),
+      Right(BazelWorker.ActionRequest(Nil, Nil, 100, 0, ""))
+    )
+  }
+
+  test("worker request decoding accepts strict JSON escapes in every string position") {
+    val decoded = BazelWorker.decodeRequest(
+      """{"arg\u0075ments":["headers","slash\/path","quote:\" backslash:\\ backspace:\b formfeed:\f newline:\n CR:\r tab:\t null:\u0000 unicode:\u96ea supplementary:\uD83D\uDE42"],"inputs":[{"p\u0061th":"src\/A.bosatsu","digest":"AQID","unknown":{"name":"escaped\/slash"}}],"request\u0049d":23,"unknown":{"nested":["\/","\uD83D\uDE42"]}}"""
+    )
+    val argument =
+      "quote:\" backslash:\\ backspace:\b formfeed:\f newline:\n CR:\r tab:\t null:" +
+        0.toChar + " unicode:雪 supplementary:🙂"
+    assertEquals(
+      decoded,
+      Right(
+        BazelWorker.ActionRequest(
+          List("headers", "slash/path", argument),
+          List(BazelWorker.Input("src/A.bosatsu", Vector[Byte](1, 2, 3))),
+          23,
+          0,
+          ""
+        )
+      )
+    )
+  }
+
+  test("worker response encoding round trips generated values as one compact JSON line") {
+    val random = new Random(2484L)
+    val codePoints = Array(0, 8, 9, 10, 13, 31, 34, 39, 92, 127, 0x00e9, 0x96ea, 0x1f642)
+    def generatedString(maxSize: Int): String = {
+      val size = random.nextInt(maxSize + 1)
+      val builder = new java.lang.StringBuilder
+      var index = 0
+      while (index < size) {
+        builder.appendCodePoint(codePoints(random.nextInt(codePoints.length)))
+        index += 1
+      }
+      builder.toString
+    }
+
+    (0 until 100).foreach { _ =>
+      val args = List.fill(random.nextInt(8))(generatedString(30))
+      val inputs = List(BazelWorker.Input(generatedString(24), Vector.empty))
+      val requestId = random.nextInt()
+      val verbosity = random.nextInt()
+      val request = independentRequestJson(
+        args :+ "/\\\"\b\f\n\r\t'雪🙂",
+        inputs.head.path,
+        requestId,
+        verbosity
+      )
+      BazelWorker.decodeRequest(request) match {
+        case Right(action: BazelWorker.ActionRequest) =>
+          assertEquals(
+            action,
+            BazelWorker.ActionRequest(
+              args :+ "/\\\"\b\f\n\r\t'雪🙂",
+              inputs,
+              requestId,
+              verbosity,
+              ""
+            )
+          )
+        case other                                    => fail(s"expected action request, got $other")
+      }
+
+      val response = BazelWorker.Response(
+        random.nextInt(),
+        random.nextInt(),
+        generatedString(400)
+      )
+      val encoded = BazelWorker.encodeResponse(response)
+      assert(!encoded.contains('\n'))
+      assert(!encoded.contains('\r'))
+      val parsed = jsonMapper.readTree(encoded)
+      assertEquals(parsed.get("requestId").intValue(), response.requestId)
+      assertEquals(parsed.get("exitCode").intValue(), response.exitCode)
+      assertEquals(parsed.get("output").textValue(), response.output)
+      assertEquals(parsed.get("wasCancelled").booleanValue(), false)
+    }
+
+    val longDiagnostic = ("bad \"input\" \\ line\n" * 5000) + "雪"
+    val encoded = BazelWorker.encodeResponse(BazelWorker.Response(0, 1, longDiagnostic))
+    assert(!encoded.contains('\n'))
+    assert(!encoded.contains('\r'))
+    assertEquals(jsonMapper.readTree(encoded).get("output").textValue(), longDiagnostic)
+    assert(encoded.contains("\"wasCancelled\":false"))
+  }
+
+  test("worker request decoding accepts standard and URL-safe base64 digests") {
+    val random = new Random(0L)
+    val vectors = List(
+      Array.emptyByteArray,
+      Array[Byte](1),
+      Array[Byte](0xfb.toByte, 0xff.toByte, 0xef.toByte),
+      Array.fill[Byte](32)(0)
+    ) ::: List.fill(50)(Array.fill(random.nextInt(64))(random.nextInt(256).toByte))
+    val encoders = List(
+      Base64.getEncoder,
+      Base64.getEncoder.withoutPadding(),
+      Base64.getUrlEncoder,
+      Base64.getUrlEncoder.withoutPadding()
+    )
+
+    vectors.foreach { bytes =>
+      encoders.foreach { encoder =>
+        val encoded = encoder.encodeToString(bytes)
+        val json = s"""{"inputs":[{"digest":"$encoded"}]}"""
+        assertEquals(
+          BazelWorker.decodeRequest(json),
+          Right(BazelWorker.ActionRequest(Nil, List(BazelWorker.Input("", bytes.toVector)), 0, 0, ""))
+        )
+      }
+    }
+
+    assertEquals(
+      BazelWorker.decodeRequest("""{"inputs":[{}, {"digest":""}, {"path":null,"digest":null}]}"""),
+      Right(
+        BazelWorker.ActionRequest(
+          Nil,
+          List(
+            BazelWorker.Input("", Vector.empty),
+            BazelWorker.Input("", Vector.empty),
+            BazelWorker.Input("", Vector.empty)
+          ),
+          0,
+          0,
+          ""
+        )
+      )
+    )
+  }
+
+  test("worker request decoding rejects malformed JSON and invalid known fields") {
+    val invalid = List(
+      "[]",
+      "{",
+      "{} {}",
+      """{"arguments":"headers"}""",
+      """{"arguments":[null]}""",
+      """{"inputs":{}}""",
+      """{"inputs":[null]}""",
+      """{"inputs":[{"path":1}]}""",
+      """{"inputs":[{"digest":1}]}""",
+      """{"inputs":[{"digest":"A"}]}""",
+      """{"inputs":[{"digest":"+-_"}]}""",
+      """{"requestId":1.5}""",
+      """{"requestId":"not-an-int"}""",
+      """{"requestId":2147483648}""",
+      """{"request_id":"-2147483649"}""",
+      """{"verbosity":true}""",
+      """{"cancel":"false"}""",
+      """{"sandboxDir":[]}"""
+    )
+    invalid.foreach { json =>
+      val decoded = BazelWorker.decodeRequest(json)
+      assert(decoded.isLeft, s"expected request to fail: $json, got $decoded")
+    }
+  }
+
+  test("worker request parsing rejects invalid strings before ignoring fields") {
+    val invalidEscapes = List(
+      "\\x41",
+      "\\o41",
+      "\\U00000041",
+      "\\'",
+      "\\q",
+      "\\u12",
+      "\\u12G4"
+    )
+    val locations: List[String => String] = List(
+      value => s"""{"arguments":["$value"]}""",
+      value => s"""{"$value":true}""",
+      value => s"""{"inputs":[{"path":"$value"}]}""",
+      value => s"""{"inputs":[{"digest":"$value"}]}""",
+      value => s"""{"unknown":{"nested":["$value"]}}"""
+    )
+    invalidEscapes.foreach { invalid =>
+      locations.foreach { document =>
+        val json = document(invalid)
+        assert(
+          BazelWorker.decodeRequest(json).isLeft,
+          s"accepted invalid JSON string at a request position: $json"
+        )
+      }
+    }
+
+    (0 until 0x20).foreach { control =>
+      val json = "{\"unknown\":{\"nested\":\"a" + control.toChar + "b\"}}"
+      assert(
+        BazelWorker.decodeRequest(json).isLeft,
+        s"accepted literal control U+${control.toHexString} in ignored field"
+      )
     }
   }
 
@@ -407,6 +726,156 @@ class BazelWorkerTest extends FileCommandFixtures {
         _ = assertEquals(unsupported.exitCode, ExitCode.Error)
         _ = assertEquals(unsupported.stderr, "unsupported bazel worker operation: fetch\n")
       } yield ()
+    }
+  }
+
+  test("persistent requests finish and flush before the next input frame") {
+    withRunner { (root, runner) =>
+      val input = new ControlledInputStream
+      val output = new FlushedLineOutputStream
+      val errorBytes = new ByteArrayOutputStream
+      val diagnostics = new TrackingPrintStream(errorBytes)
+      val source = "package Example/Persistent\nexport value\nvalue = 42\n"
+      val first =
+        """{"arguments":["headers","--src","Source.bosatsu","--out","first.json"],"requestId":7,"inputs":[{"path":"Source.bosatsu","digest":""}],"unknown":true}"""
+      val bad = """{"arguments":["fetch"],"requestId":8}"""
+      val sandbox =
+        """{"arguments":["headers","--src","Source.bosatsu","--out","sandbox.json"],"requestId":9,"sandboxDir":"elsewhere"}"""
+      val cancel = """{"requestId":10,"cancel":true}"""
+      val last =
+        """{"arguments":["headers","--src","Source.bosatsu","--out","last.json"]}"""
+
+      for {
+        _ <- write(root, "Source.bosatsu", source)
+        ready <- Deferred[IO, Unit]
+        fiber <- (ready.complete(()) *> BazelWorker
+          .runPersistent(root, input, output, diagnostics, runner)).start
+        _ <- ready.get
+        _ <- IO.blocking(input.offer(first + "\r\n"))
+        firstLine <- IO.blocking(output.nextLine())
+        firstResponse = jsonMapper.readTree(firstLine)
+        _ = assertEquals(firstResponse.get("requestId").intValue(), 7)
+        _ = assertEquals(firstResponse.get("exitCode").intValue(), 0)
+        _ = assert(Files.isRegularFile(root.resolve("first.json")))
+        _ = assert(!input.closed)
+        _ <- IO.blocking(input.offer(bad + "\n"))
+        badLine <- IO.blocking(output.nextLine())
+        badResponse = jsonMapper.readTree(badLine)
+        _ = assertEquals(badResponse.get("requestId").intValue(), 8)
+        _ = assertEquals(badResponse.get("exitCode").intValue(), 1)
+        _ = assert(badResponse.get("output").asText().contains("unsupported bazel worker operation: fetch"))
+        _ <- IO.blocking(input.offer(sandbox + "\n"))
+        sandboxLine <- IO.blocking(output.nextLine())
+        sandboxResponse = jsonMapper.readTree(sandboxLine)
+        _ = assertEquals(sandboxResponse.get("requestId").intValue(), 9)
+        _ = assertEquals(sandboxResponse.get("exitCode").intValue(), 1)
+        _ = assert(sandboxResponse.get("output").asText().contains("unsupported nonempty sandboxDir"))
+        _ = assert(!Files.exists(root.resolve("sandbox.json")))
+        _ <- IO.blocking(input.offer(cancel + "\n"))
+        _ <- IO.blocking(input.offer(last + "\n"))
+        lastLine <- IO.blocking(output.nextLine())
+        lastResponse = jsonMapper.readTree(lastLine)
+        _ = assertEquals(lastResponse.get("requestId").intValue(), 0)
+        _ = assertEquals(lastResponse.get("exitCode").intValue(), 0)
+        _ = assert(Files.isRegularFile(root.resolve("last.json")))
+        _ <- IO.blocking(input.finish())
+        result <- fiber.joinWithNever
+        _ = assertEquals(result, ExitCode.Success)
+        _ = assert(!output.hasExtraLine)
+        _ = assertEquals(errorBytes.size(), 0)
+        _ = assert(!input.closed)
+        _ = assert(!output.closed)
+        _ = assert(!diagnostics.closed)
+        _ <- IO.blocking {
+          input.close()
+          output.close()
+          diagnostics.close()
+        }
+      } yield ()
+    }
+  }
+
+  test("persistent transport reports malformed, truncated, and unreadable requests") {
+    withRunner { (root, runner) =>
+      def checkFailure(input: InputStream, expected: String): IO[Unit] = {
+        val outputBytes = new ByteArrayOutputStream
+        val diagnosticBytes = new ByteArrayOutputStream
+        val diagnostics = new PrintStream(diagnosticBytes, false, UTF_8)
+        BazelWorker
+          .runPersistent(
+            root,
+            input,
+            outputBytes,
+            diagnostics,
+            runner
+          )
+          .map { code =>
+            assertEquals(code, ExitCode.Error)
+            assertEquals(outputBytes.size(), 0)
+            assert(diagnosticBytes.toString(UTF_8).contains(expected))
+          }
+      }
+
+      val inputs = List(
+        new ByteArrayInputStream("{".getBytes(UTF_8)) -> "truncated worker request",
+        new ByteArrayInputStream("{\"arguments\":[}\n".getBytes(UTF_8)) -> "invalid worker JSON",
+        new ByteArrayInputStream(Array(0xc3.toByte, 0x28.toByte, '\n'.toByte)) -> "not valid UTF-8",
+        new InputStream {
+          override def read(): Int = throw new IOException()
+        } -> "could not read worker request: IOException"
+      )
+
+      inputs.traverse_ { case (input, expected) =>
+        checkFailure(input, expected)
+      }
+    }
+  }
+
+  test("persistent stream write failures are surfaced to the caller") {
+    withRunner { (root, runner) =>
+      def failingPrintStream: PrintStream =
+        new PrintStream(new OutputStream {
+          override def write(value: Int): Unit =
+            throw new IOException("closed worker stream")
+        }, false, UTF_8)
+
+      val request = "{\"arguments\":[]}\n".getBytes(UTF_8)
+      val outputFailure = BazelWorker
+        .runPersistent(
+          root,
+          new ByteArrayInputStream(request),
+          failingPrintStream,
+          new PrintStream(new ByteArrayOutputStream, false, UTF_8),
+          runner
+        )
+        .attempt
+        .map { result =>
+          assert(
+            result.swap.toOption.exists(error =>
+              Option(error.getMessage).exists(_.contains("failed to write bazel worker response"))
+            )
+          )
+        }
+
+      val diagnosticFailure = BazelWorker
+        .runPersistent(
+          root,
+          new ByteArrayInputStream("{\n".getBytes(UTF_8)),
+          new ByteArrayOutputStream,
+          failingPrintStream,
+          runner
+        )
+        .attempt
+        .map { result =>
+          assert(
+            result.swap.toOption.exists(error =>
+              Option(error.getMessage)
+                .exists(_.contains("failed to write bazel worker transport diagnostic"))
+            )
+          )
+        }
+
+      outputFailure *> diagnosticFailure
     }
   }
 

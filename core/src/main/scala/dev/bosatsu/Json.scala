@@ -4,6 +4,7 @@ import java.math.{BigInteger, BigDecimal}
 import java.util.Locale
 import org.typelevel.paiges.Doc
 import cats.parse.{Parser0 => P0, Parser => P, Numbers}
+import cats.parse.strings.Json as JsonStrings
 import cats.{Eq, Show}
 import scala.compiletime.{constValue, erasedValue, summonInline}
 import scala.deriving.Mirror
@@ -392,46 +393,57 @@ object Json {
     * places where speed won't matter: feeding it into a program that will
     * convert it to bosatsu structured data
     */
-  val parser: P[Json] = {
-    val recurse = P.defer(parser)
+  private def makeParser(justStr: P[String]): P[Json] = {
+    lazy val parser: P[Json] = {
+      val recurse = P.defer(parser)
 
-    // cats-parse uses a radix tree for these so it only needs to check 1 character
-    // to see if it misses
-    val pconst = P.fromStringMap(
-      Map(
-        "null" -> JNull,
-        "true" -> JBool.True,
-        "false" -> JBool.False
-        /* you can imagine going nuts, but we should justify this with benchmarks
+      // cats-parse uses a radix tree for these so it only needs to check 1 character
+      // to see if it misses
+      val pconst = P.fromStringMap(
+        Map(
+          "null" -> JNull,
+          "true" -> JBool.True,
+          "false" -> JBool.False
+          /* you can imagine going nuts, but we should justify this with benchmarks
       "0" -> JNumberStr("0"),
       "1" -> JNumberStr("1"),
       "\"\"" -> JString(""),
       "[]" -> JArray(Vector.empty),
       "{}" -> JObject(Nil)
          */
+        )
       )
-    )
 
-    val justStr = JsonStringUtil.escapedString('"')
-    val str = justStr.map(JString(_))
-    val num = Parser.JsonNumber.parser.map(JNumberStr(_))
+      val str = justStr.map(JString(_))
+      val num = Parser.JsonNumber.parser.map(JNumberStr(_))
 
-    val listSep: P[Unit] =
-      (whitespaces0.with1.soft ~ P.char(',') ~ whitespaces0).void
+      val listSep: P[Unit] =
+        (whitespaces0.with1.soft ~ P.char(',') ~ whitespaces0).void
 
-    def rep[A](pa: P[A]): P0[List[A]] =
-      (whitespaces0 *> P.repSep0(pa, min = 0, sep = listSep) <* whitespaces0)
+      def rep[A](pa: P[A]): P0[List[A]] =
+        (whitespaces0 *> P.repSep0(pa, min = 0, sep = listSep) <* whitespaces0)
 
-    val list = (P.char('[') *> rep(recurse) <* P.char(']'))
-      .map(vs => JArray(vs.toVector))
+      val list = (P.char('[') *> rep(recurse) <* P.char(']'))
+        .map(vs => JArray(vs.toVector))
 
-    val kv: P[(String, Json)] =
-      justStr ~ ((whitespaces0.with1 ~ P.char(':') ~ whitespaces0) *> recurse)
+      val kv: P[(String, Json)] =
+        justStr ~ ((whitespaces0.with1 ~ P.char(':') ~ whitespaces0) *> recurse)
 
-    val obj = (P.char('{') *> rep(kv) <* P.char('}'))
-      .map(vs => JObject(vs))
+      val obj = (P.char('{') *> rep(kv) <* P.char('}'))
+        .map(vs => JObject(vs))
 
-    P.oneOf(pconst :: str :: num :: list :: obj :: Nil)
+      P.oneOf(pconst :: str :: num :: list :: obj :: Nil)
+    }
+
+    parser
+  }
+
+  val parser: P[Json] = makeParser(JsonStringUtil.escapedString('"'))
+
+  /** A complete JSON document parser with strict JSON string escaping. */
+  val strictParserFile: P[Json] = {
+    val parser = makeParser(JsonStrings.delimited.parser)
+    whitespaces0.with1 *> (parser ~ whitespaces0 ~ P.end).map(_._1._1)
   }
 
   // any whitespace followed by json followed by whitespace followed by end
