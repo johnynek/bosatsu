@@ -362,6 +362,84 @@ and reject conflicting bytes. Callers acquire all files before the action;
 inspection does not fetch descriptors' URIs. Descriptor-only inspection takes
 only the pinned root and does not read this dependency context.
 
+Inspection outputs use UTF-8 JSON with `schema_version: 1`, except the signature
+projection, which is the existing canonical `TypedAst.Interfaces` protobuf
+encoding produced by `PackageSignatures.encode`. Each output is independently
+requestable. Signature bytes include only the root's exported interfaces; they
+do not include artifact paths or digests, mirror URIs, private scopes, or
+implementation metadata.
+
+Descriptor-only output is available after authenticating the root, even while
+all children are absent. The shape is:
+
+```json
+{
+  "schema_version": 1,
+  "identity": {"name": "parser", "version": "1.0.0"},
+  "digests": {"sha256": "…", "blake3": "…"},
+  "descriptor": {"version": "1.0.0", "hashes": [], "uris": []},
+  "dependencies": [
+    {
+      "identity": {"name": "common", "version": "1.0.0"},
+      "visibility": "public",
+      "hashes": ["blake3:…"],
+      "uris": ["https://example.invalid/common.bosatsu_lib"]
+    }
+  ]
+}
+```
+
+The root descriptor is the metadata embedded in the artifact; `digests` are
+computed from the authenticated bytes. Dependency entries retain the descriptor
+pins and URIs and use `public`, `private`, or `unused_transitive_public`
+visibility. Entries are ordered by visibility and exact target identity, then
+by pins and URIs. Full inspection first authenticates the complete declared
+graph against those edges.
+
+The exposure projection has one record for each exported package in every
+verified scope. `owner` is the library identity that owns that package; each
+`exposes` item names a typed foreign package, its provider identity, and the
+library-identity witness path from the referring scope. Provider lookup follows
+public and legacy unused-transitive-public edges. Private implementation edges
+remain in the implementation projection and cannot introduce unrelated public
+exposures. A compiler-provided `Predef` reference is represented with
+`{"kind":"compiler","name":"Predef"}` and an empty witness path, never as a
+downloaded library. For example:
+
+```json
+{
+  "schema_version": 1,
+  "packages": [
+    {
+      "library": {"name": "public_child", "version": "1.0.0"},
+      "package": "Public/Child",
+      "owner": {"name": "public_child", "version": "1.0.0"},
+      "exposes": [
+        {
+          "package": "Common/Util",
+          "provider": {"name": "common", "version": "1.0.0"},
+          "witness_path": [
+            {"name": "public_child", "version": "1.0.0"},
+            {"name": "common", "version": "1.0.0"}
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+The membership projection lists each graph identity with sorted
+`internal_packages` and `exported_packages`. The implementation projection
+lists the root identity, each authenticated artifact's SHA-256, BLAKE3 and
+declared paths, plus every scoped edge with visibility, pins, URIs and witness
+path. These artifact references point to the original library files; inspection
+does not define another implementation codec. Identities sort by library name
+and exact version, package names sort lexically, and edge lists sort by referring
+identity, visibility and target identity. Thus equivalent declaration/context
+ordering yields identical metadata while implementation-only changes affect
+artifact metadata without changing signature bytes.
+
 ### File contracts for steps 0e and 0f
 
 All manifests in this section use UTF-8 JSON. Invalid byte sequences fail validation before paths or labels are compared.

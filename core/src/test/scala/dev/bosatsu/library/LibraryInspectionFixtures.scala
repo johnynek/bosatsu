@@ -64,13 +64,17 @@ private[bosatsu] object LibraryInspectionFixtures {
       source: String,
       public: List[Built] = Nil,
       privateDeps: List[Built] = Nil,
-      unusedTransitivePublic: List[Built] = Nil
+      unusedTransitivePublic: List[Built] = Nil,
+      legacyInterfaces: Boolean = false
   ): Built = {
     val pack = compiled(source, public ::: privateDeps)
+    val iface = ProtoConverter.interfaceToProto(Package.interfaceOf(pack)).get
     val raw = proto.Library(
       name = name,
       descriptor = Some(proto.LibDescriptor(version = Some(version.toProto))),
-      exportedIfaces = List(ProtoConverter.interfaceToProto(Package.interfaceOf(pack)).get),
+      exportedIfaces = List(
+        if (legacyInterfaces) iface.copy(signatureDependencies = None) else iface
+      ),
       internalPackages = List(ProtoConverter.packageToProto(pack).get),
       publicDependencies = public.map(dependency),
       privateDependencies = privateDeps.map(dependency),
@@ -83,7 +87,8 @@ private[bosatsu] object LibraryInspectionFixtures {
     "common",
     version1,
     """package Common/Util
-      |export common_value
+      |export common_value, Box()
+      |struct Box(value: Int)
       |common_value = 40
       |""".stripMargin
   )
@@ -101,11 +106,14 @@ private[bosatsu] object LibraryInspectionFixtures {
     "public_child",
     version1,
     """package Public/Child
-      |from Common/Util import common_value
-      |export public_value
+      |from Common/Util import common_value, Box
+      |export public_value, make_box
+      |exposes Common/Util
       |public_value = common_value
+      |make_box = Box
       |""".stripMargin,
-    public = List(common, legacy)
+    public = List(common, legacy),
+    legacyInterfaces = true
   )
 
   private lazy val privateChild = build(
@@ -169,6 +177,7 @@ private[bosatsu] object LibraryInspectionFixtures {
       |from Right import answer as right_answer
       |export parse_score
       |parse_score = (public_value, private_value, left_answer, right_answer)
+      |private_helper = 1
       |""".stripMargin,
     public = List(publicChild),
     privateDeps = List(privateChild, left, right),

@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2493` 0l and 0o: Inspect pinned library files and authenticate every dependency edge
-- Pending steps: `3`
-- Completed steps: `3`
+- Pending steps: `2`
+- Completed steps: `4`
 - Total steps: `6`
 
 ## Summary
@@ -135,7 +135,7 @@ The complete in-scope decoding inventory is full inspection, every full-mode pro
 
 Implemented authenticated traversal of public, private, and legacy resolution edges, including per-path snapshot reuse, alias checks, and cycle detection. Added graph-only dependency-order decoding with per-library provider scopes. Parser fixture tests cover the second diamond edge, private versions, aliases, missing and ambiguous providers, descriptor pins and versions, cycles, reserved packages, and malformed Int64 data. The focused JVM suites passed (32 tests), and `coreJS/compile` passed.
 
-4. [ ] `step_3` Derive canonical signatures and scoped inspection projections
+4. [x] `step_3` Derive canonical signatures and scoped inspection projections
 
 Implement inspection projections in `core/src/main/scala/dev/bosatsu/tool/LibraryInspection.scala`, consuming the authenticated snapshot for descriptor-only results and the verified graph/scoped decoder for full results. Reuse `PackageSignatures.encode` for the root's exported signature; retain its existing protobuf format and canonicalization. Do not encode artifact hashes, file paths, mirror URIs, implementation metadata, or unrelated private scopes in signature bytes.
 
@@ -164,6 +164,10 @@ Allow each projection to be requested independently. Full-mode signature-only in
 - Check that two private releases appear with their distinct referring edges, while a wrapper's private dependency does not leak into an outer public projection.
 - Test each projection alone, empty exported-interface sets, and signatures that round-trip through existing signature readers.
 - Inspect a valid pinned parent with all children absent in descriptor-only mode; require full mode to reject that same incomplete context.
+
+#### Completion Notes
+
+Implemented canonical signature, descriptor, typed exposure/provider, membership, and scoped implementation projections over the authenticated snapshot and graph. Added deterministic and legacy unindexed-exposure fixtures, private implementation stability coverage, and version-1 output documentation. The focused JVM inspection/signature suites passed (34 tests); `coreJS/test:compile` and `git diff --check` passed.
 
 5. [ ] `step_4` Register the inspection command with staged publication
 

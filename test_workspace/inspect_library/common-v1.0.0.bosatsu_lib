@@ -1,14 +1,24 @@
 
 common*
-2B
+2|
+Common/Util
+Box
+Bosatsu/Predef
+Int
+value
+common_value
+
+ **
+*
+:¦
 Common/Util
 Bosatsu/Predef
 Int
-common_value
- *:l
-Common/Util
-Bosatsu/Predef
-Int
-common_value
-*:
-(Z790:BJ
+common_value
+Box
+value
+
+*:
+(ZUW0:BB
+B
+J

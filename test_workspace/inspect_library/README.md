@@ -15,10 +15,18 @@ Representative source snippets used by the builder:
 
 ```bosatsu
 package Public/Child
-from Common/Util import common_value
-export public_value
+from Common/Util import common_value, Box
+export public_value, make_box
+exposes Common/Util
 public_value = common_value
+make_box = Box
 ```
+
+`Public/Child`'s exported `make_box` type refers to the `Common/Util::Box`
+provider. This exercises typed exposure ownership through a public edge; the
+serialized interface deliberately omits the newer exposure index to exercise
+legacy typed-export recovery. The separate `Private/Child` use of `Common/Util`
+remains an implementation detail.
 
 ```bosatsu
 package Private/Child
@@ -35,7 +43,9 @@ def pick(value: Int) -> Int: value
 
 The second `Shared/Api` release instead accepts `Bool`. `Left` and `Right`
 compile against their respective release; `Parser` imports both wrappers,
-along with the public and private child packages.
+along with the public and private child packages. `Parser` also contains an
+unexported `private_helper` value used to check that implementation edits change
+artifact metadata without changing its exported signature bytes.
 
 Regenerate the serialized artifacts and both pin files from the typed fixture
 builder with:

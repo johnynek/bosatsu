@@ -186,7 +186,23 @@ object DecodedLibraryWithDeps {
   )(implicit
       F: MonadError[F, Throwable],
       C: CanPromise[F]
-  ): F[DecodedLibraryWithDeps[Algo.Blake3]] = {
+  ): F[DecodedLibraryWithDeps[Algo.Blake3]] =
+    decodeVerifiedGraphWithLibraries[F](graph).map(_._1)
+
+  /** Decode every authenticated graph node in dependency order, retaining the
+    * complete identity map for inspection metadata. The ordinary scoped tree
+    * omits legacy resolution-only edges, but inspection still needs their
+    * verified artifacts and package membership.
+    */
+  private[bosatsu] def decodeVerifiedGraphWithLibraries[F[_]](
+      graph: VerifiedLibraryGraph[?]
+  )(implicit
+      F: MonadError[F, Throwable],
+      C: CanPromise[F]
+  ): F[(
+    DecodedLibraryWithDeps[Algo.Blake3],
+    SortedMap[LibraryIdentity, DecodedLibrary[Algo.Blake3]]
+  )] = {
     type Identity = LibraryIdentity
     type State = (
       List[Identity],
@@ -198,13 +214,21 @@ object DecodedLibraryWithDeps {
       summon[Ordering[Version]]
     )
 
-    def one(state: State): F[Either[State, DecodedLibraryWithDeps[Algo.Blake3]]] =
+    def one(
+        state: State
+    ): F[Either[
+      State,
+      (
+        DecodedLibraryWithDeps[Algo.Blake3],
+        SortedMap[LibraryIdentity, DecodedLibrary[Algo.Blake3]]
+      )
+    ]] =
       state._1 match {
         case Nil =>
           F.fromOption(
             state._3.get(graph.rootIdentity),
             CliException.Basic("verified library graph is missing its root")
-          ).map(Right(_))
+          ).map(root => Right((root, state._2)))
         case identity :: remaining =>
           graph.snapshot(identity) match {
             case None =>
@@ -272,7 +296,13 @@ object DecodedLibraryWithDeps {
           }
       }
 
-    F.tailRecM[State, DecodedLibraryWithDeps[Algo.Blake3]](
+    F.tailRecM[
+      State,
+      (
+        DecodedLibraryWithDeps[Algo.Blake3],
+        SortedMap[LibraryIdentity, DecodedLibrary[Algo.Blake3]]
+      )
+    ](
       (graph.decodeOrder, SortedMap.empty, SortedMap.empty)
     )(one)
   }
