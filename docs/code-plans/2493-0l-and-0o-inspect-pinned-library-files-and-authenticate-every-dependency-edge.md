@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2493` 0l and 0o: Inspect pinned library files and authenticate every dependency edge
-- Pending steps: `1`
-- Completed steps: `7`
+- Pending steps: `0`
+- Completed steps: `8`
 - Total steps: `8`
 
 ## Summary
@@ -273,7 +273,7 @@ Add regressions through Scala.js MainModule followed by Output.report, extending
 
 Replaced inspection’s sequential writes with one serialized `Output.AtomicFileSet` for full, signature-only, and descriptor-only projections. Added the shared `PlatformIO` file-set operation, using JVM `StagedOutputs`, Scala.js staging/preflight/rollback, and one in-memory state update; FileCommandRunner joins the request transaction. Scala.js command and file-set regressions cover changed public signatures, mixed existing and absent outputs, staging and install failures across positions and orders, cleanup, and retry. Updated the inspection publication contract. Focused coreJVM, CLI, and Scala.js tests passed.
 
-8. [ ] `step_7_exact_version_identity` Make shared version ordering preserve exact identity
+8. [x] `step_7_exact_version_identity` Make shared version ordering preserve exact identity
 
 Invariant family: exact-version-identity
 
@@ -305,3 +305,7 @@ Run focused Version, snapshot, graph, and projection suites on JVM and Scala.js.
 - With correct artifact digests, reject an expected-version substitution between the colliding spellings through both VerifiedLibrarySnapshot.verify and cached-path authenticateAs.
 - Verify and decode two private releases using the formerly colliding spellings; assert both scoped nodes and each wrapper's selected package binding survive into inspection metadata.
 - Retain exact-identity alias coalescing, conflicting-byte rejection, second-diamond-edge authentication, existing Version ordering/build comparisons, and nextPreRelease progression regressions.
+
+#### Completion Notes
+
+Updated shared Version ordering to recognize only unsigned decimal prerelease identifiers as numeric and distinguish equal-valued build spellings, preserving numeric build order. Added correlated ordering and identity properties, hyphenated nextPreRelease coverage, pinned initial and cached identity rejection, and graph coverage for reordered private releases, package bindings, and inspection metadata. Focused Version, snapshot, graph, and projection suites passed on JVM and Scala.js (44 tests each). The Linux acceptance SBT command passed: coreJVM (2,266 passed), cli (205 passed, 1 skipped), coreJS (2,236 passed, 8 ignored), cliJSJS (12 passed), and cli assembly. `./test_cli.sh` passed, including candidate-jar worker and library inspection acceptance; `git diff --check` passed.

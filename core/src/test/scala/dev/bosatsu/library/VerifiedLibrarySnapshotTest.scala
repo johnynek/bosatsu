@@ -70,12 +70,13 @@ class VerifiedLibrarySnapshotTest extends munit.ScalaCheckSuite {
   }
 
   private def library(
-      repoUri: String = "https://example.invalid/repo"
+      repoUri: String = "https://example.invalid/repo",
+      libraryVersion: Version = version
   ): Array[Byte] =
     proto.Library(
       name = "sample",
       repoUri = repoUri,
-      descriptor = Some(proto.LibDescriptor(version = Some(version.toProto)))
+      descriptor = Some(proto.LibDescriptor(version = Some(libraryVersion.toProto)))
     ).toByteArray
 
   private def pin(name: String, bytes: Array[Byte]): String =
@@ -168,6 +169,32 @@ class VerifiedLibrarySnapshotTest extends munit.ScalaCheckSuite {
       "has no version",
       "expected 1.2.3"
     )
+  }
+
+  test("correct pins do not authorize a colliding prerelease identity") {
+    val actualVersion = Version.unsafe("1.2.3--0")
+    val collidingExpectedVersion = Version.unsafe("1.2.3-0")
+    val bytes = library(libraryVersion = actualVersion)
+    val hashes = List(pin("sha256", bytes))
+
+    rejects(
+      verify(bytes, hashes, expectedVersion = collidingExpectedVersion),
+      "version 1.2.3--0",
+      "expected 1.2.3-0"
+    )
+
+    val snapshot = verify(bytes, hashes, expectedVersion = actualVersion).toOption.get
+    val cachedReauthentication = snapshot.authenticateAs(
+      "pinned/lib.bosatsu_lib",
+      Name("sample"),
+      collidingExpectedVersion,
+      hashes
+    )
+    val failure = cachedReauthentication.swap.toOption.getOrElse(
+      fail("accepted cached snapshot under a colliding prerelease identity")
+    )
+    assert(failure.contains("version 1.2.3--0"), failure)
+    assert(failure.contains("expected 1.2.3-0"), failure)
   }
 
   test("malformed protobuf and missing files fail with path provenance") {

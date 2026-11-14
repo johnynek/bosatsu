@@ -2,7 +2,7 @@ package dev.bosatsu.library
 
 import _root_.bosatsu.{TypedAst => proto}
 import cats.data.Chain
-import dev.bosatsu.MemoryMain
+import dev.bosatsu.{MemoryMain, PackageName}
 import dev.bosatsu.hashing.Algo
 import dev.bosatsu.tool.LibraryInspection
 import org.scalacheck.{Gen, Prop}
@@ -79,6 +79,27 @@ class VerifiedLibraryGraphTest extends munit.ScalaCheckSuite {
     next :: files.filterNot(_._1 == rawPath)
   }
 
+  private def replaceLibrary(fixture: Fixture, library: proto.Library): Fixture = {
+    val bytes = library.toByteArray
+    (fixture._1, library, bytes, pins(bytes))
+  }
+
+  private def dependencyTarget(
+      dependency: proto.LibDependency,
+      version: Version,
+      bytes: Array[Byte]
+  ): proto.LibDependency =
+    dependency.copy(desc = dependency.desc.map(_.copy(
+      version = Some(version.toProto),
+      hashes = pins(bytes)
+    )))
+
+  private def dependencyHashes(
+      dependency: proto.LibDependency,
+      bytes: Array[Byte]
+  ): proto.LibDependency =
+    dependency.copy(desc = dependency.desc.map(_.copy(hashes = pins(bytes))))
+
   test("authenticates all visibility edges and decodes each private version in its own scope") {
     val result = verify().toOption.get
     assertEquals(result.identities.size, fixtures.size)
@@ -107,6 +128,114 @@ class VerifiedLibraryGraphTest extends munit.ScalaCheckSuite {
     assert(right.deps.contains((Name("shared"), Version(2, 0, 0))))
     assert(!right.deps.contains((Name("shared"), Version(1, 0, 0))))
     assert(!decoded.deps.contains((Name("common"), Version(1, 0, 0))))
+  }
+
+  test("colliding prerelease spellings keep private graph scopes and package bindings") {
+    val sharedFixtures = fixtures.filter(_._2.name == "shared")
+    val sharedV1 = sharedFixtures.find(fixture =>
+      Library.getVersion(fixture._2).contains(Version(1, 0, 0))
+    ).get
+    val sharedV2 = sharedFixtures.find(fixture =>
+      Library.getVersion(fixture._2).contains(Version(2, 0, 0))
+    ).get
+    val sharedVersion1 = Version.unsafe("1.0.0-0")
+    val sharedVersion2 = Version.unsafe("1.0.0--0")
+
+    def atVersion(fixture: Fixture, version: Version): Fixture =
+      replaceLibrary(
+        fixture,
+        fixture._2.copy(descriptor = fixture._2.descriptor.map(
+          _.copy(version = Some(version.toProto))
+        ))
+      )
+
+    val shared1 = atVersion(sharedV1, sharedVersion1)
+    val shared2 = atVersion(sharedV2, sharedVersion2)
+    val leftOriginal = fixtures.find(_._2.name == "left").get
+    val rightOriginal = fixtures.find(_._2.name == "right").get
+    val left = replaceLibrary(
+      leftOriginal,
+      leftOriginal._2.copy(privateDependencies = leftOriginal._2.privateDependencies.map {
+        dependency =>
+          if (dependency.name == "shared") dependencyTarget(dependency, sharedVersion1, shared1._3)
+          else dependency
+      })
+    )
+    val right = replaceLibrary(
+      rightOriginal,
+      rightOriginal._2.copy(privateDependencies = rightOriginal._2.privateDependencies.map {
+        dependency =>
+          if (dependency.name == "shared") dependencyTarget(dependency, sharedVersion2, shared2._3)
+          else dependency
+      })
+    )
+    val root = replaceLibrary(
+      rootFixture,
+      rootFixture._2.copy(privateDependencies = rootFixture._2.privateDependencies.map {
+        dependency =>
+          if (dependency.name == "left") dependencyHashes(dependency, left._3)
+          else if (dependency.name == "right") dependencyHashes(dependency, right._3)
+          else dependency
+      })
+    )
+    val replacements = List(shared1, shared2, left, right, root).map(fixture =>
+      fixture._1 -> fixture
+    ).toMap
+    val changedFixtures = fixtures.map(fixture =>
+      replacements.getOrElse(fixture._1, fixture)
+    )
+    val changedFiles = changedFixtures.map { case (file, _, bytes, _) => file -> bytes }
+    val current = state(changedFiles)
+    val children = changedFixtures.filterNot(_._1 == root._1)
+    val verified = verify(root, children, current).toOption.get
+
+    val sharedIdentities = verified.identities.filter(identity =>
+      Ordering[Name].equiv(identity._1, Name("shared"))
+    )
+    assertEquals(
+      sharedIdentities,
+      List((Name("shared"), sharedVersion1), (Name("shared"), sharedVersion2))
+    )
+    assertEquals(
+      verified.edges.collect {
+        case edge if Ordering[Name].equiv(edge.targetIdentity._1, Name("shared")) =>
+          edge.referringIdentity._1 -> edge.targetIdentity._2
+      }.toSet,
+      Set(Name("left") -> sharedVersion1, Name("right") -> sharedVersion2)
+    )
+
+    def packageBindings(graph: VerifiedLibraryGraph[Path]) = {
+      val decoded = DecodedLibraryWithDeps
+        .decodeVerifiedGraph[MemoryMain.StateF[ErrorOr]](graph)
+        .runA(current)
+        .toOption.get
+      val sharedApi = PackageName.parse("Shared/Api").get
+      val leftBinding = decoded.deps((Name("left"), Version(1, 0, 0)))
+        .depFor(sharedApi).map(_.nameVersion)
+      val rightBinding = decoded.deps((Name("right"), Version(1, 0, 0)))
+        .depFor(sharedApi).map(_.nameVersion)
+      leftBinding -> rightBinding
+    }
+
+    assertEquals(
+      packageBindings(verified),
+      Some((Name("shared"), sharedVersion1)) -> Some((Name("shared"), sharedVersion2))
+    )
+    val implementation = LibraryInspection.implementationProjection(
+      verified,
+      platform.pathToString
+    ).render
+    assert(implementation.contains("1.0.0-0"), implementation)
+    assert(implementation.contains("1.0.0--0"), implementation)
+
+    val reordered = verify(root, children.reverse, current).toOption.get
+    assertEquals(reordered.identities, verified.identities)
+    assertEquals(reordered.edges, verified.edges)
+    assertEquals(
+      LibraryInspection.implementationProjection(reordered, platform.pathToString).render,
+      implementation
+    )
+    assertEquals(packageBindings(reordered), packageBindings(verified))
   }
 
   test("every second diamond edge is checked after its target was authenticated") {
