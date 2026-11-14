@@ -6,6 +6,7 @@ import dev.bosatsu.tool.{ExitCode, Output}
 import java.io.{ByteArrayOutputStream, PrintStream}
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.{Files, Path}
+import org.typelevel.paiges.Doc
 
 /** JVM entry point for file-based compiler invocations. A service owns a
   * compiler execution pool. Each call owns its path context, streams, pending
@@ -129,7 +130,8 @@ object FileCommandRunner {
   // execute native processes. They retain their normal interactive CLI path.
   private[bosatsu] def supports(command: String): Boolean =
     command match {
-      case "check" | "compile-packages" | "validate-graph" | "emit-c" | "headers" | "deps" | "show" | "assemble" |
+      case "check" | "compile-packages" | "validate-graph" | "verify-toolchain" |
+          "emit-c" | "headers" | "deps" | "show" | "assemble" |
           "extract-iface" =>
         true
       case _ => false
@@ -162,6 +164,10 @@ object FileCommandRunner {
           ) {
             override protected def outputPath(path: Path): IO[Path] =
               staged.prepare(diskPath(path))
+
+            // Join the request's transaction instead of publishing independently.
+            override def writeDocAtomic(path: Path, doc: Doc): IO[Unit] =
+              writeDoc(path, doc)
           }
           out.report(reporter).flatMap {
             case ExitCode.Success => staged.publish.as(ExitCode.Success)

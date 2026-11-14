@@ -19,6 +19,7 @@ object ToolCommand {
         HeadersCommand.opts(platformIO) ::
         CompilePackagesCommand.opts(platformIO) ::
         ValidateGraphCommand.opts(platformIO) ::
+        VerifyToolchainCommand.opts(platformIO) ::
         EmitCCommand.opts(platformIO) ::
         TestCommand.opts(platformIO, commonOpts) ::
         TranspileCommand.opts(platformIO, commonOpts) ::

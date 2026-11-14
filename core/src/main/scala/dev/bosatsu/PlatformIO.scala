@@ -143,6 +143,10 @@ trait PlatformIO[F[_], Path] {
   def hasExtension(str: String): Path => Boolean
 
   def writeDoc(p: Path, d: Doc): F[Unit]
+  /** Publish a complete document while preserving the previous destination on
+    * failure. Fail before replacement if its access controls cannot be retained.
+    */
+  def writeDocAtomic(p: Path, d: Doc): F[Unit]
   def writeStdout(doc: Doc): F[Unit]
   def writeError(doc: Doc): F[Unit]
   def readStdinBytes: F[Array[Byte]]

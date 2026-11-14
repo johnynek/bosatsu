@@ -15,6 +15,7 @@ import scala.scalajs.js
 import scala.scalajs.js.annotation.JSImport
 import scala.scalajs.js.Dynamic.global
 import scala.scalajs.js.typedarray.Uint8Array
+import java.io.IOException
 
 import cats.syntax.all._
 import scalapb.{GeneratedMessage, GeneratedMessageCompanion}
@@ -25,7 +26,21 @@ private object ReadLink extends js.Function1[String, js.Promise[String]] {
   def apply(path: String): js.Promise[String] = js.native
 }
 
+@js.native
+@JSImport("fs/promises", "rename")
+private object Rename extends js.Function2[String, String, js.Promise[Unit]] {
+  def apply(source: String, target: String): js.Promise[Unit] = js.native
+}
+
 object Fs2PlatformIO extends PlatformIO[IO, Path] {
+  private[dev] final case class DocumentWriteOps(
+      createParentDirectories: Path => IO[Unit],
+      resolveDestination: Path => IO[Path],
+      stagedFile: Path => Resource[IO, Path],
+      writeStaged: (Path, Doc) => IO[Unit],
+      replace: (Path, Path) => IO[Unit]
+  )
+
   type FileKey = Either[Path, FsKey]
   val fileKeyHash: Hash[FileKey] = Hash[FileKey]
 
@@ -425,10 +440,61 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
   private def docStream(doc: Doc): fs2.Stream[IO, String] =
     fs2.Stream.fromIterator[IO](doc.renderStream(100).iterator, chunkSize = 128)
 
-  def writeDoc(p: Path, d: Doc): IO[Unit] = {
-    val pipe = FilesIO.writeUtf8(p)
-    p.parent.traverse_(FilesIO.createDirectories(_)) *> pipe(docStream(d)).compile.drain
-  }
+  private[dev] val documentWriteOps: DocumentWriteOps = DocumentWriteOps(
+    createParentDirectories = p => p.parent.traverse_(FilesIO.createDirectories(_)),
+    resolveDestination = pendingOutputPath,
+    stagedFile = destination => {
+      val directory = destination.parent.getOrElse(Path("."))
+      Resource
+        .make(FilesIO.createTempDirectory(Some(directory), ".bosatsu-write-", None)) { stage =>
+          // Own the directory, not fs2's JS tempFile, whose release removes only
+          // the file. Cleanup must not report failure after a committed rename.
+          FilesIO.deleteRecursively(stage).handleErrorWith(_ => IO.unit)
+        }
+        .map(_ / "document")
+    },
+    writeStaged = (path, doc) =>
+      FilesIO.writeUtf8(path)(docStream(doc)).compile.drain,
+    replace = (source, target) =>
+      FilesIO.getBasicFileAttributes(target, followLinks = false).map(Some(_))
+        .recover { case _: NoSuchFileException => None }
+        .flatMap {
+          case None => IO.fromPromise(IO(Rename(source.toString, target.toString)))
+          case Some(_) =>
+            // Node exposes mode/owner/group, but no ACL reader or copier. A
+            // chmod/chown of a new inode cannot preserve all access controls.
+            // Keep identical outputs in place; fail closed for changed ones.
+            FilesIO.readAll(source).map(Option(_))
+              .zipAll(FilesIO.readAll(target).map(Option(_)))(None, None)
+              .forall { case (left, right) => left == right }
+              .compile.lastOrError.flatMap {
+                case true => IO.unit
+                case false => IO.raiseError(new IOException(
+                  s"cannot preserve output access controls with Node's filesystem API: $target"
+                ))
+              }
+        }
+  )
+
+  private[dev] def writeDocWith(
+      p: Path,
+      d: Doc,
+      ops: DocumentWriteOps
+  ): IO[Unit] =
+    ops.createParentDirectories(p) *>
+      ops.resolveDestination(p).flatMap { destination =>
+        ops.stagedFile(destination).use { staged =>
+          // writeStaged completes only after the fs2 writer has closed the file.
+          ops.writeStaged(staged, d) *> ops.replace(staged, destination)
+        }
+      }
+
+  def writeDoc(p: Path, d: Doc): IO[Unit] =
+    p.parent.traverse_(FilesIO.createDirectories(_)) *>
+      FilesIO.writeUtf8(p)(docStream(d)).compile.drain
+
+  def writeDocAtomic(p: Path, d: Doc): IO[Unit] =
+    writeDocWith(p, d, documentWriteOps)
 
   private def onParts(doc: Doc)(fn: String => IO[Unit]): IO[Unit] =
     docStream(doc)

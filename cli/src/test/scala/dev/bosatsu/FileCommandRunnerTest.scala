@@ -42,6 +42,11 @@ class FileCommandRunnerTest extends FileCommandFixtures {
   private def bytes(root: Path, name: String): IO[List[Byte]] =
     IO.blocking(Files.readAllBytes(root.resolve(name)).toList)
 
+  test("toolchain verification is supported by the ordinary file runner") {
+    assert(FileCommandRunner.supports("verify-toolchain"))
+    assert(!FileCommandRunner.supports("transpile"))
+  }
+
   test(
     "good, invalid, then edited input in the same JVM and at the same paths"
   ) {

@@ -417,6 +417,7 @@ lazy val core =
     libraryDependencies ++=
       Seq(
         blake3.value,
+        sha.value,
         cats.value,
         catsCol.value,
         catsParse.value,

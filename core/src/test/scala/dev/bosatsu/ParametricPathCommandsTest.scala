@@ -5,7 +5,7 @@ import cats.data.Chain
 import cats.implicits._
 import com.monovore.decline.Argument
 import dev.bosatsu.hashing.{Algo, HashValue}
-import dev.bosatsu.tool.{LocalRuntime, LocalRuntimeManifest}
+import dev.bosatsu.tool.{LocalRuntime, LocalRuntimeManifest, Output}
 import org.typelevel.paiges.Doc
 
 class ParametricPathCommandsTest extends munit.FunSuite {
@@ -55,6 +55,7 @@ class ParametricPathCommandsTest extends munit.FunSuite {
       memory.unfoldDir(p.parts).map(_.map(children => children.map(_.map(wrap))))
     def hasExtension(ext: String): Path => Boolean = p => memory.hasExtension(ext)(p.parts)
     def writeDoc(p: Path, doc: Doc) = memory.writeDoc(p.parts, doc)
+    def writeDocAtomic(p: Path, doc: Doc) = memory.writeDocAtomic(p.parts, doc)
     def writeInterfaces(ifaces: List[Package.Interface], p: Path) = memory.writeInterfaces(ifaces, p.parts)
     def writeBytes(p: Path, bytes: Array[Byte]) = memory.writeBytes(p.parts, bytes)
     def writeLibrary(lib: proto.Library, p: Path) =
@@ -104,6 +105,14 @@ class ParametricPathCommandsTest extends munit.FunSuite {
     val result = checked(emit("app.pkg", "out.c", Nil))
     val c = checked(memory.readUtf8(Chain.one("out.c")).runA(result))
     assert(c.contains("int main("), c)
+  }
+
+  test("atomic document reporting retains opaque paths through the in-memory platform") {
+    val state = checked(Output.AtomicDoc(Doc.text("previous"), path("stamp"))
+      .report(platform).runS(MemoryMain.State.empty))
+    val rewritten = checked(Output.AtomicDoc(Doc.text("ok"), path("stamp"))
+      .report(platform).runS(state))
+    assertEquals(checked(platform.readUtf8(path("stamp")).runA(rewritten)), "ok")
   }
 
   test("a missing selector is compared and displayed through platform contracts") {

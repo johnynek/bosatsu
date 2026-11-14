@@ -544,6 +544,8 @@ object MemoryMain {
       def writeDoc(p: Path, d: Doc): F[Unit] =
         writeFC(p, FileContent.Str(d.renderTrim(100)))
 
+      def writeDocAtomic(p: Path, d: Doc): F[Unit] = writeDoc(p, d)
+
       def writeInterfaces(
           ifaces: List[Package.Interface],
           path: Path
@@ -557,7 +559,7 @@ object MemoryMain {
         writeFC(path, FileContent.Bytes(bytes.clone()))
 
       def writeLibrary(lib: proto.Library, path: Path): F[Unit] = {
-        val hash = Algo.hashBytes(lib.toByteArray)
+        val hash = Algo.hashBytes[Algo.Blake3](lib.toByteArray)
         val hashed = Hashed(hash, lib)
         writeFC(path, FileContent.Lib(hashed))
       }

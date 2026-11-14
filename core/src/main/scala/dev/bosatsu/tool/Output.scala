@@ -254,6 +254,9 @@ sealed abstract class Output[+Path] {
       case Output.Basic(doc, out) =>
         writeOut(doc, out).as(ExitCode.Success)
 
+      case Output.AtomicDoc(doc, out) =>
+        writeDocAtomic(out, doc).as(ExitCode.Success)
+
       case Output.Library(lib, path) =>
         writeLibrary(lib, path).as(ExitCode.Success)
       case Output.Many(items) =>
@@ -356,6 +359,7 @@ object Output {
   ) extends Output[Path]
 
   case class Basic[Path](toDoc: Doc, output: Option[Path]) extends Output[Path]
+  case class AtomicDoc[Path](toDoc: Doc, output: Path) extends Output[Path]
   case class Library[Path](lib: proto.Library, output: Path)
       extends Output[Path]
 

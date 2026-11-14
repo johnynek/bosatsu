@@ -1206,7 +1206,10 @@ class ToolAndLibCommandTest extends FunSuite {
           publicDependencies =
             depRef :: previousLib.arg.publicDependencies.toList
         )
-        val rehashed = Hashed(Algo.hashBytes(rewritten.toByteArray), rewritten)
+        val rehashed = Hashed(
+          Algo.hashBytes[Algo.Blake3](rewritten.toByteArray),
+          rewritten
+        )
         state.withFile(outPath, MemoryMain.FileContent.Lib(rehashed)) match {
           case Some(next) => Right(next)
           case None       =>
@@ -1246,7 +1249,10 @@ class ToolAndLibCommandTest extends FunSuite {
             predefIface :: exportedIfaces
           }
         val rewritten = lib.arg.copy(exportedIfaces = updatedIfaces)
-        Hashed(Algo.hashBytes(rewritten.toByteArray), rewritten)
+        Hashed(
+          Algo.hashBytes[Algo.Blake3](rewritten.toByteArray),
+          rewritten
+        )
       }
 
   private def addConfiguredCachedDep(
