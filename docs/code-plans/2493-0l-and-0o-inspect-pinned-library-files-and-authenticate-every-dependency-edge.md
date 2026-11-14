@@ -7,9 +7,9 @@
 
 - Flow: `small_job`
 - Issue: `#2493` 0l and 0o: Inspect pinned library files and authenticate every dependency edge
-- Pending steps: `0`
+- Pending steps: `1`
 - Completed steps: `8`
-- Total steps: `8`
+- Total steps: `9`
 
 ## Summary
 
@@ -17,15 +17,15 @@ Implement `tool inspect-library` and `--descriptors-only` over caller-declared, 
 
 The enforcing boundary is a privately constructed authenticated snapshot/graph consumed by inspection and its reusable scoped decoder. Extend `DecodedLibrary`, `DecodedLibraryWithDeps`, `PackageSignatures`, `BuildManifest`, and `FileCommandRunner` rather than introducing another compiler, downloader, or publication system. The required production, fixture, and test family may exceed the 1,000-line guideline; planner judgment permits that necessary work because edge authentication, scoped decoding, resolver discovery, and their acceptance tests form one inseparable outcome. Avoid a compiler-wide migration.
 
-Plan trajectory: initial steps 5; review revisions 1; review-origin steps 2.
+Plan trajectory: initial steps 5; review revisions 2; review-origin steps 3.
 
 ## Current State
 
-At this pre-PR planning revision, all six existing steps are completed and immutable. Their completion notes report the issue's Linux checks passing. Issue #2493, roadmap #2482's inspect_imports node, and the implemented toolchain-verification handoff remain aligned; no scope amendment is needed.
+At this pre-PR planning revision, all eight existing steps are completed and immutable. Their completion notes report the prior Linux acceptance checks passing. Issue #2493, roadmap #2482's inspect_imports node, and the implemented toolchain-verification handoff remain aligned; no scope amendment is needed.
 
-The candidate authenticates incoming dependency edges before decoder deduplication, but two required contracts remain unsatisfied. Inspection returns a sequential Output.Many containing a directly written binary signature and individually atomic documents. Scala.js lacks the JVM runner's enclosing StagedOutputs transaction, so a later publication failure can leave mixed generations of outputs. Separately, Version.versionOrder can equate distinct valid spellings such as 1.0.0-0 and 1.0.0--0. Both snapshot authentication and graph/decoder identity keys inherit that defect.
+The candidate now publishes inspection outputs through one atomic set and distinguishes valid version spellings through the shared Version order. A residual exact-version-identity defect remains at protobuf input boundaries: unchecked Version.fromProto conversion permits malformed serialized versions such as 1.0.0-alpha. to compare equal to a valid expected identity. Fresh and cached root authentication and both dependency descriptor readers currently consume unchecked conversions.
 
-There are no existing pending steps to revise. Add two corrective steps at the existing owning boundaries: complete-set atomic publication and shared Version comparison. These repair the issue's existing failure-preservation, expected-identity, and separate-version requirements. Preserve Node's access-control policy and the existing exclusions for interactive loaders and downstream compilation. The existing planner allowance for the inseparable implementation and acceptance-test family exceeding 1,000 lines includes these necessary corrections; avoid additional transaction systems, identity representations, or caller migrations. This revision inspected code and the authoritative candidate patch without running builds or tests.
+There are no existing pending steps to revise. Add one continuation of exact-version-identity using the existing Version.ifValid validation mechanism, validated snapshot identity, and the bounded descriptor-reader inventory. Remove unchecked inspection conversions rather than extending comparison workarounds or migrating excluded interactive loaders. Preserve the existing publication, legacy compatibility, and scoped decoding guarantees. The existing planner allowance for the inseparable implementation and acceptance-test family exceeding 1,000 lines includes this necessary correction. This revision inspected the scope artifacts, code, tests, and authoritative candidate patch without running builds or tests.
 
 ## Problem
 
@@ -309,3 +309,40 @@ Run focused Version, snapshot, graph, and projection suites on JVM and Scala.js.
 #### Completion Notes
 
 Updated shared Version ordering to recognize only unsigned decimal prerelease identifiers as numeric and distinguish equal-valued build spellings, preserving numeric build order. Added correlated ordering and identity properties, hyphenated nextPreRelease coverage, pinned initial and cached identity rejection, and graph coverage for reordered private releases, package bindings, and inspection metadata. Focused Version, snapshot, graph, and projection suites passed on JVM and Scala.js (44 tests each). The Linux acceptance SBT command passed: coreJVM (2,266 passed), cli (205 passed, 1 skipped), coreJS (2,236 passed, 8 ignored), cliJSJS (12 passed), and cli assembly. `./test_cli.sh` passed, including candidate-jar worker and library inspection acceptance; `git diff --check` passed.
+
+9. [ ] `step_8_checked_serialized_versions` Validate serialized versions at inspection identity boundaries
+
+Invariant family: exact-version-identity
+
+Continue the family addressed by step_7_exact_version_identity and originally implemented in step_1 through step_3. The shared ordering repair distinguishes valid spellings, but protobuf conversion still constructs unchecked versions. A correctly pinned artifact declaring 1.0.0-alpha. can compare equal to expected version 1.0.0-alpha because prerelease splitting drops trailing empty components. Dependency descriptor conversion has the same defect before graph lookup and descriptor publication. This violates the existing exact-identity and authenticated-descriptor requirements; it is not an expansion to interactive loaders or unrelated compiler operations. All existing steps are completed, so no pending step can absorb this repair.
+
+Extend core/src/main/scala/dev/bosatsu/library/Version.scala with one checked protobuf conversion backed by the existing Version.ifValid mechanism. Reject invalid numeric components, prerelease identifiers, and build identifiers without normalization. Preserve valid wire round trips, empty optional protobuf strings, valid hyphenated identifiers, and permitted leading-zero build identifiers. Keep the shared ordering repair and avoid introducing another identity representation or a new validation framework.
+
+Apply that conversion at the complete bounded inventory of in-scope protobuf identity readers. In VerifiedLibrarySnapshot.verify, validate the embedded root version before identity comparison or snapshot construction. In cached authenticateAs, compare the already validated snapshot.version against the requested identity instead of re-reading an unchecked protobuf version. In VerifiedLibraryGraph.pendingEdges and LibraryInspection.dependencyEntries, validate each descriptor version before constructing its identity, sorting, graph lookup, or publication. Cover public, private, and unused-transitive-public descriptors. Preserve the existing diagnostics for absent versions and add invalid-version diagnostics carrying the file or referring identity and graph witness where available.
+
+Remove the unchecked root-version conversion in LibraryInspection.descriptorJson by rendering the snapshot's existing validated version. This root descriptor is published only from an authenticated snapshot. Keep downstream graph decoding and projections consuming validated snapshot and edge identities; inspect their call paths to confirm they cannot bypass these boundaries. Replace the unchecked conversions and duplicated root parsing rather than adding local string-comparison patches. The single checked conversion defines validity for both descriptor readers, while privately constructed snapshots carry the checked root identity through cached authentication. No new durable fields or compiler-wide migration are needed.
+
+Extend VersionTest, VerifiedLibrarySnapshotTest, VerifiedLibraryGraphTest, shared InspectLibraryCommandTest, and the existing CLI/candidate-worker inspection coverage using the serialized fixture builders. Recompute correct pins after mutating protobuf versions so failures establish identity validation rather than digest rejection. Test malformed roots and descriptor targets through descriptor-only and full inspection, including signature-only full inspection, and preserve all prior output bytes on failure. Descriptor-only rejection must require neither child files nor typed decoding. Retain cached exact-identity rejection and valid alias/private-version behavior without constructing impossible invalid authenticated snapshots.
+
+Run focused Version, snapshot, graph, projection, and command suites on JVM and Scala.js. Then run the issue's Linux acceptance command sbt "coreJVM/test; cli/test; coreJS/test; cliJSJS/test; cli/assembly" and the extended scripts/test_bazel_worker.py cases against the newly assembled candidate with fixtures prepared before offline execution. MergeXO supplies its separate required-tests gate. Completion requires malformed serialized identities to fail before authentication succeeds, dependency selection occurs, or descriptors are exposed. The existing planner allowance for the inseparable implementation/test family exceeding 1,000 lines remains applicable; keep this continuation confined to checked conversion, its bounded consumers, and regression coverage.
+
+#### Invariants
+
+- Every serialized root or dependency version used by declared-file inspection is validated before identity comparison, graph indexing, or descriptor publication.
+- Fresh and cached authentication use the same validated root identity from the authenticated byte snapshot.
+- Malformed versions are rejected rather than normalized; valid exact identities, legacy artifacts, aliases, and separate private-version scopes retain their behavior.
+- Failed inspection preserves every prior output, and descriptor-only inspection remains independent of child acquisition and typed decoding.
+
+#### Property Tests
+
+- Generated valid versions round-trip through protobuf and the checked conversion with exact identity preserved; generated malformed numeric, prerelease, and build components are rejected consistently with Version.ifValid.
+- Vary malformed descriptor versions across public, private, and unused-transitive-public edges and permute declarations and sibling edges; correctly pinned inputs must fail before selecting a target or exposing descriptors.
+- For accepted snapshots, cached reauthentication accepts the same exact version and rejects distinct valid versions, retaining the ordering properties established by step_7_exact_version_identity.
+
+#### Assertion Tests
+
+- A protobuf root declaring 1.0.0-alpha. with correct digests must fail against expected 1.0.0-alpha in descriptor-only and full modes, including full signature-only output.
+- A valid root containing a dependency target 1.0.0-alpha. must fail descriptor-only inspection without child files and fail full inspection even when the context contains a correctly pinned child at 1.0.0-alpha.
+- A malformed second diamond descriptor must fail after a valid edge selected the child; cached identity reuse must not hide descriptor validation.
+- Cover trailing, leading, and interior empty prerelease/build components, leading-zero numeric prerelease identifiers, and invalid numeric components. Preserve valid hyphenated prereleases, leading-zero build identifiers, and real legacy projection.
+- Through shared command and candidate-jar direct/@params paths, correctly pinned malformed roots or descriptors must return failure and leave existing requested outputs unchanged.
