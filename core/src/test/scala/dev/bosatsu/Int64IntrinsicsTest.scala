@@ -1,12 +1,20 @@
 package dev.bosatsu
 
 import _root_.bosatsu.{TypedAst => proto}
-import cats.data.NonEmptyList
+import cats.data.{Chain, NonEmptyList}
 import dev.bosatsu.IorMethods.IorExtension
 import dev.bosatsu.codegen.CompilationSource
 import dev.bosatsu.hashing.Algo
-import dev.bosatsu.library.{DecodedLibrary, DecodedLibraryWithDeps, Name, Version}
+import dev.bosatsu.library.{
+  DecodedLibrary,
+  DecodedLibraryWithDeps,
+  Name,
+  VerifiedLibraryGraph,
+  VerifiedLibrarySnapshot,
+  Version
+}
 import dev.bosatsu.rankn.Type
+import dev.bosatsu.tool.LibraryInspection
 import scala.collection.immutable.SortedMap
 import scala.util.{Failure, Success, Try}
 
@@ -220,6 +228,54 @@ class Int64IntrinsicsTest extends munit.FunSuite {
         .compiled
     }
     assertBuiltinCompares(compiled(app.nameVersion)(clientName))
+  }
+
+  test("verified graph decoding rejects a malformed serialized Int64 implementation") {
+    type ErrorOr[A] = Either[Throwable, A]
+    val platform = MemoryMain[ErrorOr].platformIO
+    import platform.{canPromiseF, moduleIOMonad}
+
+    val compiled = typeCheck(coreInt64Src :: Nil, Nil).toMap(Int64Intrinsics.packageName)
+    val encoded = ProtoConverter.packageToProto(compiled).get
+    val eqName = encoded.strings.indexOf("eq_Int64") + 1
+    val otherName = encoded.strings.indexOf("int64_to_Int") + 1
+    val eqDef = encoded.externalDefs.find(_.name == eqName).get
+    val otherDef = encoded.externalDefs.find(_.name == otherName).get
+    assert(eqDef.typeOf != otherDef.typeOf)
+    val malformedPackage = encoded.copy(
+      externalDefs = encoded.externalDefs.map { definition =>
+        if (definition.name == eqName) definition.copy(typeOf = otherDef.typeOf)
+        else definition
+      }
+    )
+    val version = Version(1, 0, 0)
+    val raw = proto.Library(
+      name = "core_alpha",
+      descriptor = Some(proto.LibDescriptor(version = Some(version.toProto))),
+      exportedIfaces = List(ProtoConverter.interfaceToProto(Package.interfaceOf(compiled)).get),
+      internalPackages = List(malformedPackage)
+    )
+    val bytes = raw.toByteArray
+    val path = Chain.one("malformed-int64.bosatsu_lib")
+    val state = MemoryMain.State.empty
+      .withFile(path, MemoryMain.FileContent.Bytes(bytes))
+      .get
+    val pins = List(
+      s"blake3:${Algo.hashBytes[Algo.Blake3](bytes).hex}",
+      s"sha256:${Algo.hashBytes[Algo.Sha256](bytes).hex}"
+    )
+    val error = VerifiedLibrarySnapshot
+      .verify(platform, path, Name("core_alpha"), version, pins)
+      .flatMap { snapshot =>
+        val context = LibraryInspection.DependencyContext[Chain[String]](Nil)
+        VerifiedLibraryGraph.verify(platform, snapshot, context)
+      }
+      .flatMap(DecodedLibraryWithDeps.decodeVerifiedGraph[MemoryMain.StateF[ErrorOr]])
+      .runA(state)
+      .swap.toOption.flatMap(err => Option(err.getMessage))
+      .getOrElse(fail("expected malformed Int64 implementation to fail decoding"))
+    assert(error.contains("eq_Int64"), error)
+    assert(error.contains("Int64"), error)
   }
 
   private def checkSource(src: String): Option[Int64Intrinsics.Mismatch] = {

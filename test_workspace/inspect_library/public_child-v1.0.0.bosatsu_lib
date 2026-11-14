@@ -1,0 +1,31 @@
+
+public_child*
+2Œ
+Public/Child
+Bosatsu/Predef
+Int
+public_value
+Fn1
+Common/Util
+Box
+make_box
+
+"
+" **:”
+Public/Child
+Bosatsu/Predef
+Fn1
+Int
+Common/Util
+Box
+common_value
+public_value
+make_box
+
+"
+"*"Z€Œ*"Z˜›0: :&
+BB	JJ	B‹
+common€
+Gblake3:1606e6dc695ceb92e84f8ffa58ad678cb4a73006537e7168821da3bbbb8173831https://example.invalid/common-v1.0.0.bosatsu_libB‹
+legacy€
+Gblake3:adb528bec9335a4b9d3830085ea29c3ccbea10ae0dbafb4a7eebf79eb529490c1https://example.invalid/legacy-v1.0.0.bosatsu_lib

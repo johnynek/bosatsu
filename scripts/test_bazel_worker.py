@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Compare direct, one-shot, and persistent JVM file-command invocations."""
 import argparse
+from collections import deque
 import hashlib
 import io
 import json
@@ -13,6 +14,7 @@ import tarfile
 import tempfile
 import time
 import zipfile
+from collections.abc import Callable
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -93,6 +95,766 @@ def check_result(
             else:
                 detail = f"direct {field}: {expected}\nworker {field}: {actual}"
             raise AssertionError(f"{label} differs between direct and worker invocation\n{detail}")
+
+
+LEGACY_CORE = "core_alpha-v9.0.1.bosatsu_lib"
+LEGACY_CORE_SIZE = 937080
+LEGACY_CORE_SHA256 = "b6e7d87fcb786084dd90da490fe9514678fee7f6920fc17e0abdf28210a11dff"
+LEGACY_CORE_BLAKE3 = "098f5eff00611599b54b5e6bce8b7696c8fdf89f4e99f8bfbbec521764ed8927"
+INSPECTION_ROOT = "test_workspace/inspect_library/parser-v1.0.0.bosatsu_lib"
+INSPECTION_CONTEXT = "test_workspace/inspect_library/parser-context.json"
+INSPECTION_OUTPUTS = "inspection outputs 雪"
+
+
+def inspection_command(
+    input_path: str,
+    name: str,
+    version: str,
+    hashes: list[str],
+    *,
+    descriptors_only: bool = False,
+    dependency_context: str | None = None,
+    outputs: dict[str, str] | None = None,
+) -> list[str]:
+    command = [
+        "inspect-library",
+        "--input",
+        input_path,
+        "--expected-name",
+        name,
+        "--expected-version",
+        version,
+    ]
+    for digest in hashes:
+        command.extend(["--expected-hash", digest])
+    if descriptors_only:
+        command.append("--descriptors-only")
+    if dependency_context is not None:
+        command.extend(["--dependency-context", dependency_context])
+    for flag, path in (outputs or {}).items():
+        command.extend([flag, path])
+    return command
+
+
+def copy_inspection_fixtures(prepared: Path, cwd: Path) -> None:
+    destination = cwd / "test_workspace/inspect_library"
+    shutil.copytree(prepared, destination, dirs_exist_ok=True)
+
+
+def inspection_files(prepared: Path) -> tuple[dict[str, object], dict[str, object]]:
+    if not prepared.is_dir():
+        raise AssertionError(
+            f"prepared inspection fixtures are missing: {prepared}; run "
+            "python3 scripts/prepare_inspect_library_fixtures.py --out-dir <directory>"
+        )
+    root_pin_path = prepared / "parser-root.json"
+    context_path = prepared / "parser-context.json"
+    legacy_path = prepared / LEGACY_CORE
+    required = [root_pin_path, context_path, legacy_path]
+    missing = [path.name for path in required if not path.is_file()]
+    if missing:
+        raise AssertionError(
+            f"prepared inspection fixtures at {prepared} are incomplete: {missing!r}; "
+            "run scripts/prepare_inspect_library_fixtures.py"
+        )
+    root_pin = json.loads(root_pin_path.read_text(encoding="utf-8"))
+    context = json.loads(context_path.read_text(encoding="utf-8"))
+    legacy_bytes = legacy_path.read_bytes()
+    actual_sha256 = sha256(legacy_bytes)
+    if len(legacy_bytes) != LEGACY_CORE_SIZE or actual_sha256 != LEGACY_CORE_SHA256:
+        raise AssertionError(
+            "prepared legacy core does not match its immutable pin: "
+            f"size={len(legacy_bytes)}, sha256={actual_sha256}"
+        )
+    if root_pin.get("schema_version") != 1 or len(root_pin.get("libraries", [])) != 1:
+        raise AssertionError(f"invalid parser root pin file: {root_pin!r}")
+    if context.get("schema_version") != 1 or not context.get("libraries"):
+        raise AssertionError(f"invalid parser dependency context: {context!r}")
+    return root_pin["libraries"][0], context
+
+
+def _inspection_library_path(cwd: Path, relative: str) -> Path:
+    return cwd / relative
+
+
+def test_library_inspection(
+    java: str, candidate_jar: Path, work: Path, prepared: Path
+) -> None:
+    root, context = inspection_files(prepared)
+    fixture_by_identity = {
+        (entry["name"], entry["version"]): entry for entry in context["libraries"]
+    }
+    if len(fixture_by_identity) != len(context["libraries"]):
+        raise AssertionError("inspection fixture context repeats a library identity")
+
+    # Descriptor discovery is a resolver loop: each invocation gets exactly
+    # the selected child's bytes plus the authenticated pins from its parent.
+    resolver_cwd = work / "inspection descriptor resolver workspace"
+    resolver_cwd.mkdir()
+    resolver_jar = Path("candidate compiler 雪.jar")
+    shutil.copyfile(candidate_jar, resolver_cwd / resolver_jar)
+    resolver_input_dir = resolver_cwd / "test_workspace/inspect_library"
+    resolver_input_dir.mkdir(parents=True)
+    resolver_output_dir = resolver_cwd / INSPECTION_OUTPUTS
+    resolver_output_dir.mkdir()
+    root_source = prepared / Path(root["path"]).name
+    shutil.copyfile(root_source, resolver_cwd / INSPECTION_ROOT)
+    with PersistentWorker(java, resolver_jar, resolver_cwd) as persistent:
+        root_descriptor_path = f"{INSPECTION_OUTPUTS}/parser-descriptor.json"
+        root_command = inspection_command(
+            INSPECTION_ROOT,
+            root["name"],
+            root["version"],
+            root["hashes"],
+            descriptors_only=True,
+            outputs={"--descriptor-out": root_descriptor_path},
+        )
+        compare_command(
+            java,
+            resolver_jar,
+            resolver_cwd,
+            persistent,
+            "inspect-parser-root-descriptor",
+            root_command,
+            [root_descriptor_path],
+            request_fields={"requestId": 300},
+        )
+        resolver_root_file = resolver_cwd / INSPECTION_ROOT
+        original_root_bytes = resolver_root_file.read_bytes()
+        for request_id, (visibility, dependency_field) in enumerate(
+            (("public", 8), ("private", 9), ("unused transitive public", 10)),
+            start=301,
+        ):
+            malformed_edge = malformed_dependency_version(
+                original_root_bytes, dependency_field
+            )
+            resolver_root_file.write_bytes(malformed_edge)
+            failed_edge = compare_command(
+                java,
+                resolver_jar,
+                resolver_cwd,
+                persistent,
+                f"inspect-malformed-{visibility.replace(' ', '-')}-descriptor-version",
+                inspection_command(
+                    INSPECTION_ROOT,
+                    "parser",
+                    "1.0.0",
+                    [f"sha256:{sha256(malformed_edge)}"],
+                    descriptors_only=True,
+                    outputs={"--descriptor-out": root_descriptor_path},
+                ),
+                [root_descriptor_path],
+                expect_success=False,
+                request_fields={"requestId": request_id},
+            )
+            if "invalid version" not in str(failed_edge["output"]) or "parser 1.0.0" not in str(failed_edge["output"]):
+                raise AssertionError(
+                    f"malformed {visibility} descriptor diagnostic lost its owner: {failed_edge!r}"
+                )
+            resolver_root_file.write_bytes(original_root_bytes)
+
+        malformed_root = malformed_root_version(original_root_bytes)
+        resolver_root_file.write_bytes(malformed_root)
+        failed_root = compare_command(
+            java,
+            resolver_jar,
+            resolver_cwd,
+            persistent,
+            "inspect-malformed-root-version",
+            inspection_command(
+                INSPECTION_ROOT,
+                "parser",
+                "1.0.0",
+                [f"sha256:{sha256(malformed_root)}"],
+                descriptors_only=True,
+                outputs={"--descriptor-out": root_descriptor_path},
+            ),
+            [root_descriptor_path],
+            expect_success=False,
+            request_fields={"requestId": 304},
+        )
+        if "invalid version" not in str(failed_root["output"]):
+            raise AssertionError(f"malformed root diagnostic omitted version validation: {failed_root!r}")
+        resolver_root_file.write_bytes(original_root_bytes)
+        root_descriptor = json.loads(
+            (resolver_cwd / root_descriptor_path).read_text(encoding="utf-8")
+        )
+        if root_descriptor["identity"] != {"name": "parser", "version": "1.0.0"}:
+            raise AssertionError(f"unexpected Parser descriptor identity: {root_descriptor!r}")
+        (resolver_cwd / INSPECTION_ROOT).unlink()
+
+        pending = deque(
+            ("parser", "1.0.0", dependency)
+            for dependency in root_descriptor["dependencies"]
+        )
+        expanded = {("parser", "1.0.0")}
+        verified_edges = 0
+        common_from_public: list[str] | None = None
+        request_id = 301
+        while pending:
+            parent_name, parent_version, edge = pending.popleft()
+            identity = edge["identity"]
+            key = (identity["name"], identity["version"])
+            fixture = fixture_by_identity.get(key)
+            if fixture is None:
+                raise AssertionError(f"no local fixture for authenticated edge to {key!r}")
+            if not all(value.startswith("blake3:") for value in edge["hashes"]):
+                raise AssertionError(f"fixture edge did not retain its BLAKE3-only pin: {edge!r}")
+
+            relative_input = fixture["path"]
+            selected_file = prepared / Path(relative_input).name
+            local_file = _inspection_library_path(resolver_cwd, relative_input)
+            local_file.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(selected_file, local_file)
+            if len(list(resolver_cwd.glob("test_workspace/inspect_library/*.bosatsu_lib"))) != 1:
+                raise AssertionError("descriptor discovery exposed more than the selected child file")
+
+            output = f"{INSPECTION_OUTPUTS}/descriptor-{request_id}.json"
+            command = inspection_command(
+                relative_input,
+                key[0],
+                key[1],
+                edge["hashes"],
+                descriptors_only=True,
+                outputs={"--descriptor-out": output},
+            )
+            compare_command(
+                java,
+                resolver_jar,
+                resolver_cwd,
+                persistent,
+                f"inspect-child-{request_id}",
+                command,
+                [output],
+                request_fields={"requestId": request_id},
+            )
+            document = json.loads((resolver_cwd / output).read_text(encoding="utf-8"))
+            child_bytes = selected_file.read_bytes()
+            actual_sha256 = sha256(child_bytes)
+            if document["identity"] != identity or document["digests"]["sha256"] != actual_sha256:
+                raise AssertionError(
+                    f"child metadata was not derived from its authenticated bytes: {document!r}"
+                )
+            verified_edges += 1
+            if parent_name == "public_child" and key[0] == "common":
+                common_from_public = list(edge["hashes"])
+            if key not in expanded:
+                expanded.add(key)
+                for child_edge in document["dependencies"]:
+                    pending.append((key[0], key[1], child_edge))
+            local_file.unlink()
+            request_id += 1
+
+        if verified_edges != 11 or len(expanded) != 9:
+            raise AssertionError(
+                f"Parser closure was not traversed edge by edge: "
+                f"edges={verified_edges}, identities={len(expanded)}"
+            )
+        if common_from_public is None:
+            raise AssertionError("the public side of the common diamond edge was not traversed")
+
+    # A bad child pin must fail before any descriptor metadata replaces prior output.
+    tamper_cwd = work / "inspection tamper workspace"
+    tamper_cwd.mkdir()
+    tamper_jar = Path("candidate compiler 雪.jar")
+    shutil.copyfile(candidate_jar, tamper_cwd / tamper_jar)
+    tamper_input = "test_workspace/inspect_library/common-v1.0.0.bosatsu_lib"
+    tamper_file = tamper_cwd / tamper_input
+    tamper_file.parent.mkdir(parents=True)
+    tampered_common = (prepared / Path(fixture_by_identity[("common", "1.0.0")]["path"]).name).read_bytes() + b"\x00"
+    tamper_file.write_bytes(tampered_common)
+    tamper_output = f"{INSPECTION_OUTPUTS}/common-descriptor.json"
+    (tamper_cwd / INSPECTION_OUTPUTS).mkdir()
+    (tamper_cwd / tamper_output).write_bytes(b"previous descriptor\n")
+    with PersistentWorker(java, tamper_jar, tamper_cwd) as persistent:
+        failed = compare_command(
+            java,
+            tamper_jar,
+            tamper_cwd,
+            persistent,
+            "inspect-tampered-child-before-descriptors",
+            inspection_command(
+                tamper_input,
+                "common",
+                "1.0.0",
+                common_from_public,
+                descriptors_only=True,
+                outputs={"--descriptor-out": tamper_output},
+            ),
+            [tamper_output],
+            expect_success=False,
+            request_fields={"requestId": 340},
+        )
+        if "pin mismatch" not in str(failed["output"]):
+            raise AssertionError(f"tampered child diagnostic omitted its pin failure: {failed!r}")
+
+    # Full inspection consumes the complete declared graph and publishes the
+    # independent signature, exposure, membership, implementation and root projections.
+    full_cwd = work / "inspection full workspace"
+    full_cwd.mkdir()
+    full_jar = Path("candidate compiler 雪.jar")
+    shutil.copyfile(candidate_jar, full_cwd / full_jar)
+    copy_inspection_fixtures(prepared, full_cwd)
+    output_paths = {
+        "--sig-out": f"{INSPECTION_OUTPUTS}/parser.sig",
+        "--exposures-out": f"{INSPECTION_OUTPUTS}/exposures.json",
+        "--membership-out": f"{INSPECTION_OUTPUTS}/membership.json",
+        "--implementation-out": f"{INSPECTION_OUTPUTS}/implementation.json",
+        "--descriptor-out": f"{INSPECTION_OUTPUTS}/descriptor.json",
+    }
+    all_outputs = list(output_paths.values())
+    output_dir = full_cwd / INSPECTION_OUTPUTS
+    output_dir.mkdir()
+    with PersistentWorker(java, full_jar, full_cwd) as persistent:
+        command = inspection_command(
+            INSPECTION_ROOT,
+            root["name"],
+            root["version"],
+            root["hashes"],
+            dependency_context=INSPECTION_CONTEXT,
+            outputs=output_paths,
+        )
+        compare_command(
+            java,
+            full_jar,
+            full_cwd,
+            persistent,
+            "inspect-parser-full-graph",
+            command,
+            all_outputs,
+            request_fields={"requestId": 350},
+        )
+        signature = (full_cwd / output_paths["--sig-out"]).read_bytes()
+        exposures = json.loads((full_cwd / output_paths["--exposures-out"]).read_text(encoding="utf-8"))
+        membership = json.loads((full_cwd / output_paths["--membership-out"]).read_text(encoding="utf-8"))
+        implementation = json.loads((full_cwd / output_paths["--implementation-out"]).read_text(encoding="utf-8"))
+        if not signature or not exposures.get("packages") or not membership.get("libraries"):
+            raise AssertionError("full Parser inspection omitted a requested projection")
+        shared_versions = {
+            (item["identity"]["name"], item["identity"]["version"])
+            for item in implementation["artifacts"]
+            if item["identity"]["name"] == "shared"
+        }
+        if shared_versions != {("shared", "1.0.0"), ("shared", "2.0.0")}:
+            raise AssertionError(f"private Shared releases lost their scopes: {shared_versions!r}")
+        if not any(
+            edge["to"]["name"] == "shared" and edge["from"]["name"] in {"left", "right"}
+            for edge in implementation["edges"]
+        ):
+            raise AssertionError("implementation projection omitted private-version referring edges")
+
+        signature_only = f"{INSPECTION_OUTPUTS}/signature-only.sig"
+        compare_command(
+            java,
+            full_jar,
+            full_cwd,
+            persistent,
+            "inspect-parser-signature-only",
+            inspection_command(
+                INSPECTION_ROOT,
+                root["name"],
+                root["version"],
+                root["hashes"],
+                dependency_context=INSPECTION_CONTEXT,
+                outputs={"--sig-out": signature_only},
+            ),
+            [signature_only],
+            request_fields={"requestId": 351},
+        )
+        if (full_cwd / signature_only).read_bytes() != signature:
+            raise AssertionError("signature-only inspection differs from the full signature projection")
+
+        original_root_bytes = (full_cwd / INSPECTION_ROOT).read_bytes()
+        malformed_target = malformed_dependency_version(original_root_bytes, 8)
+        (full_cwd / INSPECTION_ROOT).write_bytes(malformed_target)
+        malformed_signature = compare_command(
+            java,
+            full_jar,
+            full_cwd,
+            persistent,
+            "inspect-malformed-target-signature-only",
+            inspection_command(
+                INSPECTION_ROOT,
+                root["name"],
+                root["version"],
+                [f"sha256:{sha256(malformed_target)}"],
+                dependency_context=INSPECTION_CONTEXT,
+                outputs={"--sig-out": signature_only},
+            ),
+            [signature_only],
+            expect_success=False,
+            request_fields={"requestId": 359},
+        )
+        if "invalid version" not in str(malformed_signature["output"]):
+            raise AssertionError(
+                f"signature-only inspection accepted a malformed target: {malformed_signature!r}"
+            )
+
+        malformed_root = malformed_root_version(original_root_bytes)
+        (full_cwd / INSPECTION_ROOT).write_bytes(malformed_root)
+        malformed_root_signature = compare_command(
+            java,
+            full_jar,
+            full_cwd,
+            persistent,
+            "inspect-malformed-root-signature-only",
+            inspection_command(
+                INSPECTION_ROOT,
+                root["name"],
+                root["version"],
+                [f"sha256:{sha256(malformed_root)}"],
+                dependency_context=INSPECTION_CONTEXT,
+                outputs={"--sig-out": signature_only},
+            ),
+            [signature_only],
+            expect_success=False,
+            request_fields={"requestId": 360},
+        )
+        if "invalid version" not in str(malformed_root_signature["output"]):
+            raise AssertionError(
+                f"signature-only inspection accepted a malformed root: {malformed_root_signature!r}"
+            )
+        (full_cwd / INSPECTION_ROOT).write_bytes(original_root_bytes)
+
+        # Reordering declarations preserves every canonical projection byte.
+        reverse_context = dict(context)
+        reverse_context["libraries"] = list(reversed(context["libraries"]))
+        reverse_context_path = "test_workspace/inspect_library/parser-context-reversed.json"
+        (full_cwd / reverse_context_path).write_text(
+            json.dumps(reverse_context, sort_keys=True), encoding="utf-8"
+        )
+        reverse_outputs = {
+            flag: f"{INSPECTION_OUTPUTS}/reordered-{Path(path).name}"
+            for flag, path in output_paths.items()
+        }
+        compare_command(
+            java,
+            full_jar,
+            full_cwd,
+            persistent,
+            "inspect-parser-reordered-context",
+            inspection_command(
+                INSPECTION_ROOT,
+                root["name"],
+                root["version"],
+                root["hashes"],
+                dependency_context=reverse_context_path,
+                outputs=reverse_outputs,
+            ),
+            list(reverse_outputs.values()),
+            request_fields={"requestId": 352},
+        )
+        for original, reordered in zip(all_outputs, reverse_outputs.values()):
+            if (full_cwd / original).read_bytes() != (full_cwd / reordered).read_bytes():
+                raise AssertionError(f"reordered context changed projection bytes for {original}")
+
+        # Equal identity aliases coalesce. Distinct bytes under one identity fail.
+        common_entry = fixture_by_identity[("common", "1.0.0")]
+        alias_path = "test_workspace/inspect_library/aliases/common-copy.bosatsu_lib"
+        alias_file = full_cwd / alias_path
+        alias_file.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(prepared / Path(common_entry["path"]).name, alias_file)
+        alias_context = dict(context)
+        alias_context["libraries"] = context["libraries"] + [
+            dict(common_entry, path=alias_path)
+        ]
+        alias_context_path = "test_workspace/inspect_library/parser-context-alias.json"
+        (full_cwd / alias_context_path).write_text(
+            json.dumps(alias_context, sort_keys=True), encoding="utf-8"
+        )
+        alias_outputs = {
+            flag: f"{INSPECTION_OUTPUTS}/alias-{Path(path).name}"
+            for flag, path in output_paths.items()
+        }
+        compare_command(
+            java,
+            full_jar,
+            full_cwd,
+            persistent,
+            "inspect-parser-equal-alias",
+            inspection_command(
+                INSPECTION_ROOT,
+                root["name"],
+                root["version"],
+                root["hashes"],
+                dependency_context=alias_context_path,
+                outputs=alias_outputs,
+            ),
+            list(alias_outputs.values()),
+            request_fields={"requestId": 353},
+        )
+        alias_implementation = json.loads(
+            (full_cwd / alias_outputs["--implementation-out"]).read_text(encoding="utf-8")
+        )
+        common_artifact = next(
+            item for item in alias_implementation["artifacts"]
+            if item["identity"] == {"name": "common", "version": "1.0.0"}
+        )
+        if len(common_artifact["paths"]) != 2:
+            raise AssertionError(f"equal identity aliases were not retained: {common_artifact!r}")
+
+        conflicting_path = "test_workspace/inspect_library/aliases/common-conflict.bosatsu_lib"
+        conflicting_file = full_cwd / conflicting_path
+        conflicting_file.write_bytes(alias_file.read_bytes() + b"\xf0\x01\x01")
+        conflicting_entry = dict(
+            common_entry,
+            path=conflicting_path,
+            hashes=[f"sha256:{sha256(conflicting_file.read_bytes())}"],
+        )
+        conflicting_context = dict(context)
+        conflicting_context["libraries"] = context["libraries"] + [conflicting_entry]
+        conflicting_context_path = "test_workspace/inspect_library/parser-context-conflict.json"
+        (full_cwd / conflicting_context_path).write_text(
+            json.dumps(conflicting_context, sort_keys=True), encoding="utf-8"
+        )
+        conflict = compare_command(
+            java,
+            full_jar,
+            full_cwd,
+            persistent,
+            "inspect-parser-conflicting-alias",
+            inspection_command(
+                INSPECTION_ROOT,
+                root["name"],
+                root["version"],
+                root["hashes"],
+                dependency_context=conflicting_context_path,
+                outputs=output_paths,
+            ),
+            all_outputs,
+            expect_success=False,
+            request_fields={"requestId": 354},
+        )
+        if "conflicting files claim common" not in str(conflict["output"]):
+            raise AssertionError(f"conflicting alias diagnostic was not useful: {conflict!r}")
+
+        # Omitting a declared dependency must fail without replacing any of
+        # the projections which the previous successful inspection published.
+        missing_context = dict(context)
+        missing_context["libraries"] = [
+            entry for entry in context["libraries"]
+            if (entry["name"], entry["version"]) != ("legacy", "1.0.0")
+        ]
+        missing_context_path = "test_workspace/inspect_library/parser-context-missing.json"
+        (full_cwd / missing_context_path).write_text(
+            json.dumps(missing_context, sort_keys=True), encoding="utf-8"
+        )
+        missing = compare_command(
+            java,
+            full_jar,
+            full_cwd,
+            persistent,
+            "inspect-parser-incomplete-context",
+            inspection_command(
+                INSPECTION_ROOT,
+                root["name"],
+                root["version"],
+                root["hashes"],
+                dependency_context=missing_context_path,
+                outputs=output_paths,
+            ),
+            all_outputs,
+            expect_success=False,
+            request_fields={"requestId": 355},
+        )
+        if "legacy" not in str(missing["output"]):
+            raise AssertionError(f"incomplete graph diagnostic omitted its missing dependency: {missing!r}")
+
+        # Reuse the same path across a successful request, a changed dependency
+        # with stale pins, and a successful recovery request in this worker.
+        common_file = full_cwd / common_entry["path"]
+        original_common = common_file.read_bytes()
+        common_file.write_bytes(original_common + b"\xf0\x01\x01")
+        changed = compare_command(
+            java,
+            full_jar,
+            full_cwd,
+            persistent,
+            "inspect-parser-reused-path-bad-dependency",
+            command,
+            all_outputs,
+            expect_success=False,
+            request_fields={"requestId": 356},
+        )
+        if "pin mismatch" not in str(changed["output"]):
+            raise AssertionError(f"same-path dependency edit escaped authentication: {changed!r}")
+        common_file.write_bytes(original_common)
+        recovered = compare_command(
+            java,
+            full_jar,
+            full_cwd,
+            persistent,
+            "inspect-parser-reused-path-recovery",
+            command,
+            all_outputs,
+            request_fields={"requestId": 357},
+        )
+        if recovered["exitCode"] != 0:
+            raise AssertionError(f"persistent inspection did not recover after restoring a pin: {recovered!r}")
+
+        # The second incoming Common edge is bad even though the first one has
+        # already authenticated the same identity. Rewrite only pinned strings
+        # in the serialized artifacts so every enclosing artifact remains a
+        # valid protobuf with the exact expected edge order.
+        private_entry = fixture_by_identity[("private_child", "1.0.0")]
+        private_path = full_cwd / private_entry["path"]
+        original_private = private_path.read_bytes()
+        original_common_pin = next(
+            digest for digest in common_entry["hashes"] if digest.startswith("blake3:")
+        ).encode("ascii")
+        bad_common_pin = ("sha256:" + "0" * 64).encode("ascii")
+        if original_private.count(original_common_pin) != 1:
+            raise AssertionError("could not identify the private-child Common descriptor pin")
+        bad_private = original_private.replace(original_common_pin, bad_common_pin, 1)
+        private_path.write_bytes(bad_private)
+        bad_private_descriptor = f"{INSPECTION_OUTPUTS}/bad-private-descriptor.json"
+        private_probe = invoke(
+            java,
+            full_jar,
+            full_cwd,
+            "tool",
+            *inspection_command(
+                private_entry["path"],
+                "private_child",
+                "1.0.0",
+                [f"sha256:{sha256(bad_private)}"],
+                descriptors_only=True,
+                outputs={"--descriptor-out": bad_private_descriptor},
+            ),
+        )
+        if private_probe.returncode != 0:
+            raise AssertionError(
+                "candidate jar could not inspect the modified private child for its new root pin: "
+                + private_probe.stderr.decode("utf-8", errors="replace")
+            )
+        bad_private_doc = json.loads(
+            (full_cwd / bad_private_descriptor).read_text(encoding="utf-8")
+        )
+        old_private_pin = next(
+            digest for digest in private_entry["hashes"] if digest.startswith("blake3:")
+        ).encode("ascii")
+        new_private_pin = f"blake3:{bad_private_doc['digests']['blake3']}".encode("ascii")
+        root_file = full_cwd / INSPECTION_ROOT
+        original_root_bytes = root_file.read_bytes()
+        if original_root_bytes.count(old_private_pin) != 1:
+            raise AssertionError("could not identify the Parser private-child descriptor pin")
+        bad_root_bytes = original_root_bytes.replace(old_private_pin, new_private_pin, 1)
+        root_file.write_bytes(bad_root_bytes)
+        bad_root_descriptor = f"{INSPECTION_OUTPUTS}/bad-root-descriptor.json"
+        root_probe = invoke(
+            java,
+            full_jar,
+            full_cwd,
+            "tool",
+            *inspection_command(
+                INSPECTION_ROOT,
+                "parser",
+                "1.0.0",
+                [f"sha256:{sha256(bad_root_bytes)}"],
+                descriptors_only=True,
+                outputs={"--descriptor-out": bad_root_descriptor},
+            ),
+        )
+        if root_probe.returncode != 0:
+            raise AssertionError(
+                "candidate jar could not inspect the modified Parser root for its new pin: "
+                + root_probe.stderr.decode("utf-8", errors="replace")
+            )
+        bad_root_doc = json.loads((full_cwd / bad_root_descriptor).read_text(encoding="utf-8"))
+        bad_context = dict(context)
+        bad_context["libraries"] = [
+            dict(
+                entry,
+                hashes=[
+                    f"blake3:{bad_private_doc['digests']['blake3']}",
+                    f"sha256:{sha256(bad_private)}",
+                ],
+            )
+            if (entry["name"], entry["version"]) == ("private_child", "1.0.0")
+            else entry
+            for entry in context["libraries"]
+        ]
+        bad_context_path = "test_workspace/inspect_library/parser-context-bad-diamond.json"
+        (full_cwd / bad_context_path).write_text(
+            json.dumps(bad_context, sort_keys=True), encoding="utf-8"
+        )
+        bad_diamond = compare_command(
+            java,
+            full_jar,
+            full_cwd,
+            persistent,
+            "inspect-parser-second-diamond-edge-bad-pin",
+            inspection_command(
+                INSPECTION_ROOT,
+                "parser",
+                "1.0.0",
+                [
+                    f"blake3:{bad_root_doc['digests']['blake3']}",
+                    f"sha256:{sha256(bad_root_bytes)}",
+                ],
+                dependency_context=bad_context_path,
+                outputs=output_paths,
+            ),
+            all_outputs,
+            expect_success=False,
+            request_fields={"requestId": 358},
+        )
+        if "sha256 pin mismatch" not in str(bad_diamond["output"]) or "private_child" not in str(bad_diamond["output"]):
+            raise AssertionError(f"second diamond edge failure lost its witness: {bad_diamond!r}")
+
+    # The released legacy core provides real old-format signature and exposure
+    # evidence, while its empty descriptor list remains separate from traversal.
+    legacy_cwd = work / "inspection legacy core workspace"
+    legacy_cwd.mkdir()
+    legacy_jar = Path("candidate compiler 雪.jar")
+    shutil.copyfile(candidate_jar, legacy_cwd / legacy_jar)
+    copy_inspection_fixtures(prepared, legacy_cwd)
+    legacy_input = f"test_workspace/inspect_library/{LEGACY_CORE}"
+    legacy_context = "test_workspace/inspect_library/legacy-empty-context.json"
+    (legacy_cwd / legacy_context).write_text(
+        json.dumps({"schema_version": 1, "libraries": []}), encoding="utf-8"
+    )
+    legacy_outputs = {
+        "--sig-out": f"{INSPECTION_OUTPUTS}/legacy.sig",
+        "--exposures-out": f"{INSPECTION_OUTPUTS}/legacy-exposures.json",
+        "--membership-out": f"{INSPECTION_OUTPUTS}/legacy-membership.json",
+        "--descriptor-out": f"{INSPECTION_OUTPUTS}/legacy-descriptor.json",
+    }
+    (legacy_cwd / INSPECTION_OUTPUTS).mkdir()
+    with PersistentWorker(java, legacy_jar, legacy_cwd) as persistent:
+        legacy_command = inspection_command(
+            legacy_input,
+            "core_alpha",
+            "9.0.1",
+            [f"sha256:{LEGACY_CORE_SHA256}", f"blake3:{LEGACY_CORE_BLAKE3}"],
+            dependency_context=legacy_context,
+            outputs=legacy_outputs,
+        )
+        compare_command(
+            java,
+            legacy_jar,
+            legacy_cwd,
+            persistent,
+            "inspect-released-legacy-core",
+            legacy_command,
+            list(legacy_outputs.values()),
+            request_fields={"requestId": 370},
+        )
+        legacy_signature = (legacy_cwd / legacy_outputs["--sig-out"]).read_bytes()
+        legacy_exposures = json.loads(
+            (legacy_cwd / legacy_outputs["--exposures-out"]).read_text(encoding="utf-8")
+        )
+        legacy_descriptor = json.loads(
+            (legacy_cwd / legacy_outputs["--descriptor-out"]).read_text(encoding="utf-8")
+        )
+        if not legacy_signature or not legacy_exposures.get("packages"):
+            raise AssertionError("released legacy core did not yield nonempty signature/exposure projections")
+        if legacy_descriptor["digests"] != {
+            "sha256": LEGACY_CORE_SHA256,
+            "blake3": LEGACY_CORE_BLAKE3,
+        } or legacy_descriptor["dependencies"]:
+            raise AssertionError(f"legacy core identity or empty descriptors changed: {legacy_descriptor!r}")
+
 
 
 def output_bytes(cwd: Path, outputs: list[str]) -> dict[str, bytes]:
@@ -1101,6 +1863,116 @@ def protobuf_bytes(field_number: int, value: bytes) -> bytes:
     return protobuf_varint((field_number << 3) | 2) + protobuf_varint(len(value)) + value
 
 
+def _protobuf_read_varint(data: bytes, offset: int) -> tuple[int, int]:
+    value = 0
+    shift = 0
+    while offset < len(data):
+        byte = data[offset]
+        offset += 1
+        value |= (byte & 0x7F) << shift
+        if byte < 0x80:
+            return value, offset
+        shift += 7
+        if shift >= 70:
+            break
+    raise AssertionError("invalid or truncated protobuf varint in inspection fixture")
+
+
+def _protobuf_update_bytes_field(
+    data: bytes,
+    field_number: int,
+    update: Callable[[bytes], bytes],
+    *,
+    append_missing: bool = False,
+) -> bytes:
+    result = bytearray()
+    offset = 0
+    replaced = False
+    while offset < len(data):
+        start = offset
+        key, offset = _protobuf_read_varint(data, offset)
+        current_field = key >> 3
+        wire_type = key & 7
+        if wire_type == 0:
+            _, offset = _protobuf_read_varint(data, offset)
+        elif wire_type == 1:
+            offset += 8
+        elif wire_type == 2:
+            size, payload_start = _protobuf_read_varint(data, offset)
+            end = payload_start + size
+            if end > len(data):
+                raise AssertionError("truncated length-delimited protobuf field")
+            if current_field == field_number and not replaced:
+                replacement = update(data[payload_start:end])
+                if not isinstance(replacement, bytes):
+                    raise AssertionError("protobuf field update did not return bytes")
+                result.extend(protobuf_bytes(field_number, replacement))
+                replaced = True
+            else:
+                result.extend(data[start:end])
+            offset = end
+        elif wire_type == 5:
+            offset += 4
+        else:
+            raise AssertionError(f"unsupported protobuf wire type {wire_type}")
+        if wire_type != 2:
+            if offset > len(data):
+                raise AssertionError("truncated protobuf scalar field")
+            result.extend(data[start:offset])
+
+    if not replaced:
+        if not append_missing:
+            raise AssertionError(f"protobuf field {field_number} is absent")
+        replacement = update(b"")
+        if not isinstance(replacement, bytes):
+            raise AssertionError("protobuf field update did not return bytes")
+        result.extend(protobuf_bytes(field_number, replacement))
+    return bytes(result)
+
+
+def _protobuf_replace_message(
+    data: bytes, field_number: int, update: Callable[[bytes], bytes]
+) -> bytes:
+    return _protobuf_update_bytes_field(data, field_number, update)
+
+
+def _protobuf_set_bytes(data: bytes, field_number: int, value: bytes) -> bytes:
+    return _protobuf_update_bytes_field(
+        data,
+        field_number,
+        lambda _: value,
+        append_missing=True,
+    )
+
+
+def malformed_root_version(library: bytes) -> bytes:
+    return _protobuf_replace_message(
+        library,
+        5,
+        lambda descriptor: _protobuf_replace_message(
+            descriptor,
+            1,
+            lambda version: _protobuf_set_bytes(version, 4, b"alpha."),
+        ),
+    )
+
+
+def malformed_dependency_version(library: bytes, dependency_field: int) -> bytes:
+    return _protobuf_replace_message(
+        library,
+        dependency_field,
+        lambda dependency: _protobuf_replace_message(
+            dependency,
+            2,
+            lambda descriptor: _protobuf_replace_message(
+                descriptor,
+                1,
+                lambda version: _protobuf_set_bytes(version, 4, b"alpha."),
+            ),
+        ),
+    )
+
+
 def core_library_fixture(
     name: str = "core_alpha", repo: str = "https://example.invalid/core"
 ) -> bytes:
@@ -1908,10 +2780,17 @@ def test_bosatsuj(java: str, jar: Path, work: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--jar", type=Path, required=True)
+    parser.add_argument("--inspection-fixtures", type=Path, required=True)
     args = parser.parse_args()
     jar = args.jar.resolve()
     if not jar.is_file():
         parser.error(f"candidate jar does not exist: {jar}")
+    inspection_fixtures = args.inspection_fixtures.resolve()
+    if not inspection_fixtures.is_dir():
+        parser.error(
+            f"prepared inspection fixtures do not exist: {inspection_fixtures}; run "
+            "python3 scripts/prepare_inspect_library_fixtures.py --out-dir <directory>"
+        )
     java = shutil.which("java")
     if java is None:
         raise RuntimeError("java is required")
@@ -1920,7 +2799,8 @@ def main() -> None:
         test_toolchain_verification(java, jar, work)
         test_worker(java, jar, work)
         test_bosatsuj(java, jar, work)
-    print("candidate jar Bazel worker acceptance passed")
+        test_library_inspection(java, jar, work, inspection_fixtures)
+    print("candidate jar Bazel worker and library inspection acceptance passed")
 
 
 if __name__ == "__main__":

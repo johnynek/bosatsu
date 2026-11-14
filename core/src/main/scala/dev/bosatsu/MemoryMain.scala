@@ -544,7 +544,23 @@ object MemoryMain {
       def writeDoc(p: Path, d: Doc): F[Unit] =
         writeFC(p, FileContent.Str(d.renderTrim(100)))
 
-      def writeDocAtomic(p: Path, d: Doc): F[Unit] = writeDoc(p, d)
+      def writeDocAtomic(p: Path, d: Doc): F[Unit] =
+        writeFileSetAtomic(
+          List(p -> d.render(100).getBytes(StandardCharsets.UTF_8).toVector)
+        )
+
+      def writeFileSetAtomic(files: List[(Path, Vector[Byte])]): F[Unit] =
+        StateT.modifyF { state =>
+          files.foldLeft(Option(state)) { case (current, (path, bytes)) =>
+            current.flatMap(_.withFile(path, FileContent.Bytes(bytes.toArray)))
+          } match {
+            case Some(next) => innerMonad.pure(next)
+            case None =>
+              innerMonad.raiseError(
+                new Exception("could not publish complete output file set")
+              )
+          }
+        }
 
       def writeInterfaces(
           ifaces: List[Package.Interface],

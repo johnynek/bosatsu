@@ -16,6 +16,7 @@ object BazelWorker {
     case CompilePackages extends Operation("compile-packages")
     case ValidateGraph extends Operation("validate-graph")
     case VerifyToolchain extends Operation("verify-toolchain")
+    case InspectLibrary extends Operation("inspect-library")
     case EmitC extends Operation("emit-c")
   }
 
@@ -25,6 +26,7 @@ object BazelWorker {
       CompilePackages,
       ValidateGraph,
       VerifyToolchain,
+      InspectLibrary,
       EmitC
     )
 

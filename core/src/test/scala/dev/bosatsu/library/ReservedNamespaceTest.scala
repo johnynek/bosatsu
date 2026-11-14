@@ -1,9 +1,10 @@
 package dev.bosatsu.library
 
 import _root_.bosatsu.{TypedAst => proto}
-import cats.data.{NonEmptyList, Validated}
+import cats.data.{Chain, NonEmptyList, Validated}
 import dev.bosatsu.IorMethods.IorExtension
 import dev.bosatsu.hashing.{Algo, Hashed}
+import dev.bosatsu.tool.LibraryInspection
 import dev.bosatsu.{
   CompileOptions,
   LocationMap,
@@ -85,6 +86,25 @@ class ReservedNamespaceTest extends munit.FunSuite {
     }
   }
 
+  private def decodeVerifiedError(lib: Lib): String = {
+    val path = Chain.one("verified.bosatsu_lib")
+    val bytes = lib.arg.toByteArray
+    val state = MemoryMain.State.empty
+      .withFile(path, MemoryMain.FileContent.Bytes(bytes))
+      .get
+    val result = VerifiedLibrarySnapshot
+      .verify(platform, path, Name(lib.arg.name), version, List(lib.hash.toIdent))
+      .flatMap { snapshot =>
+        val context = LibraryInspection.DependencyContext[Chain[String]](Nil)
+        VerifiedLibraryGraph.verify(platform, snapshot, context)
+      }
+      .flatMap(DecodedLibraryWithDeps.decodeVerifiedGraph[MemoryMain.StateF[ErrorOr]])
+      .runA(state)
+    result.swap.toOption.flatMap(error => Option(error.getMessage)).getOrElse {
+      fail("expected verified graph decoding to reject the reserved package")
+    }
+  }
+
   test("decoding a library graph rejects a non-core library with Bosatsu/ packages") {
     val bad = library("bad", anythingSrc, Nil)
     val mid = library("mid", "package Mid/Lib\nexport x\nx = 1\n", bad :: Nil)
@@ -97,5 +117,11 @@ class ReservedNamespaceTest extends munit.FunSuite {
     // A transitive dependency, before it is decoded.
     val transitiveMsg = decodeAllError(app, app :: mid :: bad :: Nil)
     assert(transitiveMsg.contains(expected), transitiveMsg)
+  }
+
+  test("verified graph decoding preserves the reserved namespace check") {
+    val bad = library("bad", anythingSrc, Nil)
+    val message = decodeVerifiedError(bad)
+    assert(message.contains("dependency bad 1.0.0 contains Bosatsu/Anything"), message)
   }
 }

@@ -37,6 +37,16 @@ private[bosatsu] object BuildManifest {
       ))
     }
 
+  def onlyFields(
+      from: Json.Reader.FromObj,
+      kind: String,
+      allowed: Set[String]
+  ): Result[Unit] = {
+    val unknown = from.j.toMap.keySet -- allowed
+    Either.cond(unknown.isEmpty, (),
+      (s"unknown $kind fields: ${unknown.toList.sorted.mkString(", ")}", from.j, from.path))
+  }
+
   def decodeUtf8(bytes: Array[Byte]): Either[String, String] =
     try Right(StandardCharsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(bytes)).toString)
     catch { case _: CharacterCodingException => Left("invalid UTF-8") }

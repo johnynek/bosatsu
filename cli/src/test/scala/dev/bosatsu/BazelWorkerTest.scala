@@ -465,6 +465,7 @@ class BazelWorkerTest extends FileCommandFixtures {
         "compile-packages",
         "validate-graph",
         "verify-toolchain",
+        "inspect-library",
         "emit-c"
       )
     )

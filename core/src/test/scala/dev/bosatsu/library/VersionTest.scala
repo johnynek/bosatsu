@@ -1,5 +1,6 @@
 package dev.bosatsu.library
 
+import _root_.bosatsu.{TypedAst => proto}
 import dev.bosatsu.{OrderingLaws, Platform}
 import org.scalacheck.{Gen, Prop}
 
@@ -64,6 +65,47 @@ object VersionGenerator {
     preRelease <- preReleaseGen
     build <- buildMetadataGen
   } yield Version(major, minor, patch, preRelease, build)
+
+  private val comparisonPreReleaseGen: Gen[Option[Version.PreRelease]] =
+    Gen.option(
+      Gen.oneOf("0", "1", "-0", "--0", "alpha", "alpha.1")
+        .map(Version.PreRelease(_))
+    )
+
+  private val comparisonBuildGen: Gen[Option[Version.Build]] =
+    Gen.option(
+      Gen.oneOf("0", "00", "1", "01", "-0", "--0", "alpha")
+        .map(Version.Build(_))
+    )
+
+  val correlatedVersionPairGen: Gen[(Version, Version)] = for {
+    major <- nonNegativeIntGen
+    minor <- nonNegativeIntGen
+    patch <- nonNegativeIntGen
+    preReleaseA <- comparisonPreReleaseGen
+    preReleaseB <- comparisonPreReleaseGen
+    buildA <- comparisonBuildGen
+    buildB <- comparisonBuildGen
+  } yield (
+    Version(major, minor, patch, preReleaseA, buildA),
+    Version(major, minor, patch, preReleaseB, buildB)
+  )
+
+  val correlatedVersionTripleGen: Gen[(Version, Version, Version)] = for {
+    major <- nonNegativeIntGen
+    minor <- nonNegativeIntGen
+    patch <- nonNegativeIntGen
+    preReleaseA <- comparisonPreReleaseGen
+    preReleaseB <- comparisonPreReleaseGen
+    preReleaseC <- comparisonPreReleaseGen
+    buildA <- comparisonBuildGen
+    buildB <- comparisonBuildGen
+    buildC <- comparisonBuildGen
+  } yield (
+    Version(major, minor, patch, preReleaseA, buildA),
+    Version(major, minor, patch, preReleaseB, buildB),
+    Version(major, minor, patch, preReleaseC, buildC)
+  )
 }
 
 class VersionTest extends munit.ScalaCheckSuite {
@@ -121,6 +163,25 @@ class VersionTest extends munit.ScalaCheckSuite {
       if (Ordering[Version].equiv(a, b)) {
         assertEquals(a, b)
       }
+    }
+  }
+
+  property("correlated valid version spellings compare equal exactly when identical") {
+    Prop.forAll(VersionGenerator.correlatedVersionPairGen) { case (a, b) =>
+      assert(Version.parser.parseAll(a.render).isRight)
+      assert(Version.parser.parseAll(b.render).isRight)
+      val sameIdentity = a.major == b.major &&
+        a.minor == b.minor &&
+        a.patch == b.patch &&
+        a.preRelease.map(_.asString) == b.preRelease.map(_.asString) &&
+        a.build.map(_.asString) == b.build.map(_.asString)
+      assertEquals(Version.versionOrder.eqv(a, b), sameIdentity)
+    }
+  }
+
+  property("correlated version spellings preserve ordering laws") {
+    Prop.forAll(VersionGenerator.correlatedVersionTripleGen) { case (a, b, c) =>
+      OrderingLaws.law(a, b, c)
     }
   }
 
@@ -182,6 +243,22 @@ class VersionTest extends munit.ScalaCheckSuite {
 
   test("build numbers are compared") {
     assert(Version.unsafe("1.0.0+100") < Version.unsafe("1.0.0+101"))
+  }
+
+  test("hyphenated prerelease and numeric build spellings keep exact identity") {
+    val numericPrerelease = rt("1.0.0-0")
+    val hyphenatedPrerelease = rt("1.0.0--0")
+    assert(numericPrerelease < hyphenatedPrerelease)
+    assertNotEquals(
+      Version.versionOrder.compare(numericPrerelease, hyphenatedPrerelease),
+      0
+    )
+
+    val leadingZeroBuild = rt("1.0.0+01")
+    val ordinaryBuild = rt("1.0.0+1")
+    assert(leadingZeroBuild < ordinaryBuild)
+    assert(rt("1.0.0+001") < rt("1.0.0+2"))
+    assertNotEquals(rt("1.0.0+0"), rt("1.0.0+-0"))
   }
 
   property("nexts are greater") {
@@ -293,6 +370,37 @@ class VersionTest extends munit.ScalaCheckSuite {
     assert(Version.PreRelease.parser.parseAll("00").isLeft)
   }
 
+  test("checked protobuf conversion preserves valid spellings and rejects malformed fields") {
+    val valid = proto.Version(
+      major = 1L,
+      minor = 2L,
+      patch = 3L,
+      preRelease = "alpha-2.rc-1",
+      build = "000.build-2"
+    )
+    assertEquals(
+      Version.fromProtoChecked(valid),
+      Some(Version.unsafe("1.2.3-alpha-2.rc-1+000.build-2"))
+    )
+    assertEquals(Version.fromProtoChecked(proto.Version()), Some(Version.zero))
+    assertEquals(
+      Version.fromProtoChecked(valid.copy(preRelease = "alpha.")),
+      None
+    )
+    assertEquals(
+      Version.fromProtoChecked(valid.copy(preRelease = "alpha..1")),
+      None
+    )
+    assertEquals(Version.fromProtoChecked(valid.copy(build = "build.")), None)
+    assertEquals(Version.fromProtoChecked(valid.copy(major = -1L)), None)
+  }
+
+  property("valid versions survive checked protobuf round trips") {
+    Prop.forAll(versionGen) { version =>
+      assertEquals(Version.fromProtoChecked(version.toProto), Some(version))
+    }
+  }
+
   property("show == render") {
     Prop.forAll(versionGen) { v =>
       assertEquals(show"$v", v.render)
@@ -346,6 +454,11 @@ class VersionTest extends munit.ScalaCheckSuite {
     assertEquals(
       Version.unsafe("1.0.0-rc.1").nextPreRelease,
       Some(Version.unsafe("1.0.0-rc.2"))
+    )
+
+    assertEquals(
+      Version.unsafe("1.0.0--0").nextPreRelease,
+      Some(Version.unsafe("1.0.0--0.0"))
     )
 
     Prop.forAll(versionGen, somePr) { (v, pr) =>

@@ -2,11 +2,11 @@ package dev.bosatsu
 
 import cats.effect.{IO, Resource}
 import cats.effect.std.Supervisor
+import cats.syntax.all._
 import dev.bosatsu.tool.{ExitCode, Output}
 import java.io.{ByteArrayOutputStream, PrintStream}
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.{Files, Path}
-import org.typelevel.paiges.Doc
 
 /** JVM entry point for file-based compiler invocations. A service owns a
   * compiler execution pool. Each call owns its path context, streams, pending
@@ -131,7 +131,7 @@ object FileCommandRunner {
   private[bosatsu] def supports(command: String): Boolean =
     command match {
       case "check" | "compile-packages" | "validate-graph" | "verify-toolchain" |
-          "emit-c" | "headers" | "deps" | "show" | "assemble" |
+          "inspect-library" | "emit-c" | "headers" | "deps" | "show" | "assemble" |
           "extract-iface" =>
         true
       case _ => false
@@ -166,8 +166,8 @@ object FileCommandRunner {
               staged.prepare(diskPath(path))
 
             // Join the request's transaction instead of publishing independently.
-            override def writeDocAtomic(path: Path, doc: Doc): IO[Unit] =
-              writeDoc(path, doc)
+            override def writeFileSetAtomic(files: List[(Path, Vector[Byte])]): IO[Unit] =
+              files.traverse_ { case (path, bytes) => writeBytes(path, bytes.toArray) }
           }
           out.report(reporter).flatMap {
             case ExitCode.Success => staged.publish.as(ExitCode.Success)

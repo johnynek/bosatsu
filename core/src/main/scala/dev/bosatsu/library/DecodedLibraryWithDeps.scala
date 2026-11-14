@@ -177,6 +177,136 @@ object DecodedLibraryWithDeps {
     checkReserved(dec.protoLib) *> decodeAndStore(dec).runA(Map.empty)
   }
 
+  /** Decode only an authenticated graph. Direct interfaces are assembled for
+    * each library from its own public, private, and legacy resolution edges;
+    * dependency scopes are never flattened across unrelated private versions.
+    */
+  private[bosatsu] def decodeVerifiedGraph[F[_]](
+      graph: VerifiedLibraryGraph[?]
+  )(implicit
+      F: MonadError[F, Throwable],
+      C: CanPromise[F]
+  ): F[DecodedLibraryWithDeps[Algo.Blake3]] =
+    decodeVerifiedGraphWithLibraries[F](graph).map(_._1)
+
+  /** Decode every authenticated graph node in dependency order, retaining the
+    * complete identity map for inspection metadata. The ordinary scoped tree
+    * omits legacy resolution-only edges, but inspection still needs their
+    * verified artifacts and package membership.
+    */
+  private[bosatsu] def decodeVerifiedGraphWithLibraries[F[_]](
+      graph: VerifiedLibraryGraph[?]
+  )(implicit
+      F: MonadError[F, Throwable],
+      C: CanPromise[F]
+  ): F[(
+    DecodedLibraryWithDeps[Algo.Blake3],
+    SortedMap[LibraryIdentity, DecodedLibrary[Algo.Blake3]]
+  )] = {
+    type Identity = LibraryIdentity
+    type State = (
+      List[Identity],
+      SortedMap[Identity, DecodedLibrary[Algo.Blake3]],
+      SortedMap[Identity, DecodedLibraryWithDeps[Algo.Blake3]]
+    )
+    given Ordering[Identity] = Ordering.Tuple2(using
+      summon[Ordering[Name]],
+      summon[Ordering[Version]]
+    )
+
+    def one(
+        state: State
+    ): F[Either[
+      State,
+      (
+        DecodedLibraryWithDeps[Algo.Blake3],
+        SortedMap[LibraryIdentity, DecodedLibrary[Algo.Blake3]]
+      )
+    ]] =
+      state._1 match {
+        case Nil =>
+          F.fromOption(
+            state._3.get(graph.rootIdentity),
+            CliException.Basic("verified library graph is missing its root")
+          ).map(root => Right((root, state._2)))
+        case identity :: remaining =>
+          graph.snapshot(identity) match {
+            case None =>
+              F.raiseError(
+                CliException.Basic(
+                  s"verified library graph is missing ${identity._1.name} ${identity._2.render}"
+                )
+              )
+            case Some(snapshot) =>
+              val dependencyIds = graph.dependencyEdges(identity).iterator
+                .map(_.targetIdentity)
+                .to(SortedSet)
+                .toList
+              val dependencyLibraries = dependencyIds.flatMap { dependencyId =>
+                state._2.get(dependencyId).map(dependencyId -> _)
+              }
+              val providers = dependencyLibraries.flatMap { case (provider, library) =>
+                library.interfaces.map(iface => iface.name -> provider)
+              }
+              val ambiguous = providers.groupBy(_._1).iterator.collect {
+                case (packageName, entries) if entries.map(_._2).distinct.size > 1 =>
+                  packageName -> entries.map(_._2).distinct.sorted
+              }.toList.sortBy(_._1.asString)
+
+              if (ambiguous.nonEmpty) {
+                val detail = ambiguous.map { case (packageName, providerIds) =>
+                  val providerNames = providerIds.map { case (name, version) =>
+                    s"${name.name} ${version.render}"
+                  }
+                  s"${packageName.asString}: ${providerNames.mkString(", ")}"
+                }.mkString("; ")
+                F.raiseError(
+                  CliException.Basic(
+                    s"ambiguous dependency providers in ${identity._1.name} " +
+                      s"${identity._2.render}: $detail"
+                  )
+                )
+              } else {
+                val dependencyIfaces = dependencyLibraries.flatMap(_._2.interfaces)
+                checkReserved(snapshot.protoLib) *> DecodedLibrary
+                  .decode[F, Algo.Blake3](
+                    Hashed(snapshot.blake3, snapshot.protoLib),
+                    dependencyIfaces
+                  )
+                  .adaptError { case error =>
+                    CliException.Basic(
+                      s"cannot decode library ${identity._1.name} ${identity._2.render}: " +
+                        Option(error.getMessage).getOrElse(error.toString)
+                    )
+                  }
+                  .map { decoded =>
+                    val decodedMap = state._2.updated(identity, decoded)
+                    val childIds = graph.dependencyEdges(identity).iterator
+                      .filter(_.visibility != LibraryDependencyVisibility.UnusedTransitivePublic)
+                      .map(_.targetIdentity)
+                      .to(SortedSet)
+                    val children = childIds.iterator.flatMap { childId =>
+                      state._3.get(childId).map(childId -> _)
+                    }.to(SortedMap)
+                    val value = DecodedLibraryWithDeps(decoded, children)
+                    val next = (remaining, decodedMap, state._3.updated(identity, value))
+                    Left(next)
+                  }
+              }
+          }
+      }
+
+    F.tailRecM[
+      State,
+      (
+        DecodedLibraryWithDeps[Algo.Blake3],
+        SortedMap[LibraryIdentity, DecodedLibrary[Algo.Blake3]]
+      )
+    ](
+      (graph.decodeOrder, SortedMap.empty, SortedMap.empty)
+    )(one)
+  }
+
   implicit def decodedLibraryWithDepsCompilationSource[A](implicit
       EC: Par.EC
   ): CompilationSource[DecodedLibraryWithDeps[A]] {

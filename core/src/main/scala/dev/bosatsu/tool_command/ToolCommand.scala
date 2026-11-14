@@ -20,6 +20,7 @@ object ToolCommand {
         CompilePackagesCommand.opts(platformIO) ::
         ValidateGraphCommand.opts(platformIO) ::
         VerifyToolchainCommand.opts(platformIO) ::
+        InspectLibraryCommand.opts(platformIO) ::
         EmitCCommand.opts(platformIO) ::
         TestCommand.opts(platformIO, commonOpts) ::
         TranspileCommand.opts(platformIO, commonOpts) ::

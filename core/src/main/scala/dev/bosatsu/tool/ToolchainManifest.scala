@@ -46,19 +46,9 @@ private[bosatsu] object ToolchainManifest {
       BuildManifest.nonEmpty.read(path, value).map(Name(_))
   }
 
-  private def onlyFields(
-      from: Json.Reader.FromObj,
-      kind: String,
-      allowed: Set[String]
-  ): Result[Unit] = {
-    val unknown = from.j.toMap.keySet -- allowed
-    Either.cond(unknown.isEmpty, (),
-      (s"unknown $kind fields: ${unknown.toList.sorted.mkString(", ")}", from.j, from.path))
-  }
-
   private given Json.Reader[Artifact] = BuildManifest.obj("toolchain artifact") { from =>
     for {
-      _ <- onlyFields(from, "toolchain artifact", Set("uri", "sha256"))
+      _ <- BuildManifest.onlyFields(from, "toolchain artifact", Set("uri", "sha256"))
       uri <- from.field[String]("uri")(using BuildManifest.nonEmpty)
       sha256 <- from.field[HashValue[Algo.Sha256]]("sha256")(using sha256Reader)
     } yield Artifact(uri, sha256)
@@ -66,7 +56,7 @@ private[bosatsu] object ToolchainManifest {
 
   private given Json.Reader[Core] = BuildManifest.obj("toolchain core") { from =>
     for {
-      _ <- onlyFields(from, "toolchain core", Set("library_name", "version", "uri", "sha256"))
+      _ <- BuildManifest.onlyFields(from, "toolchain core", Set("library_name", "version", "uri", "sha256"))
       libraryName <- from.field[Name]("library_name")(using libraryNameReader)
       version <- from.field[Version]("version")
       uri <- from.field[String]("uri")(using BuildManifest.nonEmpty)
@@ -99,7 +89,11 @@ private[bosatsu] object ToolchainManifest {
     BuildManifest.obj("toolchain manifest") { from =>
       for {
         _ <- BuildManifest.version1(from)
-        _ <- onlyFields(from, "toolchain manifest", Set("schema_version", "compiler", "core", "c_runtime", "core_sources"))
+        _ <- BuildManifest.onlyFields(
+          from,
+          "toolchain manifest",
+          Set("schema_version", "compiler", "core", "c_runtime", "core_sources")
+        )
         compiler <- from.field[Artifact]("compiler")
         core <- from.field[Core]("core")
         cRuntime <- from.field[Artifact]("c_runtime")

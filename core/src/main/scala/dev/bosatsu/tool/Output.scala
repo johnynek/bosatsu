@@ -77,6 +77,8 @@ sealed abstract class Output[+Path] {
       case Output.JsonOutput(json, pathOpt) =>
         writeOut(json.toDoc, pathOpt)
           .as(ExitCode.Success)
+      case Output.AtomicFileSet(files) =>
+        writeFileSetAtomic(files).as(ExitCode.Success)
 
       case Output.TranspileOut(outs) =>
         outs.toList
@@ -330,6 +332,10 @@ object Output {
   ) extends Output[Nothing]
 
   case class JsonOutput[Path](json: Json, output: Option[Path])
+      extends Output[Path]
+
+  /** Publish fully serialized immutable bytes through one output transaction. */
+  case class AtomicFileSet[Path](files: List[(Path, Vector[Byte])])
       extends Output[Path]
 
   final case class PackageGroup[Path](
