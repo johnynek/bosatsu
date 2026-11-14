@@ -3,8 +3,12 @@ package dev.bosatsu.tool
 import _root_.bosatsu.{TypedAst => proto}
 import cats.data.Chain
 import cats.syntax.all._
-import dev.bosatsu.Json
-import dev.bosatsu.MemoryMain
+import dev.bosatsu.{
+  ExportedName, Json, Kind, MemoryMain, Package, PackageMap, PackageName,
+  PackageSignatures, ProtoConverter, Referant, TypeName
+}
+import dev.bosatsu.Identifier.{Constructor, Name => IdentName}
+import dev.bosatsu.rankn.{DefinedType, Type}
 import dev.bosatsu.hashing.Algo
 import dev.bosatsu.library.{
   DecodedLibraryWithDeps,
@@ -160,6 +164,19 @@ class LibraryInspectionProjectionTest extends munit.ScalaCheckSuite {
     s"sha256:${Algo.hashBytes[Algo.Sha256](bytes).hex}"
   )
 
+  private def fixture(file: String, library: proto.Library): Fixture = {
+    val bytes = library.toByteArray
+    (file, library, bytes, pins(bytes))
+  }
+  private def dependency(target: Fixture): proto.LibDependency =
+    proto.LibDependency(
+      name = target._2.name,
+      desc = Some(proto.LibDescriptor(
+        version = target._2.descriptor.get.version,
+        hashes = target._4
+      ))
+    )
+
   property("exposure witnesses preserve the decoder binding across competing public and private versions") {
     Prop.forAllNoShrink(
       Gen.pick(3, List(0, 1, 2)),
@@ -167,19 +184,6 @@ class LibraryInspectionProjectionTest extends munit.ScalaCheckSuite {
     ) { (order, reverseEdges) =>
       List("private", "public", "legacy").foreach { visibility =>
         List(false, true).foreach { sameProvider =>
-          def fixture(file: String, library: proto.Library): Fixture = {
-            val bytes = library.toByteArray
-            (file, library, bytes, pins(bytes))
-          }
-          def dependency(target: Fixture): proto.LibDependency =
-            proto.LibDependency(
-              name = target._2.name,
-              desc = Some(proto.LibDescriptor(
-                version = target._2.descriptor.get.version,
-                hashes = target._4
-              ))
-            )
-
           val common1 = fixtures.find(_._2.name == "common").get
           val common2 = fixture("common-v2", common1._2.copy(
             descriptor = Some(proto.LibDescriptor(version = Some(
@@ -225,6 +229,109 @@ class LibraryInspectionProjectionTest extends munit.ScalaCheckSuite {
         }
       }
     }
+  }
+
+  private val predefConsumer = PackageName.parts("Predef", "Consumer")
+
+  private def predefInterface(typeName: String): Package.Interface = {
+    val defined = DefinedType[Kind.Arg](
+      PackageName.PredefName, TypeName(Constructor(typeName)), Nil, Nil
+    )
+    Package(PackageName.PredefName, Nil, List(
+      ExportedName.TypeName(defined.name.ident, Referant.DefinedT(defined))
+    ), ())
+  }
+
+  private def predefLibrary(
+      local: Boolean,
+      visibility: Option[String],
+      unindexed: Boolean,
+      embeddedInternal: Boolean = false
+  ): (Fixture, LibraryInspection.DependencyContext[Path], MemoryMain.State) = {
+    val usesCompilerType = embeddedInternal || (!local && visibility.isEmpty)
+    val typ = if (usesCompilerType) Type.IntType else Type.const(
+      PackageName.PredefName, TypeName(Constructor("InspectionOnly"))
+    )
+    val consumer: Package.Interface = Package(predefConsumer, Nil, List(
+      ExportedName.Binding(IdentName("value"), Referant.Value(typ))
+    ), ())
+    def encode(iface: Package.Interface): proto.Interface = {
+      val encoded = PackageSignatures.encode(List(iface)).get.interfaces.head
+      if (unindexed) encoded.copy(signatureDependencies = None) else encoded
+    }
+    val version = Some(proto.LibDescriptor(version = Some(Version(1, 0, 0).toProto)))
+    val supplied = fixture("predef-dependency", proto.Library(
+      name = "predef_dependency", descriptor = version,
+      exportedIfaces = List(encode(predefInterface(if (local) "DependencyOnly" else "InspectionOnly")))
+    ))
+    val dep = visibility.toList.map(_ => dependency(supplied))
+    val root = fixture("predef-user", proto.Library(
+      name = "predef_user", descriptor = version,
+      exportedIfaces = encode(consumer) :: Option.when(local && !embeddedInternal)(
+        encode(predefInterface("InspectionOnly"))
+      ).toList,
+      internalPackages = Option.when(embeddedInternal)(
+        ProtoConverter.packageToProto(PackageMap.predefCompiled).get
+      ).toList,
+      publicDependencies = if (visibility.contains("public")) dep else Nil,
+      privateDependencies = if (visibility.contains("private")) dep else Nil,
+      unusedTransitivePublicDependencies = if (visibility.contains("legacy")) dep else Nil
+    ))
+    val context = LibraryInspection.DependencyContext(visibility.toList.map { _ =>
+      LibraryInspection.DeclaredLibraryFile(
+        Name(supplied._2.name), Version(1, 0, 0), path(supplied._1), supplied._4
+      )
+    })
+    (root, context, state(List(root, supplied).map { case (file, _, bytes, _) => file -> bytes }))
+  }
+
+  private def predefExposure(output: Projections): Json =
+    array(field(record(output.exposure, "predef_user", "1.0.0", predefConsumer.asString), "exposes"))
+      .find(edge => string(field(edge, "package")) == PackageName.PredefName.asString)
+      .getOrElse(fail(output.exposure.render))
+
+  private def libraryIdentity(name: String): Json = Json.JObject(List(
+    "name" -> Json.JString(name), "version" -> Json.JString("1.0.0")
+  ))
+
+  property("Predef exposures follow decoded local, dependency, and compiler bindings") {
+    Prop.forAll(Gen.oneOf(true, false)) { unindexed =>
+      List(false, true).foreach { local =>
+        List(None, Some("public"), Some("private"), Some("legacy")).foreach { visibility =>
+          val (root, context, current) = predefLibrary(local, visibility, unindexed)
+          val result = projections(root, context, current)
+          if (!local && visibility.contains("private")) {
+            val error = result.swap.toOption.map(_.getMessage).getOrElse(fail(
+              "a private Predef provider must require a public witness"
+            ))
+            assert(error.contains("missing public witness"), error)
+            assert(error.contains("predef_dependency 1.0.0"), error)
+          } else {
+            val edge = predefExposure(result.fold(error => fail(error.getMessage), identity))
+            val implicitPredef = !local && visibility.isEmpty
+            val expectedProvider = if (implicitPredef) Json.JObject(List(
+              "kind" -> Json.JString("compiler"), "name" -> Json.JString("Predef")
+            )) else libraryIdentity(if (local) "predef_user" else "predef_dependency")
+            assertEquals(field(edge, "provider"), expectedProvider)
+            val expectedWitness =
+              if (implicitPredef) Vector.empty
+              else if (local) Vector(libraryIdentity("predef_user"))
+              else Vector(libraryIdentity("predef_user"), libraryIdentity("predef_dependency"))
+            assertEquals(array(field(edge, "witness_path")), expectedWitness)
+          }
+        }
+      }
+    }
+  }
+
+  test("a legacy embedded implementation of Predef is owned by the inspected library") {
+    val (root, context, current) = predefLibrary(
+      local = true, visibility = Some("public"), unindexed = true, embeddedInternal = true
+    )
+    val output = projections(root, context, current).fold(error => fail(error.getMessage), identity)
+    val edge = predefExposure(output)
+    assertEquals(field(edge, "provider"), libraryIdentity("predef_user"))
+    assertEquals(array(field(edge, "witness_path")), Vector(libraryIdentity("predef_user")))
   }
 
   test("descriptor projection authenticates only the pinned root before exposing children") {

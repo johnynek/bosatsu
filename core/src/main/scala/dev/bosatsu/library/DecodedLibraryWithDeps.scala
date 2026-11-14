@@ -196,13 +196,18 @@ object DecodedLibraryWithDeps {
     * to the decoder. Inspection must not resolve those packages again from a
     * different dependency closure.
     */
+  private[bosatsu] enum PackageProvider derives CanEqual {
+    case Library(identity: LibraryIdentity)
+    case CompilerPredef
+  }
+
   private[bosatsu] final class DecodedGraph[Path] private[DecodedLibraryWithDeps] (
       val graph: VerifiedLibraryGraph[Path],
       val root: DecodedLibraryWithDeps[Algo.Blake3],
       val libraries: SortedMap[LibraryIdentity, DecodedLibrary[Algo.Blake3]],
-      packageProviders: SortedMap[LibraryIdentity, SortedMap[PackageName, LibraryIdentity]]
+      packageProviders: SortedMap[LibraryIdentity, SortedMap[PackageName, PackageProvider]]
   ) {
-    def providerFor(scope: LibraryIdentity, packageName: PackageName): Option[LibraryIdentity] =
+    def providerFor(scope: LibraryIdentity, packageName: PackageName): Option[PackageProvider] =
       packageProviders.get(scope).flatMap(_.get(packageName))
   }
 
@@ -222,7 +227,7 @@ object DecodedLibraryWithDeps {
       List[Identity],
       SortedMap[Identity, DecodedLibrary[Algo.Blake3]],
       SortedMap[Identity, DecodedLibraryWithDeps[Algo.Blake3]],
-      SortedMap[Identity, SortedMap[PackageName, Identity]]
+      SortedMap[Identity, SortedMap[PackageName, PackageProvider]]
     )
     given Ordering[Identity] = Ordering.Tuple2(using
       summon[Ordering[Name]],
@@ -298,10 +303,14 @@ object DecodedLibraryWithDeps {
                       state._3.get(childId).map(childId -> _)
                     }.to(SortedMap)
                     val value = DecodedLibraryWithDeps(decoded, children)
-                    // Local nodes shadow dependency interfaces in ProtoConverter.
+                    // Mirror ProtoConverter's lookup: local nodes shadow
+                    // dependencies, which shadow the compiler Predef fallback.
                     val localPackages = decoded.internalPackageNames ++ decoded.publicPackageNames
-                    val bindings = SortedMap.from(providers) ++
-                      localPackages.iterator.map(_ -> identity)
+                    val bindings = SortedMap[PackageName, PackageProvider](
+                      PackageName.PredefName -> PackageProvider.CompilerPredef
+                    ) ++ providers.iterator.map { case (packageName, provider) =>
+                      packageName -> PackageProvider.Library(provider)
+                    } ++ localPackages.iterator.map(_ -> PackageProvider.Library(identity))
                     val next = (
                       remaining,
                       decodedMap,

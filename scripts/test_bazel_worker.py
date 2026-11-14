@@ -854,6 +854,21 @@ def test_library_inspection(
             "blake3": LEGACY_CORE_BLAKE3,
         } or legacy_descriptor["dependencies"]:
             raise AssertionError(f"legacy core identity or empty descriptors changed: {legacy_descriptor!r}")
+        # The released core embeds its own Predef implementation. Its exposed
+        # types belong to those pinned bytes, rather than the running compiler.
+        predef_edges = [
+            edge
+            for package in legacy_exposures["packages"]
+            for edge in package["exposes"]
+            if edge["package"] == "Bosatsu/Predef"
+        ]
+        legacy_identity = {"name": "core_alpha", "version": "9.0.1"}
+        if not predef_edges or any(
+            edge["provider"] != legacy_identity
+            or edge["witness_path"] != [legacy_identity]
+            for edge in predef_edges
+        ):
+            raise AssertionError(f"legacy embedded Predef ownership changed: {predef_edges!r}")
 
 
 

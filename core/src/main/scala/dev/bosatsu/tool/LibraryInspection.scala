@@ -2,7 +2,7 @@ package dev.bosatsu.tool
 
 import _root_.bosatsu.{TypedAst => proto}
 import cats.syntax.all._
-import dev.bosatsu.{Json, Kind, PackageName, PackageSignatures, PlatformIO}
+import dev.bosatsu.{Json, Kind, PackageSignatures, PlatformIO}
 import dev.bosatsu.hashing.Algo
 import dev.bosatsu.library.{
   DecodedLibrary,
@@ -13,7 +13,7 @@ import dev.bosatsu.library.{
   VerifiedLibrarySnapshot,
   Version
 }
-import dev.bosatsu.library.DecodedLibraryWithDeps.DecodedGraph
+import dev.bosatsu.library.DecodedLibraryWithDeps.{DecodedGraph, PackageProvider}
 import scala.collection.immutable.SortedMap
 import scala.util.Try
 
@@ -238,8 +238,14 @@ private[bosatsu] object LibraryInspection {
             .distinct
             .sorted
           exposed.traverse { packageName =>
-            if (packageName == PackageName.PredefName) {
-              Right(Json.JObject(List(
+            val sourcePath = graph.snapshot(identity).fold(identity._1.name) { snapshot =>
+              pathText(snapshot.path)
+            }
+            decoded.providerFor(identity, packageName).toRight(
+              s"missing decoded provider for exposed package ${packageName.asString} " +
+                s"from ${identity._1.name} ${identity._2.render} at $sourcePath"
+            ).flatMap {
+              case PackageProvider.CompilerPredef => Right(Json.JObject(List(
                 "package" -> Json.JString(packageName.asString),
                 "provider" -> Json.JObject(List(
                   "kind" -> Json.JString("compiler"),
@@ -247,25 +253,18 @@ private[bosatsu] object LibraryInspection {
                 )),
                 "witness_path" -> Json.JArray(Vector.empty)
               )))
-            } else {
-              val sourcePath = graph.snapshot(identity).fold(identity._1.name) { snapshot =>
-                pathText(snapshot.path)
-              }
-              for {
-                provider <- decoded.providerFor(identity, packageName).toRight(
-                  s"missing decoded provider for exposed package ${packageName.asString} " +
-                    s"from ${identity._1.name} ${identity._2.render} at $sourcePath"
-                )
-                witness <- providerPath(graph, identity, provider).toRight(
+              case PackageProvider.Library(provider) =>
+                providerPath(graph, identity, provider).toRight(
                   s"missing public witness to decoded provider ${provider._1.name} ${provider._2.render} " +
                     s"for exposed package ${packageName.asString} " +
                     s"from ${identity._1.name} ${identity._2.render} at $sourcePath"
-                )
-              } yield Json.JObject(List(
-                "package" -> Json.JString(packageName.asString),
-                "provider" -> identityJson(provider),
-                "witness_path" -> identitiesJson(witness)
-              ))
+                ).map { witness =>
+                  Json.JObject(List(
+                    "package" -> Json.JString(packageName.asString),
+                    "provider" -> identityJson(provider),
+                    "witness_path" -> identitiesJson(witness)
+                  ))
+                }
             }
           }.map { edges =>
             Json.JObject(List(

@@ -405,9 +405,12 @@ identity through public or legacy unused-transitive-public edges. Another
 version exporting the same package cannot substitute for it. If no permitted
 witness exists, exposure inspection fails. Private implementation edges
 remain in the implementation projection and cannot introduce unrelated public
-exposures. A compiler-provided `Predef` reference is represented with
-`{"kind":"compiler","name":"Predef"}` and an empty witness path, never as a
-downloaded library. For example:
+exposures. Predef follows the decoder's ordinary precedence: a local package,
+then a supplied dependency interface, then the compiler fallback. Embedded or
+dependency-supplied Predef definitions use their selected library identity and
+the same public-witness checks as other packages. Only an actual compiler
+fallback uses `{"kind":"compiler","name":"Predef"}` and an empty witness
+path. For example:
 
 ```json
 {
