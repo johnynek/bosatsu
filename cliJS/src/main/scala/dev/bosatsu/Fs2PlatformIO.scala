@@ -32,15 +32,17 @@ private object Rename extends js.Function2[String, String, js.Promise[Unit]] {
   def apply(source: String, target: String): js.Promise[Unit] = js.native
 }
 
-object Fs2PlatformIO extends PlatformIO[IO, Path] {
-  private[dev] final case class DocumentWriteOps(
-      createParentDirectories: Path => IO[Unit],
-      resolveDestination: Path => IO[Path],
-      stagedFile: Path => Resource[IO, Path],
-      writeStaged: (Path, Doc) => IO[Unit],
-      replace: (Path, Path) => IO[Unit]
-  )
+@js.native
+@JSImport("fs/promises", "unlink")
+private object Unlink extends js.Function1[String, js.Promise[Unit]] {
+  def apply(path: String): js.Promise[Unit] = js.native
+}
 
+class Fs2PlatformIO private[dev] (
+    injectedDocumentWriteOps: Option[Fs2PlatformIO.DocumentWriteOps]
+) extends PlatformIO[IO, Path] {
+  private lazy val documentWriteOps =
+    injectedDocumentWriteOps.getOrElse(Fs2PlatformIO.documentWriteOps)
   type FileKey = Either[Path, FsKey]
   val fileKeyHash: Hash[FileKey] = Hash[FileKey]
 
@@ -440,61 +442,15 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
   private def docStream(doc: Doc): fs2.Stream[IO, String] =
     fs2.Stream.fromIterator[IO](doc.renderStream(100).iterator, chunkSize = 128)
 
-  private[dev] val documentWriteOps: DocumentWriteOps = DocumentWriteOps(
-    createParentDirectories = p => p.parent.traverse_(FilesIO.createDirectories(_)),
-    resolveDestination = pendingOutputPath,
-    stagedFile = destination => {
-      val directory = destination.parent.getOrElse(Path("."))
-      Resource
-        .make(FilesIO.createTempDirectory(Some(directory), ".bosatsu-write-", None)) { stage =>
-          // Own the directory, not fs2's JS tempFile, whose release removes only
-          // the file. Cleanup must not report failure after a committed rename.
-          FilesIO.deleteRecursively(stage).handleErrorWith(_ => IO.unit)
-        }
-        .map(_ / "document")
-    },
-    writeStaged = (path, doc) =>
-      FilesIO.writeUtf8(path)(docStream(doc)).compile.drain,
-    replace = (source, target) =>
-      FilesIO.getBasicFileAttributes(target, followLinks = false).map(Some(_))
-        .recover { case _: NoSuchFileException => None }
-        .flatMap {
-          case None => IO.fromPromise(IO(Rename(source.toString, target.toString)))
-          case Some(_) =>
-            // Node exposes mode/owner/group, but no ACL reader or copier. A
-            // chmod/chown of a new inode cannot preserve all access controls.
-            // Keep identical outputs in place; fail closed for changed ones.
-            FilesIO.readAll(source).map(Option(_))
-              .zipAll(FilesIO.readAll(target).map(Option(_)))(None, None)
-              .forall { case (left, right) => left == right }
-              .compile.lastOrError.flatMap {
-                case true => IO.unit
-                case false => IO.raiseError(new IOException(
-                  s"cannot preserve output access controls with Node's filesystem API: $target"
-                ))
-              }
-        }
-  )
-
-  private[dev] def writeDocWith(
-      p: Path,
-      d: Doc,
-      ops: DocumentWriteOps
-  ): IO[Unit] =
-    ops.createParentDirectories(p) *>
-      ops.resolveDestination(p).flatMap { destination =>
-        ops.stagedFile(destination).use { staged =>
-          // writeStaged completes only after the fs2 writer has closed the file.
-          ops.writeStaged(staged, d) *> ops.replace(staged, destination)
-        }
-      }
-
   def writeDoc(p: Path, d: Doc): IO[Unit] =
     p.parent.traverse_(FilesIO.createDirectories(_)) *>
       FilesIO.writeUtf8(p)(docStream(d)).compile.drain
 
   def writeDocAtomic(p: Path, d: Doc): IO[Unit] =
-    writeDocWith(p, d, documentWriteOps)
+    writeFileSetAtomic(List(p -> d.render(100).getBytes("UTF-8").toVector))
+
+  def writeFileSetAtomic(files: List[(Path, Vector[Byte])]): IO[Unit] =
+    Fs2PlatformIO.writeFilesWith(files, documentWriteOps)
 
   private def onParts(doc: Doc)(fn: String => IO[Unit]): IO[Unit] =
     docStream(doc)
@@ -571,4 +527,129 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
 
   def writeLibrary(lib: proto.Library, path: Path): IO[Unit] =
     write(lib, path)
+}
+
+object Fs2PlatformIO extends Fs2PlatformIO(None) {
+  private[dev] final case class DocumentWriteOps(
+      createParentDirectories: Path => IO[Unit],
+      resolveDestination: Path => IO[Path],
+      stagedFile: Path => Resource[IO, Path],
+      writeStaged: (Path, Array[Byte]) => IO[Unit],
+      needsInstall: (Path, Path) => IO[Boolean],
+      replace: (Path, Path) => IO[Boolean],
+      remove: Path => IO[Unit]
+  )
+
+  private def shouldInstall(source: Path, target: Path): IO[Boolean] =
+    Files[IO].getBasicFileAttributes(target, followLinks = false).map(Some(_))
+      .recover { case _: NoSuchFileException => None }
+      .flatMap {
+        case None => IO.pure(true)
+        case Some(attributes) if !attributes.isRegularFile =>
+          IO.raiseError(new IOException(s"expected a regular output file: $target"))
+        case Some(_) =>
+          // Node exposes mode/owner/group, but no ACL reader or copier. Keep
+          // identical outputs in place; fail closed for changed ones.
+          Files[IO].readAll(source).map(Option(_))
+            .zipAll(Files[IO].readAll(target).map(Option(_)))(None, None)
+            .forall { case (left, right) => left == right }
+            .compile.lastOrError.flatMap {
+              case true => IO.pure(false)
+              case false => IO.raiseError(new IOException(
+                s"cannot preserve output access controls with Node's filesystem API: $target"
+              ))
+            }
+      }
+
+  private[dev] val documentWriteOps: DocumentWriteOps = DocumentWriteOps(
+    createParentDirectories = p => p.parent.traverse_(Files[IO].createDirectories(_)),
+    resolveDestination = path => Fs2PlatformIO.pendingOutputPath(path),
+    stagedFile = destination => {
+      val directory = destination.parent.getOrElse(Path("."))
+      Resource
+        .make(Files[IO].createTempDirectory(Some(directory), ".bosatsu-write-", None)) { stage =>
+          // Own the directory, not fs2's JS tempFile, whose release removes only
+          // the file. Cleanup must not report failure after a committed rename.
+          Files[IO].deleteRecursively(stage).handleErrorWith(_ => IO.unit)
+        }
+        .map(_ / "document")
+    },
+    writeStaged = (path, bytes) =>
+      Files[IO].writeAll(path)(fs2.Stream.chunk(fs2.Chunk.array(bytes))).compile.drain,
+    needsInstall = shouldInstall,
+    replace = (source, target) =>
+      shouldInstall(source, target).flatMap {
+        case false => IO.pure(false)
+        case true =>
+          IO.fromPromise(IO(Rename(source.toString, target.toString))).as(true)
+        },
+    remove = path =>
+      IO.fromPromise(IO(Unlink(path.toString))).handleErrorWith {
+        case _: NoSuchFileException => IO.unit
+        case error => IO.raiseError(error)
+      }
+  )
+
+  private[dev] def withDocumentWriteOps(ops: DocumentWriteOps): Fs2PlatformIO =
+    new Fs2PlatformIO(Some(ops))
+
+  private final case class PendingFile(
+      destination: Path,
+      staged: Path,
+      bytes: Vector[Byte]
+  )
+
+  private[dev] def writeDocWith(
+      path: Path,
+      doc: Doc,
+      ops: DocumentWriteOps
+  ): IO[Unit] =
+    writeFilesWith(List(path -> doc.render(100).getBytes("UTF-8").toVector), ops)
+
+  private[dev] def writeFilesWith(
+      files: List[(Path, Vector[Byte])],
+      ops: DocumentWriteOps
+  ): IO[Unit] = {
+    val destinations = files.traverse { case (path, bytes) =>
+      ops.createParentDirectories(path) *>
+        ops.resolveDestination(path).map(destination => (destination, bytes))
+    }
+
+    destinations.flatMap { resolved =>
+      val uniqueDestinations = resolved.map(_._1).distinct
+      if (uniqueDestinations.size != resolved.size)
+        IO.raiseError(new IOException("multiple outputs refer to the same file"))
+      else {
+        val staged = resolved.traverse { case (destination, bytes) =>
+          ops.stagedFile(destination).map(path => PendingFile(destination, path, bytes))
+        }
+
+        staged.use { pending =>
+          pending.traverse_ { file =>
+            ops.writeStaged(file.staged, file.bytes.toArray)
+          } *> pending.traverse(file =>
+            ops.needsInstall(file.staged, file.destination)
+          ).flatMap { shouldInstall =>
+            IO.defer {
+              var installed = List.empty[Path]
+              pending.zip(shouldInstall).traverse_ {
+                case (file, true) =>
+                  ops.replace(file.staged, file.destination).flatMap {
+                    case true => IO { installed = file.destination :: installed }
+                    case false => IO.unit
+                  }
+                case (_, false) => IO.unit
+              }.handleErrorWith { failure =>
+                installed.traverse(path => ops.remove(path).attempt).flatMap { rollback =>
+                  rollback.collect { case Left(error) => error }
+                    .foreach(failure.addSuppressed)
+                  IO.raiseError(failure)
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
 }

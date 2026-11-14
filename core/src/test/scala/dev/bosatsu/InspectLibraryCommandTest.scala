@@ -58,6 +58,8 @@ class InspectLibraryCommandTest extends munit.FunSuite {
 
   private def text(state: MemoryMain.State, name: String): String =
     state.get(path(name)) match {
+      case Some(Right(MemoryMain.FileContent.Bytes(value))) =>
+        new String(value, java.nio.charset.StandardCharsets.UTF_8)
       case Some(Right(MemoryMain.FileContent.Str(value))) => value
       case other => fail(s"expected JSON output at $name, found $other")
     }

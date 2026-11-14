@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2493` 0l and 0o: Inspect pinned library files and authenticate every dependency edge
-- Pending steps: `2`
-- Completed steps: `6`
+- Pending steps: `1`
+- Completed steps: `7`
 - Total steps: `8`
 
 ## Summary
@@ -238,7 +238,7 @@ Finish `docs/design/hermetic-bazel-rules.md` with runnable descriptor-discovery/
 
 Added prepared-fixture acquisition for the pinned legacy core and candidate-jar coverage for resolver traversal, edge authentication, projection parity, and persistent-worker recovery. Documented runnable inspection examples and contracts, linked the implementation and tests, and marked design tracker items 0l and 0o complete. The combined SBT matrix, the extended candidate-jar harness, and `./test_cli.sh` passed.
 
-7. [ ] `step_6_inspection_output_publication` Publish every inspection output through one atomic set
+7. [x] `step_6_inspection_output_publication` Publish every inspection output through one atomic set
 
 Invariant family: inspection-output-publication
 
@@ -268,6 +268,10 @@ Add regressions through Scala.js MainModule followed by Output.report, extending
 - On Scala.js, publish a valid full inspection, then inspect an authenticated public-API edit into the same signature and JSON paths; assert publication failure preserves all original bytes, inode/access metadata, and leaves no staging files.
 - Through the Scala.js command reporting path, inject failure on a later installation after an earlier new output was installed; assert rollback removes newly installed files, preserves existing files, and permits a subsequent successful request.
 - Retain descriptor-only and signature-only success/failure coverage, JVM changed-output rollback and direct/worker parity, and existing atomic-document access-control and symlink regressions.
+
+#### Completion Notes
+
+Replaced inspection’s sequential writes with one serialized `Output.AtomicFileSet` for full, signature-only, and descriptor-only projections. Added the shared `PlatformIO` file-set operation, using JVM `StagedOutputs`, Scala.js staging/preflight/rollback, and one in-memory state update; FileCommandRunner joins the request transaction. Scala.js command and file-set regressions cover changed public signatures, mixed existing and absent outputs, staging and install failures across positions and orders, cleanup, and retry. Updated the inspection publication contract. Focused coreJVM, CLI, and Scala.js tests passed.
 
 8. [ ] `step_7_exact_version_identity` Make shared version ordering preserve exact identity
 

@@ -56,6 +56,8 @@ class ParametricPathCommandsTest extends munit.FunSuite {
     def hasExtension(ext: String): Path => Boolean = p => memory.hasExtension(ext)(p.parts)
     def writeDoc(p: Path, doc: Doc) = memory.writeDoc(p.parts, doc)
     def writeDocAtomic(p: Path, doc: Doc) = memory.writeDocAtomic(p.parts, doc)
+    def writeFileSetAtomic(files: List[(Path, Vector[Byte])]) =
+      memory.writeFileSetAtomic(files.map { case (p, bytes) => p.parts -> bytes })
     def writeInterfaces(ifaces: List[Package.Interface], p: Path) = memory.writeInterfaces(ifaces, p.parts)
     def writeBytes(p: Path, bytes: Array[Byte]) = memory.writeBytes(p.parts, bytes)
     def writeLibrary(lib: proto.Library, p: Path) =
@@ -113,6 +115,17 @@ class ParametricPathCommandsTest extends munit.FunSuite {
     val rewritten = checked(Output.AtomicDoc(Doc.text("ok"), path("stamp"))
       .report(platform).runS(state))
     assertEquals(checked(platform.readUtf8(path("stamp")).runA(rewritten)), "ok")
+  }
+
+  test("atomic file-set reporting preserves parametric paths and publishes binary content") {
+    val first = path("first.bin")
+    val second = path("second.bin")
+    val state = checked(
+      Output.AtomicFileSet(List(first -> Vector[Byte](0, 1, -1), second -> Vector[Byte](2)))
+        .report(platform).runS(MemoryMain.State.empty)
+    )
+    assertEquals(checked(platform.readBytes(first).runA(state)).toList, List[Byte](0, 1, -1))
+    assertEquals(checked(platform.readBytes(second).runA(state)).toList, List[Byte](2))
   }
 
   test("a missing selector is compared and displayed through platform contracts") {

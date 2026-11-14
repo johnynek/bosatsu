@@ -440,6 +440,15 @@ identity, visibility and target identity. Thus equivalent declaration/context
 ordering yields identical metadata while implementation-only changes affect
 artifact metadata without changing signature bytes.
 
+All requested inspection files are serialized before publication and are
+reported through one complete-file-set operation. A failure while staging or
+publishing preserves the prior set, including when the signature bundle is
+requested with JSON projections. JVM file commands join this operation to the
+request's existing staged-output transaction. On Scala.js, identical existing
+files remain in place; changed existing files are rejected before installation
+because Node cannot preserve their access controls. If installing a later new
+file fails, files already installed by that attempt are removed.
+
 #### Running inspection during resolution
 
 The resolver starts with one pinned root. Descriptor-only mode checks the root

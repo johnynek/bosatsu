@@ -177,10 +177,8 @@ class Fs2PlatformIOTest extends FunSuite {
 
       val partialWriteOps = normalOps.copy(
         writeStaged = (staged, _) => {
-          val partialThenFail: fs2.Stream[IO, String] =
-            fs2.Stream.emit("partial").covary[IO] ++
-              fs2.Stream.eval(IO.raiseError[String](new IOException("staged write failed")))
-          fs.writeUtf8(staged)(partialThenFail).compile.drain
+          normalOps.writeStaged(staged, "partial".getBytes("UTF-8")) *>
+            IO.raiseError(new IOException("staged write failed"))
         }
       )
 
@@ -234,13 +232,6 @@ class Fs2PlatformIOTest extends FunSuite {
         replacementFailureOps = normalOps.copy(
           replace = (_, _) => IO.raiseError(new IOException("rename failed"))
         )
-        failedReplace <- Fs2PlatformIO
-          .writeDocWith(existing, Doc.text("replacement"), replacementFailureOps)
-          .attempt
-        _ = assert(failedReplace.swap.toOption.exists(_.getMessage == "rename failed"), failedReplace)
-        existingAfterReplaceFailure <- Fs2PlatformIO.readUtf8(existing)
-        _ = assertEquals(existingAfterReplaceFailure, "sentinel")
-        _ <- assertPreserved(before)
         failedAbsentReplace <- Fs2PlatformIO
           .writeDocWith(absent, Doc.text("replacement"), replacementFailureOps)
           .attempt
@@ -256,6 +247,93 @@ class Fs2PlatformIOTest extends FunSuite {
         paths <- fs.walk(dir).compile.toList
         _ = assertEquals(paths.toSet, Set(dir, existing, absent))
       } yield ()
+    }.unsafeToFuture()
+  }
+
+  test("atomic file sets roll back every install position across output orders") {
+    val fs = Files.forIO
+    val normalOps = Fs2PlatformIO.documentWriteOps
+    fs.tempDirectory.use { dir =>
+      val installationFailures = List(1, 2, 3).traverse_ { failureAt =>
+        val existing = dir / s"existing-$failureAt"
+        val absent = List(
+          dir / s"first-$failureAt",
+          dir / s"second-$failureAt",
+          dir / s"third-$failureAt"
+        )
+        val files = (existing -> "same".getBytes("UTF-8").toVector) ::
+          absent.zipWithIndex.map { case (path, index) =>
+            path -> s"new-$index".getBytes("UTF-8").toVector
+          }
+        val ordered = if (failureAt % 2 == 0) files.reverse else files
+        for {
+          _ <- Fs2PlatformIO.writeBytes(existing, "same".getBytes("UTF-8"))
+          existingBefore <- IO.fromPromise(IO(DocumentStat(existing.toString)))
+            .map(s => (s.mode, s.uid, s.gid, s.ino))
+          installs <- Ref.of[IO, Int](0)
+          ops = normalOps.copy(
+            replace = (staged, destination) =>
+              installs.updateAndGet(_ + 1).flatMap {
+                case n if n == failureAt =>
+                  IO.raiseError(new IOException(s"failed install $failureAt"))
+                case _ => normalOps.replace(staged, destination)
+              }
+          )
+          failed <- Output.AtomicFileSet(ordered).report(
+            Fs2PlatformIO.withDocumentWriteOps(ops)
+          ).attempt
+          _ = assert(
+            failed.swap.toOption.exists(_.getMessage == s"failed install $failureAt"),
+            failed
+          )
+          present <- absent.traverse(fs.exists)
+          _ = assertEquals(present, List(false, false, false))
+          existingContent <- Fs2PlatformIO.readBytes(existing)
+          _ = assertEquals(existingContent.toList, "same".getBytes("UTF-8").toList)
+          existingAfter <- IO.fromPromise(IO(DocumentStat(existing.toString)))
+            .map(s => (s.mode, s.uid, s.gid, s.ino))
+          _ = assertEquals(existingAfter, existingBefore)
+          paths <- fs.walk(dir).compile.toList
+          _ = assert(!paths.exists(_.fileName.toString.startsWith(".bosatsu-write-")))
+        } yield ()
+      }
+      val stagingFailures = List(1, 2, 3).traverse_ { failureAt =>
+        val existing = dir / s"staged-existing-$failureAt"
+        val absent = List(
+          dir / s"staged-first-$failureAt",
+          dir / s"staged-second-$failureAt",
+          dir / s"staged-third-$failureAt"
+        )
+        val files = (existing -> "same".getBytes("UTF-8").toVector) ::
+          absent.zipWithIndex.map { case (path, index) =>
+            path -> s"new-$index".getBytes("UTF-8").toVector
+          }
+        for {
+          _ <- Fs2PlatformIO.writeBytes(existing, "same".getBytes("UTF-8"))
+          writes <- Ref.of[IO, Int](0)
+          ops = normalOps.copy(
+            writeStaged = (staged, bytes) =>
+              writes.updateAndGet(_ + 1).flatMap {
+                case n if n == failureAt =>
+                  normalOps.writeStaged(staged, bytes) *>
+                    IO.raiseError(new IOException(s"failed stage $failureAt"))
+                case _ => normalOps.writeStaged(staged, bytes)
+              }
+          )
+          failed <- Output.AtomicFileSet(files).report(
+            Fs2PlatformIO.withDocumentWriteOps(ops)
+          ).attempt
+          _ = assert(
+            failed.swap.toOption.exists(_.getMessage == s"failed stage $failureAt"),
+            failed
+          )
+          present <- absent.traverse(fs.exists)
+          _ = assertEquals(present, List(false, false, false))
+          paths <- fs.walk(dir).compile.toList
+          _ = assert(!paths.exists(_.fileName.toString.startsWith(".bosatsu-write-")))
+        } yield ()
+      }
+      installationFailures *> stagingFailures
     }.unsafeToFuture()
   }
 
@@ -475,6 +553,193 @@ class Fs2PlatformIOTest extends FunSuite {
         _ = assertEquals(after, descriptorJson)
         signatureExists <- fs.exists(signature)
         _ = assert(!signatureExists)
+      } yield ()
+    }.unsafeToFuture()
+  }
+
+  test("inspect-library publishes the complete output set and rolls back a later install failure") {
+    val fs = Files.forIO
+    val fixtureNames = List(
+      "parser-v1.0.0.bosatsu_lib",
+      "common-v1.0.0.bosatsu_lib",
+      "legacy-v1.0.0.bosatsu_lib",
+      "public_child-v1.0.0.bosatsu_lib",
+      "private_child-v1.0.0.bosatsu_lib",
+      "shared-v1.0.0.bosatsu_lib",
+      "shared-v2.0.0.bosatsu_lib",
+      "left-v1.0.0.bosatsu_lib",
+      "right-v1.0.0.bosatsu_lib"
+    )
+    val fixturePrefix = "test_workspace/inspect_library/"
+    val sourceContext = Path(fixturePrefix + "parser-context.json")
+
+    def report(platform: PlatformIO[IO, Path], args: List[String]): IO[ExitCode] =
+      IO.fromEither(
+        new MainModule(platform).run("tool" :: args).leftMap(h => new IllegalArgumentException(h.toString))
+      ).flatten.flatMap(_.report(platform))
+
+    def pinned(input: Path, context: Path, bytes: Array[Byte]): List[String] = {
+      val version = "1.0.0"
+      List(
+        "inspect-library",
+        "--input", input.toString,
+        "--expected-name", "parser",
+        "--expected-version", version,
+        "--expected-hash", s"blake3:${Algo.hashBytes[Algo.Blake3](bytes).hex}",
+        "--expected-hash", s"sha256:${Algo.hashBytes[Algo.Sha256](bytes).hex}",
+        "--dependency-context", context.toString
+      )
+    }
+
+    def withOutputs(command: List[String], outputs: List[(String, Path)]): List[String] =
+      command ::: outputs.flatMap { case (option, path) => List(option, path.toString) }
+
+    def stat(path: Path): IO[(Int, Int, Int, Double)] =
+      IO.fromPromise(IO(DocumentStat(path.toString)))
+        .map(s => (s.mode, s.uid, s.gid, s.ino))
+
+    fs.tempDirectory.use { dir =>
+      val fixtureDir = dir / "fixtures"
+      val root = fixtureDir / fixtureNames.head
+      val context = dir / "parser-context.json"
+      val signature = dir / "parser.sig"
+      val exposures = dir / "exposures.json"
+      val membership = dir / "membership.json"
+      val implementation = dir / "implementation.json"
+      val descriptor = dir / "descriptor.json"
+      val baselineOutputs = List(
+        signature,
+        exposures,
+        membership,
+        implementation,
+        descriptor
+      )
+      val fullOptions = List(
+        "--sig-out" -> signature,
+        "--exposures-out" -> exposures,
+        "--membership-out" -> membership,
+        "--implementation-out" -> implementation,
+        "--descriptor-out" -> descriptor
+      )
+      for {
+        _ <- fs.createDirectories(fixtureDir)
+        _ <- fixtureNames.traverse_ { name =>
+          Fs2PlatformIO.readBytes(Path(fixturePrefix + name)).flatMap { bytes =>
+            Fs2PlatformIO.writeBytes(fixtureDir / name, bytes)
+          }
+        }
+        contextText <- Fs2PlatformIO.readUtf8(sourceContext)
+        contextBytes = contextText.replace(fixturePrefix, s"${fixtureDir.toString}/")
+        _ <- Fs2PlatformIO.writeDoc(context, Doc.text(contextBytes))
+        originalRoot <- Fs2PlatformIO.readBytes(root)
+        fullCommand = withOutputs(pinned(root, context, originalRoot), fullOptions)
+        first <- report(Fs2PlatformIO, fullCommand)
+        _ = assertEquals(first, ExitCode.Success)
+        originalOutputs <- baselineOutputs.traverse(path =>
+          Fs2PlatformIO.readBytes(path).map(_.toList)
+        )
+        originalSignatureStat <- stat(signature)
+
+        normalOps = Fs2PlatformIO.documentWriteOps
+        installs <- Ref.of[IO, Int](0)
+        faultOps = normalOps.copy(
+          replace = (staged, destination) =>
+            installs.updateAndGet(_ + 1).flatMap {
+              case 2 => IO.raiseError(new IOException("injected later install failure"))
+              case _ => normalOps.replace(staged, destination)
+            }
+        )
+        retryExposures = dir / "retry-exposures.json"
+        retryMembership = dir / "retry-membership.json"
+        rollbackCommand = withOutputs(
+          pinned(root, context, originalRoot),
+          List(
+            "--sig-out" -> signature,
+            "--exposures-out" -> retryExposures,
+            "--membership-out" -> retryMembership
+          )
+        )
+        failedInstall <- report(
+          Fs2PlatformIO.withDocumentWriteOps(faultOps),
+          rollbackCommand
+        ).attempt
+        _ = assert(
+          failedInstall.swap.toOption.exists(_.getMessage.contains("injected later install failure")),
+          failedInstall
+        )
+        afterFailedInstall <- baselineOutputs.traverse(path =>
+          Fs2PlatformIO.readBytes(path).map(_.toList)
+        )
+        _ = assertEquals(afterFailedInstall, originalOutputs)
+        signatureStatAfterFailure <- stat(signature)
+        _ = assertEquals(signatureStatAfterFailure, originalSignatureStat)
+        retryExposureExists <- fs.exists(retryExposures)
+        retryMembershipExists <- fs.exists(retryMembership)
+        _ = assert(!retryExposureExists && !retryMembershipExists)
+        pathsAfterFailure <- fs.walk(dir).compile.toList
+        _ = assert(!pathsAfterFailure.exists(_.fileName.toString.startsWith(".bosatsu-write-")))
+        retried <- report(Fs2PlatformIO, rollbackCommand)
+        _ = assertEquals(retried, ExitCode.Success)
+        signatureStatAfterRetry <- stat(signature)
+        _ = assertEquals(signatureStatAfterRetry, originalSignatureStat)
+        retryExposure <- Fs2PlatformIO.readUtf8(retryExposures)
+        retryMember <- Fs2PlatformIO.readUtf8(retryMembership)
+        _ = assert(retryExposure.contains("witness_path"), retryExposure)
+        _ = assert(retryMember.contains("Parser"), retryMember)
+
+        library = proto.Library.parseFrom(originalRoot)
+        packageIndex = library.internalPackages.indexWhere(_.exports.nonEmpty)
+        _ = assert(packageIndex >= 0, "fixture has no exported package")
+        packageProto = library.internalPackages(packageIndex)
+        packageName = packageProto.strings(packageProto.packageName - 1)
+        interfaceIndex = library.exportedIfaces.indexWhere(interface =>
+          interface.strings(interface.packageName - 1) == packageName
+        )
+        _ = assert(interfaceIndex >= 0, s"fixture has no exported interface for $packageName")
+        changedRoot = library.copy(
+          internalPackages = library.internalPackages.updated(
+            packageIndex,
+            packageProto.copy(exports = packageProto.exports.dropRight(1))
+          ),
+          exportedIfaces = library.exportedIfaces.updated(
+            interfaceIndex,
+            library.exportedIfaces(interfaceIndex).copy(
+              exports = library.exportedIfaces(interfaceIndex).exports.dropRight(1)
+            )
+          )
+        ).toByteArray
+        _ <- Fs2PlatformIO.writeBytes(root, changedRoot)
+        changedSignature = dir / "changed.sig"
+        changedSigResult <- report(
+          Fs2PlatformIO,
+          withOutputs(pinned(root, context, changedRoot), List("--sig-out" -> changedSignature))
+        )
+        _ = assertEquals(changedSigResult, ExitCode.Success)
+        changedSignatureBytes <- Fs2PlatformIO.readBytes(changedSignature)
+        baselineSignature <- Fs2PlatformIO.readBytes(signature).map(_.toList)
+        _ = assertNotEquals(changedSignatureBytes.toList, baselineSignature)
+        beforeChangedPublication <- baselineOutputs.traverse(path =>
+          Fs2PlatformIO.readBytes(path).map(_.toList)
+        )
+        beforeChangedStats <- baselineOutputs.traverse(stat)
+        failedChangedPublication <- report(
+          Fs2PlatformIO,
+          withOutputs(pinned(root, context, changedRoot), fullOptions)
+        ).attempt
+        _ = assert(
+          failedChangedPublication.swap.toOption.exists(
+            _.getMessage.contains("cannot preserve output access controls")
+          ),
+          failedChangedPublication
+        )
+        afterChangedPublication <- baselineOutputs.traverse(path =>
+          Fs2PlatformIO.readBytes(path).map(_.toList)
+        )
+        afterChangedStats <- baselineOutputs.traverse(stat)
+        _ = assertEquals(afterChangedPublication, beforeChangedPublication)
+        _ = assertEquals(afterChangedStats, beforeChangedStats)
+        pathsAfterChangedFailure <- fs.walk(dir).compile.toList
+        _ = assert(!pathsAfterChangedFailure.exists(_.fileName.toString.startsWith(".bosatsu-write-")))
       } yield ()
     }.unsafeToFuture()
   }

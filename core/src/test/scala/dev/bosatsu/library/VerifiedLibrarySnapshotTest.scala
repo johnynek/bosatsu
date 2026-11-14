@@ -53,6 +53,7 @@ class VerifiedLibrarySnapshotTest extends munit.ScalaCheckSuite {
       println,
       errorln,
       writeInterfaces,
+      writeFileSetAtomic,
       writeBytes,
       writeLibrary,
       writePackages,

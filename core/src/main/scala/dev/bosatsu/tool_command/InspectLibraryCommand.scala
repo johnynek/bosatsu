@@ -1,6 +1,5 @@
 package dev.bosatsu.tool_command
 
-import cats.data.Chain
 import cats.syntax.all._
 import com.monovore.decline.Opts
 import dev.bosatsu.graph.CanPromise
@@ -13,9 +12,14 @@ import dev.bosatsu.library.{
   VerifiedLibrarySnapshot
 }
 import dev.bosatsu.tool.{CliException, LibraryInspection, Output}
+import org.typelevel.paiges.Doc
+import java.nio.charset.StandardCharsets
 
 /** Inspect one pinned library artifact and, in full mode, its declared graph. */
 object InspectLibraryCommand {
+  private def serializedDoc(doc: Doc): Vector[Byte] =
+    doc.render(100).getBytes(StandardCharsets.UTF_8).toVector
+
   def opts[F[_], Path](platform: PlatformIO[F, Path]): Opts[F[Output[Path]]] = {
     import platform.{moduleIOMonad, pathArg}
 
@@ -100,10 +104,10 @@ object InspectLibraryCommand {
                 outputPath: Path
             ): F[Output[Path]] =
               moduleIOMonad.fromEither(
-                LibraryInspection.descriptorProjection(snapshot)
-                  .leftMap(CliException.Basic(_))
+                  LibraryInspection.descriptorProjection(snapshot)
+                    .leftMap(CliException.Basic(_))
               ).map { json =>
-                Output.AtomicDoc(json.toDoc, outputPath)
+                Output.AtomicFileSet(List(outputPath -> serializedDoc(json.toDoc)))
               }
 
             def fullInspection(
@@ -153,22 +157,22 @@ object InspectLibraryCommand {
               } yield {
                 val outputs = List(
                   signaturePath.zip(signatureBytes).map { case (path, bytes) =>
-                    Output.BytesOutput(bytes.toVector, path): Output[Path]
+                    path -> bytes.toVector
                   },
                   exposuresPath.zip(exposures).map { case (path, doc) =>
-                    Output.AtomicDoc(doc, path): Output[Path]
+                    path -> serializedDoc(doc)
                   },
                   membershipPath.zip(membership).map { case (path, doc) =>
-                    Output.AtomicDoc(doc, path): Output[Path]
+                    path -> serializedDoc(doc)
                   },
                   implementationPath.zip(implementation).map { case (path, doc) =>
-                    Output.AtomicDoc(doc, path): Output[Path]
+                    path -> serializedDoc(doc)
                   },
                   descriptorPath.zip(descriptor).map { case (path, doc) =>
-                    Output.AtomicDoc(doc, path): Output[Path]
+                    path -> serializedDoc(doc)
                   }
                 ).flatten
-                Output.Many(Chain.fromIterableOnce(outputs))
+                Output.AtomicFileSet(outputs)
               }
 
             for {

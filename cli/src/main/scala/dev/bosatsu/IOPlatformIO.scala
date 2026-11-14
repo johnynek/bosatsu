@@ -477,10 +477,19 @@ class IOPlatformIO extends PlatformIO[IO, JPath] {
     }
 
   def writeDocAtomic(p: Path, d: Doc): IO[Unit] =
+    writeFileSetAtomic(
+      List(p -> d.render(100).getBytes(StandardCharsets.UTF_8).toVector)
+    )
+
+  def writeFileSetAtomic(files: List[(Path, Vector[Byte])]): IO[Unit] =
     StagedOutputs.resource(err =>
       errorln(s"warning: cleaning staged outputs: ${err.getMessage}")
     ).use { staged =>
-      staged.prepare(diskPath(p)).flatMap(writeDoc(_, d)) *> staged.publish
+      files.traverse_ { case (path, bytes) =>
+        staged.prepare(diskPath(path)).flatMap { target =>
+          IO.blocking(Files.write(target, bytes.toArray)).void
+        }
+      } *> staged.publish
     }
 
   def println(str: String): IO[Unit] = IO.blocking(stdout.println(str))
