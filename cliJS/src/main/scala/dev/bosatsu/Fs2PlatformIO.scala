@@ -630,20 +630,29 @@ object Fs2PlatformIO extends Fs2PlatformIO(None) {
           } *> pending.traverse(file =>
             ops.needsInstall(file.staged, file.destination)
           ).flatMap { shouldInstall =>
-            IO.defer {
-              var installed = List.empty[Path]
-              pending.zip(shouldInstall).traverse_ {
-                case (file, true) =>
-                  ops.replace(file.staged, file.destination).flatMap {
-                    case true => IO { installed = file.destination :: installed }
-                    case false => IO.unit
+            // Once installation begins, keep each rename adjacent to its
+            // bookkeeping and complete rollback before honoring cancellation.
+            IO.uncancelable { poll =>
+              IO.defer {
+                var installed = List.empty[Path]
+                val installation = pending.zip(shouldInstall).traverse_ {
+                  case (file, true) =>
+                    ops.replace(file.staged, file.destination).flatMap {
+                      case true => IO { installed = file.destination :: installed }
+                      case false => IO.unit
+                    }
+                  case (_, false) => IO.unit
+                }.handleErrorWith { failure =>
+                  installed.traverse(path => ops.remove(path).attempt).flatMap { rollback =>
+                    rollback.collect { case Left(error) => error }
+                      .foreach(failure.addSuppressed)
+                    IO.raiseError(failure)
                   }
-                case (_, false) => IO.unit
-              }.handleErrorWith { failure =>
-                installed.traverse(path => ops.remove(path).attempt).flatMap { rollback =>
-                  rollback.collect { case Left(error) => error }
-                    .foreach(failure.addSuppressed)
-                  IO.raiseError(failure)
+                }
+                installation.attempt.flatMap { result =>
+                  // Let queued cancellation take effect only after publication or
+                  // the full rollback, while retaining ordinary install failures.
+                  poll(IO.cede) *> IO.fromEither(result)
                 }
               }
             }

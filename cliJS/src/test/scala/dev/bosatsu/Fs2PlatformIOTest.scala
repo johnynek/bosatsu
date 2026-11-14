@@ -1,7 +1,6 @@
 package dev.bosatsu
 
-import cats.effect.IO
-import cats.effect.Ref
+import cats.effect.{Deferred, Fiber, IO, Outcome, Ref}
 import cats.effect.unsafe.implicits.global
 import cats.syntax.all._
 import dev.bosatsu.hashing.Algo
@@ -11,6 +10,7 @@ import fs2.io.file.{Files, Path}
 import munit.FunSuite
 import org.typelevel.paiges.Doc
 import java.io.IOException
+import scala.concurrent.duration.DurationInt
 import scala.scalajs.js
 import scala.scalajs.js.annotation.JSImport
 import _root_.bosatsu.{TypedAst => proto}
@@ -334,6 +334,155 @@ class Fs2PlatformIOTest extends FunSuite {
         } yield ()
       }
       installationFailures *> stagingFailures
+    }.unsafeToFuture()
+  }
+
+  test("atomic file set cancellation is deferred through commit and rollback") {
+    val fs = Files.forIO
+    val normalOps = Fs2PlatformIO.documentWriteOps
+    val sameBytes = "same".getBytes("UTF-8")
+    val newBytes = List("first", "second", "third").map(_.getBytes("UTF-8"))
+
+    def stat(path: Path): IO[(Int, Int, Int, Double)] =
+      IO.fromPromise(IO(DocumentStat(path.toString)))
+        .map(s => (s.mode, s.uid, s.gid, s.ino))
+
+    def setup(dir: Path, name: String, reverse: Boolean) = {
+      val caseDir = dir / name
+      val existing = caseDir / "existing"
+      val absent = List(caseDir / "first", caseDir / "second", caseDir / "third")
+      val outputs = (existing -> sameBytes.toVector) ::
+        absent.zip(newBytes).map { case (path, bytes) => path -> bytes.toVector }
+      val ordered = if (reverse) outputs.reverse else outputs
+      for {
+        _ <- fs.createDirectories(caseDir)
+        _ <- Fs2PlatformIO.writeBytes(existing, sameBytes)
+        _ <- IO.fromPromise(IO(DocumentChmod(existing.toString, 0x180)))
+        existingBefore <- stat(existing)
+      } yield (caseDir, existing, absent, ordered, existingBefore)
+    }
+
+    def assertNoStaging(caseDir: Path): IO[Unit] =
+      fs.walk(caseDir).compile.toList.map { paths =>
+        assert(!paths.exists(_.fileName.toString.startsWith(".bosatsu-write-")), paths)
+      }
+
+    def assertCanceled[A](label: String, outcome: Outcome[IO, Throwable, A]): Unit =
+      assert(outcome match {
+        case Outcome.Canceled() => true
+        case _                  => false
+      }, s"$label: $outcome")
+
+    def cancelAndRelease[A](fiber: Fiber[IO, Throwable, A], release: Deferred[IO, Unit]): IO[Unit] =
+      for {
+        releaser <- (IO.sleep(10.millis) *> release.complete(())).start
+        // Fiber.cancel sends the request before it waits for termination. The
+        // independent releaser lets the masked commit finish without waiting on it.
+        _ <- fiber.cancel
+        _ <- releaser.joinWithNever
+      } yield ()
+
+    fs.tempDirectory.use { dir =>
+      val canceledDuringStage = for {
+        (_, _, absent, outputs, _) <- setup(dir, "stage-cancel", reverse = false)
+        entered <- Deferred[IO, Unit]
+        blocked <- Deferred[IO, Unit]
+        ops = normalOps.copy(
+          writeStaged = (staged, bytes) => entered.complete(()) *> blocked.get *>
+            normalOps.writeStaged(staged, bytes)
+        )
+        fiber <- Output.AtomicFileSet(outputs).report(
+          Fs2PlatformIO.withDocumentWriteOps(ops)
+        ).start
+        _ <- entered.get
+        _ <- fiber.cancel
+        outcome <- fiber.join
+        _ = assertCanceled("staging", outcome)
+        present <- absent.traverse(fs.exists)
+        _ = assertEquals(present, List(false, false, false))
+        _ <- assertNoStaging(dir / "stage-cancel")
+        retried <- Output.AtomicFileSet(outputs).report(Fs2PlatformIO)
+        _ = assertEquals(retried, ExitCode.Success)
+      } yield ()
+
+      val canceledAfterRename = List(1, 2, 3).traverse_ { installPosition =>
+        for {
+          (caseDir, existing, absent, outputs, existingBefore) <- setup(
+            dir,
+            s"after-rename-$installPosition",
+            reverse = installPosition % 2 == 0
+          )
+          renamed <- Deferred[IO, Unit]
+          release <- Deferred[IO, Unit]
+          installs <- Ref.of[IO, Int](0)
+          ops = normalOps.copy(
+            replace = (staged, destination) =>
+              normalOps.replace(staged, destination).flatMap { installed =>
+                installs.updateAndGet(_ + 1).flatMap {
+                  case n if n == installPosition =>
+                    renamed.complete(()) *> release.get.as(installed)
+                  case _                         => IO.pure(installed)
+                }
+              }
+          )
+          fiber <- Output.AtomicFileSet(outputs).report(
+            Fs2PlatformIO.withDocumentWriteOps(ops)
+          ).start
+          _ <- renamed.get
+          // Cancel after the real rename while replace is still held, then release
+          // it from an independent fiber rather than waiting for cancellation.
+          _ <- cancelAndRelease(fiber, release)
+          outcome <- fiber.join
+          _ = assertCanceled(s"install $installPosition", outcome)
+          contents <- absent.traverse(Fs2PlatformIO.readBytes)
+          _ = assertEquals(contents.map(_.toList), newBytes.map(_.toList))
+          existingContent <- Fs2PlatformIO.readBytes(existing)
+          _ = assertEquals(existingContent.toList, sameBytes.toList)
+          existingAfter <- stat(existing)
+          _ = assertEquals(existingAfter, existingBefore)
+          _ <- assertNoStaging(caseDir)
+          retried <- Output.AtomicFileSet(outputs).report(Fs2PlatformIO)
+          _ = assertEquals(retried, ExitCode.Success)
+        } yield ()
+      }
+
+      val canceledBeforeLaterInstallFailure = for {
+        (caseDir, existing, absent, outputs, existingBefore) <- setup(
+          dir,
+          "cancel-later-error",
+          reverse = true
+        )
+        entered <- Deferred[IO, Unit]
+        release <- Deferred[IO, Unit]
+        installs <- Ref.of[IO, Int](0)
+        ops = normalOps.copy(
+          replace = (staged, destination) =>
+            installs.updateAndGet(_ + 1).flatMap {
+              case 1 => normalOps.replace(staged, destination)
+              case 2 => entered.complete(()) *> release.get *>
+                IO.raiseError(new IOException("later installation failed"))
+              case n => IO.raiseError(new IOException(s"unexpected installation $n"))
+            }
+        )
+        fiber <- Output.AtomicFileSet(outputs).report(
+          Fs2PlatformIO.withDocumentWriteOps(ops)
+        ).start
+        _ <- entered.get
+        _ <- cancelAndRelease(fiber, release)
+        outcome <- fiber.join
+        present <- absent.traverse(fs.exists)
+        _ = assertEquals(present, List(false, false, false))
+        existingContent <- Fs2PlatformIO.readBytes(existing)
+        _ = assertEquals(existingContent.toList, sameBytes.toList)
+        existingAfter <- stat(existing)
+        _ = assertEquals(existingAfter, existingBefore)
+        _ <- assertNoStaging(caseDir)
+        retried <- Output.AtomicFileSet(outputs).report(Fs2PlatformIO)
+        _ = assertEquals(retried, ExitCode.Success)
+        _ = assertCanceled("later installation error", outcome)
+      } yield ()
+
+      canceledDuringStage *> canceledAfterRename *> canceledBeforeLaterInstallFailure
     }.unsafeToFuture()
   }
 

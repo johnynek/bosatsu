@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2493` 0l and 0o: Inspect pinned library files and authenticate every dependency edge
-- Pending steps: `1`
-- Completed steps: `9`
+- Pending steps: `0`
+- Completed steps: `10`
 - Total steps: `10`
 
 ## Summary
@@ -351,7 +351,7 @@ Run focused Version, snapshot, graph, projection, and command suites on JVM and 
 
 Added `Version.fromProtoChecked` backed by `Version.ifValid`; root authentication stores the checked identity, cached authentication compares it, and graph and descriptor readers reject malformed public, private, and unused-transitive-public targets before lookup or publication. Root descriptor output renders the validated snapshot version. Tests cover valid protobuf round trips, malformed roots and edges, descriptor-only and signature-only inspection, output preservation, and candidate-worker parity. Focused suites passed; the requested Linux SBT acceptance matrix and `scripts/test_bazel_worker.py` passed.
 
-10. [ ] `step_9_cancellation_safe_publication` Make the shared Scala.js file-set commit cancellation-safe
+10. [x] `step_9_cancellation_safe_publication` Make the shared Scala.js file-set commit cancellation-safe
 
 Invariant family: inspection-output-publication
 
@@ -382,3 +382,7 @@ Run the focused Scala.js Fs2PlatformIOTest suite, including its inspection repor
 - Pause an injected replace after the real rename but before returning its result, request cancellation, and release it; assert no destination escapes commit/rollback bookkeeping.
 - Request cancellation while a later injected installation fails; assert earlier newly installed destinations are removed and existing destinations remain unchanged.
 - Retain the existing Scala.js inspection reporting, singleton writeDocAtomic, access-control, symlink, ordinary-error rollback, and staging-cleanup regressions.
+
+#### Completion Notes
+
+Updated the shared Scala.js `writeFilesWith` commit boundary so installation, rename bookkeeping, and rollback are cancellation-masked; queued cancellation is observed only after publication or rollback completes. Deferred-driven tests cover cancellation during staging, after each real rename position, and during a later install failure, with output integrity, metadata, cleanup, and retries. `sbt "cliJSJS/testOnly dev.bosatsu.Fs2PlatformIOTest"` passed all 13 tests, and `git diff --check` passed.
