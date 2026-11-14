@@ -342,6 +342,26 @@ The consumer milestone needs `headers`, `compile-packages`, `inspect-library` (i
 | `tool inspect-library --descriptors-only` | Read a verified file and return its identity and dependency descriptors, including hashes, mirror URIs and visibility, for the extension's resolver. The full inspection mode derives exported interfaces and exposures after the verified dependency context is available. Both operations take files. Bazel handles acquisition and lockfile updates. |
 | `tool publish-artifacts` (producer phase) | `--manifest FILE` verifies the prepared closure and deploys in dependency order outside the worker. |
 
+### Library inspection dependency context
+
+Full `tool inspect-library` accepts a UTF-8 version 1 JSON dependency context.
+Each `libraries` entry declares one local file, its exact library identity, and
+the caller-recorded digest pins:
+
+```json
+{"schema_version":1,"libraries":[{"name":"parser","version":"1.0.0","path":"deps/parser.bosatsu_lib","hashes":["blake3:…","sha256:…"]}]}
+```
+
+`name` is nonempty and `version` uses the library SemVer syntax. `path` is
+parsed by the platform's command-line path argument parser and is relative to
+the command's declared input context; it is never treated as a URI. `hashes`
+must contain at least one nonempty pin. Each entry represents one file, so
+multiple entries may name the same library and version at different paths.
+Inspection preserves those aliases so the verifier can authenticate each edge
+and reject conflicting bytes. Callers acquire all files before the action;
+inspection does not fetch descriptors' URIs. Descriptor-only inspection takes
+only the pinned root and does not read this dependency context.
+
 ### File contracts for steps 0e and 0f
 
 All manifests in this section use UTF-8 JSON. Invalid byte sequences fail validation before paths or labels are compared.

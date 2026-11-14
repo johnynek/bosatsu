@@ -18,15 +18,9 @@ private[bosatsu] object LocalRuntimeManifest {
   private given Json.Reader[Identifier.Bindable] =
     Json.Reader.fromParser("Bosatsu binding name", Identifier.bindableParser)
 
-  private def onlyFields(from: Json.Reader.FromObj, kind: String, allowed: Set[String]): BuildManifest.Result[Unit] = {
-    val unknown = from.j.toMap.keySet -- allowed
-    Either.cond(unknown.isEmpty, (),
-      (s"unknown $kind fields: ${unknown.toList.sorted.mkString(", ")}", from.j, from.path))
-  }
-
   private given Json.Reader[Binding] = BuildManifest.obj("native binding provider") { from =>
     for {
-      _ <- onlyFields(from, "native binding", Set("package", "symbols"))
+      _ <- BuildManifest.onlyFields(from, "native binding", Set("package", "symbols"))
       pack <- from.field[PackageName]("package")
       symbols <- from.field[List[Identifier.Bindable]]("symbols")
       _ <- Either.cond(symbols.nonEmpty, (),
@@ -41,7 +35,11 @@ private[bosatsu] object LocalRuntimeManifest {
       _ <- Either.cond(kind == "local", (),
         (s"unsupported runtime scope '$kind'", from.j, from.path.key("kind")))
       // Do not silently flatten an imported scope or ignore its bindings.
-      _ <- onlyFields(from, "local runtime", Set("schema_version", "kind", "packages", "externals"))
+      _ <- BuildManifest.onlyFields(
+        from,
+        "local runtime",
+        Set("schema_version", "kind", "packages", "externals")
+      )
       files <- from.field[List[String]]("packages")(using Json.Reader.listReader(using BuildManifest.nonEmpty))
       packages <- NonEmptyList.fromList(files).toRight(
         ("expected at least one implementation bundle", from.j, from.path.key("packages")))

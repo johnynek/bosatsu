@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2493` 0l and 0o: Inspect pinned library files and authenticate every dependency edge
-- Pending steps: `5`
-- Completed steps: `1`
+- Pending steps: `4`
+- Completed steps: `2`
 - Total steps: `6`
 
 ## Summary
@@ -72,7 +72,7 @@ Create `core/src/test/scala/dev/bosatsu/library/LibraryInspectionFixtures.scala`
 
 Added `VerifiedLibrarySnapshot.verify` in `VerifiedLibraryGraph.scala`. It reads once, hashes and parses the same private byte snapshot, validates every supported external pin, and checks the embedded name and exact version. The focused JVM suite passed (5 tests), and `coreJS/compile` passed.
 
-2. [ ] `step_1_complete_context_and_fixtures` Complete the dependency context reader and reusable serialized fixtures
+2. [x] `step_1_complete_context_and_fixtures` Complete the dependency context reader and reusable serialized fixtures
 
 Continuation of parent `step_1` in the shared pinned-file boundary and reusable serialized fixture family. Complete the remaining step_1 deliverables by adding a version-1 declared dependency-context reader in `core/src/main/scala/dev/bosatsu/tool/LibraryInspection.scala` using `BuildManifest`. Validate schema, fields, identity syntax, repeated JSON keys, and paths through the platform argument parser; preserve multiple declared paths for one identity and perform no file acquisition.
 
@@ -96,6 +96,10 @@ This serves the accepted 0l/0o workflow: descriptor-only inspection must expose 
 - Reject unsupported schema versions, unknown or repeated fields, invalid identities, invalid paths, and malformed JSON while preserving useful diagnostics.
 - Verify the committed Parser closure, diamond, and both private versions from their serialized bytes and pins.
 - Use an instrumented platform to assert the pinned-file verifier reads once and parses the authenticated snapshot.
+
+#### Completion Notes
+
+Added the version-1 dependency context reader with strict field, identity, repeated-key, and platform path validation while preserving aliases; documented its JSON contract. Added a typed serialized Parser graph with public/private and legacy unused-transitive-public edges, a diamond, and wrappers selecting two private Shared versions. Committed pinned artifacts and a regeneration README. JVM focused suites passed 29 tests; Scala.js focused suites passed 12 tests, and Scala.js test compilation passed after manifest validation was consolidated in BuildManifest. Coverage includes pin tampering and an instrumented single-read assertion.
 
 3. [ ] `step_2` Verify every graph edge before scoped decoding
 

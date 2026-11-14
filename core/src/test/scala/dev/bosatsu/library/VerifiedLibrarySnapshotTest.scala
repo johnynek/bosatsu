@@ -2,7 +2,7 @@ package dev.bosatsu.library
 
 import _root_.bosatsu.{TypedAst => proto}
 import cats.data.Chain
-import dev.bosatsu.MemoryMain
+import dev.bosatsu.{MemoryMain, PlatformIO}
 import dev.bosatsu.hashing.Algo
 import org.scalacheck.{Gen, Prop}
 import java.nio.charset.StandardCharsets
@@ -14,6 +14,59 @@ class VerifiedLibrarySnapshotTest extends munit.ScalaCheckSuite {
   private val platform = MemoryMain.memoryPlatformIO[Result]
   private val path: Path = Chain.one("pinned/lib.bosatsu_lib")
   private val version = Version(1, 2, 3)
+  private var pinnedReads = 0
+
+  private val countingPlatform = new PlatformIO[MemoryMain.StateF[Result], Path] {
+    type FileKey = platform.FileKey
+    export platform.{
+      moduleIOMonad,
+      parallelF,
+      canPromiseF,
+      pathArg,
+      pathOrdering,
+      withEC,
+      pathToString,
+      readUtf8,
+      readPackages,
+      readLibrary,
+      fetchHash,
+      fsDataType,
+      pendingOutputPath,
+      withTempDirectoryIn,
+      resolve,
+      relativize,
+      parent,
+      unfoldDir,
+      hasExtension,
+      writeDoc,
+      writeDocAtomic,
+      writeStdout,
+      writeError,
+      readStdinBytes,
+      writeStdoutBytes,
+      system,
+      systemStdout,
+      env,
+      hostOs,
+      hostArch,
+      gitShaHead,
+      println,
+      errorln,
+      writeInterfaces,
+      writeBytes,
+      writeLibrary,
+      writePackages,
+      withTempPrefix
+    }
+
+    override def fileKeyHash = platform.fileKeyHash
+    override def existingFileKey(path: Path) = platform.existingFileKey(path)
+
+    override def readBytes(path: Path): MemoryMain.StateF[Result][Array[Byte]] = {
+      pinnedReads += 1
+      platform.readBytes(path)
+    }
+  }
 
   private def library(
       repoUri: String = "https://example.invalid/repo"
@@ -128,5 +181,20 @@ class VerifiedLibrarySnapshotTest extends munit.ScalaCheckSuite {
       .verify(platform, path, Name("sample"), version, List("blake3:" + ("0" * 64)))
       .runA(MemoryMain.State.empty)
     rejects(missing, "pinned/lib.bosatsu_lib", "cannot read")
+  }
+
+  test("pinned library verification reads the artifact once") {
+    val bytes = library("single-read")
+    val state = MemoryMain.State.empty
+      .withFile(path, MemoryMain.FileContent.Bytes(bytes)).get
+    pinnedReads = 0
+
+    val result = VerifiedLibrarySnapshot
+      .verify(countingPlatform, path, Name("sample"), version, List(pin("sha256", bytes)))
+      .runA(state)
+
+    assert(result.isRight)
+    assertEquals(pinnedReads, 1)
+    assertEquals(result.toOption.get.protoLib.repoUri, "single-read")
   }
 }
