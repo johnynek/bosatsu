@@ -7,9 +7,9 @@
 
 - Flow: `small_job`
 - Issue: `#2493` 0l and 0o: Inspect pinned library files and authenticate every dependency edge
-- Pending steps: `0`
+- Pending steps: `2`
 - Completed steps: `6`
-- Total steps: `6`
+- Total steps: `8`
 
 ## Summary
 
@@ -17,15 +17,15 @@ Implement `tool inspect-library` and `--descriptors-only` over caller-declared, 
 
 The enforcing boundary is a privately constructed authenticated snapshot/graph consumed by inspection and its reusable scoped decoder. Extend `DecodedLibrary`, `DecodedLibraryWithDeps`, `PackageSignatures`, `BuildManifest`, and `FileCommandRunner` rather than introducing another compiler, downloader, or publication system. The required production, fixture, and test family may exceed the 1,000-line guideline; planner judgment permits that necessary work because edge authentication, scoped decoding, resolver discovery, and their acceptance tests form one inseparable outcome. Avoid a compiler-wide migration.
 
-Plan trajectory: initial steps 5; review revisions 0; review-origin steps 0.
+Plan trajectory: initial steps 5; review revisions 1; review-origin steps 2.
 
 ## Current State
 
-At initial authoring, HEAD is `86f8b7db7273062d0b43881080bf1806499dc2c1`. Roadmap #2482 and its `inspect_imports` node agree with issue #2493. The direct dependency, toolchain verification from #2486/#2490, is implemented: portable SHA-256 and BLAKE3 are available through `Algo`, and `BuildManifest` provides versioned JSON parsing with UTF-8 and duplicate-field diagnostics.
+At this pre-PR planning revision, all six existing steps are completed and immutable. Their completion notes report the issue's Linux checks passing. Issue #2493, roadmap #2482's inspect_imports node, and the implemented toolchain-verification handoff remain aligned; no scope amendment is needed.
 
-`PlatformIO` already exposes portable byte reads and file identity operations. `DecodedLibrary.decodeWithDeps` caches by name/version and skips its dependency loader on cache hits. `DecodedLibraryWithDeps.decodeAll` performs additional loader-driven decoding and also caches dependencies. Consequently, wrapping those loaders cannot authenticate every incoming descriptor. `ProtoConverter.packagesFromProto` can decode a library against supplied dependency interfaces, and the existing C-backend fixture demonstrates decoding separate private versions in their own scopes. `PackageSignatures.encode` supplies the canonical public signature format and typed interfaces expose their package dependencies.
+The candidate authenticates incoming dependency edges before decoder deduplication, but two required contracts remain unsatisfied. Inspection returns a sequential Output.Many containing a directly written binary signature and individually atomic documents. Scala.js lacks the JVM runner's enclosing StagedOutputs transaction, so a later publication failure can leave mixed generations of outputs. Separately, Version.versionOrder can equate distinct valid spellings such as 1.0.0-0 and 1.0.0--0. Both snapshot authentication and graph/decoder identity keys inherit that defect.
 
-`ToolCommand`, `FileCommandRunner`, and `BazelWorker.Operation` provide shared command dispatch; the JVM runner publishes complete output sets through `StagedOutputs`. There is no inspect-library command or versioned inspection/dependency-context contract. The existing design still marks 0l and 0o incomplete. The released core pinned by `test_workspace/core_alpha_conf.json` supplies real legacy compatibility evidence, but its lack of dependency descriptors means constructed serialized graphs are also required.
+There are no existing pending steps to revise. Add two corrective steps at the existing owning boundaries: complete-set atomic publication and shared Version comparison. These repair the issue's existing failure-preservation, expected-identity, and separate-version requirements. Preserve Node's access-control policy and the existing exclusions for interactive loaders and downstream compilation. The existing planner allowance for the inseparable implementation and acceptance-test family exceeding 1,000 lines includes these necessary corrections; avoid additional transaction systems, identity representations, or caller migrations. This revision inspected code and the authoritative candidate patch without running builds or tests.
 
 ## Problem
 
@@ -237,3 +237,67 @@ Finish `docs/design/hermetic-bazel-rules.md` with runnable descriptor-discovery/
 #### Completion Notes
 
 Added prepared-fixture acquisition for the pinned legacy core and candidate-jar coverage for resolver traversal, edge authentication, projection parity, and persistent-worker recovery. Documented runnable inspection examples and contracts, linked the implementation and tests, and marked design tracker items 0l and 0o complete. The combined SBT matrix, the extended candidate-jar harness, and `./test_cli.sh` passed.
+
+7. [ ] `step_6_inspection_output_publication` Publish every inspection output through one atomic set
+
+Invariant family: inspection-output-publication
+
+Correct the publication work introduced by step_4 and qualified by step_5. Full inspection currently returns Output.Many with BytesOutput first and AtomicDoc outputs afterward. Through Scala.js MainModule and Output.report, the signature can be truncated successfully before a changed existing descriptor is rejected by Node's access-control preservation policy. This violates the issue's requirement that failed inspection preserve every previous output.
+
+Extend the existing PlatformIO atomic-publication capability and Output reporting with a small complete-file-set operation containing fully serialized immutable output bytes. Route every requested inspection projection through that operation, including signature-only and descriptor-only requests. Preserve canonical signature encoding and existing JSON rendering. Replace inspection's sequential publication construction and remove its now-unused BytesOutput variant rather than retaining competing inspection write paths. Keep OutputPathChecks protecting the complete declared input/output set.
+
+Implement the capability through the existing JVM StagedOutputs lifecycle and generalize Scala.js Fs2PlatformIO.DocumentWriteOps staging/publication machinery. Stage and close all members before installing any. On Node, leave identical existing files and their inodes untouched; reject changed existing files before installation when their access controls cannot be preserved. If installing a later new destination fails, remove earlier destinations installed by that operation so previously absent files remain absent. Retain owned staging cleanup and preserve existing symlink/destination handling. Share the singleton atomic-document implementation with this mechanism instead of adding another transaction manager. JVM FileCommandRunner reporting must join its existing request transaction rather than commit a nested transaction independently.
+
+The necessary implementation surface includes InspectLibraryCommand.scala, Output.scala, PlatformIO.scala, Fs2PlatformIO.scala, IOPlatformIO.scala, FileCommandRunner.scala, and MemoryMain.scala, plus directly affected platform adapters and tests. Changes outside inspection's original files are required because these implementations own publication on the supported entry points. Implement in-memory batch publication as one successful state update. Preserve parametric path handling and immutable public APIs. Do not migrate unrelated commands to output-set semantics.
+
+Add regressions through Scala.js MainModule followed by Output.report, extending Fs2PlatformIOTest. Start with a successful full inspection, then authenticate a public-API edit with updated pins and reuse all output paths. Publication must fail under the existing Node policy while preserving every original output. Extend the existing injectable write/install operations to exercise a later install failure through the command's reporting path after an earlier member was installed. Cover mixed existing/absent outputs, staging cleanup, and successful retry. Update the inspection publication contract in docs/design/hermetic-bazel-rules.md. Run focused Scala.js filesystem, shared command, JVM inspection/publication, and atomic-document compatibility tests. Completion requires all inspection output subsets to use the complete-set boundary, preventing the same partial-publication defect in sibling projections.
+
+#### Invariants
+
+- An ordinary inspection publication failure preserves every prior output and leaves previously absent requested files absent.
+- All inspection projections, including binary signatures and singleton modes, pass through the complete-set publication boundary.
+- Existing access-control, destination-resolution, cleanup, and JVM request-transaction guarantees remain intact.
+
+#### Property Tests
+
+- Vary requested projection subsets, destination order, and existing/absent destination combinations; inject staging or installation failure at each position and assert that destination contents and existence match the pre-request state.
+- Successful publication produces the same canonical projection bytes as independently requested outputs; identical retries preserve existing file identity and access metadata.
+
+#### Assertion Tests
+
+- On Scala.js, publish a valid full inspection, then inspect an authenticated public-API edit into the same signature and JSON paths; assert publication failure preserves all original bytes, inode/access metadata, and leaves no staging files.
+- Through the Scala.js command reporting path, inject failure on a later installation after an earlier new output was installed; assert rollback removes newly installed files, preserves existing files, and permits a subsequent successful request.
+- Retain descriptor-only and signature-only success/failure coverage, JVM changed-output rollback and direct/worker parity, and existing atomic-document access-control and symlink regressions.
+
+8. [ ] `step_7_exact_version_identity` Make shared version ordering preserve exact identity
+
+Invariant family: exact-version-identity
+
+Correct the exact-identity work introduced by step_1 and consumed by step_2 and step_3. VerifiedLibrarySnapshot.verify and authenticateAs use Version.versionOrder.eqv, while declaration grouping, verified nodes, traversal ordering, scoped decoder maps/sets, and inspection metadata use the corresponding Version ordering. PreRelease.parseNumeric currently accepts signed integers, so valid distinct versions 1.0.0-0 and 1.0.0--0 can compare equal. A correctly pinned artifact can therefore authenticate under the wrong expected version, and legal private versions can collapse into one graph identity.
+
+Repair core/src/main/scala/dev/bosatsu/library/Version.scala at the shared comparison contract. Classify numeric prerelease identifiers with the unsigned SemVer grammar, preserve numeric-versus-nonnumeric precedence, and ensure distinct accepted identifier spellings cannot compare equal, including build metadata spellings handled by the shared comparison helpers. Retain the repository's deliberate exact build-metadata distinction and ordinary numeric build ordering. Preserve acceptance and round trips of valid hyphenated prerelease identifiers; do not reject or normalize valid versions to hide the collision. Account for the helper's use by nextPreRelease and retain its ordering/progression tests.
+
+This shared-file change is necessary to satisfy inspection's expected-identity and separate-version acceptance criteria across both authentication and ordered keys. Extend the existing Version order and tests rather than introducing inspection-specific equality, serialized identity fields, or replacement key types. Check the complete in-scope consumer inventory: initial snapshot verification, cached-path authenticateAs, declaration/node grouping and traversal keys in VerifiedLibraryGraph, scoped decoded-library maps and sets in DecodedLibraryWithDeps, and identity ordering in LibraryInspection. Keep these consumers on the repaired shared order; remove any redundant local comparison workaround if introduced during implementation. This prevents unreviewed sibling consumers of that order from retaining the same collision.
+
+Strengthen VersionTest with correlated generators sharing major/minor/patch values and varying prerelease/build spellings, so equality laws exercise plausible collisions rather than relying on independently generated versions rarely sharing a numeric prefix. Extend VerifiedLibrarySnapshotTest and VerifiedLibraryGraphTest using the existing serialized fixture builders. Correct hashes must not authorize a mismatched exact version on initial verification or cached-snapshot reauthentication. A graph with two private releases using the colliding spellings must verify, decode, and project both identities with their correct referring edges and package bindings. Reordering declarations must preserve those results, while genuinely equal identities retain alias/conflicting-byte behavior.
+
+Run focused Version, snapshot, graph, and projection suites on JVM and Scala.js. After both corrective steps, rerun the issue's Linux acceptance command sbt "coreJVM/test; cli/test; coreJS/test; cliJSJS/test; cli/assembly", the existing scripts/test_bazel_worker.py against the newly assembled candidate and prepared inspection fixtures, and ./test_cli.sh. MergeXO owns the separate configured required-tests gate. Completion requires exact version rejection and separate private scopes through the real inspection mechanisms, with the publication regressions also passing.
+
+#### Invariants
+
+- For accepted versions, comparison equality agrees with exact Version identity, including prerelease and build metadata spelling.
+- Correct digest pins cannot authenticate an artifact under another exact version, on either initial verification or cached-snapshot reuse.
+- Distinct private versions remain separate declaration, graph, decoded-library, and projected scopes; equal-identity aliases retain existing behavior.
+- The shared Version comparison remains lawful and preserves required SemVer precedence and existing build-order conventions.
+
+#### Property Tests
+
+- Generate correlated valid versions with numeric, hyphenated, and numeric-looking build identifiers; assert compare(a,b) == 0 exactly when their identities are equal, together with antisymmetry and transitivity.
+- Generate same-named private releases differing in prerelease/build spelling; permute declared files and assert both identities, referring edges, decoded bindings, and canonical metadata remain distinct and deterministic.
+
+#### Assertion Tests
+
+- Parse and round-trip 1.0.0-0 and 1.0.0--0; assert distinct comparison identities and numeric prerelease precedence. Cover analogous build spellings and valid leading-zero build identifiers.
+- With correct artifact digests, reject an expected-version substitution between the colliding spellings through both VerifiedLibrarySnapshot.verify and cached-path authenticateAs.
+- Verify and decode two private releases using the formerly colliding spellings; assert both scoped nodes and each wrapper's selected package binding survive into inspection metadata.
+- Retain exact-identity alias coalescing, conflicting-byte rejection, second-diamond-edge authentication, existing Version ordering/build comparisons, and nextPreRelease progression regressions.
