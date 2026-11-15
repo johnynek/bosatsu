@@ -148,7 +148,7 @@ trait PlatformIO[F[_], Path] {
     */
   def writeDocAtomic(p: Path, d: Doc): F[Unit]
   /** Publish a complete set of already serialized files as one operation. */
-  def writeFileSetAtomic(files: List[(Path, Vector[Byte])]): F[Unit]
+  def writeFileSetAtomic(files: List[(Path, Bytes)]): F[Unit]
   def writeStdout(doc: Doc): F[Unit]
   def writeError(doc: Doc): F[Unit]
   def readStdinBytes: F[Array[Byte]]

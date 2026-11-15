@@ -56,7 +56,7 @@ class ParametricPathCommandsTest extends munit.FunSuite {
     def hasExtension(ext: String): Path => Boolean = p => memory.hasExtension(ext)(p.parts)
     def writeDoc(p: Path, doc: Doc) = memory.writeDoc(p.parts, doc)
     def writeDocAtomic(p: Path, doc: Doc) = memory.writeDocAtomic(p.parts, doc)
-    def writeFileSetAtomic(files: List[(Path, Vector[Byte])]) =
+    def writeFileSetAtomic(files: List[(Path, Bytes)]) =
       memory.writeFileSetAtomic(files.map { case (p, bytes) => p.parts -> bytes })
     def writeInterfaces(ifaces: List[Package.Interface], p: Path) = memory.writeInterfaces(ifaces, p.parts)
     def writeBytes(p: Path, bytes: Array[Byte]) = memory.writeBytes(p.parts, bytes)
@@ -121,7 +121,10 @@ class ParametricPathCommandsTest extends munit.FunSuite {
     val first = path("first.bin")
     val second = path("second.bin")
     val state = checked(
-      Output.AtomicFileSet(List(first -> Vector[Byte](0, 1, -1), second -> Vector[Byte](2)))
+      Output.AtomicFileSet(List(
+        first -> Bytes.copyFromArray(Array[Byte](0, 1, -1)),
+        second -> Bytes.copyFromArray(Array[Byte](2))
+      ))
         .report(platform).runS(MemoryMain.State.empty)
     )
     assertEquals(checked(platform.readBytes(first).runA(state)).toList, List[Byte](0, 1, -1))

@@ -39,7 +39,15 @@ object BazelWorker {
   }
 
   /** A declared worker input. The digest is an opaque, immutable wire token. */
-  final case class Input(path: String, digest: Vector[Byte])
+  final case class Input(path: String, digest: Bytes) {
+    // Preserve value equality for wire tokens despite the array-backed storage.
+    override def equals(other: Any): Boolean = other match {
+      case that: Input => path == that.path && digest.sameBytes(that.digest)
+      case _           => false
+    }
+
+    override def hashCode: Int = 31 * path.hashCode + digest.contentHashCode
+  }
 
   sealed trait Envelope
 
@@ -72,7 +80,7 @@ object BazelWorker {
 
   private final case class InputFields(
       path: String = "",
-      digest: Vector[Byte] = Vector.empty
+      digest: Bytes = Bytes.empty
   )
 
   /** Decode one complete protobuf-JSON WorkRequest object. */
@@ -199,7 +207,7 @@ object BazelWorker {
     }
   }
 
-  private def decodeDigest(value: Json, field: String): Either[String, Vector[Byte]] =
+  private def decodeDigest(value: Json, field: String): Either[String, Bytes] =
     value match {
       case Json.JString(encoded) =>
         try {
@@ -211,7 +219,7 @@ object BazelWorker {
             val decoder =
               if (hasUrlSafe) Base64.getUrlDecoder
               else Base64.getDecoder
-            Right(decoder.decode(encoded).toVector)
+            Right(Bytes.unsafeFromArray(decoder.decode(encoded)))
           }
         } catch {
           case _: IllegalArgumentException =>

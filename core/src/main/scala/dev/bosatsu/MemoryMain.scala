@@ -546,13 +546,13 @@ object MemoryMain {
 
       def writeDocAtomic(p: Path, d: Doc): F[Unit] =
         writeFileSetAtomic(
-          List(p -> d.render(100).getBytes(StandardCharsets.UTF_8).toVector)
+          List(p -> Bytes.fromUTF8String(d.render(100)))
         )
 
-      def writeFileSetAtomic(files: List[(Path, Vector[Byte])]): F[Unit] =
+      def writeFileSetAtomic(files: List[(Path, Bytes)]): F[Unit] =
         StateT.modifyF { state =>
           files.foldLeft(Option(state)) { case (current, (path, bytes)) =>
-            current.flatMap(_.withFile(path, FileContent.Bytes(bytes.toArray)))
+            current.flatMap(_.withFile(path, FileContent.Bytes(bytes.copyToArray)))
           } match {
             case Some(next) => innerMonad.pure(next)
             case None =>

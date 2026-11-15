@@ -261,9 +261,9 @@ class Fs2PlatformIOTest extends FunSuite {
           dir / s"second-$failureAt",
           dir / s"third-$failureAt"
         )
-        val files = (existing -> "same".getBytes("UTF-8").toVector) ::
+        val files = (existing -> Bytes.fromUTF8String("same")) ::
           absent.zipWithIndex.map { case (path, index) =>
-            path -> s"new-$index".getBytes("UTF-8").toVector
+            path -> Bytes.fromUTF8String(s"new-$index")
           }
         val ordered = if (failureAt % 2 == 0) files.reverse else files
         for {
@@ -304,9 +304,9 @@ class Fs2PlatformIOTest extends FunSuite {
           dir / s"staged-second-$failureAt",
           dir / s"staged-third-$failureAt"
         )
-        val files = (existing -> "same".getBytes("UTF-8").toVector) ::
+        val files = (existing -> Bytes.fromUTF8String("same")) ::
           absent.zipWithIndex.map { case (path, index) =>
-            path -> s"new-$index".getBytes("UTF-8").toVector
+            path -> Bytes.fromUTF8String(s"new-$index")
           }
         for {
           _ <- Fs2PlatformIO.writeBytes(existing, "same".getBytes("UTF-8"))
@@ -351,8 +351,8 @@ class Fs2PlatformIOTest extends FunSuite {
       val caseDir = dir / name
       val existing = caseDir / "existing"
       val absent = List(caseDir / "first", caseDir / "second", caseDir / "third")
-      val outputs = (existing -> sameBytes.toVector) ::
-        absent.zip(newBytes).map { case (path, bytes) => path -> bytes.toVector }
+      val outputs = (existing -> Bytes.copyFromArray(sameBytes)) ::
+        absent.zip(newBytes).map { case (path, bytes) => path -> Bytes.copyFromArray(bytes) }
       val ordered = if (reverse) outputs.reverse else outputs
       for {
         _ <- fs.createDirectories(caseDir)

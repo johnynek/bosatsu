@@ -108,6 +108,45 @@ class InspectLibraryCommandTest extends munit.FunSuite {
       case other => fail(s"expected binary output at $name, found $other")
     }
 
+  test("inspection options reject invalid names and missing hashes during parsing") {
+    val valid = args("descriptor.json", descriptorOnly = true)
+    val emptyName = valid.updated(valid.indexOf("--expected-name") + 1, "")
+    assert(module.run(emptyName).isLeft)
+    val noHashes = valid.grouped(2).flatMap {
+      case List("--expected-hash", _) => Nil
+      case pair => pair
+    }.toList
+    assert(module.run(noHashes).isLeft)
+  }
+
+  test("inspection mode and every output subset are validated before creating an action") {
+    val common = List(
+      "tool", "inspect-library", "--input", parser._1,
+      "--expected-name", "parser", "--expected-version", "1.0.0",
+      "--expected-hash", parser._4.head
+    )
+    val outputs = List(
+      "--sig-out", "--exposures-out", "--membership-out",
+      "--implementation-out", "--descriptor-out"
+    )
+    for {
+      onlyDescriptors <- List(false, true)
+      context <- List(false, true)
+      mask <- 0 until (1 << outputs.size)
+    } {
+      val selected = outputs.zipWithIndex.collect {
+        case (flag, index) if (mask & (1 << index)) != 0 => List(flag, s"out-$index")
+      }.flatten
+      val command = common ++
+        (if (onlyDescriptors) List("--descriptors-only") else Nil) ++
+        (if (context) List("--dependency-context", "context.json") else Nil) ++ selected
+      val valid =
+        if (onlyDescriptors) !context && mask == (1 << (outputs.size - 1))
+        else context && mask != 0
+      assertEquals(module.run(command).isRight, valid, command.mkString(" "))
+    }
+  }
+
   test("full inspection runs through the in-memory command and emits independent projections") {
     val result = run(args("descriptor.json", descriptorOnly = false), fixtureState)
       .fold(error => fail(error.getMessage), identity)
