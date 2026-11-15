@@ -152,7 +152,7 @@ trait PlatformIO[F[_], Path] {
   def writeStdout(doc: Doc): F[Unit]
   def writeError(doc: Doc): F[Unit]
   def readStdinBytes: F[Array[Byte]]
-  def writeStdoutBytes(bytes: Array[Byte]): F[Unit]
+  def writeStdoutBytes(bytes: Bytes): F[Unit]
 
   def system(command: String, args: List[String]): F[Unit]
   def systemStdout(command: String, args: List[String]): F[String]

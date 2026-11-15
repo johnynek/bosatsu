@@ -4,7 +4,7 @@ import _root_.bosatsu.{TypedAst => proto}
 import cats.data.Chain
 import cats.syntax.all._
 import dev.bosatsu.Json
-import dev.bosatsu.MemoryMain
+import dev.bosatsu.{Bytes, MemoryMain}
 import dev.bosatsu.hashing.Algo
 import dev.bosatsu.library.{
   DecodedLibraryWithDeps,
@@ -27,7 +27,7 @@ class LibraryInspectionProjectionTest extends munit.FunSuite {
   private val rootFixture = fixtures.find(_._2.name == "parser").get
   private val rootOnlyState = MemoryMain.State.empty.withFile(
     path(rootFixture._1),
-    MemoryMain.FileContent.Bytes(rootFixture._3)
+    MemoryMain.FileContent.Bytes(Bytes.copyFromArray(rootFixture._3))
   ).get
 
   private def path(raw: String): Path =
@@ -36,7 +36,7 @@ class LibraryInspectionProjectionTest extends munit.FunSuite {
   private def state(extra: List[(String, Array[Byte])] = Nil): MemoryMain.State =
     (LibraryInspectionFixtures.generatedFiles.map(file => file.path -> file.bytes) ::: extra)
       .foldLeft(MemoryMain.State.empty) { case (current, (rawPath, bytes)) =>
-        current.withFile(path(rawPath), MemoryMain.FileContent.Bytes(bytes)).get
+        current.withFile(path(rawPath), MemoryMain.FileContent.Bytes(Bytes.copyFromArray(bytes))).get
       }
 
   private def readContext(

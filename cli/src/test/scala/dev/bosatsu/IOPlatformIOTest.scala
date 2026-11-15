@@ -5,7 +5,7 @@ import cats.collections.HashMap
 import cats.effect.{IO, Resource}
 import cats.implicits._
 import cats.effect.unsafe.implicits.global
-import java.io.File
+import java.io.{ByteArrayOutputStream, File, PrintStream}
 import java.nio.file.{Files, Path, Paths}
 import java.util.Comparator
 import org.scalacheck.Gen
@@ -57,6 +57,20 @@ class IOPlatformIOTest extends munit.ScalaCheckSuite {
     }
 
     tempRes.use(fn).unsafeRunSync()
+  }
+
+  property("binary stdout preserves every byte without adding text formatting") {
+    forAll { (values: List[Byte]) =>
+      val output = new ByteArrayOutputStream()
+      val stream = new PrintStream(output)
+      val platform = new IOPlatformIO {
+        override protected def stdout: PrintStream = stream
+      }
+      try {
+        platform.writeStdoutBytes(Bytes.copyFromArray(values.toArray)).unsafeRunSync()
+        assertEquals(output.toByteArray.toList, values)
+      } finally stream.close()
+    }
   }
 
   test("file-key Hash preserves native identity across reads and aliases") {

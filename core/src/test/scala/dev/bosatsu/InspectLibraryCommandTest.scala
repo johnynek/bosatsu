@@ -19,7 +19,7 @@ class InspectLibraryCommandTest extends munit.FunSuite {
   private val fixtureState = LibraryInspectionFixtures.generatedFiles.foldLeft(
     MemoryMain.State.empty
   ) { case (state, file) =>
-    state.withFile(path(file.path), MemoryMain.FileContent.Bytes(file.bytes)).get
+    state.withFile(path(file.path), MemoryMain.FileContent.Bytes(Bytes.copyFromArray(file.bytes))).get
   }
 
   private def args(output: String, descriptorOnly: Boolean): List[String] = {
@@ -97,14 +97,14 @@ class InspectLibraryCommandTest extends munit.FunSuite {
   private def text(state: MemoryMain.State, name: String): String =
     state.get(path(name)) match {
       case Some(Right(MemoryMain.FileContent.Bytes(value))) =>
-        new String(value, java.nio.charset.StandardCharsets.UTF_8)
+        new String(value.unsafeReadOnlyView, java.nio.charset.StandardCharsets.UTF_8)
       case Some(Right(MemoryMain.FileContent.Str(value))) => value
       case other => fail(s"expected JSON output at $name, found $other")
     }
 
   private def bytes(state: MemoryMain.State, name: String): Array[Byte] =
     state.get(path(name)) match {
-      case Some(Right(MemoryMain.FileContent.Bytes(value))) => value
+      case Some(Right(MemoryMain.FileContent.Bytes(value))) => value.copyToArray
       case other => fail(s"expected binary output at $name, found $other")
     }
 
@@ -164,7 +164,7 @@ class InspectLibraryCommandTest extends munit.FunSuite {
     val (rootPath, _, bytes, _) = parser
     val rootOnly = MemoryMain.State.empty.withFile(
       path(rootPath),
-      MemoryMain.FileContent.Bytes(bytes)
+      MemoryMain.FileContent.Bytes(Bytes.copyFromArray(bytes))
     ).get
     val result = run(args("root-descriptor.json", descriptorOnly = true), rootOnly)
       .fold(error => fail(error.getMessage), identity)
@@ -185,7 +185,7 @@ class InspectLibraryCommandTest extends munit.FunSuite {
     val malformedRootBytes = malformedRoot.toByteArray
     val rootOnly = MemoryMain.State.empty.withFile(
       path(parser._1),
-      MemoryMain.FileContent.Bytes(malformedRootBytes)
+      MemoryMain.FileContent.Bytes(Bytes.copyFromArray(malformedRootBytes))
     ).get
     val rootDescriptorFailure = failed(run(
       inspectionArgs(
@@ -202,7 +202,7 @@ class InspectLibraryCommandTest extends munit.FunSuite {
       signatureOnlyArgs(pins(malformedRootBytes)),
       fixtureState.withFile(
         path(parser._1),
-        MemoryMain.FileContent.Bytes(malformedRootBytes)
+        MemoryMain.FileContent.Bytes(Bytes.copyFromArray(malformedRootBytes))
       ).get
     ))
     assert(rootFullFailure.contains("invalid version"), rootFullFailure)
@@ -228,7 +228,7 @@ class InspectLibraryCommandTest extends munit.FunSuite {
       val bytes = library.toByteArray
       val descriptorOnlyState = MemoryMain.State.empty.withFile(
         path(parser._1),
-        MemoryMain.FileContent.Bytes(bytes)
+        MemoryMain.FileContent.Bytes(Bytes.copyFromArray(bytes))
       ).get
       val descriptorFailure = failed(run(
         inspectionArgs("bad-target.json", descriptorOnly = true, hashes = pins(bytes)),
@@ -239,7 +239,7 @@ class InspectLibraryCommandTest extends munit.FunSuite {
 
       val fullFailure = failed(run(signatureOnlyArgs(pins(bytes)), fixtureState.withFile(
         path(parser._1),
-        MemoryMain.FileContent.Bytes(bytes)
+        MemoryMain.FileContent.Bytes(Bytes.copyFromArray(bytes))
       ).get))
       assert(fullFailure.contains("invalid version"), fullFailure)
       assert(fullFailure.contains("parser 1.0.0"), fullFailure)

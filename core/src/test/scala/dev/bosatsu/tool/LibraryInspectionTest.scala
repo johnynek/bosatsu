@@ -1,8 +1,7 @@
 package dev.bosatsu.tool
 
 import cats.data.Chain
-import dev.bosatsu.MemoryMain
-import java.nio.charset.StandardCharsets
+import dev.bosatsu.{Bytes, MemoryMain}
 import org.scalacheck.{Gen, Prop}
 
 class LibraryInspectionTest extends munit.ScalaCheckSuite {
@@ -16,7 +15,7 @@ class LibraryInspectionTest extends munit.ScalaCheckSuite {
     val state = MemoryMain.State.empty
       .withFile(
         contextPath,
-        MemoryMain.FileContent.Bytes(json.getBytes(StandardCharsets.UTF_8))
+        MemoryMain.FileContent.Bytes(Bytes.fromUTF8String(json))
       ).get
     LibraryInspection.readDependencyContext(platform, contextPath).runA(state)
   }

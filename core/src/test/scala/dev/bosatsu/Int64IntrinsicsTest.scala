@@ -258,7 +258,7 @@ class Int64IntrinsicsTest extends munit.FunSuite {
     val bytes = raw.toByteArray
     val path = Chain.one("malformed-int64.bosatsu_lib")
     val state = MemoryMain.State.empty
-      .withFile(path, MemoryMain.FileContent.Bytes(bytes))
+      .withFile(path, MemoryMain.FileContent.Bytes(Bytes.copyFromArray(bytes)))
       .get
     val pins = List(
       s"blake3:${Algo.hashBytes[Algo.Blake3](bytes).hex}",

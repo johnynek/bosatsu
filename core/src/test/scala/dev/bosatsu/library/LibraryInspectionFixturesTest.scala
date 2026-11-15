@@ -2,7 +2,7 @@ package dev.bosatsu.library
 
 import _root_.bosatsu.{TypedAst => proto}
 import cats.data.Chain
-import dev.bosatsu.MemoryMain
+import dev.bosatsu.{Bytes, MemoryMain}
 import dev.bosatsu.hashing.Algo
 import org.scalacheck.{Gen, Prop}
 
@@ -17,7 +17,7 @@ class LibraryInspectionFixturesTest extends munit.ScalaCheckSuite {
 
   private val fixtureState = LibraryInspectionFixtures.generatedFiles.foldLeft(MemoryMain.State.empty) {
     case (state, file) =>
-      state.withFile(path(file.path), MemoryMain.FileContent.Bytes(file.bytes)).get
+      state.withFile(path(file.path), MemoryMain.FileContent.Bytes(Bytes.copyFromArray(file.bytes))).get
   }
 
   private def dependencies(library: proto.Library): List[proto.LibDependency] =
@@ -92,7 +92,7 @@ class LibraryInspectionFixturesTest extends munit.ScalaCheckSuite {
       val modified = bytes ++ Array[Byte](0)
       val changedState = fixtureState.withFile(
         path(file),
-        MemoryMain.FileContent.Bytes(modified)
+        MemoryMain.FileContent.Bytes(Bytes.copyFromArray(modified))
       ).get
       val result = VerifiedLibrarySnapshot.verify(
         platform,

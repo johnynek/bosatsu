@@ -2,7 +2,7 @@ package dev.bosatsu.library
 
 import _root_.bosatsu.{TypedAst => proto}
 import cats.data.Chain
-import dev.bosatsu.{MemoryMain, PackageName}
+import dev.bosatsu.{Bytes, MemoryMain, PackageName}
 import dev.bosatsu.hashing.Algo
 import dev.bosatsu.tool.LibraryInspection
 import org.scalacheck.{Gen, Prop}
@@ -24,7 +24,7 @@ class VerifiedLibraryGraphTest extends munit.ScalaCheckSuite {
   private def state(files: List[(String, Array[Byte])] = Nil): MemoryMain.State =
     (LibraryInspectionFixtures.generatedFiles.map(file => file.path -> file.bytes) ::: files)
       .foldLeft(MemoryMain.State.empty) { case (current, (rawPath, bytes)) =>
-        current.withFile(path(rawPath), MemoryMain.FileContent.Bytes(bytes)).get
+        current.withFile(path(rawPath), MemoryMain.FileContent.Bytes(Bytes.copyFromArray(bytes))).get
       }
 
   private def context(

@@ -490,9 +490,9 @@ class Fs2PlatformIO private[dev] (
   def readStdinBytes: IO[Array[Byte]] =
     IO.blocking(nodeBufferToBytes(nodeFs.readFileSync(0)))
 
-  def writeStdoutBytes(bytes: Array[Byte]): IO[Unit] =
+  def writeStdoutBytes(bytes: Bytes): IO[Unit] =
     IO.blocking {
-      val _ = nodeFs.writeFileSync(1, bytesToUint8Array(bytes))
+      val _ = nodeFs.writeFileSync(1, bytesToUint8Array(bytes.unsafeReadOnlyView))
       ()
     }
 

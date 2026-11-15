@@ -506,9 +506,9 @@ class IOPlatformIO extends PlatformIO[IO, JPath] {
 
   def readStdinBytes: IO[Array[Byte]] = IO.blocking(System.in.readAllBytes())
 
-  def writeStdoutBytes(bytes: Array[Byte]): IO[Unit] =
+  def writeStdoutBytes(bytes: Bytes): IO[Unit] =
     IO.blocking {
-      stdout.write(bytes)
+      stdout.write(bytes.unsafeReadOnlyView)
       stdout.flush()
     }
 }

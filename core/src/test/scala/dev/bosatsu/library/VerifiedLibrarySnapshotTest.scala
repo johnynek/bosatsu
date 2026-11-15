@@ -2,7 +2,7 @@ package dev.bosatsu.library
 
 import _root_.bosatsu.{TypedAst => proto}
 import cats.data.Chain
-import dev.bosatsu.{MemoryMain, PlatformIO}
+import dev.bosatsu.{Bytes, MemoryMain, PlatformIO}
 import dev.bosatsu.hashing.Algo
 import org.scalacheck.{Gen, Prop}
 import java.nio.charset.StandardCharsets
@@ -90,7 +90,7 @@ class VerifiedLibrarySnapshotTest extends munit.ScalaCheckSuite {
       expectedVersion: Version = version
   ): Result[VerifiedLibrarySnapshot[Path]] = {
     val state = MemoryMain.State.empty
-      .withFile(path, MemoryMain.FileContent.Bytes(bytes)).get
+      .withFile(path, MemoryMain.FileContent.Bytes(Bytes.copyFromArray(bytes))).get
     VerifiedLibrarySnapshot
       .verify(platform, path, expectedName, expectedVersion, hashes)
       .runA(state)
@@ -237,7 +237,7 @@ class VerifiedLibrarySnapshotTest extends munit.ScalaCheckSuite {
   test("pinned library verification reads the artifact once") {
     val bytes = library("single-read")
     val state = MemoryMain.State.empty
-      .withFile(path, MemoryMain.FileContent.Bytes(bytes)).get
+      .withFile(path, MemoryMain.FileContent.Bytes(Bytes.copyFromArray(bytes))).get
     pinnedReads = 0
 
     val result = VerifiedLibrarySnapshot

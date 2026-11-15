@@ -6,6 +6,7 @@ import dev.bosatsu.IorMethods.IorExtension
 import dev.bosatsu.hashing.{Algo, Hashed}
 import dev.bosatsu.tool.LibraryInspection
 import dev.bosatsu.{
+  Bytes,
   CompileOptions,
   LocationMap,
   MemoryMain,
@@ -90,7 +91,7 @@ class ReservedNamespaceTest extends munit.FunSuite {
     val path = Chain.one("verified.bosatsu_lib")
     val bytes = lib.arg.toByteArray
     val state = MemoryMain.State.empty
-      .withFile(path, MemoryMain.FileContent.Bytes(bytes))
+      .withFile(path, MemoryMain.FileContent.Bytes(Bytes.copyFromArray(bytes)))
       .get
     val result = VerifiedLibrarySnapshot
       .verify(platform, path, Name(lib.arg.name), version, List(lib.hash.toIdent))
