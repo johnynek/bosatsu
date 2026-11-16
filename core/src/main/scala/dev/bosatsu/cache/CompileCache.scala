@@ -28,10 +28,11 @@ object CompileCache {
         SortedMap[PackageName, Package.Interface],
         CompileOptions,
         String,
-        String
+        String,
+        Option[HashValue[Algo.Blake3]]
     )
 
-  private val schemaVersion = 5
+  private val schemaVersion = 6
   private val sentinelRegion = Region(0, 0)
   private val utf8 = StandardCharsets.UTF_8
   private val blake3 = Algo.blake3Algo
@@ -79,6 +80,7 @@ object CompileCache {
       key.compileOptions.enabledTypedPasses
         .map(_.cliName)
         .mkString(",")
+    val bindingFingerprint = key.bindingFingerprint.fold("legacy")(_.toIdent(using blake3))
     val payload =
       s"""schema:${key.schemaVersion}
          |package:${key.packageName.asString}
@@ -89,6 +91,7 @@ object CompileCache {
          |source:${key.sourceHash.toIdent(using blake3)}
          |deps:
          |$deps
+         |bindings:$bindingFingerprint
          |""".stripMargin
     hashUtf8(payload)
   }
@@ -407,7 +410,8 @@ object CompileCache {
         depInterfaces,
         compileOptions,
         compilerIdentity,
-        phaseIdentity
+        phaseIdentity,
+        bindingFingerprint
       ) = input
 
       val depHashesBuilder =
@@ -434,6 +438,7 @@ object CompileCache {
               sourceHash = sourceHash,
               depInterfaceHashes = depHashesBuilder.result(),
               depInterfaces = depInterfaces,
+              bindingFingerprint = bindingFingerprint,
               schemaVersion = schemaVersion
             )
           )

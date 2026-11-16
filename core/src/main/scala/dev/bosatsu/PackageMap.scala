@@ -761,7 +761,8 @@ object PackageMap {
                           depIfaces,
                           compileOptions,
                           CompileCache.compilerIdentity,
-                          phases.id
+                          phases.id,
+                          None
                         )
                       )
                     )

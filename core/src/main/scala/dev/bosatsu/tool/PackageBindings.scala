@@ -3,7 +3,9 @@ package dev.bosatsu.tool
 import cats.{Eq, Order, Show}
 import cats.syntax.all._
 import dev.bosatsu.{Json, PackageName, PlatformIO}
+import dev.bosatsu.hashing.{Algo, HashValue}
 import dev.bosatsu.library.{Name, Version}
+import java.nio.charset.StandardCharsets
 import scala.collection.immutable.{SortedMap, SortedSet}
 
 /** Caller-relative package ownership and the public facts used to check it.
@@ -225,6 +227,54 @@ private[bosatsu] object PackageBindings {
       interface: Option[InterfaceSource[Path]],
       witnessPath: List[Scope]
   )
+
+  private val bindingOwnerOrdering: Ordering[(BindingKey, PackageOwner)] =
+    new Ordering[(BindingKey, PackageOwner)] {
+      def compare(
+          left: (BindingKey, PackageOwner),
+          right: (BindingKey, PackageOwner)
+      ): Int = {
+        val binding = bindingKeyOrdering.compare(left._1, right._1)
+        if (binding != 0) binding
+        else packageOwnerOrdering.compare(left._2, right._2)
+      }
+    }
+
+  private def scopeIdentityJson(scope: Scope): Json = scope match {
+    case Scope.Member(name) => Json.JObject(List(
+      "kind" -> Json.JString("member"),
+      "member" -> Json.JString(name.asString)
+    ))
+    case Scope.Library(identity) => Json.JObject(List(
+      "kind" -> Json.JString("library"),
+      "identity" -> identityJson(identity)
+    ))
+    case Scope.Predef => Json.JObject(List("kind" -> Json.JString("predef")))
+  }
+
+  /** Hash selected caller-relative keys and owners, excluding path and
+    * diagnostic provenance retained by CheckedBinding.
+    */
+  def selectedBindingFingerprint(
+      bindings: IterableOnce[CheckedBinding[?]]
+  ): HashValue[Algo.Blake3] = {
+    val selected = bindings.iterator
+      .map(binding => binding.key -> binding.owner)
+      .toList
+      .sorted(using bindingOwnerOrdering)
+      .map { case (key, owner) =>
+        Json.JObject(List(
+          "referrer" -> scopeIdentityJson(key.referrer),
+          "package" -> Json.JString(key.requiredPackage.asString),
+          "owner" -> Json.JObject(List(
+            "scope" -> scopeIdentityJson(owner.scope),
+            "package" -> Json.JString(owner.packageName.asString)
+          ))
+        ))
+      }
+    val bytes = Json.JArray(selected.toVector).render.getBytes(StandardCharsets.UTF_8)
+    Algo.blake3Algo.hashBytes(bytes)
+  }
 
   /** Legacy callers remain explicitly unscoped until they opt into a checked
     * scope map.

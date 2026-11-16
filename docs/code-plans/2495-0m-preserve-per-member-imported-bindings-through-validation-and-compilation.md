@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2495` 0m: Preserve per-member imported bindings through validation and compilation
-- Pending steps: `6`
-- Completed steps: `5`
+- Pending steps: `5`
+- Completed steps: `6`
 - Total steps: `11`
 
 ## Summary
@@ -207,7 +207,7 @@ Extend existing LibraryInspectionProjectionTest, PackageBindingsTest and Validat
 
 Moved imported artifact verification into `LibraryInspection.loadImportedInputs`, which returns the verified graph, regenerated public index, and the parsed interface bundles checked against authenticated projections. `validate-graph` now uses this shared boundary. Added coverage for returned bundles, substituted signatures, forged public-index ownership, invalid artifact pins, and private-path core conflicts. `sbt "coreJVM/test:compile"` passed; focused core tests passed (14 tests), focused `ValidateGraphCommandTest` passed (10 tests), and `git diff --check` passed.
 
-6. [ ] `step_3_binding_cache` Include selected bindings in existing cache identity
+6. [x] `step_3_binding_cache` Include selected bindings in existing cache identity
 
 The existing CompileCache key hashes interfaces by nominal package name and cannot distinguish a selected-provider switch when signature bytes are equal. Extend core/src/main/scala/dev/bosatsu/cache/CompileCache.scala and FsKey.scala with an explicit optional binding fingerprint. Update GenerateKeyInput construction and destructuring sites, using an explicit absent value for legacy callers; do not introduce default arguments or a second cache.
 
@@ -234,6 +234,10 @@ Extend core/src/test/scala/dev/bosatsu/tool/CompileCacheTest.scala with focused 
 - Equal public interfaces under two different selected releases produce distinct scoped keys.
 - An unchanged checked context can hit the existing filesystem cache and decode using its supplied interfaces.
 - Retain existing cache corruption, public-layout invalidation and legacy cache regressions.
+
+#### Completion Notes
+
+Added a deterministic, path-free fingerprint of selected binding keys and owners to the existing filesystem cache key, advanced its schema from 5 to 6, and kept the legacy PackageMap caller explicitly unscoped with `None`. Tests cover ordering and provenance invariance, selected-owner changes, distinct keys for equal dependency-interface hashes, and warm decoding with the same context. `sbt "coreJVM/testOnly dev.bosatsu.tool.CompileCacheTest" "coreJVM/test:compile"` passed (12 tests); `git diff --check` passed.
 
 7. [ ] `step_3_member_dag` Resolve and infer sources in their checked contexts
 
