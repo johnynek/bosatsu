@@ -2,7 +2,11 @@ package dev.bosatsu
 
 import dev.bosatsu.tool.GroupGraph
 import dev.bosatsu.tool.GroupGraph.{Edge, Member, Node, Scope}
+import dev.bosatsu.tool.PackageBindings
+import dev.bosatsu.tool.PackageBindings.{PackageOwner, PublicPackage, PublicProvider}
+import dev.bosatsu.library.{Name, Version}
 import scala.collection.mutable
+import scala.collection.immutable.SortedMap
 import scala.util.{Success, Try}
 
 class GroupGraphTest extends munit.FunSuite {
@@ -175,5 +179,77 @@ class GroupGraphTest extends munit.FunSuite {
       assertEquals(full.reads.size, size)
       assertEquals(full.reads.distinct.size, size)
     }
+  }
+
+  test("member-visible releases follow selected API exposures, while private releases stay disjoint") {
+    def identity(name: String, version: String): PackageBindings.LibraryIdentity =
+      Name(name) -> Version.parser.parseAll(version).toOption.get
+
+    def packageName(name: String): PackageName = PackageName.parse(name).get
+
+    val left = identity("left", "1.0.0")
+    val right = identity("right", "1.0.0")
+    val sharedV1 = identity("shared", "1.0.0")
+    val sharedV2 = identity("shared", "2.0.0")
+    val sharedPackage = packageName("Shared/Api")
+    val leftPackage = PublicPackage(
+      left,
+      packageName("Left"),
+      SortedMap.from(List(
+        sharedPackage -> PublicProvider.Library(sharedV1, List(left, sharedV1))
+      ))(using summon[Ordering[PackageName]])
+    )
+    val rightPackage = PublicPackage(
+      right,
+      packageName("Right"),
+      SortedMap.from(List(
+        sharedPackage -> PublicProvider.Library(sharedV2, List(right, sharedV2))
+      ))(using summon[Ordering[PackageName]])
+    )
+
+    def imported(
+        id: PackageBindings.LibraryIdentity,
+        packages: List[PublicPackage]
+    ): GroupGraph.ImportedLibrary[String] =
+      GroupGraph.ImportedLibrary(id, id._1.name, Nil, packages)
+
+    val topology = GroupGraph.MixedTopology(
+      Nil,
+      SortedMap.from(List(
+        left -> imported(left, List(leftPackage)),
+        right -> imported(right, List(rightPackage)),
+        sharedV1 -> imported(sharedV1, List(PublicPackage(
+          sharedV1,
+          sharedPackage,
+          SortedMap.empty(using summon[Ordering[PackageName]])
+        ))),
+        sharedV2 -> imported(sharedV2, List(PublicPackage(
+          sharedV2,
+          sharedPackage,
+          SortedMap.empty(using summon[Ordering[PackageName]])
+        )))
+      ))(using Ordering.Tuple2(using Name.orderingName, Version.versionOrdering))
+    )
+    val app = packageName("App")
+    val appScope = PackageBindings.Scope.Member(app)
+    val leftScope = PackageBindings.Scope.Library(left)
+    val rightScope = PackageBindings.Scope.Library(right)
+    val leftRoot = PackageOwner(leftScope, packageName("Left")) -> List(appScope, leftScope)
+    val rightRoot = PackageOwner(rightScope, packageName("Right")) -> List(appScope, rightScope)
+
+    val conflict = GroupGraph.validateVisibleReleases(topology, List(app -> List(leftRoot, rightRoot)))
+      .left.toOption.get
+    assert(conflict.contains("two releases of library shared"), conflict)
+    assert(conflict.contains("library left@1.0.0 -> library shared@1.0.0"), conflict)
+    assert(conflict.contains("library right@1.0.0 -> library shared@2.0.0"), conflict)
+
+    val disjoint = GroupGraph.validateVisibleReleases(
+      topology,
+      List(
+        packageName("First") -> List(leftRoot),
+        packageName("Second") -> List(rightRoot)
+      )
+    )
+    assertEquals(disjoint, Right(()))
   }
 }

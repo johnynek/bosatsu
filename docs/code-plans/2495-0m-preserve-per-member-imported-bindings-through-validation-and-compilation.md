@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2495` 0m: Preserve per-member imported bindings through validation and compilation
-- Pending steps: `5`
-- Completed steps: `2`
+- Pending steps: `4`
+- Completed steps: `3`
 - Total steps: `7`
 
 ## Summary
@@ -102,7 +102,7 @@ Continue publishing only the existing success stamp through Output and staged pu
 
 Added `VerifiedLibraryGraph.verifyRoots`, with the existing single-root API delegating to it. Shared roots and diamonds use one path-keyed snapshot table; the two-root test checks each artifact is read once and root reordering preserves edge routes. Added `ToolchainManifest.validateCoreReferences` to check every reachable core reference against the selected exact version and authenticated SHA-256, with private-route tests for matching, wrong-version, and wrong-digest cases. `sbt "coreJVM/testOnly dev.bosatsu.library.VerifiedLibraryGraphTest"` passed all 13 tests.
 
-3. [ ] `step_2_mixed_validation` Wire mixed topology and core validation
+3. [x] `step_2_mixed_validation` Wire mixed topology and core validation
 
 This is the first continuation of the original `step_2` imported-topology and selected-core family. Its completed slice provides `VerifiedLibraryGraph.verifyRoots` and `ToolchainManifest.validateCoreReferences`; this step completes the remaining command-level composition required by tracker 0m. The parent slice changed 282 production and test lines. Estimate 500–650 additional lines for this continuation, keeping the family below the 1,000-line threshold.
 
@@ -130,6 +130,10 @@ Publish only the existing success stamp through the current output lifecycle. Pr
 - Extend `GroupGraphTest` and `ValidateGraphCommandTest` for mixed local/import composition, legal private versions, disjoint members, same-signature and different-package release conflicts, missing or ambiguous bindings, and both conflict routes.
 - Cover a shared imported diamond, undeclared and surplus inputs, and local membership-only and visit-count regressions; failures preserve the prior validation stamp.
 - Cover matching repeated core references, wrong core version, same-version wrong digest, and private or legacy-path core conflicts with dependency routes.
+
+#### Completion Notes
+
+Extended GroupGraph and validate-graph to combine local groups with authenticated imported scopes, check each member’s visible release closure, verify imported signatures and selected-core references, and preserve the existing local validation behavior. Added coverage for private releases, visible release conflicts with both witness routes, partial mixed configuration, and private-path core conflicts. `coreJVM/test:compile` and `cli/test:compile` passed; focused GroupGraph, PackageBindings, VerifiedLibraryGraph, ToolchainManifest, and ValidateGraphCommand suites passed (54 tests total). `git diff --check` passed.
 
 4. [ ] `step_3` Carry member bindings through selection and source inference
 

@@ -2,15 +2,21 @@ package dev.bosatsu
 
 import cats.effect.IO
 import cats.syntax.all._
+import _root_.bosatsu.{TypedAst => proto}
+import dev.bosatsu.hashing.Algo
+import dev.bosatsu.library.Version
 import java.nio.charset.StandardCharsets
-import java.nio.file.{Files, Path}
+import java.nio.file.{Files, Path, Paths, StandardCopyOption}
 import java.nio.file.attribute.FileTime
+import scala.jdk.CollectionConverters._
 
 class ValidateGraphCommandTest extends FileCommandFixtures {
   private val rootFile = "graph/app.node.json"
   private val depFile = "graph/generated files/葉.node.json"
   private val leafFile = "external/dependency/leaf.node.json"
   private val stamp = "out/validated"
+  private val inspectionFixtureDirectory = Paths.get("test_workspace/inspect_library")
+  private val inspectionFixtureRoot = "test_workspace/inspect_library"
 
   private def group(label: String, pkg: String, source: String, edges: (String, String)*): String = {
     val deps = edges.toVector.map { case (dep, manifest) =>
@@ -29,6 +35,218 @@ class ValidateGraphCommandTest extends FileCommandFixtures {
   private def validate(runner: FileCommandRunner, root: Path, nodes: List[String], local: Boolean) =
     runner.run(root, List("validate-graph", "--root", rootFile, "--out", stamp) :::
       nodes.flatMap(n => List("--node", n)) ::: Option.when(local)("--local").toList)
+
+  private def copyInspectionFixtures(root: Path): IO[Unit] = IO.blocking {
+    val files = Files.list(inspectionFixtureDirectory)
+    try
+      files.iterator().asScala.filter(_.getFileName.toString != "README.md").foreach { source =>
+        val destination = root.resolve(inspectionFixtureRoot).resolve(source.getFileName)
+        Files.createDirectories(destination.getParent)
+        Files.copy(source, destination, StandardCopyOption.REPLACE_EXISTING)
+      }
+    finally files.close()
+  }
+
+  private def libraryEntries(root: Path, file: String): IO[Vector[Json]] =
+    read(root, file).map { content =>
+      Json.parserFile.parseAll(content).toOption.get match {
+        case obj: Json.JObject => obj.getOrNull("libraries") match {
+            case Json.JArray(entries) => entries
+            case other => throw new AssertionError(s"expected libraries array, found $other")
+          }
+        case other => throw new AssertionError(s"expected context object, found $other")
+      }
+    }
+
+  private def writeImportedParserInputs(root: Path): IO[Unit] =
+    for {
+      rootEntries <- libraryEntries(root, s"$inspectionFixtureRoot/parser-root.json")
+      dependencyEntries <- libraryEntries(root, s"$inspectionFixtureRoot/parser-context.json")
+      context = Json.JObject(List(
+        "schema_version" -> Json.JNumberStr("1"),
+        "libraries" -> Json.JArray(rootEntries ++ dependencyEntries)
+      ))
+      _ <- write(root, "graph/dependencies.json", context.render)
+    } yield ()
+
+  private def hashes(bytes: Array[Byte]): List[String] = List(
+    s"blake3:${Algo.hashBytes[Algo.Blake3](bytes).hex}",
+    s"sha256:${Algo.hashBytes[Algo.Sha256](bytes).hex}"
+  )
+
+  test("mixed validation accepts its complete input set and rejects partial configuration") {
+    withRunner { (root, runner) =>
+      val emptySha = Algo.hashBytes[Algo.Sha256](Array.emptyByteArray).hex
+      val toolchain =
+        s"""{"schema_version":1,"compiler":{"uri":"unused","sha256":"$emptySha"},"core":{"library_name":"bosatsu","version":"1.2.3","uri":"unused","sha256":"$emptySha"},"c_runtime":{"uri":"unused","sha256":"$emptySha"}}"""
+      val mixed = List(
+        "validate-graph",
+        "--root", rootFile,
+        "--scope-map", "graph/scope-map.json",
+        "--dependency-context", "graph/dependencies.json",
+        "--toolchain-manifest", "graph/toolchain.json",
+        "--out", stamp
+      )
+      for {
+        _ <- write(root, rootFile, group("//app:g", "App", "App.bosatsu"))
+        _ <- write(root, "graph/scope-map.json",
+          """{"schema_version":1,"members":["App"],"dependencies":[],"imports":[],"bindings":[]}""")
+        _ <- write(root, "graph/dependencies.json", """{"schema_version":1,"libraries":[]}""")
+        _ <- write(root, "graph/toolchain.json", toolchain)
+        valid <- runner.run(root, mixed)
+        _ = success(valid)
+        _ = assertEquals(valid.stdout, "")
+        _ = assertEquals(valid.stderr, "")
+        written <- read(root, stamp)
+        _ = assertEquals(written, "ok")
+        _ <- write(root, stamp, "previous")
+        partial <- runner.run(root, mixed.filterNot(_ == "--toolchain-manifest").filterNot(_ == "graph/toolchain.json"))
+        _ = failure(partial)
+        _ = assert(partial.stderr.contains("mixed validation requires"), partial.stderr)
+        preserved <- read(root, stamp)
+        _ = assertEquals(preserved, "previous")
+      } yield ()
+    }
+  }
+
+  test("mixed validation authenticates imported roots and ignores their private versions for visibility") {
+    withRunner { (root, runner) =>
+      val parserPath = s"$inspectionFixtureRoot/parser-v1.0.0.bosatsu_lib"
+      val inspection = List(
+        "inspect-library",
+        "--input", parserPath,
+        "--expected-name", "parser",
+        "--expected-version", "1.0.0",
+        "--dependency-context", s"$inspectionFixtureRoot/parser-context.json",
+        "--sig-out", "graph/parser.sig",
+        "--exposures-out", "graph/parser-index.json"
+      )
+      val selectedCoreHash = Algo.hashBytes[Algo.Sha256](Array.emptyByteArray).hex
+      val selectedToolchain =
+        s"""{"schema_version":1,"compiler":{"uri":"unused","sha256":"$selectedCoreHash"},"core":{"library_name":"bosatsu","version":"1.2.3","uri":"unused","sha256":"$selectedCoreHash"},"c_runtime":{"uri":"unused","sha256":"$selectedCoreHash"}}"""
+      val identity = """{"name":"parser","version":"1.0.0"}"""
+      val scopeMap =
+        s"""{"schema_version":1,"members":["App"],"dependencies":[{"from":{"kind":"member","member":"App"},"package":"Parser","to":{"kind":"library","identity":$identity}}],"imports":[{"identity":$identity,"signature_path":"graph/parser.sig","public_index_path":"graph/parser-index.json","label":"parser"}],"bindings":[{"referrer":{"kind":"member","member":"App"},"package":"Parser","provider":{"kind":"library","identity":$identity},"interface_path":"graph/parser.sig"}]}"""
+      val command = List(
+        "validate-graph",
+        "--root", rootFile,
+        "--scope-map", "graph/scope-map.json",
+        "--dependency-context", "graph/dependencies.json",
+        "--toolchain-manifest", "graph/toolchain.json",
+        "--direct-interface", "graph/parser.sig",
+        "--out", stamp
+      )
+      for {
+        _ <- copyInspectionFixtures(root)
+        _ <- writeImportedParserInputs(root)
+        bytes <- IO.blocking(Files.readAllBytes(root.resolve(parserPath)))
+        inspected <- runner.run(root, inspection ++ hashes(bytes).flatMap(hash => List("--expected-hash", hash)))
+        _ = success(inspected)
+        _ <- write(root, rootFile, group("//app:g", "App", "App.bosatsu"))
+        _ <- write(root, "graph/scope-map.json", scopeMap)
+        _ <- write(root, "graph/toolchain.json", selectedToolchain)
+        validated <- runner.run(root, command)
+        _ = success(validated)
+        _ = assertEquals(validated.stdout, "")
+        _ = assertEquals(validated.stderr, "")
+        stampText <- read(root, stamp)
+        _ = assertEquals(stampText, "ok")
+      } yield ()
+    }
+  }
+
+  test("mixed validation rejects an incompatible core reached through a private edge") {
+    withRunner { (root, runner) =>
+      val parserPath = s"$inspectionFixtureRoot/parser-v1.0.0.bosatsu_lib"
+      val corePath = "graph/bosatsu-v2.0.0.bosatsu_lib"
+      val versionTwo = Version.parser.parseAll("2.0.0").toOption.get
+      val coreBytes = proto.Library(
+        name = "bosatsu",
+        descriptor = Some(proto.LibDescriptor(version = Some(versionTwo.toProto)))
+      ).toByteArray
+      val coreDependency = proto.LibDependency(
+        name = "bosatsu",
+        desc = Some(proto.LibDescriptor(
+          version = Some(versionTwo.toProto),
+          hashes = List(s"blake3:${Algo.hashBytes[Algo.Blake3](coreBytes).hex}")
+        ))
+      )
+      val command = List(
+        "validate-graph",
+        "--root", rootFile,
+        "--scope-map", "graph/scope-map.json",
+        "--dependency-context", "graph/dependencies.json",
+        "--toolchain-manifest", "graph/toolchain.json",
+        "--direct-interface", "graph/parser.sig",
+        "--out", stamp
+      )
+      for {
+        _ <- copyInspectionFixtures(root)
+        originalParser <- IO.blocking(Files.readAllBytes(root.resolve(parserPath)))
+        parsedParser = proto.Library.parseFrom(originalParser)
+        parser = parsedParser.copy(
+          privateDependencies = parsedParser.privateDependencies :+ coreDependency
+        )
+        parserBytes = parser.toByteArray
+        _ <- IO.blocking {
+          Files.createDirectories(root.resolve(corePath).getParent)
+          Files.write(root.resolve(parserPath), parserBytes)
+          Files.write(root.resolve(corePath), coreBytes)
+          ()
+        }
+        dependencyEntries <- libraryEntries(root, s"$inspectionFixtureRoot/parser-context.json")
+        coreDeclaration = Json.JObject(List(
+          "name" -> Json.JString("bosatsu"),
+          "version" -> Json.JString("2.0.0"),
+          "path" -> Json.JString(corePath),
+          "hashes" -> Json.JArray(hashes(coreBytes).map(Json.JString(_)).toVector)
+        ))
+        inspectionContext = Json.JObject(List(
+          "schema_version" -> Json.JNumberStr("1"),
+          "libraries" -> Json.JArray(dependencyEntries :+ coreDeclaration)
+        ))
+        _ <- write(root, "graph/inspection-dependencies.json", inspectionContext.render)
+        rootDeclaration = Json.JObject(List(
+          "name" -> Json.JString("parser"),
+          "version" -> Json.JString("1.0.0"),
+          "path" -> Json.JString(parserPath),
+          "hashes" -> Json.JArray(hashes(parserBytes).map(Json.JString(_)).toVector)
+        ))
+        allContext = Json.JObject(List(
+          "schema_version" -> Json.JNumberStr("1"),
+          "libraries" -> Json.JArray(Vector(rootDeclaration) ++ dependencyEntries :+ coreDeclaration)
+        ))
+        _ <- write(root, "graph/dependencies.json", allContext.render)
+        inspectArgs = List(
+          "inspect-library",
+          "--input", parserPath,
+          "--expected-name", "parser",
+          "--expected-version", "1.0.0",
+          "--dependency-context", "graph/inspection-dependencies.json",
+          "--sig-out", "graph/parser.sig",
+          "--exposures-out", "graph/parser-index.json"
+        ) ++ hashes(parserBytes).flatMap(hash => List("--expected-hash", hash))
+        inspected <- runner.run(root, inspectArgs)
+        _ = success(inspected)
+        identity = """{"name":"parser","version":"1.0.0"}"""
+        scopeMap =
+          s"""{"schema_version":1,"members":["App"],"dependencies":[{"from":{"kind":"member","member":"App"},"package":"Parser","to":{"kind":"library","identity":$identity}}],"imports":[{"identity":$identity,"signature_path":"graph/parser.sig","public_index_path":"graph/parser-index.json","label":"parser"}],"bindings":[{"referrer":{"kind":"member","member":"App"},"package":"Parser","provider":{"kind":"library","identity":$identity},"interface_path":"graph/parser.sig"}]}"""
+        _ <- write(root, "graph/scope-map.json", scopeMap)
+        selectedCoreHash = Algo.hashBytes[Algo.Sha256](Array.emptyByteArray).hex
+        selectedToolchain =
+          s"""{"schema_version":1,"compiler":{"uri":"unused","sha256":"$selectedCoreHash"},"core":{"library_name":"bosatsu","version":"1.2.3","uri":"unused","sha256":"$selectedCoreHash"},"c_runtime":{"uri":"unused","sha256":"$selectedCoreHash"}}"""
+        _ <- write(root, "graph/toolchain.json", selectedToolchain)
+        _ <- write(root, rootFile, group("//app:g", "App", "App.bosatsu"))
+        _ <- write(root, stamp, "previous")
+        invalid <- runner.run(root, command)
+        _ = failure(invalid)
+        _ = assert(invalid.stderr.contains("toolchain core identity mismatch"), invalid.stderr)
+        _ = assert(invalid.stderr.contains("parser 1.0.0 -> bosatsu 2.0.0"), invalid.stderr)
+        previous <- read(root, stamp)
+        _ = assertEquals(previous, "previous")
+      } yield ()
+    }
+  }
 
   test("local and complete actions work from declared manifests alone") {
     withRunner { (root, runner) =>
