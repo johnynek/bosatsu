@@ -106,6 +106,57 @@ class StrictInterfacesCommandTest extends FileCommandFixtures {
     }
   }
 
+  test("scoped strict checking keeps original interface labels") {
+    withRunner { (root, runner) =>
+      val digest = "0" * 64
+      val scopeMap = Json.JObject(List(
+        "schema_version" -> Json.JNumberStr("1"),
+        "members" -> Json.JArray(Vector(Json.JString("Client"))),
+        "dependencies" -> Json.JArray(Vector.empty),
+        "imports" -> Json.JArray(Vector.empty),
+        "bindings" -> Json.JArray(Vector.empty)
+      )).render
+      val toolchain = Json.JObject(List(
+        "schema_version" -> Json.JNumberStr("1"),
+        "compiler" -> Json.JObject(List(
+          "uri" -> Json.JString("unused"), "sha256" -> Json.JString(digest)
+        )),
+        "core" -> Json.JObject(List(
+          "library_name" -> Json.JString("core"),
+          "version" -> Json.JString("1.0.0"),
+          "uri" -> Json.JString("unused"), "sha256" -> Json.JString(digest)
+        )),
+        "c_runtime" -> Json.JObject(List(
+          "uri" -> Json.JString("unused"), "sha256" -> Json.JString(digest)
+        )),
+        "core_sources" -> Json.JNull
+      )).render
+      val dependencies = Json.JObject(List(
+        "schema_version" -> Json.JNumberStr("1"),
+        "libraries" -> Json.JArray(Vector.empty)
+      )).render
+      val command = args("scoped", List("Client"), List("unused.sig")) ::: strict ::: labeled :::
+        List(
+          "--scope-map", "scope.json", "--dependency-context", "dependencies.json",
+          "--toolchain-manifest", "toolchain.json"
+        )
+      for {
+        _ <- write(root, "Client.bosatsu", "package Client\nexport main\nmain = 1\n")
+        _ <- write(root, "scope.json", scopeMap)
+        _ <- write(root, "dependencies.json", dependencies)
+        _ <- write(root, "toolchain.json", toolchain)
+        _ <- IOPlatformIO.writeInterfaceBundle(proto.Interfaces(), root.resolve("unused.sig"))
+        _ <- labels(root, List("unused.sig" -> "//unused:api"))
+        result <- runner.run(root, command)
+        _ = failure(result)
+        _ = assert(
+          result.stderr.contains("unused direct interfaces: unused.sig (//unused:api)"),
+          result.stderr
+        )
+      } yield ()
+    }
+  }
+
   test("unused files retain label attribution, even when labels repeat or files export no roots") {
     withRunner { (root, runner) =>
       val unicode = "generated/empty snow 雪.sig"

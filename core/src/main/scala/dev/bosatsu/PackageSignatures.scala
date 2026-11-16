@@ -5,7 +5,7 @@ import cats.Show
 import cats.syntax.all._
 import dev.bosatsu.hashing.Algo
 import dev.bosatsu.graph.Toposort
-import dev.bosatsu.library.Name
+import dev.bosatsu.library.{Name, Version}
 import dev.bosatsu.rankn.{Type, TypeEnv}
 import dev.bosatsu.tool.CliException
 import dev.bosatsu.tool.PackageBindings
@@ -66,6 +66,219 @@ object PackageSignatures {
     encodeRoot(iface).map { entry =>
       proto.InterfaceRequirement(iface.name.asString, Algo.hashBytes[Algo.Blake3](entry.toByteArray).hex)
     }
+
+  private[bosatsu] final case class InterfaceDigest(
+      packageName: PackageName,
+      blake3: String
+  )
+
+  private[bosatsu] final case class RequirementBinding(
+      referrer: Scope,
+      packageName: PackageName,
+      owner: PackageOwner
+  )
+
+  private[bosatsu] final case class MemberRequirements(
+      member: PackageName,
+      bindings: List[RequirementBinding],
+      interfaces: List[InterfaceDigest]
+  )
+
+  private[bosatsu] sealed trait ParsedBuildRequirements
+  private[bosatsu] object ParsedBuildRequirements {
+    final case class Legacy(interfaces: List[InterfaceDigest]) extends ParsedBuildRequirements
+    final case class Scoped(members: List[MemberRequirements]) extends ParsedBuildRequirements
+  }
+
+  private def scopeToProto(scope: Scope): proto.BuildScope = scope match {
+    case Scope.Member(name) => proto.BuildScope(kind = "member", memberName = name.asString)
+    case Scope.Library((name, version)) => proto.BuildScope(
+      kind = "library",
+      libraryName = name.name,
+      libraryVersion = Some(version.toProto)
+    )
+    case Scope.Predef => proto.BuildScope(kind = "predef")
+  }
+
+  /** Serialize the exact checked owners retained by scoped compilation. */
+  private[bosatsu] def buildRequirements[Path](
+      group: dev.bosatsu.tool.CompilerApi.CompiledGroup[Path]
+  ): Try[proto.BuildRequirements] = group.context match {
+    case dev.bosatsu.tool.CompilerApi.CompilationContext.Legacy() =>
+      group.dependencies.traverse(requirement).map(proto.BuildRequirements(_))
+    case dev.bosatsu.tool.CompilerApi.CompilationContext.Scoped(members) =>
+      members.toList.sortBy(_._1).traverse { case (member, compiled) =>
+        val bindings = compiled.bindings.sortBy(_.key)(using PackageBindings.bindingKeyOrdering)
+        val externalOwners = bindings.iterator.collect {
+          case binding if binding.owner.scope.isInstanceOf[Scope.Library] => binding.owner
+        }.toList
+        val ownersByName = externalOwners.foldLeft(
+          scala.collection.immutable.SortedMap.empty[PackageName, PackageOwner]
+        ) { (owners, owner) =>
+          owners.get(owner.packageName) match {
+            case Some(existing) if !PackageBindings.samePackageOwner(existing, owner) =>
+              throw CliException.Basic(
+                s"conflicting serialized owners for ${owner.packageName.asString} in ${member.asString}"
+              )
+            case _ => owners.updated(owner.packageName, owner)
+          }
+        }
+        val dependencies = compiled.publicDependencies.iterator.map(iface => iface.name -> iface).toMap
+        val interfaceRecords = ownersByName.valuesIterator.toList.traverse { owner =>
+          dependencies.get(owner.packageName).fold[Try[proto.InterfaceRequirement]](
+            Failure(CliException.Basic(
+              s"missing selected public interface ${owner.packageName.asString} for ${member.asString}"
+            ))
+          )(requirement)
+        }
+        interfaceRecords.map { interfaces =>
+          val bindingRecords = bindings.map { binding =>
+            proto.ScopedBindingRequirement(
+              referrer = Some(scopeToProto(binding.key.referrer)),
+              packageName = binding.key.requiredPackage.asString,
+              owner = Some(scopeToProto(binding.owner.scope)),
+              ownerPackageName = binding.owner.packageName.asString
+            )
+          }
+          proto.MemberBuildRequirements(
+            memberName = member.asString,
+            bindings = bindingRecords,
+            interfaces = interfaces
+          )
+        }
+      }.map(members => proto.BuildRequirements(scopedVersion = 1, members = members))
+  }
+
+  /** Decode legacy and scoped metadata without erasing the format distinction. */
+  private[bosatsu] def parseBuildRequirements(
+      requirements: proto.BuildRequirements
+  ): Try[ParsedBuildRequirements] = Try {
+    def parsePackage(raw: String, what: String): PackageName =
+      PackageName.parse(raw).getOrElse(throw CliException.Basic(s"invalid $what '$raw'"))
+
+    def parseDigest(raw: proto.InterfaceRequirement): InterfaceDigest = {
+      val name = parsePackage(raw.packageName, "interface requirement package")
+      if (name.isPredef)
+        throw CliException.Basic("Predef cannot have an interface requirement")
+      if (Algo.parseHashHex(Algo.blake3Algo).parseAll(raw.interfaceBlake3).isLeft)
+        throw CliException.Basic(s"invalid BLAKE3 interface requirement for $name")
+      InterfaceDigest(name, raw.interfaceBlake3)
+    }
+
+    def parseDigests(records: Seq[proto.InterfaceRequirement]): List[InterfaceDigest] = {
+      val parsed = records.toList.map(parseDigest)
+      val names = parsed.map(_.packageName).sorted
+      if (names.zip(names.drop(1)).exists { case (left, right) => left == right })
+        throw CliException.Basic("duplicate interface requirement")
+      parsed.sortBy(_.packageName)
+    }
+
+    def parseScope(raw: proto.BuildScope): Scope = raw.kind match {
+      case "member" =>
+        if (raw.memberName.isEmpty || raw.libraryName.nonEmpty || raw.libraryVersion.isDefined)
+          throw CliException.Basic("contradictory member scope fields")
+        Scope.Member(parsePackage(raw.memberName, "scope member"))
+      case "library" =>
+        if (raw.libraryName.isEmpty || raw.memberName.nonEmpty || raw.libraryVersion.isEmpty)
+          throw CliException.Basic("contradictory library scope fields")
+        val version = Version.fromProtoChecked(raw.libraryVersion.get).getOrElse(
+          throw CliException.Basic("invalid library version in build requirements")
+        )
+        Scope.Library(Name(raw.libraryName) -> version)
+      case "predef" =>
+        if (raw.memberName.nonEmpty || raw.libraryName.nonEmpty || raw.libraryVersion.isDefined)
+          throw CliException.Basic("contradictory Predef scope fields")
+        Scope.Predef
+      case other => throw CliException.Basic(s"unknown requirement scope kind '$other'")
+    }
+
+    requirements.scopedVersion match {
+      case 0 =>
+        if (requirements.members.nonEmpty)
+          throw CliException.Basic("legacy build requirements cannot contain member records")
+        ParsedBuildRequirements.Legacy(parseDigests(requirements.interfaces))
+      case 1 =>
+        if (requirements.interfaces.nonEmpty)
+          throw CliException.Basic("scoped build requirements cannot contain legacy interfaces")
+        val members = requirements.members.toList.map { record =>
+          val member = parsePackage(record.memberName, "requirement member")
+          val bindings = record.bindings.toList.map { raw =>
+            val referrer = parseScope(raw.referrer.getOrElse(
+              throw CliException.Basic("missing binding referrer scope")
+            ))
+            if (referrer == Scope.Predef)
+              throw CliException.Basic("Predef cannot be a binding referrer")
+            val packageName = parsePackage(raw.packageName, "binding package")
+            val ownerScope = parseScope(raw.owner.getOrElse(
+              throw CliException.Basic("missing binding owner scope")
+            ))
+            val ownerPackage = parsePackage(raw.ownerPackageName, "binding owner package")
+            if (packageName != ownerPackage)
+              throw CliException.Basic("binding package and owner package disagree")
+            RequirementBinding(referrer, packageName, PackageOwner(ownerScope, ownerPackage))
+          }
+          val bindingKeys = bindings.map(binding =>
+            PackageBindings.BindingKey(binding.referrer, binding.packageName)
+          ).sorted(using PackageBindings.bindingKeyOrdering)
+          if (bindingKeys.zip(bindingKeys.drop(1)).exists { case (left, right) =>
+                PackageBindings.bindingKeyOrdering.compare(left, right) == 0
+              })
+            throw CliException.Basic(s"duplicate binding record for ${member.asString}")
+
+          val ownerByPackage = bindings.foldLeft(
+            scala.collection.immutable.SortedMap.empty[PackageName, PackageOwner]
+          ) { (owners, binding) =>
+            owners.get(binding.packageName) match {
+              case Some(existing) if !PackageBindings.samePackageOwner(existing, binding.owner) =>
+                throw CliException.Basic(
+                  s"contradictory owners for ${binding.packageName.asString} in ${member.asString}"
+                )
+              case _ => owners.updated(binding.packageName, binding.owner)
+            }
+          }
+          val interfaces = parseDigests(record.interfaces)
+          val externalNames = ownerByPackage.valuesIterator.collect {
+            case PackageOwner(Scope.Library(_), packageName) => packageName
+          }.toList.distinct.sorted
+          val interfaceNames = interfaces.map(_.packageName)
+          if (externalNames != interfaceNames)
+            throw CliException.Basic(
+              s"interface requirements do not match selected library owners for ${member.asString}"
+            )
+          bindings.foreach { binding =>
+            binding.owner.scope match {
+              case Scope.Member(owner) if owner != binding.owner.packageName =>
+                throw CliException.Basic("source binding owner and package disagree")
+              case Scope.Predef if !binding.owner.packageName.isPredef =>
+                throw CliException.Basic("Predef binding owner must be Bosatsu/Predef")
+              case _ => ()
+            }
+          }
+          MemberRequirements(member, bindings.sortBy(binding =>
+            PackageBindings.BindingKey(binding.referrer, binding.packageName)
+          )(using PackageBindings.bindingKeyOrdering), interfaces)
+        }.sortBy(_.member)
+        val memberNames = members.map(_.member)
+        if (memberNames.zip(memberNames.drop(1)).exists { case (left, right) => left == right })
+          throw CliException.Basic("duplicate member requirement record")
+        val memberSet = memberNames.toSet
+        members.iterator.flatMap(_.bindings).foreach { binding =>
+          binding.referrer match {
+            case Scope.Member(name) if !memberSet(name) =>
+              throw CliException.Basic(s"unknown binding referrer member ${name.asString}")
+            case _ => ()
+          }
+          binding.owner.scope match {
+            case Scope.Member(name) if !memberSet(name) =>
+              throw CliException.Basic(s"unknown binding owner member ${name.asString}")
+            case _ => ()
+          }
+        }
+        ParsedBuildRequirements.Scoped(members)
+      case version =>
+        throw CliException.Basic(s"unsupported scoped build requirements version $version")
+    }
+  }
 
   private[bosatsu] def viewOf(
       entry: proto.Interface,
@@ -505,7 +718,11 @@ object PackageSignatures {
                 val publicPackage = checked.publicIndex.packages.getOrElse(owner,
                   throw CliException.Basic(s"missing inspected public package ${need.packageName.asString}"))
                 val declaredExposures = root.dependencies.distinct.sorted
-                val indexedExposures = publicPackage.exposures.keysIterator.map(_.asString).toList.sorted
+                // Inspection retains the implicit Predef provider so its
+                // ownership is authenticated, while serialized signature
+                // dependencies deliberately omit compiler-provided Predef.
+                val indexedExposures = publicPackage.exposures.keysIterator
+                  .filterNot(_.isPredef).map(_.asString).toList.sorted
                 if (declaredExposures != indexedExposures)
                   throw CliException.Basic(
                     s"signature exposure index disagrees for ${need.packageName.asString} in ${input.display}"

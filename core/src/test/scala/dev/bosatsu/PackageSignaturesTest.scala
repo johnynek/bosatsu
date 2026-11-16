@@ -736,4 +736,63 @@ class PackageSignaturesTest extends munit.FunSuite {
     val cycle = signature(root(0, Some(name(1))), root(1, Some(name(0))))
     assert(decode(cycle).failed.get.getMessage.contains("Client -> P0 -> P1 -> P0"))
   }
+
+  test("build requirements preserve legacy and scoped forms and reject contradictions") {
+    val digest = "a" * 64
+    val legacy = proto.BuildRequirements(interfaces = Seq(
+      proto.InterfaceRequirement("Owner", digest)
+    ))
+    success(PackageSignatures.parseBuildRequirements(legacy)) match {
+      case PackageSignatures.ParsedBuildRequirements.Legacy(interfaces) =>
+        assertEquals(interfaces, List(PackageSignatures.InterfaceDigest(owner, digest)))
+      case other => fail(s"expected legacy requirements, found $other")
+    }
+
+    val emptyScoped = proto.BuildRequirements(
+      scopedVersion = 1,
+      members = Seq(proto.MemberBuildRequirements(memberName = "Client"))
+    )
+    success(PackageSignatures.parseBuildRequirements(emptyScoped)) match {
+      case PackageSignatures.ParsedBuildRequirements.Scoped(members) =>
+        assertEquals(members.map(_.member), List(client))
+        assertEquals(members.head.bindings, Nil)
+        assertEquals(members.head.interfaces, Nil)
+      case other => fail(s"expected scoped requirements, found $other")
+    }
+
+    val duplicateMember = emptyScoped.copy(members = Seq(
+      proto.MemberBuildRequirements(memberName = "Client"),
+      proto.MemberBuildRequirements(memberName = "Client")
+    ))
+    assert(PackageSignatures.parseBuildRequirements(duplicateMember).failed.get.getMessage
+      .contains("duplicate member"))
+    val unsupportedVersion = emptyScoped.copy(scopedVersion = 2)
+    assert(PackageSignatures.parseBuildRequirements(unsupportedVersion).failed.get.getMessage
+      .contains("unsupported scoped"))
+    val mixedLegacyAndScoped = emptyScoped.copy(interfaces = Seq(
+      proto.InterfaceRequirement("Owner", digest)
+    ))
+    assert(PackageSignatures.parseBuildRequirements(mixedLegacyAndScoped).failed.get.getMessage
+      .contains("cannot contain legacy"))
+    val invalidHash = legacy.copy(interfaces = Seq(proto.InterfaceRequirement("Owner", "not-a-hash")))
+    assert(PackageSignatures.parseBuildRequirements(invalidHash).failed.get.getMessage
+      .contains("invalid BLAKE3"))
+    val invalidLibraryVersion = proto.BuildRequirements(
+      scopedVersion = 1,
+      members = Seq(proto.MemberBuildRequirements(
+        memberName = "Client",
+        bindings = Seq(proto.ScopedBindingRequirement(
+          referrer = Some(proto.BuildScope(kind = "member", memberName = "Client")),
+          packageName = "Owner",
+          owner = Some(proto.BuildScope(
+            kind = "library", libraryName = "owner", libraryVersion = Some(proto.Version(major = -1))
+          )),
+          ownerPackageName = "Owner"
+        )),
+        interfaces = Seq(proto.InterfaceRequirement("Owner", digest))
+      ))
+    )
+    assert(PackageSignatures.parseBuildRequirements(invalidLibraryVersion).failed.get.getMessage
+      .contains("invalid library version"))
+  }
 }

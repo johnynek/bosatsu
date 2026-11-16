@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2495` 0m: Preserve per-member imported bindings through validation and compilation
-- Pending steps: `4`
-- Completed steps: `8`
+- Pending steps: `3`
+- Completed steps: `9`
 - Total steps: `12`
 
 ## Summary
@@ -320,7 +320,7 @@ Add source-DAG regressions for incompatible same-named providers in one batch, a
 
 Extended the memoized source DAG and scoped CompilerApi path to resolve each member’s checked imports, infer source providers once, diagnose cycles before recursion, bind selected signature roots through `Root.bind` after source providers finish, and retain each member’s bindings and dependency interfaces in `CompiledGroup`. Added regressions for incompatible same-named providers, source-to-source imports, source-exposed owners, signature binding against source types, single inference, and cycle diagnostics. `sbt "coreJVM/test:compile" "coreJVM/testOnly dev.bosatsu.tool.CompilerApiScopedTest dev.bosatsu.PackageSignaturesTest dev.bosatsu.PackageMapStackSafetyTest"` passed (27 tests); `git diff --check` passed.
 
-9. [ ] `step_4_scoped_publication` Publish scoped compilation with member requirements
+9. [x] `step_4_scoped_publication` Publish scoped compilation with member requirements
 
 Expose the scoped compiler only together with its persisted context. This completes the command and serialization portion formerly spread across step_3_inference and step_4, preventing a successful scoped command from emitting requirements that lose its selected owners.
 
@@ -356,6 +356,10 @@ Extend CompilePackagesCommandTest, StrictInterfacesCommandTest and appropriate r
 - Report an extra original interface file under strict checking, including its label.
 - Persist exposure-only owners and source-supplied owners, including an explicitly empty scoped requirement set.
 - Retain unscoped command, CheckCommand and failed-output-publication regressions.
+
+#### Completion Notes
+
+Added scoped compile-packages inputs, member-scoped requirement serialization and parsing, and atomic publication of the bundle and signature. Added command, strict-unused, imported-binding, publication-recovery, and requirement-codec coverage. The focused CLI suites passed 29 tests, the PackageSignatures suite passed 20 tests, core and CLI test compilation passed, and `git diff --check` was clean.
 
 10. [ ] `step_4_scoped_decoding` Decode bundles with their recorded member owners
 

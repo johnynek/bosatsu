@@ -90,13 +90,20 @@ sealed abstract class Output[+Path] {
           .traverse_ { case (_, w) => w }
           .as(ExitCode.Success)
 
-      case Output.PackageGroup(packages, dependencies, implementation, signature) =>
+      case Output.PackageGroup(group, implementation, signature) =>
         for {
-          bundle <- moduleIOMonad.fromTry(PackageSignatures.encode(packages.map(Package.interfaceOf(_))))
-          requirements <- moduleIOMonad.fromTry(dependencies.traverse(PackageSignatures.requirement))
-          compiled <- moduleIOMonad.fromTry(ProtoConverter.packagesToProto(packages))
-          _ <- writeInterfaceBundle(bundle, signature)
-          _ <- writePackageBundle(compiled.withBuildRequirements(proto.BuildRequirements(requirements)), implementation)
+          bundle <- moduleIOMonad.fromTry(PackageSignatures.encode(
+            group.members.map(Package.interfaceOf(_))
+          ))
+          requirements <- moduleIOMonad.fromTry(PackageSignatures.buildRequirements(group))
+          compiled <- moduleIOMonad.fromTry(ProtoConverter.packagesToProto(group.members))
+          files = List(
+            signature -> Bytes.fromMessage(bundle),
+            implementation -> Bytes.fromMessage(
+              compiled.withBuildRequirements(requirements)
+            )
+          )
+          _ <- writeFileSetAtomic(files)
         } yield ExitCode.Success
 
       case Output.CompileOut(packList, ifout, output) =>
@@ -340,8 +347,7 @@ object Output {
       extends Output[Path]
 
   final case class PackageGroup[Path](
-      packages: List[Package.Compiled],
-      dependencies: List[Package.Interface],
+      group: CompilerApi.CompiledGroup[Path],
       implementation: Path,
       signature: Path
   ) extends Output[Path]

@@ -3,8 +3,10 @@ package dev.bosatsu
 import _root_.bosatsu.{TypedAst => proto}
 import cats.effect.IO
 import dev.bosatsu.Identifier.{Constructor, Name}
+import dev.bosatsu.hashing.Algo
 import dev.bosatsu.rankn.{Type, TypeAlias}
-import java.nio.file.{Files, Path}
+import dev.bosatsu.tool.PackageBindings
+import java.nio.file.{Files, Path, Paths}
 
 class CompilePackagesCommandTest extends FileCommandFixtures {
   private def compile(
@@ -23,6 +25,106 @@ class CompilePackagesCommandTest extends FileCommandFixtures {
 
   private def bytes(root: Path, name: String): List[Byte] =
     Files.readAllBytes(root.resolve(name)).toList
+
+  private def scope(kind: String, member: String): Json = Json.JObject(List(
+    "kind" -> Json.JString(kind),
+    "member" -> Json.JString(member)
+  ))
+
+  private def libraryScope(name: String, version: String): Json = Json.JObject(List(
+    "kind" -> Json.JString("library"),
+    "identity" -> Json.JObject(List(
+      "name" -> Json.JString(name), "version" -> Json.JString(version)
+    ))
+  ))
+
+  private def emptyToolchain: String = {
+    val digest = Algo.hashBytes[Algo.Sha256](Array.emptyByteArray).hex
+    Json.JObject(List(
+      "schema_version" -> Json.JNumberStr("1"),
+      "compiler" -> Json.JObject(List(
+        "uri" -> Json.JString("unused"), "sha256" -> Json.JString(digest)
+      )),
+      "core" -> Json.JObject(List(
+        "library_name" -> Json.JString("bosatsu"),
+        "version" -> Json.JString("1.2.3"),
+        "uri" -> Json.JString("unused"),
+        "sha256" -> Json.JString(digest)
+      )),
+      "c_runtime" -> Json.JObject(List(
+        "uri" -> Json.JString("unused"), "sha256" -> Json.JString(digest)
+      )),
+      "core_sources" -> Json.JNull
+    )).render
+  }
+
+  private def emptyDependencyContext: String = Json.JObject(List(
+    "schema_version" -> Json.JNumberStr("1"),
+    "libraries" -> Json.JArray(Vector.empty)
+  )).render
+
+  private def writeLocalScopeInputs(root: Path): IO[Unit] = {
+    val client = PackageName.parts("Client")
+    val provider = PackageName.parts("Provider")
+    val dependencies = Json.JArray(Vector(Json.JObject(List(
+      "from" -> scope("member", client.asString),
+      "package" -> Json.JString(provider.asString),
+      "to" -> scope("member", provider.asString)
+    ))))
+    val bindings = Json.JArray(Vector(Json.JObject(List(
+      "referrer" -> scope("member", client.asString),
+      "package" -> Json.JString(provider.asString),
+      "provider" -> scope("member", provider.asString)
+    ))))
+    val scopeMap = Json.JObject(List(
+      "schema_version" -> Json.JNumberStr("1"),
+      "members" -> Json.JArray(Vector(Json.JString(client.asString), Json.JString(provider.asString))),
+      "dependencies" -> dependencies,
+      "imports" -> Json.JArray(Vector.empty),
+      "bindings" -> bindings
+    )).render
+    val publicIndex = Json.JObject(List(
+      "schema_version" -> Json.JNumberStr("1"),
+      "packages" -> Json.JArray(Vector.empty)
+    )).render
+    write(root, "scope.json", scopeMap) *>
+      write(root, "scope-index.json", publicIndex) *>
+      write(root, "dependencies.json", emptyDependencyContext) *>
+      write(root, "toolchain.json", emptyToolchain)
+  }
+
+  private def scopedArgs(out: String): List[String] =
+    List(
+      "compile-packages", "--src", "Client.bosatsu", "--src", "Provider.bosatsu",
+      "--packages-out", s"$out.pkg", "--sig-out", s"$out.sig",
+      "--scope-map", "scope.json", "--dependency-context", "dependencies.json",
+      "--toolchain-manifest", "toolchain.json"
+    )
+
+  private def hashes(bytes: Array[Byte]): List[String] = List(
+    s"blake3:${Algo.hashBytes[Algo.Blake3](bytes).hex}",
+    s"sha256:${Algo.hashBytes[Algo.Sha256](bytes).hex}"
+  )
+
+  private def inspectSharedLibrary(
+      root: Path,
+      runner: FileCommandRunner
+  ): IO[List[String]] = {
+    val fixture = Paths.get("test_workspace/inspect_library/shared-v1.0.0.bosatsu_lib")
+    val context = emptyDependencyContext
+    for {
+      bytes <- IO.blocking(Files.readAllBytes(fixture))
+      _ <- IO.blocking(Files.write(root.resolve("shared.lib"), bytes))
+      _ <- write(root, "inspect-context.json", context)
+      args = List(
+        "inspect-library", "--input", "shared.lib", "--expected-name", "shared",
+        "--expected-version", "1.0.0", "--dependency-context", "inspect-context.json",
+        "--sig-out", "shared.sig", "--exposures-out", "shared-index.json"
+      ) ::: hashes(bytes).flatMap(hash => List("--expected-hash", hash))
+      inspected <- runner.run(root, args)
+      _ = success(inspected)
+    } yield hashes(bytes)
+  }
 
   test("batch outputs contain only the member packages and preserve private test discovery") {
     withRunner { (root, runner) =>
@@ -72,6 +174,191 @@ class CompilePackagesCommandTest extends FileCommandFixtures {
         publicEdit <- compile(runner, root, "group", List("Base", "Local"), Nil)
         _ = success(publicEdit)
         _ = assertNotEquals(bytes(root, "group.sig"), originalSig)
+      } yield ()
+    }
+  }
+
+  test("scoped compilation publishes source-owner bindings and an explicit empty member context") {
+    withRunner { (root, runner) =>
+      val client = "package Client\nfrom Provider import value\nexport main\nmain = value\n"
+      val provider = "package Provider\nexport value\nvalue = 42\n"
+      for {
+        _ <- write(root, "Client.bosatsu", client)
+        _ <- write(root, "Provider.bosatsu", provider)
+        _ <- writeLocalScopeInputs(root)
+        result <- runner.run(root, scopedArgs("scoped"))
+        _ = success(result)
+        bundle <- IOPlatformIO.read[proto.Packages](root.resolve("scoped.pkg"))
+        metadata = bundle.buildRequirements.get
+        _ = assertEquals(metadata.scopedVersion, 1)
+        _ = assertEquals(metadata.interfaces, Seq.empty)
+        _ = assertEquals(metadata.members.map(_.memberName), Seq("Client", "Provider"))
+        parsed <- IO.fromTry(PackageSignatures.parseBuildRequirements(metadata))
+        _ = parsed match {
+          case PackageSignatures.ParsedBuildRequirements.Scoped(members) =>
+            val clientRequirements = members.find(_.member == PackageName.parts("Client")).get
+            assertEquals(clientRequirements.bindings.map(_.owner.scope),
+              List(PackageBindings.Scope.Member(PackageName.parts("Provider"))))
+            assertEquals(clientRequirements.interfaces, Nil)
+            val providerRequirements = members.find(_.member == PackageName.parts("Provider")).get
+            assertEquals(providerRequirements.bindings, Nil)
+          case other => fail(s"expected scoped requirements, found $other")
+        }
+        partial <- runner.run(root, scopedArgs("partial").take(10) ::: List("scope.json"))
+        _ = failure(partial)
+        _ = assert(partial.stderr.contains("requires --scope-map"), partial.stderr)
+        _ <- write(root, "Extra.bosatsu", "package Extra\nexport value\nvalue = 1\n")
+        extra <- compile(runner, root, "extra", List("Extra"), Nil)
+        _ = success(extra)
+        unused <- runner.run(root, scopedArgs("unused") :::
+          List("--direct-interface", "extra.sig", "--error-unused-interfaces"))
+        _ = failure(unused)
+        _ = assert(unused.stderr.contains("unused direct interfaces: extra.sig"), unused.stderr)
+        _ <- IO.blocking(Files.createDirectory(root.resolve("recover.sig")))
+        _ <- write(root, "recover.pkg", "previous implementation")
+        failedPublish <- runner.run(root, scopedArgs("recover"))
+        _ = failure(failedPublish)
+        previous <- read(root, "recover.pkg")
+        _ = assertEquals(previous, "previous implementation")
+      } yield ()
+    }
+  }
+
+  test("scoped compilation authenticates imported bytes before replacing outputs") {
+    withRunner { (root, runner) =>
+      val digest = "0" * 64
+      val identity = Json.JObject(List(
+        "name" -> Json.JString("pinned"), "version" -> Json.JString("1.0.0")
+      ))
+      val publicIndex = Json.JObject(List(
+        "schema_version" -> Json.JNumberStr("1"), "packages" -> Json.JArray(Vector.empty)
+      )).render
+      val imports = Json.JArray(Vector(Json.JObject(List(
+        "identity" -> identity,
+        "signature_path" -> Json.JString("pinned.sig"),
+        "public_index_path" -> Json.JString("pinned-index.json")
+      ))))
+      val scopeMap = Json.JObject(List(
+        "schema_version" -> Json.JNumberStr("1"),
+        "members" -> Json.JArray(Vector(Json.JString("Client"))),
+        "dependencies" -> Json.JArray(Vector.empty),
+        "imports" -> imports,
+        "bindings" -> Json.JArray(Vector.empty)
+      )).render
+      val dependencyContext = Json.JObject(List(
+        "schema_version" -> Json.JNumberStr("1"),
+        "libraries" -> Json.JArray(Vector(Json.JObject(List(
+          "name" -> Json.JString("pinned"),
+          "version" -> Json.JString("1.0.0"),
+          "path" -> Json.JString("pinned.lib"),
+          "hashes" -> Json.JArray(Vector(Json.JString(s"blake3:$digest")))
+        ))))
+      )).render
+      for {
+        _ <- write(root, "Client.bosatsu", "package Client\nexport main\nmain = 1\n")
+        _ <- write(root, "scope.json", scopeMap)
+        _ <- write(root, "pinned-index.json", publicIndex)
+        _ <- write(root, "dependencies.json", dependencyContext)
+        _ <- write(root, "toolchain.json", emptyToolchain)
+        _ <- write(root, "pinned.lib", "not a pinned library")
+        _ <- IOPlatformIO.writeInterfaceBundle(proto.Interfaces(), root.resolve("pinned.sig"))
+        _ <- write(root, "protected.pkg", "previous implementation")
+        _ <- write(root, "protected.sig", "previous signature")
+        args = List(
+          "compile-packages", "--src", "Client.bosatsu", "--direct-interface", "pinned.sig",
+          "--packages-out", "protected.pkg", "--sig-out", "protected.sig",
+          "--scope-map", "scope.json", "--dependency-context", "dependencies.json",
+          "--toolchain-manifest", "toolchain.json"
+        )
+        failed <- runner.run(root, args)
+        _ = failure(failed)
+        _ = assert(failed.stderr.contains("blake3 pin mismatch"), failed.stderr)
+        previousImpl <- read(root, "protected.pkg")
+        previousSig <- read(root, "protected.sig")
+        _ = assertEquals(previousImpl, "previous implementation")
+        _ = assertEquals(previousSig, "previous signature")
+      } yield ()
+    }
+  }
+
+  test("scoped compilation selects an authenticated imported owner and records its interface digest") {
+    withRunner { (root, runner) =>
+      val library = "shared"
+      val version = "1.0.0"
+      val identity = Json.JObject(List(
+        "name" -> Json.JString(library), "version" -> Json.JString(version)
+      ))
+      val member = PackageName.parts("Client")
+      val packageName = PackageName.parts("Shared/Api")
+      for {
+        hashes <- inspectSharedLibrary(root, runner)
+        _ <- write(root, "Client.bosatsu",
+          "package Client\nfrom Shared/Api import pick\nexport main\nmain = pick(1)\n")
+        dependency = Json.JObject(List(
+          "from" -> scope("member", member.asString),
+          "package" -> Json.JString(packageName.asString),
+          "to" -> libraryScope(library, version)
+        ))
+        binding = Json.JObject(List(
+          "referrer" -> scope("member", member.asString),
+          "package" -> Json.JString(packageName.asString),
+          "provider" -> libraryScope(library, version),
+          "interface_path" -> Json.JString("shared.sig")
+        ))
+        scopeMap = Json.JObject(List(
+          "schema_version" -> Json.JNumberStr("1"),
+          "members" -> Json.JArray(Vector(Json.JString(member.asString))),
+          "dependencies" -> Json.JArray(Vector(dependency)),
+          "imports" -> Json.JArray(Vector(Json.JObject(List(
+            "identity" -> identity,
+            "signature_path" -> Json.JString("shared.sig"),
+            "public_index_path" -> Json.JString("shared-index.json"),
+            "label" -> Json.JString("//shared:api")
+          )))),
+          "bindings" -> Json.JArray(Vector(binding))
+        )).render
+        libraryRecord = Json.JObject(List(
+          "name" -> Json.JString(library),
+          "version" -> Json.JString(version),
+          "path" -> Json.JString("shared.lib"),
+          "hashes" -> Json.JArray(hashes.map(Json.JString(_)).toVector)
+        ))
+        dependencyContext = Json.JObject(List(
+          "schema_version" -> Json.JNumberStr("1"),
+          "libraries" -> Json.JArray(Vector(libraryRecord))
+        )).render
+        _ <- write(root, "scope.json", scopeMap)
+        _ <- write(root, "dependencies.json", dependencyContext)
+        _ <- write(root, "toolchain.json", emptyToolchain)
+        result <- runner.run(root, List(
+          "compile-packages", "--src", "Client.bosatsu", "--direct-interface", "shared.sig",
+          "--error-unused-interfaces", "--packages-out", "scoped.pkg", "--sig-out", "scoped.sig",
+          "--scope-map", "scope.json", "--dependency-context", "dependencies.json",
+          "--toolchain-manifest", "toolchain.json"
+        ))
+        _ = success(result)
+        bundle <- IOPlatformIO.read[proto.Packages](root.resolve("scoped.pkg"))
+        metadata = bundle.buildRequirements.get
+        parsed <- IO.fromTry(PackageSignatures.parseBuildRequirements(metadata))
+        sharedInterfaces <- IOPlatformIO.readInterfaces(List(root.resolve("shared.sig")))
+        expected <- IO.fromTry(PackageSignatures.requirement(
+          sharedInterfaces.find(_.name == packageName).get
+        ))
+        _ = parsed match {
+          case PackageSignatures.ParsedBuildRequirements.Scoped(List(requirement)) =>
+            assertEquals(requirement.member, member)
+            assertEquals(requirement.bindings.map(_.packageName), List(packageName))
+            requirement.bindings.head.owner.scope match {
+              case PackageBindings.Scope.Library((name, selectedVersion)) =>
+                assertEquals(name.name, library)
+                assertEquals(selectedVersion.render, version)
+              case other => fail(s"expected library owner, found $other")
+            }
+            assertEquals(requirement.interfaces, List(
+              PackageSignatures.InterfaceDigest(packageName, expected.interfaceBlake3)
+            ))
+          case other => fail(s"expected one scoped member, found $other")
+        }
       } yield ()
     }
   }
