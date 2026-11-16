@@ -5,7 +5,7 @@ import cats.effect.IO
 import cats.syntax.all._
 import dev.bosatsu.Identifier.{Constructor, Name}
 import dev.bosatsu.hashing.Algo
-import dev.bosatsu.rankn.{Type, TypeAlias}
+import dev.bosatsu.rankn.{DefinedType, Type, TypeAlias}
 import dev.bosatsu.tool.{CliException, LibraryInspection, PackageBindings, ToolchainManifest}
 import java.nio.file.{Files, Path, Paths}
 
@@ -37,6 +37,11 @@ class CompilePackagesCommandTest extends FileCommandFixtures {
     "identity" -> Json.JObject(List(
       "name" -> Json.JString(name), "version" -> Json.JString(version)
     ))
+  ))
+
+  private def localSignatureScope(packageName: PackageName): Json = Json.JObject(List(
+    "kind" -> Json.JString("local-signature"),
+    "package" -> Json.JString(packageName.asString)
   ))
 
   private def emptyToolchain: String = {
@@ -485,6 +490,173 @@ class CompilePackagesCommandTest extends FileCommandFixtures {
         decoded <- IOPlatformIO.readPackagesScoped(root.resolve("scoped.pkg"), checked, ownerInterfaces)
         _ = assertEquals(decoded.map(_.pack.name), List(one, two))
         _ = assert(decoded.forall(_.context.size == 1))
+      } yield ()
+    }
+  }
+
+  test("scoped compilation carries external local signatures and exposure owners through decoding") {
+    withRunner { (root, runner) =>
+      val client = PackageName.parts("Local/Client")
+      val facade = PackageName.parts("Local/Facade")
+      val types = PackageName.parts("Local/Types")
+      val tokenName = TypeName(Constructor("Token"))
+      val token = DefinedType(types, tokenName, Nil, Nil)
+      val typesIface: Package.Interface = Package(types, Nil, List(
+        ExportedName.TypeName(tokenName.ident, Referant.DefinedT(token))
+      ), ())
+      val facadeIface: Package.Interface = Package(facade, Nil, List(
+        ExportedName.Binding(
+          Name("token"), Referant.Value(Type.const(types, tokenName))
+        )
+      ), ())
+      val clientScope = scope("member", client.asString)
+      val facadeScope = localSignatureScope(facade)
+      val typesScope = localSignatureScope(types)
+      val scopeMap = Json.JObject(List(
+        "schema_version" -> Json.JNumberStr("1"),
+        "members" -> Json.JArray(Vector(Json.JString(client.asString))),
+        "dependencies" -> Json.JArray(Vector(
+          Json.JObject(List(
+            "from" -> clientScope,
+            "package" -> Json.JString(facade.asString),
+            "to" -> facadeScope
+          )),
+          Json.JObject(List(
+            "from" -> clientScope,
+            "package" -> Json.JString(types.asString),
+            "to" -> typesScope
+          ))
+        )),
+        "imports" -> Json.JArray(Vector.empty),
+        "bindings" -> Json.JArray(Vector(
+          Json.JObject(List(
+            "referrer" -> clientScope,
+            "package" -> Json.JString(facade.asString),
+            "provider" -> facadeScope,
+            "interface_path" -> Json.JString("facade.sig")
+          )),
+          Json.JObject(List(
+            "referrer" -> facadeScope,
+            "package" -> Json.JString(types.asString),
+            "provider" -> typesScope,
+            "interface_path" -> Json.JString("types.sig")
+          )),
+          Json.JObject(List(
+            "referrer" -> clientScope,
+            "package" -> Json.JString(types.asString),
+            "provider" -> typesScope,
+            "interface_path" -> Json.JString("types.sig")
+          ))
+        ))
+      )).render
+
+      for {
+        _ <- write(root, "Client.bosatsu",
+          "package Local/Client\nfrom Local/Facade import token\nexport value\nexposes Local/Types\nvalue = token\n")
+        facadeBundle <- IO.fromTry(PackageSignatures.encode(List(facadeIface)))
+        typesBundle <- IO.fromTry(PackageSignatures.encode(List(typesIface)))
+        _ <- IOPlatformIO.writeInterfaceBundle(facadeBundle, root.resolve("facade.sig"))
+        _ <- IOPlatformIO.writeInterfaceBundle(typesBundle, root.resolve("types.sig"))
+        _ <- write(root, "scope.json", scopeMap)
+        _ <- write(root, "dependencies.json", emptyDependencyContext)
+        _ <- write(root, "toolchain.json", emptyToolchain)
+        args = List(
+          "compile-packages", "--src", "Client.bosatsu",
+          "--direct-interface", "facade.sig", "--direct-interface", "types.sig",
+          "--scope-map", "scope.json", "--dependency-context", "dependencies.json",
+          "--toolchain-manifest", "toolchain.json", "--error-unused-interfaces",
+          "--packages-out", "scoped.pkg", "--sig-out", "scoped.sig"
+        )
+        compiled <- runner.run(root, args)
+        _ = success(compiled)
+        bundle <- IOPlatformIO.read[proto.Packages](root.resolve("scoped.pkg"))
+        requirements <- IO.fromTry(PackageSignatures.parseBuildRequirements(bundle.buildRequirements.get))
+        _ = requirements match {
+          case PackageSignatures.ParsedBuildRequirements.Scoped(List(member)) =>
+            assertEquals(member.member, client)
+            assertEquals(member.bindings.map(_.referrer), List(
+              PackageBindings.Scope.Member(client), PackageBindings.Scope.Member(client),
+              PackageBindings.Scope.Local(facade)
+            ))
+            assertEquals(member.bindings.map(_.owner.scope), List(
+              PackageBindings.Scope.Local(facade), PackageBindings.Scope.Local(types),
+              PackageBindings.Scope.Local(types)
+            ))
+            assertEquals(member.interfaces.map(_.packageName), List(facade, types).sorted)
+          case other => fail(s"expected external local requirements, found $other")
+        }
+        storedTypesBundle <- IOPlatformIO.readInterfaceBundle(root.resolve("types.sig"))
+        checkedMap <- PackageBindings.read(
+          IOPlatformIO,
+          root.resolve("scope.json"),
+          List(Paths.get("facade.sig"), Paths.get("types.sig"))
+        )
+        localBundles = List(
+          PackageSignatures.Input(Paths.get("facade.sig"), None) -> facadeBundle,
+          PackageSignatures.Input(Paths.get("types.sig"), None) -> storedTypesBundle
+        )
+        localRoots <- IO.fromTry(PackageSignatures.localInterfaces(localBundles)(using IOPlatformIO.showPath))
+        checked <- IO.fromEither(PackageBindings.validateAgainstInspection(
+          checkedMap,
+          PackageBindings.indexFromPackages(Nil),
+          List(PackageBindings.ScopeDependency(
+            PackageBindings.Scope.Member(client), facade, PackageBindings.Scope.Local(facade)
+          ), PackageBindings.ScopeDependency(
+            PackageBindings.Scope.Member(client), types, PackageBindings.Scope.Local(types)
+          )),
+          Map(client -> Some(List(types))),
+          localRoots
+        ).leftMap(CliException.Basic(_)))
+        decodedInterfaces <- IOPlatformIO.readInterfaces(List(
+          root.resolve("facade.sig"), root.resolve("types.sig")
+        ))
+        ownerInterfaces = decodedInterfaces.map(iface =>
+          PackageBindings.PackageOwner(PackageBindings.Scope.Local(iface.name), iface.name) -> iface
+        ).toMap
+        decoded <- IOPlatformIO.readPackagesScoped(root.resolve("scoped.pkg"), checked, ownerInterfaces)
+        _ = assertEquals(decoded.map(_.pack.name), List(client))
+        _ = assertEquals(decoded.head.context.map(_.owner.scope), List(
+          PackageBindings.Scope.Local(facade), PackageBindings.Scope.Local(types),
+          PackageBindings.Scope.Local(types)
+        ))
+        missingContext = ProtoConverter.packagesFromProtoScoped(
+          bundle, checked, ownerInterfaces - PackageBindings.PackageOwner(
+            PackageBindings.Scope.Local(types), types
+          )
+        )
+        _ = assert(missingContext.failed.get.getMessage.contains("missing interface context"))
+        changedTokenAlias = TypeAlias(types, tokenName, Nil, Type.IntType)
+        changedTypesIface = (Package(types, Nil, List(
+          ExportedName.TypeName(tokenName.ident, Referant.TypeAliasT(changedTokenAlias))
+        ), ()): Package.Interface)
+        switchedSignature = ProtoConverter.packagesFromProtoScoped(
+          bundle,
+          checked,
+          ownerInterfaces.updated(
+            PackageBindings.PackageOwner(PackageBindings.Scope.Local(types), types),
+            changedTypesIface
+          )
+        )
+        _ = assert(switchedSignature.failed.get.getMessage.contains("stale public interface"))
+        originalRequirements = bundle.buildRequirements.get
+        exposedBindingOmitted = originalRequirements.copy(members =
+          originalRequirements.members.map { member =>
+            if (member.memberName == client.asString)
+              member.copy(
+                bindings = member.bindings.filterNot(_.packageName == types.asString),
+                interfaces = member.interfaces.filterNot(_.packageName == types.asString)
+              )
+            else member
+          }
+        )
+        incomplete = ProtoConverter.packagesFromProtoScoped(
+          bundle.copy(buildRequirements = Some(exposedBindingOmitted)), checked, ownerInterfaces
+        )
+        _ = assert(incomplete.failed.get.getMessage.contains("missing selected exposure binding"))
+        _ <- IOPlatformIO.writeInterfaceBundle(proto.Interfaces(Nil), root.resolve("unused.sig"))
+        unused <- runner.run(root, args ::: List("--direct-interface", "unused.sig"))
+        _ = failure(unused)
+        _ = assert(unused.stderr.contains("unused direct interfaces: unused.sig"), unused.stderr)
       } yield ()
     }
   }

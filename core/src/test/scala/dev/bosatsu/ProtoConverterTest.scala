@@ -886,7 +886,8 @@ main = dep_value
   }
 
   private def checkedScopedBindings(
-      members: List[PackageSignatures.MemberRequirements]
+      members: List[PackageSignatures.MemberRequirements],
+      publicPackages: List[PackageBindings.PublicPackage] = Nil
   ): PackageBindings.CheckedScopeMap[String] = {
     import PackageBindings.BindingKey
     val memberNames = members.map(_.member)
@@ -901,7 +902,7 @@ main = dep_value
         )
       }
     )(using PackageBindings.bindingKeyOrdering)
-    val index = PackageBindings.indexFromPackages(Nil)
+    val index = PackageBindings.indexFromPackages(publicPackages)
     val identitiesOrdering = Ordering.Tuple2(using LibraryName.orderingName, Version.versionOrdering)
     val scopeMap = PackageBindings.ScopeMap(
       members = SortedSet.from(memberNames),
@@ -960,6 +961,7 @@ main = dep_value
     )
     def scopeToProto(scope: Scope): proto.BuildScope = scope match {
       case Scope.Member(member) => proto.BuildScope(kind = "member", memberName = member.asString)
+      case Scope.Local(name) => proto.BuildScope(kind = "local", memberName = name.asString)
       case Scope.Library((name, version)) => proto.BuildScope(
         kind = "library", libraryName = name.name, libraryVersion = Some(version.toProto)
       )
@@ -988,7 +990,10 @@ main = dep_value
       packages = List(ProtoConverter.packageToProto(one).get, ProtoConverter.packageToProto(two).get),
       buildRequirements = Some(buildRequirements)
     )
-    val checked = checkedScopedBindings(memberRequirements)
+    val checked = checkedScopedBindings(memberRequirements, List(
+      PackageBindings.PublicPackage(libraryOne, apiName, SortedMap.empty),
+      PackageBindings.PublicPackage(libraryTwo, apiName, SortedMap.empty)
+    ))
     val supplied = Map(ownerOne -> apiOne, ownerTwo -> apiTwo)
 
     val decoded = ProtoConverter.packagesFromProtoScoped(bundle, checked, supplied).get
@@ -1045,6 +1050,7 @@ main = dep_value
 
     def scopeToProto(scope: Scope): proto.BuildScope = scope match {
       case Scope.Member(member) => proto.BuildScope(kind = "member", memberName = member.asString)
+      case Scope.Local(name) => proto.BuildScope(kind = "local", memberName = name.asString)
       case Scope.Library((name, version)) => proto.BuildScope(
         kind = "library", libraryName = name.name, libraryVersion = Some(version.toProto)
       )
@@ -1158,15 +1164,21 @@ main = dep_value
           PackageSignatures.requirement(leafIface).get.interfaceBlake3)
       )
     )
-    val exposureChecked = checkedScopedBindings(List(fullRequirements))
+    val exposureChecked = checkedScopedBindings(List(fullRequirements), List(
+      PackageBindings.PublicPackage(libraryIdentity, facadeName, SortedMap(
+        leafName -> PackageBindings.PublicProvider.Library(libraryIdentity, List(libraryIdentity))
+      )),
+      PackageBindings.PublicPackage(libraryIdentity, leafName, SortedMap.empty)
+    ))
     val exposureProviders = Map(facadeOwner -> facadeIface, leafOwner -> leafIface)
     val exposureBundle = proto.Packages(
       List(ProtoConverter.packageToProto(exposureClient).get),
       Some(bundleRequirements(List(fullRequirements)))
     )
-    assert(ProtoConverter.packagesFromProtoScoped(
+    val decodedExposure = ProtoConverter.packagesFromProtoScoped(
       exposureBundle, exposureChecked, exposureProviders
-    ).isSuccess)
+    )
+    assert(decodedExposure.isSuccess, decodedExposure.failed.toOption.map(_.getMessage).getOrElse(""))
 
     val omittedLeaf = fullRequirements.copy(
       bindings = fullRequirements.bindings.filterNot(_.packageName == leafName),

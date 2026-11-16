@@ -3,7 +3,7 @@ package dev.bosatsu.tool_command
 import cats.data.Validated
 import cats.syntax.all._
 import com.monovore.decline.Opts
-import dev.bosatsu.PlatformIO
+import dev.bosatsu.{PackageSignatures, PlatformIO}
 import dev.bosatsu.graph.CanPromise
 import dev.bosatsu.tool.{
   GroupGraph,
@@ -30,7 +30,7 @@ object ValidateGraphCommand {
       inputs: MixedInputs[Path],
       output: Path
   ): F[Output[Path]] = {
-    import platform.moduleIOMonad
+    import platform.{moduleIOMonad, showPath}
     platform.withEC {
       given CanPromise[F] = platform.canPromiseF
       for {
@@ -47,13 +47,24 @@ object ValidateGraphCommand {
           dependencyContext,
           toolchain
         )
+        importedSignaturePaths = scopeMap.imports.valuesIterator.map(_.signature.path).toList
+        localSignaturePaths = inputs.directInterfaces.filterNot(path =>
+          importedSignaturePaths.exists(imported =>
+            platform.pathOrdering.compare(path, imported) == 0
+          )
+        )
+        localSignatureBundles <- localSignaturePaths.traverse { path =>
+          platform.readInterfaceBundle(path).map(bundle => PackageSignatures.Input(path, None) -> bundle)
+        }
+        localInterfaces <- moduleIOMonad.fromTry(PackageSignatures.localInterfaces(localSignatureBundles))
         _ <- GroupGraph.validateMixed(
           root,
           nodes.toSet,
           scope,
           scopeMap,
           importedInputs.publicIndex,
-          platform.pathToString
+          platform.pathToString,
+          localInterfaces
         )(GroupGraph.readNode(platform, _, _))
       } yield Output.Basic(Doc.text("ok"), Some(output)): Output[Path]
     }

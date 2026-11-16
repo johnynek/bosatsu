@@ -832,6 +832,8 @@ object CompilerApi {
       }
     }
 
+    val localInterfaces = PackageSignatures.localInterfaces(directBundles)
+
     val signatureInputs = authenticatedBundles.flatMap { libraryBundles =>
       val all = directBundles ::: libraryBundles
       val order = summon[Ordering[Path]]
@@ -853,12 +855,14 @@ object CompilerApi {
 
     for {
       allBundles <- signatureInputs.toTry
+      localSignatureRoots <- localInterfaces
       checked <- PackageBindings
         .validateAgainstInspection(
           scopeMap,
           imported.publicIndex,
           sourceDependencies,
-          sources.iterator.map(source => source.member -> Some(source.exposes)).toMap
+          sources.iterator.map(source => source.member -> Some(source.exposes)).toMap,
+          localSignatureRoots
         )
         .leftMap(CliException.Basic(_))
         .toTry

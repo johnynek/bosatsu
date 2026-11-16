@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2495` 0m: Preserve per-member imported bindings through validation and compilation
-- Pending steps: `2`
-- Completed steps: `14`
+- Pending steps: `1`
+- Completed steps: `15`
 - Total steps: `16`
 
 ## Summary
@@ -554,7 +554,7 @@ Add focused regressions and property checks in PackageBindingsTest, PackageSigna
 
 Added a required-root member-closure resolver in PackageBindings with composed routes, source-provider public exposures, and per-member library release checks. Routed scoped PackageSignatures planning and mixed graph validation through it, removing their duplicate closure walk. Added regressions for missing bindings, source exposure metadata, disjoint selections, and conflict routes. The focused JVM core suites passed (44 tests), CLI validation suite passed (11 tests), and matching coreJS suites passed (44 tests). External local signatures, persisted requirements, and scoped decoding remain for the continuation.
 
-15. [ ] `step_8_external_local_and_decoder_closure` Carry external local signature owners through scoped decoding
+15. [x] `step_8_external_local_and_decoder_closure` Carry external local signature owners through scoped decoding
 
 Invariant family: `caller-relative-binding-closure`.
 
@@ -590,6 +590,10 @@ Complete this step when scoped compilation planning, mixed graph validation, ser
 - Scoped requirements round-trip external local owners; changing a selected provider at the same path is rejected even when signature bytes match.
 - Scoped typed-bundle decoding resolves current-bundle sources and explicitly supplied external local signatures through the shared closure resolver, and rejects missing or forged closure context.
 - Existing standalone bundle and LocalRuntime suites preserve legacy compatibility and reject scoped requirements when required owner context is unavailable.
+
+#### Completion Notes
+
+Added external local signature owners and exposure closure through the shared PackageBindings resolver, scoped compilation and selection, mixed graph validation, serialized requirements, and scoped bundle decoding. Decoding recomputes closure from encoded imports and decoded public exposures, verifies persisted bindings and interface digests, and returns the resolved context. Standalone readers reject bundles that require unavailable local signature context. Added regressions for selection ambiguity, strict unused interfaces, mixed graph exposure, requirement round-trips, missing context, stale signatures, and omitted bindings. Focused JVM and Scala.js core suites, CompilePackagesCommandTest, ValidateGraphCommandTest, and StrictInterfacesCommandTest passed; `git diff --check` passed.
 
 16. [ ] `step_9_binding_closure_acceptance` Exercise repaired closures through workers and document the contract
 

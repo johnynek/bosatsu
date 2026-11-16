@@ -92,6 +92,7 @@ object PackageSignatures {
 
   private def scopeToProto(scope: Scope): proto.BuildScope = scope match {
     case Scope.Member(name) => proto.BuildScope(kind = "member", memberName = name.asString)
+    case Scope.Local(name) => proto.BuildScope(kind = "local", memberName = name.asString)
     case Scope.Library((name, version)) => proto.BuildScope(
       kind = "library",
       libraryName = name.name,
@@ -109,9 +110,12 @@ object PackageSignatures {
     case dev.bosatsu.tool.CompilerApi.CompilationContext.Scoped(members) =>
       members.toList.sortBy(_._1).traverse { case (member, compiled) =>
         val bindings = compiled.bindings.sortBy(_.key)(using PackageBindings.bindingKeyOrdering)
-        val externalOwners = bindings.iterator.collect {
-          case binding if binding.owner.scope.isInstanceOf[Scope.Library] => binding.owner
-        }.toList
+        val externalOwners = bindings.iterator.filter { binding =>
+          binding.owner.scope match {
+            case Scope.Library(_) | Scope.Local(_) => true
+            case _ => false
+          }
+        }.map(_.owner).toList
         val ownersByName = externalOwners.foldLeft(
           scala.collection.immutable.SortedMap.empty[PackageName, PackageOwner]
         ) { (owners, owner) =>
@@ -178,6 +182,10 @@ object PackageSignatures {
         if (raw.memberName.isEmpty || raw.libraryName.nonEmpty || raw.libraryVersion.isDefined)
           throw CliException.Basic("contradictory member scope fields")
         Scope.Member(parsePackage(raw.memberName, "scope member"))
+      case "local" =>
+        if (raw.memberName.isEmpty || raw.libraryName.nonEmpty || raw.libraryVersion.isDefined)
+          throw CliException.Basic("contradictory local signature scope fields")
+        Scope.Local(parsePackage(raw.memberName, "scope local signature"))
       case "library" =>
         if (raw.libraryName.isEmpty || raw.memberName.nonEmpty || raw.libraryVersion.isEmpty)
           throw CliException.Basic("contradictory library scope fields")
@@ -238,7 +246,7 @@ object PackageSignatures {
           }
           val interfaces = parseDigests(record.interfaces)
           val externalNames = ownerByPackage.valuesIterator.collect {
-            case PackageOwner(Scope.Library(_), packageName) => packageName
+            case PackageOwner(Scope.Library(_) | Scope.Local(_), packageName) => packageName
           }.toList.distinct.sorted
           val interfaceNames = interfaces.map(_.packageName)
           if (externalNames != interfaceNames)
@@ -249,8 +257,17 @@ object PackageSignatures {
             binding.owner.scope match {
               case Scope.Member(owner) if owner != binding.owner.packageName =>
                 throw CliException.Basic("source binding owner and package disagree")
+              case Scope.Local(owner) if owner != binding.owner.packageName =>
+                throw CliException.Basic("local signature binding owner and package disagree")
               case Scope.Predef if !binding.owner.packageName.isPredef =>
                 throw CliException.Basic("Predef binding owner must be Bosatsu/Predef")
+              case _ => ()
+            }
+            binding.referrer match {
+              case Scope.Local(name) if !ownerByPackage.get(name).exists(
+                    _.scope == Scope.Local(name)
+                  ) =>
+                throw CliException.Basic(s"unjustified local signature referrer ${name.asString}")
               case _ => ()
             }
           }
@@ -271,6 +288,8 @@ object PackageSignatures {
           binding.owner.scope match {
             case Scope.Member(name) if !memberSet(name) =>
               throw CliException.Basic(s"unknown binding owner member ${name.asString}")
+            case Scope.Local(name) if memberSet(name) =>
+              throw CliException.Basic(s"local signature owner ${name.asString} conflicts with bundle member")
             case _ => ()
           }
         }
@@ -486,6 +505,34 @@ object PackageSignatures {
     }
   }
 
+  /** Index package roots from directly declared non-library signatures for
+    * the shared caller-relative binding validator.
+    */
+  private[bosatsu] def localInterfaces[P: Show](
+      bundles: List[(Input[P], proto.Interfaces)]
+  ): Try[List[PackageBindings.LocalInterface[P]]] = Try {
+    bundles.flatMap { case (input, bundle) =>
+      val display = input.display
+      bundle.interfaces.toList.map { entry =>
+        val name = entry.strings.lift(entry.packageName - 1).flatMap(PackageName.parse)
+          .getOrElse(throw CliException.Basic(s"invalid root package name in $display"))
+        if (name.isPredef)
+          throw CliException.Basic("Predef cannot be provided by a local signature")
+        val root = Root(name, display, entry)
+        val exposures = root.dependencies.map { raw =>
+          PackageName.parse(raw).getOrElse(
+            throw CliException.Basic(s"invalid exposed package '$raw' in ${name.asString}")
+          )
+        }
+        PackageBindings.LocalInterface(
+          name,
+          PackageBindings.InterfaceSource(input.path, input.label),
+          exposures
+        )
+      }
+    }
+  }
+
   /** Within a stage, materialize external interfaces in dependency order, then
     * compile the sources together. Only an external interface referring back
     * to a source requires a stage boundary. Its actual owner must finish first.
@@ -641,6 +688,38 @@ object PackageSignatures {
             if (!sourceByName.contains(provider))
               throw CliException.Basic(s"unknown source member ${provider.asString}")
             sourceDependencies += provider
+          case Scope.Local(provider) =>
+            val packageName = binding.key.requiredPackage
+            val interfaceSource = binding.interface.getOrElse(
+              throw CliException.Basic(s"missing interface path for ${packageName.asString}")
+            )
+            val candidates = rootsByPathAndName.getOrElse(
+              (interfaceSource.path, packageName), Nil
+            )
+            val (input, root) = candidates match {
+              case one :: Nil => one
+              case Nil => throw CliException.Basic(
+                s"unknown local signature ${packageName.asString}, missing interface: " +
+                  binding.witnessPath.map(_.show).mkString(" -> ")
+              )
+              case many => throw CliException.Basic(
+                s"ambiguous local signature ${packageName.asString} in " +
+                  many.map(_._1.display).sorted.mkString(", ")
+              )
+            }
+            val owner = PackageOwner(Scope.Local(provider), packageName)
+            selected.get(packageName) match {
+              case Some(existing) if !PackageBindings.samePackageOwner(existing.owner, owner) ||
+                    summon[Ordering[P]].compare(existing.input.path, input.path) != 0 =>
+                throw CliException.Basic(
+                  s"conflicting local signature owners for ${packageName.asString}: " +
+                    s"${existing.input.display} and ${input.display}"
+                )
+              case _ =>
+                selected.update(packageName, SelectedInterface(
+                  owner, input, root.selectedEntry, root
+                ))
+            }
           case Scope.Predef => ()
           case Scope.Library(identity) =>
             val packageName = binding.key.requiredPackage

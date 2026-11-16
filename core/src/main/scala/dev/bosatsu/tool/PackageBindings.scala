@@ -35,6 +35,7 @@ private[bosatsu] object PackageBindings {
 
   enum Scope derives CanEqual {
     case Member(name: PackageName)
+    case Local(name: PackageName)
     case Library(identity: LibraryIdentity)
     case Predef
   }
@@ -44,6 +45,9 @@ private[bosatsu] object PackageBindings {
       case (Scope.Member(a), Scope.Member(b)) => summon[Ordering[PackageName]].compare(a, b)
       case (Scope.Member(_), _)               => -1
       case (_, Scope.Member(_))               => 1
+      case (Scope.Local(a), Scope.Local(b)) => summon[Ordering[PackageName]].compare(a, b)
+      case (Scope.Local(_), _)              => -1
+      case (_, Scope.Local(_))              => 1
       case (Scope.Library(a), Scope.Library(b)) => libraryIdentityOrdering.compare(a, b)
       case (Scope.Library(_), Scope.Predef)     => -1
       case (Scope.Predef, Scope.Library(_))     => 1
@@ -55,6 +59,7 @@ private[bosatsu] object PackageBindings {
   given Order[Scope] = Order.fromOrdering(using scopeOrdering)
   given Show[Scope] = Show.show {
     case Scope.Member(name)   => show"member $name"
+    case Scope.Local(name)    => show"local signature $name"
     case Scope.Library(id)    => show"library ${libraryIdentityShow.show(id)}"
     case Scope.Predef         => "compiler Predef"
   }
@@ -179,6 +184,13 @@ private[bosatsu] object PackageBindings {
 
   final case class InterfaceSource[Path](path: Path, label: Option[String])
 
+  /** One package root in a separately compiled, directly declared signature. */
+  final case class LocalInterface[Path](
+      packageName: PackageName,
+      source: InterfaceSource[Path],
+      exposures: List[PackageName]
+  )
+
   final case class ImportedScope[Path](
       identity: LibraryIdentity,
       signature: InterfaceSource[Path],
@@ -245,6 +257,10 @@ private[bosatsu] object PackageBindings {
       "kind" -> Json.JString("member"),
       "member" -> Json.JString(name.asString)
     ))
+    case Scope.Local(name) => Json.JObject(List(
+      "kind" -> Json.JString("local-signature"),
+      "package" -> Json.JString(name.asString)
+    ))
     case Scope.Library(identity) => Json.JObject(List(
       "kind" -> Json.JString("library"),
       "identity" -> identityJson(identity)
@@ -297,7 +313,8 @@ private[bosatsu] object PackageBindings {
   final case class CheckedScopeMap[Path](
       scopeMap: ScopeMap[Path],
       publicIndex: PublicIndex,
-      bindings: SortedMap[BindingKey, CheckedBinding[Path]]
+      bindings: SortedMap[BindingKey, CheckedBinding[Path]],
+      localInterfaces: List[LocalInterface[Path]] = Nil
   )
 
   /** Complete public closure for one consuming member. The retained routes
@@ -330,14 +347,17 @@ private[bosatsu] object PackageBindings {
   /** Resolve roots independently of the supplied binding list, then follow
     * only the selected providers' public exposures. Local providers require
     * explicit exposure metadata: `None` means the caller did not supply it,
-    * while `Some(Nil)` is a known empty public API.
+    * while `Some(Nil)` is a known empty public API. `requiredExposures` adds
+    * decoded member API roots after imports, avoiding redundant member
+    * bindings for exposures already reached through those imports.
     */
   def resolveMemberClosures[Path](
       requirements: List[(PackageName, List[PackageName])],
       checked: CheckedScopeMap[Path],
       memberExposures: Map[PackageName, Option[List[PackageName]]],
       builtinPredef: Boolean,
-      localPackages: Set[PackageName] = Set.empty
+      localPackages: Set[PackageName] = Set.empty,
+      requiredExposures: Map[PackageName, List[PackageName]] = Map.empty
   ): Either[String, SortedMap[PackageName, MemberClosure[Path]]] = {
     final case class Need(key: BindingKey, routeToReferrer: List[Scope])
     final case class Visible(owner: PackageOwner, route: List[Scope])
@@ -356,6 +376,9 @@ private[bosatsu] object PackageBindings {
       val memberScope = Scope.Member(member)
       val todo = scala.collection.mutable.ArrayDeque.from(
         roots.distinct.sorted.map(name => Need(BindingKey(memberScope, name), List(memberScope)))
+      )
+      val publicExposures = scala.collection.mutable.ArrayDeque.from(
+        requiredExposures.getOrElse(member, Nil).distinct.sorted
       )
       val seen = scala.collection.mutable.TreeSet.empty[BindingKey](using bindingKeyOrdering)
       val bindings = scala.collection.mutable.TreeMap.empty[BindingKey, CheckedBinding[Path]](
@@ -412,62 +435,75 @@ private[bosatsu] object PackageBindings {
         }
       }
 
-      while (todo.nonEmpty && error.isEmpty) {
-        val need = todo.removeHead()
-        val key = need.key
-        if (seen.add(key)) {
-          val binding = checked.bindings.get(key)
-          if (binding.isEmpty && key.requiredPackage.isPredef && builtinPredef) ()
-          else if (binding.isEmpty) {
-            error = Some(
-              s"missing interface binding for ${key.requiredPackage.asString}: " +
-                routeText(need.routeToReferrer)
-            )
-          } else {
-            val selected = binding.get
-            val route = appendRoute(need.routeToReferrer, selected.witnessPath)
-            if (selected.owner.packageName != key.requiredPackage) {
+      while ((todo.nonEmpty || publicExposures.nonEmpty) && error.isEmpty) {
+        if (todo.isEmpty) {
+          val exposed = publicExposures.removeHead()
+          val key = BindingKey(memberScope, exposed)
+          if (!owners.contains(exposed) || checked.bindings.contains(key))
+            todo.append(Need(key, List(memberScope)))
+        } else {
+          val need = todo.removeHead()
+          val key = need.key
+          if (seen.add(key)) {
+            val binding = checked.bindings.get(key)
+            if (binding.isEmpty && key.requiredPackage.isPredef && builtinPredef) ()
+            else if (binding.isEmpty) {
               error = Some(
-                s"binding for ${key.requiredPackage.asString} selects " +
-                  packageOwnerShow.show(selected.owner)
+                s"missing interface binding for ${key.requiredPackage.asString}: " +
+                  routeText(need.routeToReferrer)
               )
             } else {
-              bindings.update(key, selected.copy(witnessPath = route))
-              addVisible(selected.owner, route)
+              val selected = binding.get
+              val route = appendRoute(need.routeToReferrer, selected.witnessPath)
+              if (selected.owner.packageName != key.requiredPackage) {
+                error = Some(
+                  s"binding for ${key.requiredPackage.asString} selects " +
+                    packageOwnerShow.show(selected.owner)
+                )
+              } else {
+                bindings.update(key, selected.copy(witnessPath = route))
+                addVisible(selected.owner, route)
 
-              if (error.isEmpty) selected.owner.scope match {
-                case Scope.Predef =>
-                  if (!selected.owner.packageName.isPredef)
-                    error = Some("compiler Predef can only provide Bosatsu/Predef")
-                  else if (!builtinPredef)
-                    error = Some("compiler Predef binding requires builtin Predef")
-                case Scope.Member(provider) =>
-                  memberExposures.get(provider).flatten match {
-                    case None =>
-                      error = Some(
-                        s"missing public exposure metadata for source provider ${provider.asString}"
-                      )
-                    case Some(exposures) =>
-                      todo.appendAll(exposures.distinct.sorted.filterNot(_.isPredef).map { name =>
-                        Need(BindingKey(Scope.Member(provider), name), route)
-                      })
-                  }
-                case Scope.Library(identity) =>
-                  val owner = selected.owner
-                  checked.publicIndex.packages.get(owner) match {
-                    case None =>
-                      error = Some(
-                        s"selected provider ${libraryIdentityShow.show(identity)} has no public package " +
-                          owner.packageName.asString
-                      )
-                    case Some(publicPackage) =>
-                      val exposures = publicPackage.exposures.iterator.collect {
-                        case (name, PublicProvider.Library(_, _)) if !name.isPredef => name
-                      }.toList
-                      todo.appendAll(exposures.map { name =>
-                        Need(BindingKey(Scope.Library(identity), name), route)
-                      })
-                  }
+                if (error.isEmpty) selected.owner.scope match {
+                  case Scope.Predef =>
+                    if (!selected.owner.packageName.isPredef)
+                      error = Some("compiler Predef can only provide Bosatsu/Predef")
+                    else if (!builtinPredef)
+                      error = Some("compiler Predef binding requires builtin Predef")
+                  case Scope.Member(provider) =>
+                    memberExposures.get(provider).flatten match {
+                      case None =>
+                        error = Some(
+                          s"missing public exposure metadata for source provider ${provider.asString}"
+                        )
+                      case Some(exposures) =>
+                        todo.appendAll(exposures.distinct.sorted.filterNot(_.isPredef).map { name =>
+                          Need(BindingKey(Scope.Member(provider), name), route)
+                        })
+                    }
+                  case Scope.Local(provider) =>
+                    val exposures = checked.localInterfaces.iterator
+                      .filter(_.packageName == provider).flatMap(_.exposures).toList
+                    todo.appendAll(exposures.distinct.sorted.filterNot(_.isPredef).map { name =>
+                      Need(BindingKey(Scope.Local(provider), name), route)
+                    })
+                  case Scope.Library(identity) =>
+                    val owner = selected.owner
+                    checked.publicIndex.packages.get(owner) match {
+                      case None =>
+                        error = Some(
+                          s"selected provider ${libraryIdentityShow.show(identity)} has no public package " +
+                            owner.packageName.asString
+                        )
+                      case Some(publicPackage) =>
+                        val exposures = publicPackage.exposures.iterator.collect {
+                          case (name, PublicProvider.Library(_, _)) if !name.isPredef => name
+                        }.toList
+                        todo.appendAll(exposures.map { name =>
+                          Need(BindingKey(Scope.Library(identity), name), route)
+                        })
+                    }
+                }
               }
             }
           }
@@ -545,6 +581,11 @@ private[bosatsu] object PackageBindings {
               _ <- BuildManifest.onlyFields(from, "member scope", Set("kind", "member"))
               name <- from.field[PackageName]("member")
             } yield Scope.Member(name)
+          case "local-signature" =>
+            for {
+              _ <- BuildManifest.onlyFields(from, "local signature scope", Set("kind", "package"))
+              name <- from.field[PackageName]("package")
+            } yield Scope.Local(name)
           case "library" =>
             for {
               _ <- BuildManifest.onlyFields(from, "library scope", Set("kind", "identity"))
@@ -757,8 +798,29 @@ private[bosatsu] object PackageBindings {
       requiredPackage: PackageName,
       dependencies: List[ScopeDependency],
       publicIndex: PublicIndex,
-      memberExposures: Map[PackageName, Option[List[PackageName]]]
+      memberExposures: Map[PackageName, Option[List[PackageName]]],
+      localInterfaces: List[LocalInterface[?]]
   ): SortedMap[PackageOwner, List[Scope]] = {
+    val localByName = localInterfaces.groupBy(_.packageName)
+
+    def externalCandidates(packageName: PackageName, path: List[Scope]): List[(PackageOwner, List[Scope])] = {
+      val source = Option.when(memberExposures.contains(packageName))(
+        PackageOwner(Scope.Member(packageName), packageName)
+      )
+      val local = Option.when(localByName.contains(packageName))(
+        PackageOwner(Scope.Local(packageName), packageName)
+      )
+      val libraries = publicIndex.packages.valuesIterator.collect {
+        case pkg if pkg.packageName == packageName => pkg.owner
+      }.toList
+      val predef = Option.when(packageName.isPredef)(
+        PackageOwner(Scope.Predef, packageName)
+      )
+      (source.toList ::: local.toList ::: libraries ::: predef.toList).map { owner =>
+        owner -> appendRoute(path, List(owner.scope))
+      }
+    }
+
     val initial = referrer match {
       case Scope.Member(_) =>
         dependencies.collect {
@@ -769,6 +831,10 @@ private[bosatsu] object PackageBindings {
         } ::: List(
           PackageOwner(Scope.Predef, PackageName.PredefName) -> List(referrer, Scope.Predef)
         )
+      case Scope.Local(name) =>
+        localByName.getOrElse(name, Nil).flatMap(_.exposures).distinct.sorted.flatMap { exposed =>
+          externalCandidates(exposed, List(referrer))
+        }
       case Scope.Library(_) =>
         publicIndex.packagesFor(referrer).map(pkg => pkg.owner -> List(referrer))
       case Scope.Predef =>
@@ -796,6 +862,10 @@ private[bosatsu] object PackageBindings {
                   val nextOwner = PackageOwner(edge.to, exposed)
                   nextOwner -> appendRoute(path, List(owner.scope, edge.to))
               }
+            }
+          case Scope.Local(name) =>
+            localByName.getOrElse(name, Nil).flatMap(_.exposures).distinct.sorted.flatMap { exposed =>
+              externalCandidates(exposed, path)
             }
           case Scope.Library(_) => publicIndex.packages.get(owner).toList.flatMap { pkg =>
             pkg.exposures.toList.flatMap {
@@ -840,6 +910,7 @@ private[bosatsu] object PackageBindings {
       val provider = rawBinding.provider
       def known(scope: Scope): Boolean = scope match {
         case Scope.Member(name) => members.contains(name)
+        case Scope.Local(_) => true // Root ownership is checked after declared signatures are read.
         case Scope.Library(identity) => imports.contains(identity)
         case Scope.Predef => true
       }
@@ -866,6 +937,14 @@ private[bosatsu] object PackageBindings {
               ) => Right(None)
           case (Scope.Member(name), _, _) =>
             Left(s"source provider ${name.asString} does not own ${key.requiredPackage.asString}")
+          case (Scope.Local(name), None, _) =>
+            Left(s"local signature provider ${name.asString} requires interface_path")
+          case (Scope.Local(name), Some(path), _) =>
+            Either.cond(
+              summon[Order[PackageName]].eqv(name, key.requiredPackage),
+              Some(InterfaceSource(path, None)),
+              s"local signature provider ${name.asString} does not own ${key.requiredPackage.asString}"
+            )
           case (Scope.Predef, None, _) if summon[Order[PackageName]].eqv(
                 key.requiredPackage, PackageName.PredefName
               ) => Right(None)
@@ -919,6 +998,7 @@ private[bosatsu] object PackageBindings {
         }
         val targetOwnsPackage = edge.to match {
           case Scope.Member(name) => summon[Order[PackageName]].eqv(name, edge.packageName)
+          case Scope.Local(name) => summon[Order[PackageName]].eqv(name, edge.packageName)
           case Scope.Library(id) =>
             imports.contains(id) && publicIndex.owns(
               PackageOwner(Scope.Library(id), edge.packageName)
@@ -937,6 +1017,7 @@ private[bosatsu] object PackageBindings {
       _ <- raw.bindings.traverse_ { binding =>
         val known = binding.key.referrer match {
           case Scope.Member(name) => members.contains(name)
+          case Scope.Local(_) => true // The final closure check validates this signature referrer.
           case Scope.Library(id) => imports.contains(id)
           case Scope.Predef => false
         }
@@ -966,8 +1047,13 @@ private[bosatsu] object PackageBindings {
       scopeMap: ScopeMap[Path],
       inspectedIndex: PublicIndex,
       actualDependencies: List[ScopeDependency],
-      memberExposures: Map[PackageName, Option[List[PackageName]]]
+      memberExposures: Map[PackageName, Option[List[PackageName]]],
+      localInterfaces: List[LocalInterface[Path]]
   ): Either[String, CheckedScopeMap[Path]] = {
+    val localByName = localInterfaces.groupBy(_.packageName)
+    val localScopes = scopeMap.bindings.iterator.flatMap { case (key, request) =>
+      List(key.referrer, request.provider).collect { case Scope.Local(name) => name }
+    }.toList.distinct
     for {
       _ <- Either.cond(samePublicIndex(scopeMap.publicIndex, inspectedIndex), (),
         "scope-map public index does not match the inspected library index")
@@ -976,6 +1062,21 @@ private[bosatsu] object PackageBindings {
         (),
         "an imported scope is missing from the inspected public index"
       )
+      _ <- localInterfaces.traverse_ { local =>
+        Either.cond(scopeMap.directInterfaces.contains(local.source.path), (),
+          s"local signature ${local.packageName.asString} is not in --direct-interface")
+      }
+      _ <- localInterfaces.traverse_ { local =>
+        Either.cond(!scopeMap.members.contains(local.packageName), (),
+          s"local signature ${local.packageName.asString} conflicts with a current source member")
+      }
+      _ <- localScopes.traverse_ { name =>
+        val candidates = localByName.getOrElse(name, Nil)
+        Either.cond(candidates.nonEmpty, (),
+          s"no directly declared interface contains local package ${name.asString}")
+          .flatMap(_ => Either.cond(candidates.size == 1, (),
+            s"ambiguous local signature ${name.asString} in ${candidates.size} declared interface roots"))
+      }
       bindings <- scopeMap.bindings.iterator.toList.foldM(
         SortedMap.empty[BindingKey, CheckedBinding[Path]](using bindingKeyOrdering)
       ) { case (checked, (key, request)) =>
@@ -986,25 +1087,43 @@ private[bosatsu] object PackageBindings {
           key.requiredPackage,
           actualDependencies,
           inspectedIndex,
-          memberExposures
+          memberExposures,
+          localInterfaces
         )
         val candidateCount = candidates.size
+        val localPathMatches = provider match {
+          case Scope.Local(name) =>
+            val roots = localByName.getOrElse(name, Nil)
+            request.interface.exists { source =>
+              roots match {
+                case local :: Nil =>
+                  scopeMap.directInterfaces.ordering.compare(source.path, local.source.path) == 0
+                case _ => false
+              }
+            }
+          case _ => true
+        }
         val knownProvider = provider match {
           case Scope.Member(name) => scopeMap.members.contains(name)
+          case Scope.Local(name) => localByName.contains(name)
           case Scope.Library(identity) => scopeMap.imports.contains(identity)
           case Scope.Predef => true
         }
         val knownReferrer = key.referrer match {
           case Scope.Member(name) => scopeMap.members.contains(name)
+          case Scope.Local(name) => localByName.contains(name)
           case Scope.Library(identity) => scopeMap.imports.contains(identity)
           case Scope.Predef => false
         }
         for {
           _ <- Either.cond(knownReferrer, (), s"unknown binding referrer ${key.referrer.show}")
           _ <- Either.cond(knownProvider, (), s"unknown binding provider ${provider.show}")
+          _ <- Either.cond(localPathMatches, (),
+            s"binding interface path does not match the unique local signature for ${key.requiredPackage.asString}")
           _ <- Either.cond(
             provider match {
               case Scope.Library(_) => inspectedIndex.owns(owner)
+              case Scope.Local(name) => name == key.requiredPackage
               case _                => true
             },
             (),
@@ -1012,7 +1131,7 @@ private[bosatsu] object PackageBindings {
           )
           _ <- Either.cond(candidateCount > 0, (),
             s"no public dependency path from ${key.referrer.show} to ${packageOwnerShow.show(owner)}")
-          _ <- Either.cond(candidateCount == 1, (),
+          _ <- Either.cond(candidateCount == 1 || key.referrer.isInstanceOf[Scope.Local], (),
             s"ambiguous providers for ${key.requiredPackage.asString} from ${key.referrer.show}: " +
               candidates.iterator.map { case (candidate, route) =>
                 s"${packageOwnerShow.show(candidate)} via ${routeText(route)}"
@@ -1024,7 +1143,7 @@ private[bosatsu] object PackageBindings {
               }.mkString(", "))
         } yield checked.updated(key, CheckedBinding(key, owner, request.interface, candidates(owner)))
       }
-    } yield CheckedScopeMap(scopeMap, inspectedIndex, bindings)
+    } yield CheckedScopeMap(scopeMap, inspectedIndex, bindings, localInterfaces)
   }
 
   /** Turn parsed declarations into checked bindings only after the caller has
@@ -1036,7 +1155,8 @@ private[bosatsu] object PackageBindings {
       scopeMap: ScopeMap[Path],
       inspectedIndex: PublicIndex,
       sourceDependencies: List[ScopeDependency],
-      memberExposures: Map[PackageName, Option[List[PackageName]]] = Map.empty
+      memberExposures: Map[PackageName, Option[List[PackageName]]] = Map.empty,
+      localInterfaces: List[LocalInterface[Path]] = Nil
   ): Either[String, CheckedScopeMap[Path]] = {
     val declaredDependencies = scopeMap.dependencies.sorted(using scopeDependencyOrdering)
     val actualDependencies = sourceDependencies.sorted(using scopeDependencyOrdering)
@@ -1050,7 +1170,7 @@ private[bosatsu] object PackageBindings {
     Either.cond(dependenciesMatch, (),
       "scope-map dependency edges do not match source-derived dependencies")
       .flatMap(_ => validateBindingsAgainstInspection(
-        scopeMap, inspectedIndex, actualDependencies, memberExposures
+        scopeMap, inspectedIndex, actualDependencies, memberExposures, localInterfaces
       ))
   }
 
@@ -1061,10 +1181,11 @@ private[bosatsu] object PackageBindings {
   def validateDeclaredBindingsAgainstInspection[Path](
       scopeMap: ScopeMap[Path],
       inspectedIndex: PublicIndex,
-      memberExposures: Map[PackageName, Option[List[PackageName]]]
+      memberExposures: Map[PackageName, Option[List[PackageName]]],
+      localInterfaces: List[LocalInterface[Path]] = Nil
   ): Either[String, CheckedScopeMap[Path]] =
     validateBindingsAgainstInspection(
-      scopeMap, inspectedIndex, scopeMap.dependencies, memberExposures
+      scopeMap, inspectedIndex, scopeMap.dependencies, memberExposures, localInterfaces
     )
 
   /** Read and check a version-1 scope map. Every public index and interface

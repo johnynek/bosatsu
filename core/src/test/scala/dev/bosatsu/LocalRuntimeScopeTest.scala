@@ -109,6 +109,25 @@ class LocalRuntimeScopeTest extends munit.FunSuite {
         ))
       ))
     )
+    val localSignature = proto.Packages(
+      packages = List(wire("Client").copy(
+        strings = List("Client", "External"),
+        imports = List(proto.Imports(packageName = 2))
+      )),
+      buildRequirements = Some(proto.BuildRequirements(
+        scopedVersion = 1,
+        members = List(proto.MemberBuildRequirements(
+          memberName = "Client",
+          bindings = List(proto.ScopedBindingRequirement(
+            referrer = Some(proto.BuildScope(kind = "member", memberName = "Client")),
+            packageName = "External",
+            owner = Some(proto.BuildScope(kind = "local", memberName = "External")),
+            ownerPackageName = "External"
+          )),
+          interfaces = List(proto.InterfaceRequirement("External", "0" * 64))
+        ))
+      ))
+    )
 
     def read(bundle: proto.Packages): Result[List[Package.Compiled]] = {
       val content = MemoryMain.FileContent.Bytes(Bytes.fromMessage(bundle))
@@ -118,6 +137,7 @@ class LocalRuntimeScopeTest extends munit.FunSuite {
 
     assertEquals(checked(read(local)).map(_.name.asString), List("Demo"))
     rejects(read(imported), "unavailable imported provider context")
+    rejects(read(localSignature), "unavailable local signature context")
   }
 
   test("reject an explicit Predef even when no other group claims it") {

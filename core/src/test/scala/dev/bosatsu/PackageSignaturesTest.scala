@@ -72,6 +72,9 @@ class PackageSignaturesTest extends munit.FunSuite {
     case PackageBindings.Scope.Member(member) => Json.JObject(List(
       "kind" -> Json.JString("member"), "member" -> Json.JString(member.asString)
     ))
+    case PackageBindings.Scope.Local(name) => Json.JObject(List(
+      "kind" -> Json.JString("local-signature"), "package" -> Json.JString(name.asString)
+    ))
     case PackageBindings.Scope.Library(identity) => Json.JObject(List(
       "kind" -> Json.JString("library"), "identity" -> identityJson(identity)
     ))
@@ -115,7 +118,8 @@ class PackageSignaturesTest extends munit.FunSuite {
       imports: List[Json],
       bindings: List[Json],
       index: PackageBindings.PublicIndex,
-      directInterfaces: List[String]
+      directInterfaces: List[String],
+      localInterfaces: List[PackageBindings.LocalInterface[BindingPath]] = Nil
   ): PackageBindings.CheckedScopeMap[BindingPath] = {
     val scopeMap = Json.JObject(List(
       "schema_version" -> Json.JNumberStr("1"),
@@ -134,7 +138,9 @@ class PackageSignaturesTest extends munit.FunSuite {
     val parsed = PackageBindings.read(
       bindingPlatform, path("scope-map.json"), directInterfaces.map(path)
     ).runA(state).toOption.get
-    PackageBindings.validateAgainstInspection(parsed, index, parsed.dependencies)
+    PackageBindings.validateAgainstInspection(
+      parsed, index, parsed.dependencies, localInterfaces = localInterfaces
+    )
       .fold(error => fail(error), identity)
   }
 
@@ -298,6 +304,85 @@ class PackageSignaturesTest extends munit.FunSuite {
       path("facade.sig"), path("shared.sig")
     ))
     assertEquals(success(selected.checkUsed(bundles.map(_._1))), ())
+  }
+
+  test("scoped selection carries external local signature roots through their exposures") {
+    val clientName = PackageName.parts("Client")
+    val facadeName = PackageName.parts("Local/Facade")
+    val typesName = PackageName.parts("Local/Types")
+    val clientScope = PackageBindings.Scope.Member(clientName)
+    val facadeScope = PackageBindings.Scope.Local(facadeName)
+    val typesScope = PackageBindings.Scope.Local(typesName)
+    val tokenName = TypeName(Constructor("Token"))
+    val token = DefinedType(typesName, tokenName, Nil, Nil)
+    val typesIface = interface(typesName, List(
+      ExportedName.TypeName(tokenName.ident, Referant.DefinedT(token))
+    ))
+    val facadeIface = interface(facadeName, List(
+      ExportedName.Binding(Name("token"), Referant.Value(Type.const(typesName, tokenName)))
+    ))
+    val bundles = List(
+      PackageSignatures.Input(path("facade.sig"), Some("//local:facade")) -> signature(facadeIface),
+      PackageSignatures.Input(path("types.sig"), Some("//local:types")) -> signature(typesIface)
+    )
+    val localRoots = success(PackageSignatures.localInterfaces(bundles))
+    val index = PackageBindings.indexFromPackages(Nil)
+    val checked = checkedScopeMap(
+      List(clientName),
+      List(dependencyJson(clientScope, facadeName, facadeScope)),
+      Nil,
+      List(
+        bindingJson(clientScope, facadeName, facadeScope, Some("facade.sig")),
+        bindingJson(facadeScope, typesName, typesScope, Some("types.sig"))
+      ),
+      index,
+      List("facade.sig", "types.sig"),
+      localRoots
+    )
+    val sources = List(PackageSignatures.SourceRequirements(clientName, List(facadeName), Nil))
+    val selected = success(PackageSignatures.planScoped(bundles, sources, checked, builtinPredef = true))
+    assertEquals(
+      selected.members(clientName).interfaces.map(_.owner.packageName),
+      List(facadeName, typesName).sorted
+    )
+    assertEquals(
+      selected.members(clientName).interfaces.map(_.input.path).distinct.sorted,
+      List(path("facade.sig"), path("types.sig")).sorted
+    )
+    assertEquals(success(selected.checkUsed(bundles.map(_._1))), ())
+    val reordered = success(PackageSignatures.planScoped(
+      bundles.reverse, sources, checked, builtinPredef = true
+    ))
+    assertEquals(
+      reordered.members(clientName).interfaces.map(_.owner.packageName),
+      selected.members(clientName).interfaces.map(_.owner.packageName)
+    )
+
+    val duplicateRoots = success(PackageSignatures.localInterfaces(
+      bundles ::: List(PackageSignatures.Input(path("facade-copy.sig"), None) -> signature(facadeIface))
+    ))
+    val ambiguous = PackageBindings.validateAgainstInspection(
+      checked.scopeMap.copy(
+        directInterfaces = checked.scopeMap.directInterfaces + path("facade-copy.sig")
+      ), index, checked.scopeMap.dependencies,
+      Map(clientName -> Some(Nil)), duplicateRoots
+    )
+    assert(ambiguous.swap.toOption.get.contains("ambiguous local signature Local/Facade"))
+
+    val missing = PackageBindings.validateAgainstInspection(
+      checked.scopeMap, index, checked.scopeMap.dependencies,
+      Map(clientName -> Some(Nil)), List(localRoots.last)
+    )
+    assert(missing.swap.toOption.get.contains("no directly declared interface contains local package Local/Facade"))
+
+    val conflictingSource = PackageBindings.validateAgainstInspection(
+      checked.scopeMap.copy(members = checked.scopeMap.members + facadeName),
+      index,
+      checked.scopeMap.dependencies,
+      Map(clientName -> Some(Nil)),
+      localRoots
+    )
+    assert(conflictingSource.isLeft)
   }
 
   test("one member cannot select two visible releases of the same library") {

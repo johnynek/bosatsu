@@ -227,7 +227,8 @@ private[bosatsu] object GroupGraph {
       scope: Scope,
       scopeMap: ScopeMap[P],
       inspectedIndex: PackageBindings.PublicIndex,
-      showFile: P => String
+      showFile: P => String,
+      localInterfaces: List[PackageBindings.LocalInterface[P]] = Nil
   )(read: (P, View) => F[Node[P]])(using F: MonadThrow[F]): F[Unit] = {
     import cats.syntax.all._
     validateLocalGraph(root, declared, scope, showFile)(read).flatMap { localGroups =>
@@ -248,7 +249,7 @@ private[bosatsu] object GroupGraph {
         }.toMap
         F.fromEither(
           PackageBindings.validateDeclaredBindingsAgainstInspection(
-            scopeMap, inspectedIndex, memberExposures
+            scopeMap, inspectedIndex, memberExposures, localInterfaces
           ).leftMap(CliException.Basic(_))
         ).flatMap { checked =>
           F.fromEither(validateMemberClosures(localGroups, checked, memberExposures)

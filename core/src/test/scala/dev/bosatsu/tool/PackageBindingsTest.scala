@@ -33,6 +33,10 @@ class PackageBindingsTest extends munit.FunSuite {
       "kind" -> Json.JString("member"),
       "member" -> Json.JString(member.asString)
     ))
+    case PackageBindings.Scope.Local(name) => Json.JObject(List(
+      "kind" -> Json.JString("local-signature"),
+      "package" -> Json.JString(name.asString)
+    ))
     case PackageBindings.Scope.Library(identity) => Json.JObject(List(
       "kind" -> Json.JString("library"),
       "identity" -> identityJson(identity)

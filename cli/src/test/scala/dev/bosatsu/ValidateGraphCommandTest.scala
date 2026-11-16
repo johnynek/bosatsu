@@ -3,8 +3,10 @@ package dev.bosatsu
 import cats.effect.IO
 import cats.syntax.all._
 import _root_.bosatsu.{TypedAst => proto}
+import dev.bosatsu.Identifier.Name
 import dev.bosatsu.hashing.Algo
 import dev.bosatsu.library.Version
+import dev.bosatsu.rankn.{DefinedType, Type}
 import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Path, Paths, StandardCopyOption}
 import java.nio.file.attribute.FileTime
@@ -167,6 +169,82 @@ class ValidateGraphCommandTest extends FileCommandFixtures {
         _ = success(emptyExposures)
         _ = assertEquals(emptyExposures.stdout, "")
         _ = assertEquals(emptyExposures.stderr, "")
+      } yield ()
+    }
+  }
+
+  test("mixed graph validation follows external local signature exposures") {
+    withRunner { (root, runner) =>
+      val app = PackageName.parts("App")
+      val facade = PackageName.parts("Local/Facade")
+      val types = PackageName.parts("Local/Types")
+      val localScope = (name: PackageName) => Json.JObject(List(
+        "kind" -> Json.JString("local-signature"),
+        "package" -> Json.JString(name.asString)
+      ))
+      val appScope = Json.JObject(List(
+        "kind" -> Json.JString("member"), "member" -> Json.JString(app.asString)
+      ))
+      val tokenName = TypeName(Identifier.Constructor("Token"))
+      val token = DefinedType(types, tokenName, Nil, Nil)
+      val typesIface: Package.Interface = Package(types, Nil, List(
+        ExportedName.TypeName(tokenName.ident, Referant.DefinedT(token))
+      ), ())
+      val facadeIface: Package.Interface = Package(facade, Nil, List(
+        ExportedName.Binding(Name("token"), Referant.Value(Type.const(types, tokenName)))
+      ), ())
+      def scopeMap(includeExposure: Boolean): String = {
+        val bindings = Vector(
+          Json.JObject(List(
+            "referrer" -> appScope,
+            "package" -> Json.JString(facade.asString),
+            "provider" -> localScope(facade),
+            "interface_path" -> Json.JString("facade.sig")
+          ))
+        ) ++ Option.when(includeExposure)(Json.JObject(List(
+          "referrer" -> localScope(facade),
+          "package" -> Json.JString(types.asString),
+          "provider" -> localScope(types),
+          "interface_path" -> Json.JString("types.sig")
+        )))
+        Json.JObject(List(
+          "schema_version" -> Json.JNumberStr("1"),
+          "members" -> Json.JArray(Vector(Json.JString(app.asString))),
+          "dependencies" -> Json.JArray(Vector(Json.JObject(List(
+            "from" -> appScope,
+            "package" -> Json.JString(facade.asString),
+            "to" -> localScope(facade)
+          )))),
+          "imports" -> Json.JArray(Vector.empty),
+          "bindings" -> Json.JArray(bindings)
+        )).render
+      }
+      val emptySha = Algo.hashBytes[Algo.Sha256](Array.emptyByteArray).hex
+      val toolchain =
+        s"""{"schema_version":1,"compiler":{"uri":"unused","sha256":"$emptySha"},"core":{"library_name":"bosatsu","version":"1.2.3","uri":"unused","sha256":"$emptySha"},"c_runtime":{"uri":"unused","sha256":"$emptySha"}}"""
+      val command = List(
+        "validate-graph", "--root", rootFile,
+        "--scope-map", "graph/scope-map.json",
+        "--dependency-context", "graph/dependencies.json",
+        "--toolchain-manifest", "graph/toolchain.json",
+        "--direct-interface", "facade.sig", "--direct-interface", "types.sig",
+        "--out", stamp
+      )
+      for {
+        _ <- write(root, rootFile, groupWithMembers("//app:g", List(("App", "App.bosatsu", None))))
+        _ <- write(root, "graph/dependencies.json", "{\"schema_version\":1,\"libraries\":[]}")
+        _ <- write(root, "graph/toolchain.json", toolchain)
+        facadeBundle <- IO.fromTry(PackageSignatures.encode(List(facadeIface)))
+        typesBundle <- IO.fromTry(PackageSignatures.encode(List(typesIface)))
+        _ <- IOPlatformIO.writeInterfaceBundle(facadeBundle, root.resolve("facade.sig"))
+        _ <- IOPlatformIO.writeInterfaceBundle(typesBundle, root.resolve("types.sig"))
+        _ <- write(root, "graph/scope-map.json", scopeMap(includeExposure = true))
+        complete <- runner.run(root, command)
+        _ = success(complete)
+        _ <- write(root, "graph/scope-map.json", scopeMap(includeExposure = false))
+        missing <- runner.run(root, command)
+        _ = failure(missing)
+        _ = assert(missing.stderr.contains("missing interface binding for Local/Types"), missing.stderr)
       } yield ()
     }
   }
