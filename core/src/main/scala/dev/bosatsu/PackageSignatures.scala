@@ -4,8 +4,11 @@ import _root_.bosatsu.{TypedAst => proto}
 import cats.Show
 import cats.syntax.all._
 import dev.bosatsu.hashing.Algo
+import dev.bosatsu.library.Name
 import dev.bosatsu.rankn.{Type, TypeEnv}
 import dev.bosatsu.tool.CliException
+import dev.bosatsu.tool.PackageBindings
+import dev.bosatsu.tool.PackageBindings.{CheckedBinding, CheckedScopeMap, PackageOwner, Scope}
 import scala.collection.mutable
 import scala.util.{Failure, Success, Try}
 
@@ -208,6 +211,8 @@ object PackageSignatures {
 
     def dependencies: List[String] = inspection._1
 
+    def selectedEntry: proto.Interface = entry
+
     def bind(providers: Providers): PublicInterface = {
       val raw = inspection._2.getOrElse {
         decode(entry, pn => providers.get(pn).map(_.types).toRight(
@@ -291,6 +296,211 @@ object PackageSignatures {
       if (extra.isEmpty) Success(())
       else Failure(CliException.Basic(s"unused direct interfaces: ${extra.mkString(", ")}"))
     }
+  }
+
+  private[bosatsu] final case class SourceRequirements(
+      member: PackageName,
+      imports: List[PackageName],
+      exposes: List[PackageName]
+  )
+
+  private[bosatsu] final case class SelectedInterface[P](
+      owner: PackageOwner,
+      input: Input[P],
+      entry: proto.Interface
+  )
+
+  /** The checked external interfaces visible while inferring one source.
+    * Source dependencies stay identified by member name so the compiler can
+    * obtain their public API from its existing source DAG.
+    */
+  private[bosatsu] final case class MemberSelection[P](
+      member: PackageName,
+      interfaces: List[SelectedInterface[P]],
+      sourceDependencies: List[PackageName],
+      bindings: List[CheckedBinding[P]]
+  )
+
+  private[bosatsu] final case class ScopedResolution[P](
+      members: Map[PackageName, MemberSelection[P]]
+  ) {
+    def checkUsed(declared: List[Input[P]])(using Show[P], Ordering[P]): Try[Unit] = {
+      val used = members.valuesIterator.flatMap(_.interfaces.iterator.map(_.input.path)).toList
+      val extra = declared.filterNot(input => used.exists(path => summon[Ordering[P]].compare(path, input.path) == 0))
+        .map(_.display).sorted
+      if (extra.isEmpty) Success(())
+      else Failure(CliException.Basic(s"unused direct interfaces: ${extra.mkString(", ")}"))
+    }
+  }
+
+  /** Resolve each source's imports and exposed API requirements using the
+    * already checked caller-relative bindings. Only selected roots are
+    * decoded; an unselected sibling in the same physical bundle is inert.
+    */
+  private[bosatsu] def planScoped[P: Show: Ordering](
+      bundles: List[(Input[P], proto.Interfaces)],
+      sources: List[SourceRequirements],
+      checked: CheckedScopeMap[P],
+      builtinPredef: Boolean
+  ): Try[ScopedResolution[P]] = Try {
+    val sourceNames = sources.iterator.map(_.member).toSet
+    if (sources.size != sourceNames.size)
+      throw CliException.Basic("duplicate source member in scoped interface selection")
+    if (sourceNames != checked.scopeMap.members.toSet)
+      throw CliException.Basic("scope-map members do not match source members")
+
+    val roots = bundles.flatMap { case (input, bundle) =>
+      val display = input.display
+      bundle.interfaces.toList.map { entry =>
+        val name = entry.strings.lift(entry.packageName - 1).flatMap(PackageName.parse)
+          .getOrElse(throw CliException.Basic(s"invalid root package name in $display"))
+        (input, Root(name, display, entry))
+      }
+    }
+    val rootOrdering = Ordering.Tuple2(using summon[Ordering[P]], summon[Ordering[PackageName]])
+    val rootsByPathAndName = roots.foldLeft(
+      scala.collection.immutable.SortedMap.empty[(P, PackageName), List[(Input[P], Root)]](using rootOrdering)
+    ) { case (index, pair @ (input, root)) =>
+      val key = (input.path, root.name)
+      index.updated(key, index.getOrElse(key, Nil) :+ pair)
+    }
+    val sourceByName = sources.iterator.map(source => source.member -> source).toMap
+    val members = sources.map { source =>
+      val selected = mutable.Map.empty[PackageName, SelectedInterface[P]]
+      val sourceDependencies = mutable.Set.empty[PackageName]
+      val selectedBindingKeys = mutable.TreeSet.empty[PackageBindings.BindingKey](using
+        PackageBindings.bindingKeyOrdering
+      )
+      val visibleOwners = mutable.Map.empty[PackageName, PackageOwner]
+      val releases = mutable.Map.empty[PackageBindings.LibraryIdentity, List[Scope]]
+      val releaseByName = mutable.Map.empty[Name, PackageBindings.LibraryIdentity]
+      val seen = mutable.TreeSet.empty[PackageBindings.BindingKey](using
+        PackageBindings.bindingKeyOrdering
+      )
+      final case class Need(referrer: Scope, packageName: PackageName, path: List[Scope])
+
+      val initial = (source.imports ::: source.exposes).distinct.sorted
+      val todo = mutable.ArrayDeque.from(initial.map(name =>
+        Need(Scope.Member(source.member), name, List(Scope.Member(source.member)))
+      ))
+      def scopeText(scope: Scope): String = scope match {
+        case Scope.Member(name) => s"member ${name.asString}"
+        case Scope.Library((name, version)) => s"library ${name.name}@${version.render}"
+        case Scope.Predef => "compiler Predef"
+      }
+      def routeText(path: List[Scope]): String = path.map(scopeText).mkString(" -> ")
+
+      def visible(owner: PackageOwner, binding: CheckedBinding[P]): Unit = {
+        val pn = owner.packageName
+        visibleOwners.get(pn) match {
+          case Some(existing) if !PackageBindings.samePackageOwner(existing, owner) =>
+            throw CliException.Basic(
+              s"conflicting visible owners for ${pn.asString}: ${scopeText(existing.scope)} and " +
+                s"${scopeText(owner.scope)}"
+            )
+          case _ => visibleOwners.update(pn, owner)
+        }
+        owner.scope match {
+          case Scope.Library(identity @ (name, _)) =>
+            releaseByName.get(name) match {
+              case Some(previous) if !PackageBindings.sameLibraryIdentity(previous, identity) =>
+                val previousPath = routeText(releases.getOrElse(previous, Nil))
+                throw CliException.Basic(
+                  s"conflicting visible releases for ${name.name}: " +
+                    s"${previous._1.name}@${previous._2.render} via $previousPath; " +
+                    s"${identity._1.name}@${identity._2.render} via ${routeText(binding.witnessPath)}"
+                )
+              case _ => releaseByName.update(name, identity)
+            }
+            releases.update(identity, binding.witnessPath)
+          case _ => ()
+        }
+      }
+
+      while (todo.nonEmpty) {
+        val need = todo.removeHead()
+        val key = PackageBindings.BindingKey(need.referrer, need.packageName)
+        if (seen.add(key)) {
+          val binding = if (need.packageName.isPredef && builtinPredef &&
+              !checked.bindings.contains(key)) None
+            else Some(checked.bindings.getOrElse(key,
+              throw CliException.Basic(
+                s"missing interface binding for ${need.packageName.asString}: ${routeText(need.path)}"
+              )))
+          binding.foreach { binding =>
+            val _ = selectedBindingKeys.add(key)
+            visible(binding.owner, binding)
+            binding.owner.scope match {
+              case Scope.Member(provider) =>
+                if (!sourceByName.contains(provider))
+                  throw CliException.Basic(s"unknown source member ${provider.asString}")
+                sourceDependencies += provider
+                // A source dependency contributes only its declared public
+                // exposures. Its private imports remain in its own context.
+                val exposed = sourceByName(provider).exposes.distinct.sorted
+                todo.appendAll(exposed.map(name => Need(
+                  Scope.Member(provider), name, need.path :+ Scope.Member(provider)
+                )))
+              case Scope.Predef =>
+                if (need.packageName != PackageName.PredefName)
+                  throw CliException.Basic("compiler Predef can only provide Bosatsu/Predef")
+                if (!builtinPredef)
+                  throw CliException.Basic("compiler Predef binding requires builtin Predef")
+              case Scope.Library(identity) =>
+                val interfaceSource = binding.interface.getOrElse(
+                  throw CliException.Basic(s"missing interface path for ${need.packageName.asString}")
+                )
+                val candidates = rootsByPathAndName.getOrElse(
+                  (interfaceSource.path, need.packageName), Nil
+                )
+                val (input, root) = candidates match {
+                  case one :: Nil => one
+                  case Nil => throw CliException.Basic(
+                    s"unknown package ${need.packageName.asString}, missing interface: ${routeText(binding.witnessPath)}"
+                  )
+                  case many => throw CliException.Basic(
+                    s"ambiguous interface ${need.packageName.asString} in " +
+                      many.map(_._1.display).sorted.mkString(", ")
+                  )
+                }
+                val owner = PackageOwner(Scope.Library(identity), need.packageName)
+                val publicPackage = checked.publicIndex.packages.getOrElse(owner,
+                  throw CliException.Basic(s"missing inspected public package ${need.packageName.asString}"))
+                val declaredExposures = root.dependencies.distinct.sorted
+                val indexedExposures = publicPackage.exposures.keysIterator.map(_.asString).toList.sorted
+                if (declaredExposures != indexedExposures)
+                  throw CliException.Basic(
+                    s"signature exposure index disagrees for ${need.packageName.asString} in ${input.display}"
+                  )
+                selected.get(need.packageName) match {
+                  case Some(existing) if !PackageBindings.samePackageOwner(existing.owner, owner) ||
+                        summon[Ordering[P]].compare(existing.input.path, input.path) != 0 =>
+                    throw CliException.Basic(
+                      s"conflicting visible owners for ${need.packageName.asString}: " +
+                        s"${scopeText(existing.owner.scope)} and ${scopeText(owner.scope)}"
+                    )
+                  case _ =>
+                    selected.update(need.packageName, SelectedInterface(owner, input, root.selectedEntry))
+                }
+                publicPackage.exposures.keysIterator.foreach { exposed =>
+                  todo.append(Need(
+                    Scope.Library(identity), exposed, need.path :+ Scope.Library(identity)
+                  ))
+                }
+              }
+          }
+        }
+      }
+      source.member -> MemberSelection(
+        source.member,
+        selected.values.toList.sortBy(_.owner.packageName),
+        sourceDependencies.toList.sorted,
+        checked.bindings.iterator.collect {
+          case (key, binding) if selectedBindingKeys.contains(key) => binding
+        }.toList
+      )
+    }.toMap
+    ScopedResolution(members)
   }
 
   private[bosatsu] def plan[P: Show](

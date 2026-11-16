@@ -8,8 +8,8 @@
 - Flow: `small_job`
 - Issue: `#2495` 0m: Preserve per-member imported bindings through validation and compilation
 - Pending steps: `4`
-- Completed steps: `3`
-- Total steps: `7`
+- Completed steps: `4`
+- Total steps: `8`
 
 ## Summary
 
@@ -135,7 +135,7 @@ Publish only the existing success stamp through the current output lifecycle. Pr
 
 Extended GroupGraph and validate-graph to combine local groups with authenticated imported scopes, check each member’s visible release closure, verify imported signatures and selected-core references, and preserve the existing local validation behavior. Added coverage for private releases, visible release conflicts with both witness routes, partial mixed configuration, and private-path core conflicts. `coreJVM/test:compile` and `cli/test:compile` passed; focused GroupGraph, PackageBindings, VerifiedLibraryGraph, ToolchainManifest, and ValidateGraphCommand suites passed (54 tests total). `git diff --check` passed.
 
-4. [ ] `step_3` Carry member bindings through selection and source inference
+4. [x] `step_3` Carry member bindings through selection and source inference
 
 Add optional --scope-map FILE to CompilePackagesCommand using Decline option validation, then thread the checked representation through CompilerApi.compileWithSignatures and PackageSignatures.plan. Keep CheckCommand's existing unscoped behavior through an explicit legacy adapter. The compile-packages path continues to pass no filesystem cache.
 
@@ -166,7 +166,43 @@ Carry a deterministic fingerprint of selected public facts and owner bindings in
 - Cover missing and ambiguous bindings, exposed-owner rebinding, extra interfaces, repeated labels, wide signatures, legacy re-exports and implicit Predef.
 - Retain duplicate-source, stale constructor/alias/kind, deep traversal, strict diagnostics and existing interactive cache regressions.
 
-5. [ ] `step_4` Persist member requirements and decode with their original owners
+#### Completion Notes
+
+Added `PackageSignatures.planScoped`, which selects interfaces by checked per-member owners, follows selected public exposures to a fixed point, retains source dependency references, checks visible release conflicts, and unions selected physical files for strict-unused checks. Tests cover disjoint members selecting byte-identical releases, exposure chains, wide-file siblings, private source imports, source exposures, and visible release conflicts. `sbt "coreJVM/testOnly dev.bosatsu.PackageSignaturesTest"` passed all 19 tests; `PackageBindingsTest` passed all 9 tests in the combined focused run; `git diff --check` passed. CLI and inference wiring remains pending in the inserted continuation.
+
+5. [ ] `step_3_inference` Wire scoped selections through source inference
+
+Continuation of parent step `step_3` in the per-member selection and inference family. `PackageSignatures.planScoped` now returns each member's selected external roots, source dependencies, selected checked bindings, and the union of selected input files. The existing `compile-packages` command and `PackageMap` inference path still use the legacy batch-wide package lookup, so the scoped selector is not yet used by compilation.
+
+Add optional `--scope-map FILE` to `core/src/main/scala/dev/bosatsu/tool_command/CompilePackagesCommand.scala` with Decline option validation. Read it through `PackageBindings` using the command's original direct-interface paths. Derive source dependency edges from the loaded sources and their checked provider bindings, and obtain a `CheckedScopeMap` through the shared inspection validation boundary; do not treat a raw caller-supplied public index as proof of artifact authentication. Pass the checked scope map to `CompilerApi.compileWithSignatures` and call `PackageSignatures.planScoped`. Keep `CheckCommand` on an explicit legacy/unscoped adapter and keep compile-packages free of a filesystem inference cache.
+
+Extend the existing memoized source DAG in `core/src/main/scala/dev/bosatsu/PackageMap.scala` to resolve each source's external imports from its `MemberSelection`. Replace the scoped path's batch-wide `externalByName` lookup; preserve the source DAG, compile each source once, and let a source dependency contribute only its public interface and declared exposed owners. Keep private imports in the owning source's environment. Stage foreign interfaces that refer back to source members until those members are compiled, and reject inconsistent exposed-owner rebinding before inference. Share environments only when selected bindings agree.
+
+Carry a deterministic fingerprint of the selected public facts and owner bindings into the existing `CompileCache.GenerateKeyInput` in `core/src/main/scala/dev/bosatsu/cache/CompileCache.scala`. Validate provider selections before cache lookup. A provider switch must change the fingerprint even when interface bytes match; file paths, labels, witness formatting, and full implementation hashes must not enter it. Preserve legacy key behavior where practical, advance the existing cache schema if its serialized key changes, and do not add a worker inference cache. Return compiled members alongside their checked per-member selected requirements for step `step_4`; do not add bundle serialization here.
+
+Extend `core/src/test/scala/dev/bosatsu/PackageSignaturesTest.scala`, `cli/src/test/scala/dev/bosatsu/CompilePackagesCommandTest.scala`, `cli/src/test/scala/dev/bosatsu/StrictInterfacesCommandTest.scala`, and the existing compiler-cache tests. Verify scoped compilation for disjoint members with incompatible same-named providers, source/import exposure chains, strict-unused file unions, provider changes with identical signatures, input-order invariance, and warm cache behavior. Preserve the existing legacy CheckCommand behavior. Run focused suites for changed code; MergeXO runs the configured required-tests gate after implementable plan steps complete.
+
+#### Invariants
+
+- Scoped interface lookup never falls back to a batch-wide provider map.
+- Each member sees only its imports and selected public exposure closure; strict-unused checking uses the union of the original selected files.
+- Source dependencies remain in the existing DAG, compile once, and contribute only their public interface and exposed owners to consumers.
+- Selected provider identity affects cache validation and fingerprinting even when public signature bytes match; paths, labels, and full implementation hashes remain excluded.
+- CheckCommand retains its legacy behavior and compile-packages adds no filesystem inference cache.
+
+#### Property Tests
+
+- For bounded scoped graphs, compiling members together produces the same per-member selected interfaces and inferred public results as compiling each member with its own checked closure, invariant under source and interface order permutations.
+- Changing only unselected siblings or private imports leaves another member's selected closure and inference fingerprint unchanged; changing a selected owner changes the fingerprint even when the signature bytes are identical.
+
+#### Assertion Tests
+
+- Compile two members in one batch that select incompatible releases exporting the same nominal package/type names; verify each inference environment uses only its checked owner.
+- Compile a source dependency that exposes a library package while privately importing another package; verify the consumer receives the exposed owner and not the private import.
+- Check missing or inconsistent scope bindings fail before cache lookup, and strict-unused diagnostics report extra original interface files with their labels.
+- Retain and run legacy CheckCommand, source-DAG, constructor/layout, and existing compiler-cache regressions.
+
+6. [ ] `step_4` Persist member requirements and decode with their original owners
 
 Extend proto/src/main/protobuf/bosatsu/TypedAst.proto additively so BuildRequirements can record requirements by referring member and selected scoped owner, including the bindings required to interpret selected interfaces. Preserve existing field numbers and the legacy interfaces list. Keep canonical public Interfaces unchanged. For scoped output, record member/package identities, provider scope and canonical public-interface BLAKE3; exclude physical paths, labels, witness formatting and full implementation hashes. Use an explicit presence/version distinction so empty scoped requirements cannot be mistaken for absent legacy metadata.
 
@@ -195,7 +231,7 @@ Retain the existing packagesFromProto API for legacy/local callers. Adapt LocalR
 - Read existing unscoped requirements and older bundles/signatures, retaining the current rejection of unverifiable legacy external layouts.
 - Preserve private Test/ProgTest discovery order and existing source/decoded declaration validation.
 
-6. [ ] `step_5` Prevent bundle readers from discarding scoped context
+7. [ ] `step_5` Prevent bundle readers from discarding scoped context
 
 Close the bounded file-reader bypass created by the new bundle metadata. Audit and update cli/src/main/scala/dev/bosatsu/IOPlatformIO.scala readInterfacesAndPackages/readPackages, cliJS/src/main/scala/dev/bosatsu/Fs2PlatformIO.scala readPackages, MemoryMain's package reader, PlatformIO's applicable bundle helpers and LocalRuntime.load. These are the repository-controlled readers that currently extract proto.Packages.packages before decoding.
 
@@ -219,7 +255,7 @@ Add focused coverage through the actual JVM, Scala.js and in-memory reader bound
 - Exercise ordinary local compile output and legacy bundle fixtures through those readers to retain compatibility.
 - Verify malformed or stale requirement failures preserve previous declared outputs through FileCommandRunner.
 
-7. [ ] `step_6` Add candidate-worker scope fixtures and document the implemented contract
+8. [ ] `step_6` Add candidate-worker scope fixtures and document the implemented contract
 
 Extend the existing LibraryInspectionFixtures and test_workspace/inspect_library fixture family only where additional serialized graphs are needed for 0m. Reuse the existing preparation script and pinned artifacts; command tests remain offline. Add scoped compilation and validation scenarios to scripts/test_bazel_worker.py using the assembled candidate jar and existing direct, @params and persistent-worker helpers.
 

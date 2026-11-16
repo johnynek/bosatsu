@@ -74,6 +74,12 @@ private[bosatsu] object PackageBindings {
   private val packageOwnerShow: Show[PackageOwner] =
     Show.show(owner => show"${owner.scope}:${owner.packageName}")
 
+  def sameLibraryIdentity(left: LibraryIdentity, right: LibraryIdentity): Boolean =
+    libraryIdentityOrder.eqv(left, right)
+
+  def samePackageOwner(left: PackageOwner, right: PackageOwner): Boolean =
+    packageOwnerOrder.eqv(left, right)
+
   enum PublicProvider derives CanEqual {
     case CompilerPredef
     case Library(identity: LibraryIdentity, witnessPath: List[LibraryIdentity])
@@ -179,7 +185,7 @@ private[bosatsu] object PackageBindings {
 
   final case class BindingKey(referrer: Scope, requiredPackage: PackageName)
 
-  private val bindingKeyOrdering: Ordering[BindingKey] = new Ordering[BindingKey] {
+  private[bosatsu] val bindingKeyOrdering: Ordering[BindingKey] = new Ordering[BindingKey] {
     def compare(left: BindingKey, right: BindingKey): Int = {
       val scope = scopeOrdering.compare(left.referrer, right.referrer)
       if (scope != 0) scope
