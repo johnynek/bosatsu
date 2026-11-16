@@ -7,31 +7,29 @@
 
 - Flow: `small_job`
 - Issue: `#2495` 0m: Preserve per-member imported bindings through validation and compilation
-- Pending steps: `0`
+- Pending steps: `2`
 - Completed steps: `13`
-- Total steps: `13`
+- Total steps: `15`
 
 ## Summary
 
-Preserve caller-relative provider bindings from graph validation through interface selection, source inference, compiled requirements and typed-bundle decoding. A member may see only one exact release of each library name; separate members may select different releases. Authenticate the complete implementation graph and selected core separately from public compilation inputs.
+Preserve caller-relative provider bindings from graph validation through interface selection, source inference, compiled requirements and typed-bundle decoding. A member may see only one exact release per library name; separate members may select different releases. Authenticate the complete implementation graph and selected core separately from public compilation inputs.
 
-Extend VerifiedLibraryGraph, LibraryInspection, GroupGraph, PackageSignatures, CompilerApi, the PackageMap source DAG, CompileCache, ProtoConverter and the staged file-command lifecycle. The recurring defect is loss of the referring context at nominal package-name lookups. Repair that family once: retain checked owners through selection and per-member source execution, fingerprint their public interpretation context, and persist it for decoding. Reuse validation's authentication loader and existing dependency-context/toolchain-manifest formats. Publish the scoped command only together with scoped requirements.
+Extend the existing PackageBindings, PackageSignatures.Root, CompilerApi source-DAG inference, GroupGraph and ProtoConverter mechanisms. The smallest complete repair is one shared required-root/public-exposure resolver, with declared local signatures supported alongside current-batch sources and authenticated library providers. Its resolved owners feed existing inference, strict-unused selection, binding fingerprints and serialized requirements. Retain composed routes for both sides of every conflict. Replace independent graph, selector and decoder closure-policy walks rather than adding another guard at each symptom.
 
-Planner cost judgment: the completed selector accounts for 623 lines of production/test churn; completed production/test work across this issue totals 2,994 lines relative to its inspected base. The selector/inference/command continuation is expected to bring that subset to roughly 1,600–2,500 lines, and the complete operation-family migration is now estimated at 5,000–7,000 lines including serialization, reader guards, tests and worker fixtures. These are cumulative estimates, not separate allowances reset by step ids. Explicitly authorize exceeding the 1,000-line guideline for the named migration: authentication, context-aware inference, provider-sensitive keys and persisted decoding context are directly coupled acceptance requirements. Stopping at selection or applying isolated lookup patches cannot compile disjoint incompatible providers safely. Keep the migration bounded to the listed mechanisms and their required call sites; reuse algorithms, codecs and fixtures rather than introducing parallel systems.
+Planner cost judgment: the reviewed patch contains 7,813 added/deleted lines across production Scala, tests, protobuf and the worker harness; historical intermediate churn can be higher. The earlier 5,000–7,000 estimate is superseded. Budget approximately 1,200–2,200 additional lines of repair/test churn, including removal of redundant walkers and worker acceptance, cumulatively with the completed migration rather than as a fresh allowance. Continuing above the 1,000-line guideline is justified by demonstrated failures of already required local compatibility, visible-release enforcement, persisted decoding context and conflict diagnostics. Consolidation removes the recurring design flaw; a smaller omission-only or diagnostic-only patch would leave required sibling paths incorrect. Keep work bounded to these existing mechanisms, minimal local exposure metadata and their necessary requirement-reader compatibility changes.
 
-Mixed native emission, runtime-manifest expansion, Bazel/Gazelle implementation, producer/history features and the optional select-interfaces command remain outside this job. The existing final worker/documentation step retains Linux acceptance and the tracker 0n handoff. All required evidence is produced by repository tests and the candidate-jar harness before publication; MergeXO owns the separate required-tests gate.
+The follow-up acceptance step produces repository test and exact-candidate worker evidence before publication and updates the existing scoped contracts. MergeXO owns the separate required-tests gate. Mixed native emission, runtime-manifest expansion, Bazel/Gazelle implementation, producer/history features and optional select-interfaces remain outside this job; the repaired bindings and decoder remain the handoff to tracker 0n.
 
-Plan trajectory: initial steps 6; review revisions 0; review-origin steps 0.
+Plan trajectory: initial steps 6; review revisions 1; review-origin steps 2.
 
 ## Current State
 
-Final-test revision inspected candidate `59a2a1a803efe177701045459fcb40854a0f2f4f`. All twelve existing steps are completed; there is no pending work that can absorb this repair. The issue, roadmap #2482, immediate import_scopes node and direct dependency handoffs remain aligned. Retained human history supplies no scope amendment. Completed history remains unchanged.
+Pre-PR revision inspected candidate edd85fd1a0d359de25113c2decdbb93da4384d33 and the authoritative candidate patch. All thirteen existing steps are completed; no pending work can absorb the repairs. Completed history remains unchanged. The source issue, roadmap #2482, import_scopes node and satisfied direct dependency handoffs remain aligned. Materialized human history supplies no applicable scope amendment; its disclosed coverage gaps remain acknowledged.
 
-Scoped selection, authenticated input loading, contextual source-DAG inference, binding-sensitive cache identity, scoped publication and decoding, reader guards, worker fixtures and design/tracker updates are implemented. Step 6 records passing CLI, assembly and candidate-worker checks, but also reproducible failures in both core JVM and Scala.js acceptance runs.
+The findings identify required product defects within the existing compilation/validation/decoding family. Scoped bindings cannot select a separately compiled local dependency signature. Graph validation starts release traversal from supplied bindings, allowing omitted requirements and source-provider exposures to escape checks. Scoped decoding verifies owners and digests without enforcing release uniqueness. Candidate ambiguity and compilation conflict diagnostics lose complete witness routes. These conclusions are supported by code-path inspection; this planning turn ran no tests or builds and made no repository edits.
 
-The authoritative supervised gate tested SHA `59a2a1a803efe177701045459fcb40854a0f2f4f`, run `01a1e4f97cf1714287b742b347586bb0`, command `scripts/test_basic.sh`, status `failed`, exit code 1. CLI tests passed; coreJVM reported 13 failures across EvaluationTest, ToolAndLibCommandTest and PredefWorkspaceTest. Every failure reports `invariant violation: waited on uninitialized promise`; stderr traces lead through `MemoryMain.canPromiseF.wait` and `Memoize.memoizeDag`.
-
-Code inspection identifies a shared effect-timing defect: MemoryMain constructs `delay` and `compute` with an eagerly evaluated `Try`, and `wait` inspects mutable promise state while constructing its action. With the strict Either-backed StateT used by these tests, constructing multiple memoized root actions can register a dependency promise before its completion action executes. The changed source dependency ordering exposes this defect. Correct the existing MemoryMain CanPromise boundary and cover it through the existing memoizer and compiler paths. This is one bounded correction to the accepted source-DAG migration, estimated at roughly 100–250 additional production/test lines. No implementation files or plan artifacts were edited, and no tests were rerun during this planning revision.
+The pending repair consolidates complete public-closure resolution at PackageBindings, supports declared external local signature owners through existing selection and requirement mechanisms, and routes compilation, mixed validation and scoped decoding through that boundary. It removes superseded closure-policy walks and follows with candidate-worker acceptance and contract documentation. Step_7_memory_promise_execution's completed timing repair remains intact; its recorded verification is historical evidence, not evidence that these new defects are fixed.
 
 ## Problem
 
@@ -489,3 +487,107 @@ Required-test repair provenance: tested SHA `59a2a1a803efe177701045459fcb40854a0
 #### Completion Notes
 
 Deferred MemoryMain delay/compute evaluation, promise registration and completion, and promise-state inspection until StateT execution, preserving state threading and cached successes or failures. Added platform and memoized-DAG regressions, including proof that the promise tests fail against the original adapter, plus a reordered scoped compiler test with consumers before a shared provider. Focused MemoryPlatformIOTest, MemoizeTest and CompilerApiScopedTest passed on JVM and Scala.js; EvaluationTest, ToolAndLibCommandTest and PredefWorkspaceTest passed on both platforms; `coreJS/test` passed 2,285 tests (8 ignored); `git diff --check` passed.
+
+14. [ ] `step_8_checked_binding_closure` Resolve complete member closures at the shared binding boundary
+
+Invariant family: caller-relative-binding-closure
+
+Reopen the family addressed by step_1, step_2_mixed_validation, step_3, step_3_member_dag, step_3_member_dag_execution, step_4_scoped_publication and step_4_scoped_decoding. Their implementation retains caller-relative owners, but complete visibility enforcement remains split across compilation, graph validation and decoding. New concrete witnesses show why another entry-point patch is insufficient:
+
+- App importing Local/Util from a separately produced util.sig together with a pinned library cannot compile under --scope-map: member providers require current-batch membership and reject interface_path, while library providers require authenticated library ownership.
+- A graph declaring App -> named_api@1:Names/One and App -> named_api@2:Names/Two with bindings: [] can produce an ok stamp because release traversal starts from supplied bindings.
+- App -> source Wrapper -> publicly exposed library@1 combined with App's direct library@2 escapes graph release validation because member providers are not followed.
+- Scoped decoding accepts two releases exporting different package names when recorded owners and interface digests agree, because its closure walk never checks library-name release uniqueness.
+- Ambiguity diagnostics discard providerCandidates routes; compilation's same-package diagnostics discard routes, and release diagnostics use relative binding witnesses without the accumulated member route.
+
+These violate issue #2495's existing local-signature compatibility, complete per-member closure, downstream decoding and two-witness requirements. All existing steps are completed; no pending step can absorb the repair.
+
+Extend core/src/main/scala/dev/bosatsu/tool/PackageBindings.scala into the common materialization boundary for a resolved member closure. Reuse BindingKey, PackageOwner, CheckedBinding and the authenticated PublicIndex. Supply boundary-specific required roots and public exposure metadata to one fixed-point resolver. Its immutable result retains the reached bindings, selected owners and composed diagnostic routes. Keep parsed declarations distinguishable from a complete resolved closure; successful compilation planning, mixed graph validation and scoped decoding must obtain their closure through this resolver. A helper that only validates supplied binding entries does not establish completeness.
+
+Support separately compiled local signatures without inventing a parallel local import index. Use the existing loose member identity and declared interface information: a current-batch Member provider has no interface file; a local signature provider outside the current member set names exactly one declared interface file containing its package. Recognize external local referrers only through such declared providers. Keep members equal to the actual current sources or bundle members; do not add dependency packages to members. Reject contradictory source/signature declarations and ambiguous or undeclared local files. Index local signature packages and public dependencies through PackageSignatures.Root, preserving wide-signature selection before foreign decoding. Local signatures contribute only the selected package's public exposures, including chains back to current-batch source owners; their private imports and unselected siblings remain invisible.
+
+The shared resolver must start from required packages independently of bindings, require a binding for every reached non-implicit package, validate candidate ownership against declared local edges and authenticated imported exposures, and follow only each selected provider's public exposures. Maintain package-owner uniqueness and one exact release per library name separately for each consuming member. Traverse source providers' public exposures in the consuming member's closure without importing their private dependency environments. Preserve disjoint legal member selections. Use explicit ordering and Eq/Order/Show contracts, stack-safe traversal and visited keys; do not rescan the authenticated implementation graph per member.
+
+Adapt the complete in-scope entry-point inventory:
+
+1. PackageSignatures.planScoped and CompilerApi.prepareScopedCompilation supply actual source imports/exposes, checked local signature roots and authenticated imported projections. Build source-DAG edges only for current-batch providers; local signature providers remain external interfaces. Feed the resolved selection into the existing per-member inference, binding fingerprint and strict-unused file-union mechanisms. Retain Root decoding and source-supplied exposed-owner staging.
+2. ValidateGraphCommand.runMixed and GroupGraph.validateMixed seed closure resolution from declared dependency requirements rather than checked.bindings. Remove the misleading source-derived comparison that passes scopeMap.dependencies to itself. Graph validation remains a check of declared structural inputs. Provide source providers' public exposures using the existing header exposes data carried additively in full-topology member records; distinguish missing metadata from an explicitly empty exposure list and require it when a mixed closure traverses that source provider. Use declared local signatures for external local providers. Do not interpret Member.source identity strings as filesystem paths. Preserve old unscoped group/group-members parsing, membership-only local checks, root membership matching and the existing single full-root traversal. The additional exposure metadata is required specifically to distinguish the demonstrated source wrapper's public API from its private imports.
+3. PackageSignatures.buildRequirements/parseBuildRequirements persist and parse the same reached owner choices. Record canonical public-interface requirements for selected external local signatures as well as library interfaces. Keep current-bundle source owners distinct from external local owners; referrers and owners outside the bundle must be justified by the resolved external signature closure rather than rejected merely for absence from member records. Reuse existing BuildScope and requirement fields, preserve field numbers and legacy encoding, and exclude paths, labels, routes and implementation hashes from durable signature inputs.
+4. ProtoConverter.packagesFromProtoScoped resolves external local owners from explicitly supplied owner interfaces and current-bundle owners from decoded source members. Derive required roots from actual encoded imports and public exports, use actual supplied/decoded public exposures, compare recorded owners and digests, and run the shared closure checks before returning members. Recorded binding lists cannot serve as their own completeness evidence. Preserve source topological decoding, layout validation, provider-switch rejection and malformed/unreachable-record checks. Adjust validateStandalonePackageBundles and LocalRuntime's existing requirement checks only as needed for these external local requirements: preserve supported local bundle loading and explicit rejection when required scoped context is unavailable. This is compatibility work on the changed requirement format, not mixed runtime or native emission.
+
+Compose routes at traversal time from the accumulated member route and the checked relative witness, dropping only an overlapping endpoint. Preserve deterministic representative routes for selected owners. Render owner plus complete route for every competing candidate in ambiguity, same-package ownership and library-release diagnostics. Reuse GroupGraph's existing route-composition approach at the shared boundary. Diagnostics must include both wrapper-to-provider paths, not just both release identities.
+
+Demolish the superseded policy walks through ordinary code edits: replace GroupGraph.validateMemberReleases/validateVisibleReleases's binding-seeded, library-only traversal; replace planScoped's independent Need/visible/release bookkeeping with the shared result; replace the decoder's independent closure queue with the same resolver adapted to typed exposures. Rework providerCandidates to use the common public-provider traversal and retain its provenance, rather than leaving a separate source-blind candidate algorithm. Keep boundary-specific signature decoding, digest checks and structural membership validation where they belong. This consolidation prevents the same omission or source-provider leak from recurring in sibling entry points.
+
+Add focused regressions and property checks in PackageBindingsTest, PackageSignaturesTest, CompilerApiScopedTest, ProtoConverterTest, GroupGraphTest, CompilePackagesCommandTest, StrictInterfacesCommandTest and ValidateGraphCommandTest. Cover changed standalone-reader/local-runtime behavior in their existing suites if those guards change. Run focused JVM suites and the corresponding shared-core Scala.js suites. Completion requires the listed entry points to use the shared resolver, the concrete witnesses to pass or fail as specified, and removal of the redundant closure-policy implementations.
+
+#### Invariants
+
+- Compilation, mixed graph validation and scoped decoding resolve required roots through the same complete caller-relative public closure mechanism.
+- Missing bindings cannot remove required packages from validation; source and signature providers contribute public exposures without exposing private imports or unrelated signature roots.
+- A separately compiled local signature can supply an external local owner without becoming a current-batch member or an authenticated library.
+- Every member sees at most one owner per package and one exact release per library name; disjoint member selections remain legal.
+- Ambiguity, package-owner and release conflicts retain both complete dependency routes in deterministic diagnostics.
+- Serialized requirements preserve selected external local and library owners and public digests, while legacy compatibility, layout safeguards and provider-switch checks remain enforced.
+- Authentication and selected-core composition retain the existing shared implementation-graph traversal; local membership checks retain their bounded input behavior.
+- Inference uses the existing checked source DAG and cache mechanism; no worker inference cache, mixed native emitter or parallel serialization format is introduced.
+
+#### Property Tests
+
+- For bounded caller-relative graphs with source providers, local signature providers and authenticated library exposures, compare each entry-point adapter's resolved owners with a simple reference public-closure traversal.
+- Removing any required non-implicit binding from a valid reachable closure causes failure; adding private edges or unrelated wide-signature roots does not enlarge that member's visible closure.
+- Permuting members, dependencies, bindings, interfaces and labels preserves selections, serialized requirement bytes and conflict diagnostics.
+- Round-trip scoped requirements with both current-bundle source owners and external local signature owners; reject changed public digests, unjustified external scopes and equal-signature library owner switches.
+- Every reported conflict route starts at the consuming member, follows declared dependency/public exposure edges and ends at its reported provider; two releases visible only to separate members remain valid.
+
+#### Assertion Tests
+
+- First compile Local/Util, then compile App against util.sig and a pinned library under --scope-map and --error-unused-interfaces, without supplying Local/Util source; decode the resulting scoped bundle with its explicit provider context.
+- Exercise a public exposure chain through the local signature, including a current-batch source-supplied exposed owner; reject an omitted exposed owner and an extra unrelated interface.
+- Validate App's declared dependencies on named_api@1:Names/One and named_api@2:Names/Two with empty and partially omitted bindings; require failure and preserve the previous validation stamp.
+- Reject App -> source Wrapper -> exposed library@1 together with App -> library@2, while accepting the variant where Wrapper uses library@1 only privately.
+- Reject a scoped bundle whose matching owner records and correct interface digests select two releases of one library through different package names before returning decoded members.
+- Assert complete member-to-wrapper-to-provider routes for imported ambiguity, same-package conflicts and source-wrapper release conflicts.
+- Retain existing unscoped local signatures, separate local bundle loading, self-contained scoped bundles, disjoint private releases, shared diamonds, layout checks, manifest-visit counts and membership-cache-input regressions.
+
+15. [ ] `step_9_binding_closure_acceptance` Exercise repaired closures through workers and document the contract
+
+Invariant family: caller-relative-binding-closure
+
+After step_8_checked_binding_closure, close the executable worker and downstream-contract obligations originally covered by step_6. The earlier equal-signature worker assertion accepts diagnostics containing only equal_api release identities, so it does not establish the required two witness paths. Existing worker cases also do not cover missing graph bindings or scoped compilation using separately compiled local signatures.
+
+Extend scripts/test_bazel_worker.py through its existing inspect_fixture_roots, compare_command, scoped input builders and PersistentWorker helpers. Strengthen the equal-signature conflict assertion to require both complete routes from Candidate/Equal through equal_left and equal_right to their respective equal_api releases. Reuse the shared diagnostic implementation from step_8_checked_binding_closure; do not introduce fixture-specific diagnostic formatting.
+
+Add candidate cases that first produce a local dependency signature and then consume it with a pinned library under scoped strict-interface compilation, plus mixed graph cases with empty/partially omitted required bindings and a visible conflict through a source wrapper's public exposures. Construct local source/signature inputs in the harness and reuse existing pinned inspection fixtures; add serialized fixtures only if the existing family cannot express a required case. Cover both different-package release conflicts and byte-identical signature conflicts.
+
+For changed scoped compilation and graph validation, exercise success, an in-place binding change to failure, restart and recovery using the exact assembled candidate jar. Compare direct, @params, cold, warm and restarted status/diagnostics, and reverse binding/interface/label order. Assert both complete conflict routes and preservation of prior output files or validation stamps on failure. Keep the scoped bundle round-trip and forged-requirement checks in repository Scala tests through the actual decoder API; no native emission command is needed for that handoff.
+
+Update docs/design/hermetic-bazel-rules.md's existing scoped contracts with the implemented local-signature declaration rules, external local requirement semantics, the minimal mixed-graph source exposure metadata, and complete conflict examples. Keep tracker 0m linked to the implementing tests and describe the corrected binding/decoder handoff to 0n. Update test_workspace/inspect_library/README.md only where fixture usage changes. Preserve the existing legacy and missing-context behavior descriptions, and leave 0n, Bazel/Gazelle implementation and optional select-interfaces outside this job. These are product contract updates, not edits to completed plan history.
+
+Run the issue's Linux acceptance command on the repaired candidate:
+
+```sh
+sbt "coreJVM/test; cli/test; coreJS/test; cliJSJS/test; cli/assembly"
+./test_cli.sh
+```
+
+Prepare declared offline inspection fixtures with scripts/prepare_inspect_library_fixtures.py, then run scripts/test_bazel_worker.py with --jar selecting that assembly and --inspection-fixtures selecting the prepared directory. Use the existing coverage tasks to inspect changed executable behavior and target complete coverage. Repository tests produce the closure, compatibility and decoding evidence; the candidate-jar harness produces transport/restart and publication evidence before PR publication. MergeXO owns the separate scripts/test_basic.sh gate, and this step does not wait for its report. macOS checks remain PR CI's responsibility. Keep tests, fixture instructions and contract documentation in the repository; no separate transient evidence artifact is consumed by later steps.
+
+#### Invariants
+
+- The assembled candidate exhibits equivalent scoped behavior across direct, @params, cold, warm and restarted execution after files change at reused paths.
+- Worker acceptance checks both full witness routes and preserves previous outputs on failed compilation or graph validation.
+- The documented local-signature, graph exposure and requirement contracts match the implemented shared resolver.
+- All required evidence is available from repository tests and candidate-jar runs before publication; no future merge or macOS worker evidence is required.
+
+#### Property Tests
+
+- Extend the existing reordered-input execution matrix to compare successful output bytes and complete conflict diagnostics across transport modes.
+- Repeat valid/failing/recovered requests at reused paths and assert the recovered outputs equal the original successful outputs.
+
+#### Assertion Tests
+
+- The equal-signature worker conflict names both complete Candidate/Equal -> equal_left -> equal_api@1 and Candidate/Equal -> equal_right -> equal_api@2 routes.
+- The candidate jar compiles a consumer from a previously produced local signature plus a pinned library with strict-unused checking.
+- Empty or partial graph bindings and a source-wrapper visible conflict fail through standalone, warm and restarted validation without replacing the previous stamp.
+- Pass the named JVM/CLI/Scala.js acceptance suites, candidate assembly, CLI checks and extended offline worker harness, retaining diamond, private-core, visit-count and membership-input cases.
