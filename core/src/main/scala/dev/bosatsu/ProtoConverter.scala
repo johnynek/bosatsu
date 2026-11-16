@@ -5,9 +5,9 @@ import cats.{Eval, Foldable, Monad, MonadError}
 import cats.data.{NonEmptyList, ReaderT}
 import cats.parse.{Parser => P}
 //import cats.effect.IO
-import dev.bosatsu.graph.Memoize
+import dev.bosatsu.graph.{Memoize, Toposort}
 import dev.bosatsu.rankn.{ConstructorParam, DefinedType, Type, TypeAlias, TypeEnv}
-import dev.bosatsu.tool.CliException
+import dev.bosatsu.tool.{CliException, PackageBindings}
 import scala.util.{Failure, Success, Try}
 import scala.reflect.ClassTag
 import scala.collection.immutable.SortedMap
@@ -2588,6 +2588,248 @@ object ProtoConverter {
           }
         }
       }
+    }
+  }
+
+  /** A compiled member decoded with the exact checked owners recorded for it.
+    * Its context remains attached so consumers cannot accidentally merge
+    * members whose same-named imports came from different providers.
+    */
+  private[bosatsu] final case class ScopedDecodedMember[Path](
+      pack: Package.Compiled,
+      context: List[PackageBindings.CheckedBinding[Path]]
+  )
+
+  /** Decode a scoped compile-packages bundle one source member at a time.
+    * The legacy decoder remains name-indexed; using it once per member lets it
+    * keep its established validation while ensuring each invocation sees only
+    * that member's checked interfaces and already-decoded source providers.
+    */
+  private[bosatsu] def packagesFromProtoScoped[Path](
+      bundle: proto.Packages,
+      checked: PackageBindings.CheckedScopeMap[Path],
+      ownerInterfaces: Map[PackageBindings.PackageOwner, Package.Interface]
+  ): Try[List[ScopedDecodedMember[Path]]] = Try {
+    import PackageBindings.{BindingKey, Scope}
+
+    val requirements = bundle.buildRequirements.getOrElse(
+      throw CliException.Basic("scoped package decoding requires build requirements")
+    )
+    val parsed = PackageSignatures.parseBuildRequirements(requirements).get
+    val memberRequirements = parsed match {
+      case PackageSignatures.ParsedBuildRequirements.Scoped(members) => members
+      case PackageSignatures.ParsedBuildRequirements.Legacy(_) =>
+        throw CliException.Basic("scoped package decoding requires scoped build requirements")
+    }
+
+    val requirementNames = memberRequirements.map(_.member)
+    val requirementSet = requirementNames.toSet
+    if (checked.scopeMap.members.toSet != requirementSet)
+      throw CliException.Basic("checked scope-map members do not match bundle member requirements")
+
+    val packages = bundle.packages.toList.map { pack =>
+      val rawName = pname(pack)
+      val name = PackageName.parse(rawName).getOrElse(
+        throw CliException.Basic(s"invalid package name '$rawName' in scoped bundle")
+      )
+      name -> pack
+    }
+    val packageNames = packages.map(_._1)
+    if (packageNames.distinct.size != packageNames.size)
+      throw CliException.Basic("duplicate package member in scoped bundle")
+    if (packageNames.toSet != requirementSet) {
+      val missing = requirementSet.diff(packageNames.toSet).toList.sorted
+      val extra = packageNames.toSet.diff(requirementSet).toList.sorted
+      throw CliException.Basic(
+        s"bundle member requirements do not match packages (missing: ${missing.map(_.asString).mkString(", ")}; " +
+          s"unrecorded: ${extra.map(_.asString).mkString(", ")})"
+      )
+    }
+
+    val requirementByMember = memberRequirements.iterator.map(r => r.member -> r).toMap
+    val packageByMember = packages.toMap
+    val bindingsByMember = memberRequirements.iterator.map { requirements =>
+      val selected = scala.collection.immutable.SortedMap.from(
+        requirements.bindings.map { binding =>
+          BindingKey(binding.referrer, binding.packageName) -> binding.owner
+        }
+      )(using PackageBindings.bindingKeyOrdering)
+      requirements.member -> selected
+    }.toMap
+
+    // The artifact carries a snapshot of the checked choices. Compare owner
+    // identities as well as interface bytes so identical signatures cannot
+    // make a provider switch invisible.
+    memberRequirements.foreach { requirements =>
+      requirements.bindings.foreach { recorded =>
+        val key = BindingKey(recorded.referrer, recorded.packageName)
+        val actual = checked.bindings.getOrElse(key,
+          throw CliException.Basic(
+            s"missing checked context for ${recorded.packageName.asString} in ${requirements.member.asString}"
+          )
+        )
+        if (!PackageBindings.samePackageOwner(actual.owner, recorded.owner))
+          throw CliException.Basic(
+            s"provider changed for ${recorded.packageName.asString} in ${requirements.member.asString}"
+          )
+      }
+
+      requirements.interfaces.foreach { requirement =>
+        val owner = requirements.bindings.iterator.map(_.owner).find { owner =>
+          owner.packageName == requirement.packageName && (owner.scope match {
+            case Scope.Library(_) => true
+            case _                => false
+          })
+        }
+        val exactOwner = owner.getOrElse(
+          throw CliException.Basic(
+            s"missing selected library owner for ${requirement.packageName.asString} in ${requirements.member.asString}"
+          )
+        )
+        val iface = ownerInterfaces.getOrElse(exactOwner,
+          throw CliException.Basic(
+            s"missing interface context for ${exactOwner.scope.show}:${exactOwner.packageName.asString}"
+          )
+        )
+        if (iface.name != exactOwner.packageName)
+          throw CliException.Basic(
+            s"interface context for ${exactOwner.packageName.asString} contains ${iface.name.asString}"
+          )
+        val actualDigest = PackageSignatures.requirement(iface).get.interfaceBlake3
+        if (actualDigest != requirement.blake3)
+          throw CliException.Basic(
+            s"stale public interface for ${exactOwner.packageName.asString}: " +
+              s"expected ${requirement.blake3}, found $actualDigest"
+          )
+      }
+    }
+
+    val dependencies = memberRequirements.iterator.map { requirements =>
+      val sources = requirements.bindings.iterator.map(_.owner.scope)
+        .collect { case Scope.Member(source) => source }.toList.distinct.sorted
+      requirements.member -> sources
+    }.toMap
+    val sourceOrder = Toposort.sort(requirementNames)(dependencies)
+    val orderedMembers = sourceOrder.toSuccess.getOrElse {
+      throw CliException.Basic(
+        s"circular source bindings in scoped bundle: ${sourceOrder.loopNodes.map(_.asString).mkString(", ")}"
+      )
+    }.iterator.flatMap(_.toList).toList
+
+    val decoded = mutable.Map.empty[PackageName, Package.Compiled]
+    orderedMembers.foreach { member =>
+      val selected = requirementByMember(member)
+      val directBindings = selected.bindings.filter(_.referrer == Scope.Member(member))
+      val directNames = directBindings.map(_.packageName).toSet
+      val wire = packageByMember(member)
+      val wireImports = wire.imports.iterator.map { imported =>
+        wire.strings.lift(imported.packageName - 1).flatMap(PackageName.parse).getOrElse(
+          throw CliException.Basic(s"invalid import package name in ${member.asString}")
+        )
+      }.toList
+      val missingImports = wireImports.filterNot(name => name.isPredef || directNames(name)).distinct.sorted
+      if (missingImports.nonEmpty)
+        throw CliException.Basic(
+          s"missing member bindings in ${member.asString}: ${missingImports.map(_.asString).mkString(", ")}"
+        )
+
+      val dependencyInterfaces = selected.bindings.map { binding =>
+        val owner = binding.owner
+        owner.scope match {
+          case Scope.Member(source) =>
+            val sourcePack = decoded.getOrElse(source,
+              throw CliException.Basic(s"missing source context ${source.asString} for ${member.asString}")
+            )
+            if (sourcePack.name != owner.packageName)
+              throw CliException.Basic(
+                s"source context ${source.asString} does not provide ${owner.packageName.asString}"
+              )
+            Package.interfaceOf(sourcePack)
+          case Scope.Library(_) => ownerInterfaces.getOrElse(owner,
+            throw CliException.Basic(
+              s"missing interface context for ${owner.scope.show}:${owner.packageName.asString}"
+            )
+          )
+          case Scope.Predef =>
+            if (owner.packageName != PackageName.PredefName)
+              throw CliException.Basic("compiler Predef binding has a non-Predef package")
+            PackageSignatures.predef
+        }
+      }.distinctBy(_.name)
+      val decodedMember = packagesFromProto(Nil, List(wire), dependencyInterfaces).get._2 match {
+        case pack :: Nil => pack
+        case packs =>
+          throw CliException.Basic(
+            s"expected one decoded package for ${member.asString}, found ${packs.size}"
+          )
+      }
+      decoded.update(member, decodedMember)
+    }
+
+    // Check that the bundle's requirements are precisely the closure reachable
+    // from its source imports and exported public types. In particular, a
+    // forged or omitted exposure-only owner cannot be hidden by a package-name
+    // fallback in the legacy decoder.
+    memberRequirements.foreach { requirements =>
+      val member = requirements.member
+      val expected = bindingsByMember(member)
+      val scopeDependencies = checked.scopeMap.dependencies.iterator.collect {
+        case dependency if dependency.from == Scope.Member(member) => dependency.packageName
+      }.toList
+      val roots = {
+        val imported = packageByMember(member).imports.iterator.map { imp =>
+          packageByMember(member).strings.lift(imp.packageName - 1).flatMap(PackageName.parse).getOrElse(
+            throw CliException.Basic(s"invalid import package name in ${member.asString}")
+          )
+        }
+        (imported ++ scopeDependencies).toList.distinct.filter { name =>
+          !name.isPredef || expected.contains(BindingKey(Scope.Member(member), name))
+        }
+      }
+      val todo = mutable.ArrayDeque.from(roots.map(name => BindingKey(Scope.Member(member), name)))
+      val visited = mutable.Set.empty[BindingKey]
+      while (todo.nonEmpty) {
+        val key = todo.removeHead()
+        if (visited.add(key)) {
+          val owner = expected.getOrElse(key,
+            throw CliException.Basic(
+              s"missing selected exposure binding for ${key.requiredPackage.asString} in ${member.asString}"
+            )
+          )
+          val iface = owner.scope match {
+            case Scope.Member(source) =>
+              val sourcePack = decoded.getOrElse(source,
+                throw CliException.Basic(s"missing source context ${source.asString} for ${member.asString}")
+              )
+              Package.interfaceOf(sourcePack)
+            case Scope.Library(_) => ownerInterfaces.getOrElse(owner,
+              throw CliException.Basic(
+                s"missing interface context for ${owner.scope.show}:${owner.packageName.asString}"
+              )
+            )
+            case Scope.Predef => PackageSignatures.predef
+          }
+          if (iface.name != owner.packageName)
+            throw CliException.Basic(
+              s"owner context for ${owner.packageName.asString} resolves to ${iface.name.asString}"
+            )
+          todo.appendAll(iface.exposedDepPackages.filterNot(_.isPredef).map { exposed =>
+            BindingKey(owner.scope, exposed)
+          })
+        }
+      }
+      val extra = expected.keysIterator.filterNot(visited).map(_.requiredPackage).toList.distinct.sorted
+      if (extra.nonEmpty)
+        throw CliException.Basic(
+          s"unreachable scoped bindings in ${member.asString}: ${extra.map(_.asString).mkString(", ")}"
+        )
+    }
+
+    memberRequirements.map { requirements =>
+      val context = requirements.bindings.map { binding =>
+        checked.bindings(BindingKey(binding.referrer, binding.packageName))
+      }
+      ScopedDecodedMember(decoded(requirements.member), context)
     }
   }
 }

@@ -1,7 +1,7 @@
 package dev.bosatsu
 
 import _root_.bosatsu.{TypedAst => proto}
-import cats.data.Chain
+import cats.data.{Chain, Ior, NonEmptyList}
 import cats.implicits._
 import dev.bosatsu.tool.{LocalRuntime, LocalRuntimeManifest}
 
@@ -37,6 +37,24 @@ class LocalRuntimeScopeTest extends munit.FunSuite {
       .runA(state(json, files))
 
   private def checked[A](result: Result[A]): A = result.fold(err => fail(err.getMessage), identity)
+
+  private def compilePackage(source: String, interfaces: List[Package.Interface]): Package.Compiled = {
+    val parsed = Parser.unsafeParse(Package.parser, source)
+    val result = Par.noParallelism {
+      PackageMap.typeCheckParsed(
+        NonEmptyList.one((("local-runtime", LocationMap(source)), parsed)),
+        interfaces,
+        "<predef>",
+        CompileOptions.Default
+      )
+    }
+    val packages = result match {
+      case Ior.Left(errors) => fail(errors.toList.mkString("typecheck failed: ", ", ", ""))
+      case Ior.Right(value) => value
+      case Ior.Both(_, value) => value
+    }
+    packages.toMap(parsed.name)
+  }
 
   private def rejects[A](result: Result[A], expected: String*): Unit = {
     val msg = result.swap.toOption.getOrElse(fail("accepted an invalid runtime scope")).getMessage
@@ -91,6 +109,59 @@ class LocalRuntimeScopeTest extends munit.FunSuite {
     val a = wire("First").copy(strings = List("First", "Second"), imports = List(cycle))
     val b = wire("Second").copy(strings = List("Second", "First"), imports = List(cycle))
     rejects(load(graph("loop.pkg"), "loop.pkg" -> bundle(a, b)), "circular dependencies", "First", "Second")
+  }
+
+  test("scoped runtime requirements are checked per member through the common parser") {
+    val clientName = PackageName.parts("Client")
+    val externalName = PackageName.parts("Demo/External")
+    val external = compilePackage(
+      "package Demo/External\nexport value\nvalue = 1\n",
+      Nil
+    )
+    val externalInterface = Package.interfaceOf(external)
+    val client = compilePackage(
+      "package Client\nfrom Demo/External import value\nexport main\nmain = value\n",
+      List(externalInterface)
+    )
+    val digest = PackageSignatures.requirement(externalInterface).get.interfaceBlake3
+    val owner = proto.BuildScope(
+      kind = "library",
+      libraryName = "shared",
+      libraryVersion = Some(proto.Version(major = 1))
+    )
+    def scopedRequirements(interfaceDigest: String): proto.BuildRequirements =
+      proto.BuildRequirements(
+        scopedVersion = 1,
+        members = List(proto.MemberBuildRequirements(
+          memberName = clientName.asString,
+          bindings = List(proto.ScopedBindingRequirement(
+            referrer = Some(proto.BuildScope(kind = "member", memberName = clientName.asString)),
+            packageName = externalName.asString,
+            owner = Some(owner),
+            ownerPackageName = externalName.asString
+          )),
+          interfaces = List(proto.InterfaceRequirement(externalName.asString, interfaceDigest))
+        ))
+      )
+    val clientBundle = (requirements: proto.BuildRequirements) =>
+      MemoryMain.FileContent.Bytes(Bytes.fromMessage(
+        proto.Packages(List(ProtoConverter.packageToProto(client).get), buildRequirements = Some(requirements))
+      ))
+    val externalBundle = MemoryMain.FileContent.Bytes(Bytes.fromMessage(
+      proto.Packages(List(ProtoConverter.packageToProto(external).get))
+    ))
+
+    val runtime = checked(load(
+      graph("client.pkg", "external.pkg"),
+      "client.pkg" -> clientBundle(scopedRequirements(digest)),
+      "external.pkg" -> externalBundle
+    ))
+    assertEquals(runtime.members(file("client.pkg")).toList, List(clientName))
+    rejects(load(
+      graph("client.pkg", "external.pkg"),
+      "client.pkg" -> clientBundle(scopedRequirements("0" * 64)),
+      "external.pkg" -> externalBundle
+    ), "stale interface", externalName.asString)
   }
 
   test("empty, corrupt and misidentified bundles have file diagnostics") {

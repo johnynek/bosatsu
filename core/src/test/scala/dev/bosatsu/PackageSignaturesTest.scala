@@ -760,12 +760,56 @@ class PackageSignaturesTest extends munit.FunSuite {
       case other => fail(s"expected scoped requirements, found $other")
     }
 
+    val sharedApi = PackageName.parts("Shared/Api")
+    def scopedMember(name: String, version: Long): proto.MemberBuildRequirements =
+      proto.MemberBuildRequirements(
+        memberName = name,
+        bindings = Seq(proto.ScopedBindingRequirement(
+          referrer = Some(proto.BuildScope(kind = "member", memberName = name)),
+          packageName = sharedApi.asString,
+          owner = Some(proto.BuildScope(
+            kind = "library",
+            libraryName = "shared",
+            libraryVersion = Some(proto.Version(major = version))
+          )),
+          ownerPackageName = sharedApi.asString
+        )),
+        interfaces = Seq(proto.InterfaceRequirement(sharedApi.asString, digest))
+      )
+    val disjointOwners = proto.BuildRequirements(
+      scopedVersion = 1,
+      members = Seq(scopedMember("Left", 1), scopedMember("Right", 2))
+    )
+    success(PackageSignatures.parseBuildRequirements(disjointOwners)) match {
+      case PackageSignatures.ParsedBuildRequirements.Scoped(members) =>
+        assertEquals(members.map(_.member), List(PackageName.parts("Left"), PackageName.parts("Right")))
+        assertEquals(members.map(_.bindings.head.owner.scope), List(
+          PackageBindings.Scope.Library(libraryIdentity("shared", "1.0.0")),
+          PackageBindings.Scope.Library(libraryIdentity("shared", "2.0.0"))
+        ))
+      case other => fail(s"expected scoped requirements, found $other")
+    }
+
     val duplicateMember = emptyScoped.copy(members = Seq(
       proto.MemberBuildRequirements(memberName = "Client"),
       proto.MemberBuildRequirements(memberName = "Client")
     ))
     assert(PackageSignatures.parseBuildRequirements(duplicateMember).failed.get.getMessage
       .contains("duplicate member"))
+    val contradictoryOwners = emptyScoped.copy(members = Seq(
+      scopedMember("Client", 1).copy(bindings = Seq(
+        scopedMember("Client", 1).bindings.head,
+        scopedMember("Client", 2).bindings.head.copy(
+          referrer = Some(proto.BuildScope(
+            kind = "library",
+            libraryName = "facade",
+            libraryVersion = Some(proto.Version(major = 1))
+          ))
+        )
+      ))
+    ))
+    assert(PackageSignatures.parseBuildRequirements(contradictoryOwners).failed.get.getMessage
+      .contains("contradictory owners"))
     val unsupportedVersion = emptyScoped.copy(scopedVersion = 2)
     assert(PackageSignatures.parseBuildRequirements(unsupportedVersion).failed.get.getMessage
       .contains("unsupported scoped"))

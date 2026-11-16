@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2495` 0m: Preserve per-member imported bindings through validation and compilation
-- Pending steps: `3`
-- Completed steps: `9`
+- Pending steps: `2`
+- Completed steps: `10`
 - Total steps: `12`
 
 ## Summary
@@ -361,7 +361,7 @@ Extend CompilePackagesCommandTest, StrictInterfacesCommandTest and appropriate r
 
 Added scoped compile-packages inputs, member-scoped requirement serialization and parsing, and atomic publication of the bundle and signature. Added command, strict-unused, imported-binding, publication-recovery, and requirement-codec coverage. The focused CLI suites passed 29 tests, the PackageSignatures suite passed 20 tests, core and CLI test compilation passed, and `git diff --check` was clean.
 
-10. [ ] `step_4_scoped_decoding` Decode bundles with their recorded member owners
+10. [x] `step_4_scoped_decoding` Decode bundles with their recorded member owners
 
 Use the requirement representation and parser from step_4_scoped_publication to extend core/src/main/scala/dev/bosatsu/ProtoConverter.scala with a bundle-aware scoped decode entry point. It accepts the shared checked binding representation and owner-indexed supplied interfaces. Decode each member and foreign definition with its recorded context, returning member/context pairs rather than flattening incompatible external providers into one PackageMap.
 
@@ -389,6 +389,10 @@ Extend ProtoConverterTest, PackageSignaturesTest, CompilePackagesCommandTest and
 - Reject an equal-signature owner switch, omitted exposure-only owner, wrong source-supplied owner and malformed member records.
 - Read existing unscoped bundles and signature fixtures with their existing compatibility checks.
 - Retain local stale-layout, private Test/ProgTest discovery and Int64 declaration regressions.
+
+#### Completion Notes
+
+Added scoped bundle decoding that verifies recorded provider owners and interface digests, topologically decodes source members in their own contexts, and checks the selected exposure closure. LocalRuntime now checks legacy and scoped requirements through the common parser while retaining legacy layout safeguards. The focused suites passed: 59 core tests and 19 CLI tests; `git diff --check` was clean.
 
 11. [ ] `step_5_bundle_reader_context` Preserve scoped metadata at whole-bundle readers
 

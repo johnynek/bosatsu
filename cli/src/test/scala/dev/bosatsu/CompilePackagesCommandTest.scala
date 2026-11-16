@@ -2,10 +2,11 @@ package dev.bosatsu
 
 import _root_.bosatsu.{TypedAst => proto}
 import cats.effect.IO
+import cats.syntax.all._
 import dev.bosatsu.Identifier.{Constructor, Name}
 import dev.bosatsu.hashing.Algo
 import dev.bosatsu.rankn.{Type, TypeAlias}
-import dev.bosatsu.tool.PackageBindings
+import dev.bosatsu.tool.{CliException, LibraryInspection, PackageBindings, ToolchainManifest}
 import java.nio.file.{Files, Path, Paths}
 
 class CompilePackagesCommandTest extends FileCommandFixtures {
@@ -109,17 +110,26 @@ class CompilePackagesCommandTest extends FileCommandFixtures {
   private def inspectSharedLibrary(
       root: Path,
       runner: FileCommandRunner
+  ): IO[List[String]] = inspectSharedLibraryVersion(root, runner, "1.0.0", "shared")
+
+  private def inspectSharedLibraryVersion(
+      root: Path,
+      runner: FileCommandRunner,
+      version: String,
+      prefix: String
   ): IO[List[String]] = {
-    val fixture = Paths.get("test_workspace/inspect_library/shared-v1.0.0.bosatsu_lib")
-    val context = emptyDependencyContext
+    val fixture = Paths.get(s"test_workspace/inspect_library/shared-v$version.bosatsu_lib")
     for {
       bytes <- IO.blocking(Files.readAllBytes(fixture))
-      _ <- IO.blocking(Files.write(root.resolve("shared.lib"), bytes))
-      _ <- write(root, "inspect-context.json", context)
+      _ <- IO.blocking(Files.write(root.resolve(s"$prefix.lib"), bytes))
+      _ <- write(root, "inspect-context.json", emptyDependencyContext)
+      signature = root.resolve(s"$prefix.sig").toString
+      index = root.resolve(s"$prefix-index.json").toString
       args = List(
-        "inspect-library", "--input", "shared.lib", "--expected-name", "shared",
-        "--expected-version", "1.0.0", "--dependency-context", "inspect-context.json",
-        "--sig-out", "shared.sig", "--exposures-out", "shared-index.json"
+        "inspect-library", "--input", root.resolve(s"$prefix.lib").toString,
+        "--expected-name", "shared", "--expected-version", version,
+        "--dependency-context", "inspect-context.json",
+        "--sig-out", signature, "--exposures-out", index
       ) ::: hashes(bytes).flatMap(hash => List("--expected-hash", hash))
       inspected <- runner.run(root, args)
       _ = success(inspected)
@@ -359,6 +369,123 @@ class CompilePackagesCommandTest extends FileCommandFixtures {
             ))
           case other => fail(s"expected one scoped member, found $other")
         }
+      } yield ()
+    }
+  }
+
+  test("scoped command bundles decode same-named providers in their recorded member contexts") {
+    withRunner { (root, runner) =>
+      val api = PackageName.parts("Shared/Api")
+      val one = PackageName.parts("Client/One")
+      val two = PackageName.parts("Client/Two")
+      val versionOne = "1.0.0"
+      val versionTwo = "2.0.0"
+      def dependency(from: PackageName, version: String): Json = Json.JObject(List(
+        "from" -> scope("member", from.asString),
+        "package" -> Json.JString(api.asString),
+        "to" -> libraryScope("shared", version)
+      ))
+      def binding(from: PackageName, version: String, signature: String): Json = Json.JObject(List(
+        "referrer" -> scope("member", from.asString),
+        "package" -> Json.JString(api.asString),
+        "provider" -> libraryScope("shared", version),
+        "interface_path" -> Json.JString(signature)
+      ))
+      def imported(version: String, signature: String, index: String): Json = Json.JObject(List(
+        "identity" -> Json.JObject(List(
+          "name" -> Json.JString("shared"), "version" -> Json.JString(version)
+        )),
+        "signature_path" -> Json.JString(signature),
+        "public_index_path" -> Json.JString(index)
+      ))
+      for {
+        hashesOne <- inspectSharedLibraryVersion(root, runner, versionOne, "shared-v1")
+        hashesTwo <- inspectSharedLibraryVersion(root, runner, versionTwo, "shared-v2")
+        signatureOne = root.resolve("shared-v1.sig").toString
+        signatureTwo = root.resolve("shared-v2.sig").toString
+        indexOne = root.resolve("shared-v1-index.json").toString
+        indexTwo = root.resolve("shared-v2-index.json").toString
+        artifactOne = root.resolve("shared-v1.lib").toString
+        artifactTwo = root.resolve("shared-v2.lib").toString
+        scopeJson = Json.JObject(List(
+          "schema_version" -> Json.JNumberStr("1"),
+          "members" -> Json.JArray(Vector(Json.JString(one.asString), Json.JString(two.asString))),
+          "dependencies" -> Json.JArray(Vector(
+            dependency(one, versionOne), dependency(two, versionTwo)
+          )),
+          "imports" -> Json.JArray(Vector(
+            imported(versionOne, signatureOne, indexOne), imported(versionTwo, signatureTwo, indexTwo)
+          )),
+          "bindings" -> Json.JArray(Vector(
+            binding(one, versionOne, signatureOne), binding(two, versionTwo, signatureTwo)
+          ))
+        )).render
+        dependencyContext = Json.JObject(List(
+          "schema_version" -> Json.JNumberStr("1"),
+          "libraries" -> Json.JArray(Vector(
+            Json.JObject(List(
+              "name" -> Json.JString("shared"), "version" -> Json.JString(versionOne),
+              "path" -> Json.JString(artifactOne),
+              "hashes" -> Json.JArray(hashesOne.map(Json.JString(_)).toVector)
+            )),
+            Json.JObject(List(
+              "name" -> Json.JString("shared"), "version" -> Json.JString(versionTwo),
+              "path" -> Json.JString(artifactTwo),
+              "hashes" -> Json.JArray(hashesTwo.map(Json.JString(_)).toVector)
+            ))
+          ))
+        )).render
+        _ <- write(root, "scope.json", scopeJson)
+        _ <- write(root, "dependencies.json", dependencyContext)
+        _ <- write(root, "toolchain.json", emptyToolchain)
+        _ <- write(root, "Client-One.bosatsu",
+          "package Client/One\nfrom Shared/Api import pick\nexport main\nmain = pick(1)\n")
+        _ <- write(root, "Client-Two.bosatsu",
+          "package Client/Two\nfrom Shared/Api import pick\nexport main\nmain = pick(True)\n")
+        args = List(
+          "compile-packages", "--src", "Client-One.bosatsu", "--src", "Client-Two.bosatsu",
+          "--direct-interface", signatureOne, "--direct-interface", signatureTwo,
+          "--scope-map", "scope.json", "--dependency-context", "dependencies.json",
+          "--toolchain-manifest", "toolchain.json", "--packages-out", "scoped.pkg",
+          "--sig-out", "scoped.sig"
+        )
+        compiled <- runner.run(root, args)
+        _ = success(compiled)
+        bundle <- IOPlatformIO.read[proto.Packages](root.resolve("scoped.pkg"))
+        scopeMap <- PackageBindings.read(
+          IOPlatformIO,
+          root.resolve("scope.json"),
+          List(root.resolve("shared-v1.sig"), root.resolve("shared-v2.sig"))
+        )
+        context <- LibraryInspection.readDependencyContext(IOPlatformIO, root.resolve("dependencies.json"))
+        toolchain <- ToolchainManifest.read(IOPlatformIO, root.resolve("toolchain.json"))
+        importedInputs <- LibraryInspection.loadImportedInputs(
+          IOPlatformIO, scopeMap, context, toolchain
+        )(using IOPlatformIO.canPromiseF)
+        sourceDependencies = List(
+          PackageBindings.ScopeDependency(
+            PackageBindings.Scope.Member(one), api,
+            PackageBindings.Scope.Library(dev.bosatsu.library.Name("shared") ->
+              dev.bosatsu.library.Version.parser.parseAll(versionOne).toOption.get)
+          ),
+          PackageBindings.ScopeDependency(
+            PackageBindings.Scope.Member(two), api,
+            PackageBindings.Scope.Library(dev.bosatsu.library.Name("shared") ->
+              dev.bosatsu.library.Version.parser.parseAll(versionTwo).toOption.get)
+          )
+        )
+        checked <- IO.fromEither(PackageBindings.validateAgainstInspection(
+          scopeMap, importedInputs.publicIndex, sourceDependencies
+        ).leftMap(CliException.Basic(_)))
+        ownerInterfaces = importedInputs.signatureBundles.toList.flatMap {
+          case (identity, signatureBundle) =>
+            ProtoConverter.interfacesFromProto(signatureBundle).get.map { iface =>
+              PackageBindings.PackageOwner(PackageBindings.Scope.Library(identity), iface.name) -> iface
+            }
+        }.toMap
+        decoded <- IO.fromTry(ProtoConverter.packagesFromProtoScoped(bundle, checked, ownerInterfaces))
+        _ = assertEquals(decoded.map(_.pack.name), List(one, two))
+        _ = assert(decoded.forall(_.context.size == 1))
       } yield ()
     }
   }
