@@ -1,6 +1,7 @@
 package dev.bosatsu.tool
 
 import _root_.bosatsu.{TypedAst => proto}
+import cats.Show
 import cats.data.{Ior, NonEmptyList, Validated, ValidatedNel}
 import dev.bosatsu.cache.{CompileCache, InferCache, InferPhases}
 import dev.bosatsu.{
@@ -762,6 +763,84 @@ object CompilerApi {
       members: List[Package.Compiled],
       dependencies: List[Package.Interface]
   )
+
+  private[bosatsu] final case class ScopedCompilationPlan[Path](
+      checked: PackageBindings.CheckedScopeMap[Path],
+      selection: PackageSignatures.ScopedResolution[Path],
+      signatureInputs: List[(PackageSignatures.Input[Path], proto.Interfaces)]
+  )
+
+  /** Derive the local dependency edges from parsed source headers, then compare
+    * them with the caller's scope map and the authenticated imported index.
+    * Imported signatures come only from LibraryInspection's checked snapshots;
+    * `directBundles` contains the remaining caller-declared interface files.
+    */
+  private[bosatsu] def prepareScopedCompilation[F[_], Path: Show: Ordering](
+      sourceFiles: NonEmptyList[PackageResolver.SourceFile[F, Path]],
+      scopeMap: PackageBindings.ScopeMap[Path],
+      imported: LibraryInspection.ImportedInputs[Path],
+      directBundles: List[(PackageSignatures.Input[Path], proto.Interfaces)],
+      builtinPredef: Boolean
+  ): scala.util.Try[ScopedCompilationPlan[Path]] = {
+    import PackageBindings.{BindingKey, Scope, ScopeDependency}
+
+    val sources = sourceFiles.toList.map { source =>
+      PackageSignatures.SourceRequirements(
+        source.packageName,
+        source.imports.map(_.pack),
+        source.exposes.flatten
+      )
+    }
+    val sourceDependencies = sources.flatMap { source =>
+      val referrer = Scope.Member(source.member)
+      (source.imports ::: source.exposes).distinct.flatMap { required =>
+        scopeMap.bindings.get(BindingKey(referrer, required)).map { binding =>
+          ScopeDependency(referrer, required, binding.provider)
+        }
+      }
+    }
+
+    val authenticatedBundles = scopeMap.imports.toList.traverse { case (identity, scope) =>
+      imported.signatureBundles.get(identity).toRight(CliException.Basic(
+        s"missing authenticated signature bundle for ${identity._1.name} ${identity._2.render}"
+      )).map { bundle =>
+        PackageSignatures.Input(scope.signature.path, scope.signature.label) -> bundle
+      }
+    }
+
+    val signatureInputs = authenticatedBundles.flatMap { libraryBundles =>
+      val all = directBundles ::: libraryBundles
+      val order = summon[Ordering[Path]]
+      val loadedPaths = all.iterator.map(_._1.path).toList.sorted(using order)
+      val declaredPaths = scopeMap.directInterfaces.toList
+      val hasDuplicates = loadedPaths.zip(loadedPaths.drop(1)).exists { case (left, right) =>
+        order.compare(left, right) == 0
+      }
+      val samePaths = !hasDuplicates && loadedPaths.length == declaredPaths.length &&
+        loadedPaths.zip(declaredPaths).forall { case (left, right) =>
+          order.compare(left, right) == 0
+        }
+      Either.cond(
+        samePaths,
+        all,
+        CliException.Basic("loaded interface files do not match scope-map direct interfaces")
+      )
+    }
+
+    for {
+      allBundles <- signatureInputs.toTry
+      checked <- PackageBindings
+        .validateAgainstInspection(scopeMap, imported.publicIndex, sourceDependencies)
+        .leftMap(CliException.Basic(_))
+        .toTry
+      selection <- PackageSignatures.planScoped(
+        allBundles,
+        sources,
+        checked,
+        builtinPredef
+      )
+    } yield ScopedCompilationPlan(checked, selection, allBundles)
+  }
 
   // A local owner may have to be compiled before a foreign re-export can be
   // decoded. Read each source and signature once across all stages.

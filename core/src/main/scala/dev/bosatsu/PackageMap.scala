@@ -315,6 +315,29 @@ object PackageMap {
   def resolvePackages[A, B, C](
       map: PackageMap[PackageName, A, B, C],
       ifs: List[Package.Interface]
+  ): ValidatedNel[PackageError, MapF3[A, B, C]] =
+    resolvePackagesWithOwners(map, ifs, None)
+
+  /** Resolve imports against the owner already selected for each member.
+    * Unlike the legacy path, this path does not let a same-named local source
+    * or another member's interface override that selection.
+    */
+  private[bosatsu] def resolvePackagesScoped[A, B, C](
+      map: PackageMap[PackageName, A, B, C],
+      selectedImports: Map[PackageName, Map[
+        PackageName,
+        Either[Package.Interface, PackageName]
+      ]]
+  ): ValidatedNel[PackageError, MapF3[A, B, C]] =
+    resolvePackagesWithOwners(map, Nil, Some(selectedImports))
+
+  private def resolvePackagesWithOwners[A, B, C](
+      map: PackageMap[PackageName, A, B, C],
+      ifs: List[Package.Interface],
+      selectedImports: Option[Map[PackageName, Map[
+        PackageName,
+        Either[Package.Interface, PackageName]
+      ]]]
   ): ValidatedNel[PackageError, MapF3[A, B, C]] = {
     val packagesByName = map.toMap
     val interfaceMap = ifs.iterator.map(iface => (iface.name, iface)).toMap
@@ -325,19 +348,33 @@ object PackageMap {
     ): Either[NonEmptyChain[PackageError], Import[
       Either[Package.Interface, PackageName],
       A
-    ]] =
-      packagesByName.get(i.pack) match {
-        case Some(_)    => Right(Import(Right(i.pack), i.items))
-        case None       =>
-          interfaceMap.get(i.pack) match {
-            case Some(iface) =>
+    ]] = {
+      def unknown: Either[NonEmptyChain[PackageError], Import[
+        Either[Package.Interface, PackageName],
+        A
+      ]] = Left(NonEmptyChain.one(PackageError.UnknownImportPackage(i.pack, from)))
+
+      selectedImports match {
+        case Some(byMember) =>
+          byMember.get(from).flatMap(_.get(i.pack)) match {
+            case Some(Left(iface)) if iface.name == i.pack =>
               Right(Import(Left(iface), i.items))
+            case Some(Right(sourceName))
+                if sourceName == i.pack && packagesByName.contains(sourceName) =>
+              Right(Import(Right(sourceName), i.items))
+            case _ => unknown
+          }
+        case None =>
+          packagesByName.get(i.pack) match {
+            case Some(_) => Right(Import(Right(i.pack), i.items))
             case None =>
-              Left(NonEmptyChain.one(
-                PackageError.UnknownImportPackage(i.pack, from)
-              ))
+              interfaceMap.get(i.pack) match {
+                case Some(iface) => Right(Import(Left(iface), i.items))
+                case None        => unknown
+              }
           }
       }
+    }
 
     type PackageFix = Package[FixPackage[A, B, C], A, B, C]
     type ErrorOr[A] = Either[NonEmptyChain[PackageError], A]

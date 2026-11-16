@@ -8,8 +8,8 @@
 - Flow: `small_job`
 - Issue: `#2495` 0m: Preserve per-member imported bindings through validation and compilation
 - Pending steps: `5`
-- Completed steps: `6`
-- Total steps: `11`
+- Completed steps: `7`
+- Total steps: `12`
 
 ## Summary
 
@@ -239,7 +239,7 @@ Extend core/src/test/scala/dev/bosatsu/tool/CompileCacheTest.scala with focused 
 
 Added a deterministic, path-free fingerprint of selected binding keys and owners to the existing filesystem cache key, advanced its schema from 5 to 6, and kept the legacy PackageMap caller explicitly unscoped with `None`. Tests cover ordering and provenance invariance, selected-owner changes, distinct keys for equal dependency-interface hashes, and warm decoding with the same context. `sbt "coreJVM/testOnly dev.bosatsu.tool.CompileCacheTest" "coreJVM/test:compile"` passed (12 tests); `git diff --check` passed.
 
-7. [ ] `step_3_member_dag` Resolve and infer sources in their checked contexts
+7. [x] `step_3_member_dag` Resolve and infer sources in their checked contexts
 
 The root defect appears at CompilerApi.compileWithSignatures's batch-wide Providers map, PackageMap.resolvePackages's interfaceMap/source-name precedence, and inferAllSourceUnits's externalByName. Extend the existing source DAG so these lookups use each member's checked selection. Do not patch only externalByName: an earlier resolver could already have selected the wrong external interface or an unrelated same-named source.
 
@@ -280,7 +280,43 @@ Add internal compiler/source-DAG regressions using the existing PackageMap, Pack
 - Reject conflicting exposed owners and dependency cycles without repeated source inference.
 - Retain legacy CheckCommand, effective Predef, constructor/layout and compiler-cache behavior.
 
-8. [ ] `step_4_scoped_publication` Publish scoped compilation with member requirements
+#### Completion Notes
+
+Added `CompilerApi.prepareScopedCompilation` to derive dependency edges from actual source headers, validate them against the authenticated public index, and plan from authenticated signature snapshots. Added `PackageMap.resolvePackagesScoped` to honor each member’s selected source or interface owner and fail closed when a binding is missing. Regression coverage includes forged declared edges, missing bindings, distinct member interfaces despite a same-named source, and legacy resolver stack safety. The focused suites passed (24 tests); `sbt "coreJVM/test:compile"` and `git diff --check` passed. Member-DAG inference, foreign-interface binding after source dependencies, and scoped `CompiledGroup` results remain pending.
+
+8. [ ] `step_3_member_dag_execution` Infer members through the checked source DAG
+
+Parent step: `step_3_member_dag`; family: per-member scoped source inference for issue #2495. The parent added `CompilerApi.prepareScopedCompilation` for source-header-derived validation and `PackageMap.resolvePackagesScoped` for exact per-member import resolution. Complete the remaining execution layer before `step_4_scoped_publication` consumes its results.
+
+Integrate the scoped plan into `CompilerApi` and the existing memoized source DAG in `PackageMap`. Schedule each member’s `MemberSelection.sourceDependencies`, including source owners needed by selected foreign APIs; diagnose cycles before recursive inference and infer each source once. After source dependencies finish, expose only their canonical public interfaces and declared exposure closures, keeping private imports in each source’s own context.
+
+Materialize selected foreign signature entries in dependency order using `PackageSignatures.Root.bind` and its existing decoding, kind/layout validation, and cycle handling. Seed binding with required source public providers and effective Predef. Resolve imports through `PackageMap.resolvePackagesScoped` using the checked selection so local sources and unrelated interfaces cannot override a selected owner. Reject inconsistent exposed-owner rebinding before inference or cache lookup. Feed each member’s public environment and the existing selected-binding fingerprint into the current inference/cache body; preserve the legacy path without introducing another inference engine or whole-batch recompilation per member.
+
+Extend `CompilerApi.CompiledGroup` with an explicit legacy/scoped distinction. Scoped results must retain each compiled member alongside its checked owner bindings and public dependency interfaces, including source and exposure-only dependencies. Reuse `PackageBindings` records; leave protobuf encoding to `step_4_scoped_publication`.
+
+Add source-DAG regressions for incompatible same-named providers in one batch, a conflicting same-named local source, source-to-source and source-exposure dependencies, a foreign API referring back to a source, cycles, and one-time source inference. Retain effective Predef, diagnostics, lint, cache, and legacy caller behavior. Run the focused compiler suites and `sbt "coreJVM/test:compile"`. Completion means scoped compilation produces per-member inferred results with their original checked contexts, ready for publication.
+
+#### Invariants
+
+- Every scoped import, foreign-interface binding, and inference lookup uses the referring member’s checked owners.
+- Each source is inferred once through the existing memoized DAG, and dependency cycles are diagnosed before recursive inference.
+- Consumers receive source public APIs and declared exposures without inheriting private imports.
+- Owner consistency is checked before inference or cache lookup; legacy compilation retains its supported behavior.
+
+#### Property Tests
+
+- For bounded acyclic fixtures, batching members with disjoint selections yields the same per-member inferred results as compiling their checked closures individually, invariant under source and interface order.
+- Changing a source dependency’s private imports does not change a consumer’s selected public environment when the source API and declared exposures are unchanged.
+
+#### Assertion Tests
+
+- Compile two members selecting incompatible definitions with the same nominal package and type names in one batch.
+- Verify a checked library owner wins over a same-named local source, while a checked source owner uses the local source DAG result.
+- Cover source-supplied exposure chains and a selected foreign API that refers back to a source owner.
+- Reject source dependency cycles and conflicting exposed-owner rebinding before inference or cache lookup.
+- Retain effective Predef, legacy CheckCommand, cache, layout, and lint regressions.
+
+9. [ ] `step_4_scoped_publication` Publish scoped compilation with member requirements
 
 Expose the scoped compiler only together with its persisted context. This completes the command and serialization portion formerly spread across step_3_inference and step_4, preventing a successful scoped command from emitting requirements that lose its selected owners.
 
@@ -317,7 +353,7 @@ Extend CompilePackagesCommandTest, StrictInterfacesCommandTest and appropriate r
 - Persist exposure-only owners and source-supplied owners, including an explicitly empty scoped requirement set.
 - Retain unscoped command, CheckCommand and failed-output-publication regressions.
 
-9. [ ] `step_4_scoped_decoding` Decode bundles with their recorded member owners
+10. [ ] `step_4_scoped_decoding` Decode bundles with their recorded member owners
 
 Use the requirement representation and parser from step_4_scoped_publication to extend core/src/main/scala/dev/bosatsu/ProtoConverter.scala with a bundle-aware scoped decode entry point. It accepts the shared checked binding representation and owner-indexed supplied interfaces. Decode each member and foreign definition with its recorded context, returning member/context pairs rather than flattening incompatible external providers into one PackageMap.
 
@@ -346,7 +382,7 @@ Extend ProtoConverterTest, PackageSignaturesTest, CompilePackagesCommandTest and
 - Read existing unscoped bundles and signature fixtures with their existing compatibility checks.
 - Retain local stale-layout, private Test/ProgTest discovery and Int64 declaration regressions.
 
-10. [ ] `step_5_bundle_reader_context` Preserve scoped metadata at whole-bundle readers
+11. [ ] `step_5_bundle_reader_context` Preserve scoped metadata at whole-bundle readers
 
 Close the bounded reader bypass using the common requirement parser from step_4_scoped_publication and scoped decoder from step_4_scoped_decoding. Update cli/src/main/scala/dev/bosatsu/IOPlatformIO.scala readInterfacesAndPackages/readPackages, cliJS/src/main/scala/dev/bosatsu/Fs2PlatformIO.scala readPackages, MemoryMain's package reader, applicable PlatformIO bundle helpers and LocalRuntime.load. These whole-bundle readers currently extract proto.Packages.packages before decoding and can discard requirements.
 
@@ -370,7 +406,7 @@ Cover the listed JVM, Scala.js, in-memory and LocalRuntime boundaries through th
 - Retain ordinary local compile output, self-contained local scoped output and legacy fixture compatibility.
 - Malformed or stale requirements fail without replacing prior declared outputs.
 
-11. [ ] `step_6` Add candidate-worker scope fixtures and document the implemented contract
+12. [ ] `step_6` Add candidate-worker scope fixtures and document the implemented contract
 
 Extend the existing LibraryInspectionFixtures and test_workspace/inspect_library fixture family only where additional serialized graphs are needed for 0m. Reuse the existing preparation script and pinned artifacts; command tests remain offline. Add scoped compilation and validation scenarios to scripts/test_bazel_worker.py using the assembled candidate jar and existing direct, @params and persistent-worker helpers.
 
