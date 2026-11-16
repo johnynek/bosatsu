@@ -302,7 +302,7 @@ class Fs2PlatformIO private[dev] (
         for {
           ppack <- read[proto.Packages](path)
           packs <- IO.fromTry(
-            ProtoConverter.packagesFromProto(Nil, ppack.packages)
+            ProtoConverter.packagesFromProtoBundles(List(ppack))
           )
         } yield packs._2
       }

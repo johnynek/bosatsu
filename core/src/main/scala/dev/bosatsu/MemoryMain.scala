@@ -446,7 +446,7 @@ object MemoryMain {
                         scala.util.Try(proto.Packages.parseFrom(bytes.unsafeReadOnlyView))
                       )
                       packs <- moduleIOMonad.fromTry(
-                        ProtoConverter.packagesFromProto(Nil, ppack.packages)
+                        ProtoConverter.packagesFromProtoBundles(List(ppack))
                       )
                     } yield packs._2
                   case other =>

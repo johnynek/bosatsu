@@ -2591,6 +2591,87 @@ object ProtoConverter {
     }
   }
 
+  /** Decode package bundles that carry no external scoped-provider context.
+    * Inspect the whole bundle before extracting package records so a scoped
+    * compile result cannot be silently rebound through the name-indexed codec.
+    */
+  private[bosatsu] def packagesFromProtoBundles(
+      bundles: Iterable[proto.Packages],
+      ifaces: Iterable[proto.Interface] = Nil
+  ): Try[(List[Package.Interface], List[Package.Compiled])] = {
+    val bundleList = bundles.toList
+    validateStandalonePackageBundles(bundleList).flatMap { _ =>
+      packagesFromProto(ifaces, bundleList.flatMap(_.packages))
+    }
+  }
+
+  /** Validate metadata before a reader without a checked scope map uses the
+    * legacy package-name decoder. Local member bindings are safe because the
+    * entire owning bundle is present; library owners need the scoped decoder.
+    */
+  private[bosatsu] def validateStandalonePackageBundles(
+      bundles: Iterable[proto.Packages]
+  ): Try[Unit] = Try {
+    import PackageBindings.Scope
+
+    def parseName(raw: String, what: String): PackageName =
+      PackageName.parse(raw).getOrElse(throw CliException.Basic(s"invalid $what '$raw'"))
+
+    bundles.foreach { bundle =>
+      // Legacy requirements keep their existing reader-specific diagnostics
+      // and checks. This guard owns the new scoped format that raw readers
+      // could otherwise erase before a provider-context check.
+      bundle.buildRequirements.filter(_.scopedVersion != 0).foreach { rawRequirements =>
+        PackageSignatures.parseBuildRequirements(rawRequirements).get match {
+          case PackageSignatures.ParsedBuildRequirements.Legacy(_) => ()
+          case PackageSignatures.ParsedBuildRequirements.Scoped(members) =>
+            val packagePairs = bundle.packages.toList.map { pack =>
+              parseName(pname(pack), "package name in scoped bundle") -> pack
+            }
+            val packageNames = packagePairs.map(_._1)
+            if (packageNames.distinct.size != packageNames.size)
+              throw CliException.Basic("duplicate package member in scoped bundle")
+            val packageSet = packageNames.toSet
+            val requirementSet = members.iterator.map(_.member).toSet
+            if (packageSet != requirementSet)
+              throw CliException.Basic("member requirements do not match packages in scoped bundle")
+
+            val packageByName = packagePairs.toMap
+            members.foreach { member =>
+              member.bindings.foreach { binding =>
+                binding.owner.scope match {
+                  case Scope.Library(_) =>
+                    throw CliException.Basic(
+                      s"scoped package bundle requires unavailable imported provider context for ${binding.packageName.asString}"
+                    )
+                  case Scope.Member(owner) if !packageSet(owner) =>
+                    throw CliException.Basic(
+                      s"missing local member ${owner.asString} required by scoped package bundle"
+                    )
+                  case _ => ()
+                }
+              }
+
+              val wirePackage = packageByName(member.member)
+              wirePackage.imports.foreach { imported =>
+                val importedRaw = wirePackage.strings.lift(imported.packageName - 1).getOrElse(
+                  throw CliException.Basic(s"invalid import package name in ${member.member.asString}")
+                )
+                val importedName = parseName(importedRaw, "import package name")
+                if (!importedName.isPredef && !member.bindings.exists { binding =>
+                    binding.referrer == Scope.Member(member.member) && binding.packageName == importedName
+                  })
+                  throw CliException.Basic(
+                    s"missing scoped import binding for ${importedName.asString} in ${member.member.asString}"
+                  )
+              }
+
+            }
+        }
+      }
+    }
+  }
+
   /** A compiled member decoded with the exact checked owners recorded for it.
     * Its context remains attached so consumers cannot accidentally merge
     * members whose same-named imports came from different providers.

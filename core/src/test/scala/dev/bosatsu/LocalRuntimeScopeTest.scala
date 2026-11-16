@@ -11,7 +11,8 @@ import dev.bosatsu.tool.{LocalRuntime, LocalRuntimeManifest}
 class LocalRuntimeScopeTest extends munit.FunSuite {
   private type Result[A] = Either[Throwable, A]
   private type Path = Chain[String]
-  private val platform = MemoryMain.memoryPlatformIO[Result]
+  private val memory = MemoryMain.memoryPlatformIO[Result]
+  private val platform = memory
   private val manifestPath = Chain.one("runtime.json")
   private def file(name: String): Path = Chain.one(name)
   private def wire(name: String): proto.Package =
@@ -77,6 +78,48 @@ class LocalRuntimeScopeTest extends munit.FunSuite {
     assertEquals(reordered.members, scope.members)
   }
 
+  test("in-memory package readers validate scoped metadata before decoding packages") {
+    val local = proto.Packages(
+      packages = List(wire("Demo")),
+      buildRequirements = Some(proto.BuildRequirements(
+        scopedVersion = 1,
+        members = List(proto.MemberBuildRequirements(memberName = "Demo"))
+      ))
+    )
+    val imported = proto.Packages(
+      packages = List(wire("Client").copy(
+        strings = List("Client", "External"),
+        imports = List(proto.Imports(packageName = 2))
+      )),
+      buildRequirements = Some(proto.BuildRequirements(
+        scopedVersion = 1,
+        members = List(proto.MemberBuildRequirements(
+          memberName = "Client",
+          bindings = List(proto.ScopedBindingRequirement(
+            referrer = Some(proto.BuildScope(kind = "member", memberName = "Client")),
+            packageName = "External",
+            owner = Some(proto.BuildScope(
+              kind = "library",
+              libraryName = "shared",
+              libraryVersion = Some(proto.Version(major = 1))
+            )),
+            ownerPackageName = "External"
+          )),
+          interfaces = List(proto.InterfaceRequirement("External", "0" * 64))
+        ))
+      ))
+    )
+
+    def read(bundle: proto.Packages): Result[List[Package.Compiled]] = {
+      val content = MemoryMain.FileContent.Bytes(Bytes.fromMessage(bundle))
+      val initial = MemoryMain.State.empty.withFile(file("packages.bundle"), content).get
+      memory.readPackages(List(file("packages.bundle"))).runA(initial)
+    }
+
+    assertEquals(checked(read(local)).map(_.name.asString), List("Demo"))
+    rejects(read(imported), "unavailable imported provider context")
+  }
+
   test("reject an explicit Predef even when no other group claims it") {
     rejects(load(graph("lib.pkg"), "lib.pkg" -> bundle(wire("Bosatsu/Predef"))),
       "lib.pkg", "Bosatsu/Predef")
@@ -111,7 +154,7 @@ class LocalRuntimeScopeTest extends munit.FunSuite {
     rejects(load(graph("loop.pkg"), "loop.pkg" -> bundle(a, b)), "circular dependencies", "First", "Second")
   }
 
-  test("scoped runtime requirements are checked per member through the common parser") {
+  test("runtime rejects scoped requirements that need unavailable imported providers") {
     val clientName = PackageName.parts("Client")
     val externalName = PackageName.parts("Demo/External")
     val external = compilePackage(
@@ -123,26 +166,24 @@ class LocalRuntimeScopeTest extends munit.FunSuite {
       "package Client\nfrom Demo/External import value\nexport main\nmain = value\n",
       List(externalInterface)
     )
-    val digest = PackageSignatures.requirement(externalInterface).get.interfaceBlake3
     val owner = proto.BuildScope(
       kind = "library",
       libraryName = "shared",
       libraryVersion = Some(proto.Version(major = 1))
     )
-    def scopedRequirements(interfaceDigest: String): proto.BuildRequirements =
-      proto.BuildRequirements(
-        scopedVersion = 1,
-        members = List(proto.MemberBuildRequirements(
-          memberName = clientName.asString,
-          bindings = List(proto.ScopedBindingRequirement(
-            referrer = Some(proto.BuildScope(kind = "member", memberName = clientName.asString)),
-            packageName = externalName.asString,
-            owner = Some(owner),
-            ownerPackageName = externalName.asString
-          )),
-          interfaces = List(proto.InterfaceRequirement(externalName.asString, interfaceDigest))
-        ))
-      )
+    val scopedRequirements = proto.BuildRequirements(
+      scopedVersion = 1,
+      members = List(proto.MemberBuildRequirements(
+        memberName = clientName.asString,
+        bindings = List(proto.ScopedBindingRequirement(
+          referrer = Some(proto.BuildScope(kind = "member", memberName = clientName.asString)),
+          packageName = externalName.asString,
+          owner = Some(owner),
+          ownerPackageName = externalName.asString
+        )),
+        interfaces = List(proto.InterfaceRequirement(externalName.asString, "0" * 64))
+      ))
+    )
     val clientBundle = (requirements: proto.BuildRequirements) =>
       MemoryMain.FileContent.Bytes(Bytes.fromMessage(
         proto.Packages(List(ProtoConverter.packageToProto(client).get), buildRequirements = Some(requirements))
@@ -151,17 +192,24 @@ class LocalRuntimeScopeTest extends munit.FunSuite {
       proto.Packages(List(ProtoConverter.packageToProto(external).get))
     ))
 
-    val runtime = checked(load(
-      graph("client.pkg", "external.pkg"),
-      "client.pkg" -> clientBundle(scopedRequirements(digest)),
-      "external.pkg" -> externalBundle
-    ))
-    assertEquals(runtime.members(file("client.pkg")).toList, List(clientName))
     rejects(load(
       graph("client.pkg", "external.pkg"),
-      "client.pkg" -> clientBundle(scopedRequirements("0" * 64)),
+      "client.pkg" -> clientBundle(scopedRequirements),
       "external.pkg" -> externalBundle
-    ), "stale interface", externalName.asString)
+    ), "unavailable imported provider context", externalName.asString)
+  }
+
+  test("runtime accepts self-contained scoped requirements") {
+    val member = PackageName.parts("Local")
+    val requirements = proto.BuildRequirements(
+      scopedVersion = 1,
+      members = List(proto.MemberBuildRequirements(memberName = member.asString))
+    )
+    val contents = MemoryMain.FileContent.Bytes(Bytes.fromMessage(proto.Packages(
+      List(wire(member.asString)), buildRequirements = Some(requirements)
+    )))
+    val runtime = checked(load(graph("local.pkg"), "local.pkg" -> contents))
+    assertEquals(runtime.members(file("local.pkg")).toList, List(member))
   }
 
   test("empty, corrupt and misidentified bundles have file diagnostics") {

@@ -451,7 +451,6 @@ class CompilePackagesCommandTest extends FileCommandFixtures {
         )
         compiled <- runner.run(root, args)
         _ = success(compiled)
-        bundle <- IOPlatformIO.read[proto.Packages](root.resolve("scoped.pkg"))
         scopeMap <- PackageBindings.read(
           IOPlatformIO,
           root.resolve("scope.json"),
@@ -483,7 +482,7 @@ class CompilePackagesCommandTest extends FileCommandFixtures {
               PackageBindings.PackageOwner(PackageBindings.Scope.Library(identity), iface.name) -> iface
             }
         }.toMap
-        decoded <- IO.fromTry(ProtoConverter.packagesFromProtoScoped(bundle, checked, ownerInterfaces))
+        decoded <- IOPlatformIO.readPackagesScoped(root.resolve("scoped.pkg"), checked, ownerInterfaces)
         _ = assertEquals(decoded.map(_.pack.name), List(one, two))
         _ = assert(decoded.forall(_.context.size == 1))
       } yield ()

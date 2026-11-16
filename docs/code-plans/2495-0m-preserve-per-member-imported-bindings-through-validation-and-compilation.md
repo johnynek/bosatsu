@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2495` 0m: Preserve per-member imported bindings through validation and compilation
-- Pending steps: `2`
-- Completed steps: `10`
+- Pending steps: `1`
+- Completed steps: `11`
 - Total steps: `12`
 
 ## Summary
@@ -394,7 +394,7 @@ Extend ProtoConverterTest, PackageSignaturesTest, CompilePackagesCommandTest and
 
 Added scoped bundle decoding that verifies recorded provider owners and interface digests, topologically decodes source members in their own contexts, and checks the selected exposure closure. LocalRuntime now checks legacy and scoped requirements through the common parser while retaining legacy layout safeguards. The focused suites passed: 59 core tests and 19 CLI tests; `git diff --check` was clean.
 
-11. [ ] `step_5_bundle_reader_context` Preserve scoped metadata at whole-bundle readers
+11. [x] `step_5_bundle_reader_context` Preserve scoped metadata at whole-bundle readers
 
 Close the bounded reader bypass using the common requirement parser from step_4_scoped_publication and scoped decoder from step_4_scoped_decoding. Update cli/src/main/scala/dev/bosatsu/IOPlatformIO.scala readInterfacesAndPackages/readPackages, cliJS/src/main/scala/dev/bosatsu/Fs2PlatformIO.scala readPackages, MemoryMain's package reader, applicable PlatformIO bundle helpers and LocalRuntime.load. These whole-bundle readers currently extract proto.Packages.packages before decoding and can discard requirements.
 
@@ -417,6 +417,10 @@ Cover the listed JVM, Scala.js, in-memory and LocalRuntime boundaries through th
 - Read an imported scoped bundle through JVM, Scala.js, MemoryMain and LocalRuntime boundaries and require explicit context handling or a missing-context diagnostic.
 - Retain ordinary local compile output, self-contained local scoped output and legacy fixture compatibility.
 - Malformed or stale requirements fail without replacing prior declared outputs.
+
+#### Completion Notes
+
+Added shared whole-bundle requirement validation and routed JVM, Scala.js, in-memory, and LocalRuntime readers through it. Added `PlatformIO.readPackagesScoped` for callers with checked provider context. Readers without that context reject scoped library bindings while retaining local scoped and legacy behavior. Focused suites passed: `LocalRuntimeScopeTest` (12), `IOPlatformIOTest` (9), `CompilePackagesCommandTest` (19), `EmitCCommandTest` (34), and `Fs2PlatformIOTest` (14); `git diff --check` passed.
 
 12. [ ] `step_6` Add candidate-worker scope fixtures and document the implemented contract
 

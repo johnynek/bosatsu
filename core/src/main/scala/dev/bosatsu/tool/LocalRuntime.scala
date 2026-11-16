@@ -43,7 +43,6 @@ private[bosatsu] object LocalRuntime {
   ): Try[LocalRuntime[P]] = Try {
     given Ordering[P] = Order[P].toOrdering
     val owners = mutable.Map.empty[PackageName, P]
-    val encoded = List.newBuilder[proto.Package]
     val members = SortedMap.from(bundles.toList.map { case (file, bundle) =>
       val names = bundle.packages.iterator.map { pack =>
         val raw = ProtoConverter.pname(pack)
@@ -54,7 +53,6 @@ private[bosatsu] object LocalRuntime {
         owners.put(name, file).foreach { previous =>
           throw CliException.Basic(show"duplicate implementation of $name in $previous and $file")
         }
-        encoded += pack
         name
       }.toList.sorted
       file -> NonEmptyList.fromList(names).getOrElse(
@@ -62,8 +60,9 @@ private[bosatsu] object LocalRuntime {
     })
 
     // Decode jointly so imports can bind to actual declarations across bundle
-    // boundaries. The codec uses the compiler's implicit Predef interface.
-    val (_, decoded) = ProtoConverter.packagesFromProto(Nil, encoded.result()).recover { case err =>
+    // boundaries. Inspect whole-bundle requirements before package extraction;
+    // the codec uses the compiler's implicit Predef interface.
+    val (_, decoded) = ProtoConverter.packagesFromProtoBundles(bundles.toList.map(_._2)).recover { case err =>
       throw CliException.Basic(s"invalid local implementation graph: ${err.getMessage}")
     }.get
     val packages = PackageMap.fromIterable(PackageMap.predefCompiled :: decoded)
