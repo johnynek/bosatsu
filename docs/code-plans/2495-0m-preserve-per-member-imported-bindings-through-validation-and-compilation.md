@@ -7,9 +7,9 @@
 
 - Flow: `small_job`
 - Issue: `#2495` 0m: Preserve per-member imported bindings through validation and compilation
-- Pending steps: `0`
+- Pending steps: `1`
 - Completed steps: `12`
-- Total steps: `12`
+- Total steps: `13`
 
 ## Summary
 
@@ -25,13 +25,13 @@ Plan trajectory: initial steps 6; review revisions 0; review-origin steps 0.
 
 ## Current State
 
-Replanning inspected checkpoint 9b4e1bf5a9d78f164618d9bde3affc29bbe75d87 against the initial base 620bbfd3ed0da74435ee5a083b534c6e8ec9fd06. The issue, root #2482, immediate node and implemented dependency handoffs align. Retained human history has disclosed coverage gaps and supplies no scope amendment. The implementation planning context reports no edits or tests in the paused continuation; this planning revision also changes no implementation files.
+Final-test revision inspected candidate `59a2a1a803efe177701045459fcb40854a0f2f4f`. All twelve existing steps are completed; there is no pending work that can absorb this repair. The issue, roadmap #2482, immediate import_scopes node and direct dependency handoffs remain aligned. Retained human history supplies no scope amendment. Completed history remains unchanged.
 
-Completed history defines PackageBindings and the inspection public-index contract, authenticates imported topology and selected-core composition, and connects mixed graph validation. ValidateGraphCommand currently owns a private imported-artifact/signature verifier that compilation must reuse. PackageSignatures.planScoped selects each member's checked external roots, source dependencies and public exposure closure, detects visible release conflicts and computes the strict-unused file union. Its completed tests and verification remain recorded in the immutable completion notes.
+Scoped selection, authenticated input loading, contextual source-DAG inference, binding-sensitive cache identity, scoped publication and decoding, reader guards, worker fixtures and design/tracker updates are implemented. Step 6 records passing CLI, assembly and candidate-worker checks, but also reproducible failures in both core JVM and Scala.js acceptance runs.
 
-Compilation is still unscoped: CompilePackagesCommand has no scope-map option, CompilerApi.compileWithSignatures carries a batch-wide Providers map, PackageMap.resolvePackages uses batch-wide interface lookup and source-name precedence, and inferAllSourceUnits uses externalByName. The existing memoized source DAG and per-source cache/inference body are the extension points. CompileCache keys lack selected owner identity. CompilePackagesCommand currently supplies no filesystem inference cache, which must remain true.
+The authoritative supervised gate tested SHA `59a2a1a803efe177701045459fcb40854a0f2f4f`, run `01a1e4f97cf1714287b742b347586bb0`, command `scripts/test_basic.sh`, status `failed`, exit code 1. CLI tests passed; coreJVM reported 13 failures across EvaluationTest, ToolAndLibCommandTest and PredefWorkspaceTest. Every failure reports `invariant violation: waited on uninitialized promise`; stderr traces lead through `MemoryMain.canPromiseF.wait` and `Memoize.memoizeDag`.
 
-Output.PackageGroup still emits package-wide unscoped requirements. ProtoConverter and LocalRuntime require the planned member-context extension, and the listed platform readers can discard whole-bundle requirements. Remaining work is ordered as shared authenticated loading, binding-sensitive cache inputs, contextual source-DAG inference, command plus requirement publication, scoped decoding, reader guards, then the retained candidate-worker fixtures and design/tracker update. No selected-step work is marked complete because the paused continuation made no implementation changes.
+Code inspection identifies a shared effect-timing defect: MemoryMain constructs `delay` and `compute` with an eagerly evaluated `Try`, and `wait` inspects mutable promise state while constructing its action. With the strict Either-backed StateT used by these tests, constructing multiple memoized root actions can register a dependency promise before its completion action executes. The changed source dependency ordering exposes this defect. Correct the existing MemoryMain CanPromise boundary and cover it through the existing memoizer and compiler paths. This is one bounded correction to the accepted source-DAG migration, estimated at roughly 100–250 additional production/test lines. No implementation files or plan artifacts were edited, and no tests were rerun during this planning revision.
 
 ## Problem
 
@@ -452,3 +452,36 @@ Update docs/design/hermetic-bazel-rules.md in this same slice: document the actu
 #### Completion Notes
 
 Added checked-in scope fixtures and candidate-worker scenarios for private releases, disjoint member scopes, visible release conflicts, reordered inputs, warm-worker binding changes and recovery, and private-path core conflicts. Updated the hermetic Bazel documentation and tracker 0m with the implemented scope-map contract and decoder handoff; 0n remains incomplete. The full `scripts/test_bazel_worker.py` run and `./test_cli.sh` passed, as did focused fixture and graph suites, `cli/test`, `cliJSJS/test`, and assembly. The combined JVM/Scala.js matrix was run but `coreJVM/test` and `coreJS/test` failed on `MemoryMain.wait` invariant violations in EvaluationTest, ToolAndLibCommandTest, and PredefWorkspaceTest; an isolated PredefWorkspaceTest reproduced the failure. This round changed no code or tests in those paths.
+
+13. [ ] `step_7_memory_promise_execution` Defer in-memory promise operations until execution
+
+Close the source-DAG compatibility failure required by issue #2495's legacy-compilation and Linux acceptance contracts. The supervised `scripts/test_basic.sh` gate at candidate `59a2a1a803efe177701045459fcb40854a0f2f4f`, run `01a1e4f97cf1714287b742b347586bb0`, failed with exit code 1: 13 tests across EvaluationTest, ToolAndLibCommandTest and PredefWorkspaceTest hit an uninitialized promise. Step 6 also records the same failure on Scala.js. All existing steps are completed, so this single corrective step covers the shared cause and its validation.
+
+Repair `MemoryMain.memoryPlatformIO`'s existing `canPromiseF` implementation in `core/src/main/scala/dev/bosatsu/MemoryMain.scala`. Its `delay` and `compute` currently evaluate `Try(a)` before the returned StateT runs, and `wait` matches `p.get` before its action runs. First capture the failure with a small Either-backed MemoryMain regression. Then defer thunk evaluation, promise registration/completion effects and promise-state inspection into execution of the returned StateT. Reuse the existing PromiseBox and Empty/Pending/Done representation, preserving state threading, exception capture and memoized successful or failed results. Keep the existing diagnostic for a genuinely uninitialized promise.
+
+Exercise the repair through `Memoize.memoizeDag`, the mechanism used by `PackageMap.inferAllSourceUnits`. Preconstruct several root actions for an acyclic graph with shared dependencies, then execute them in differing orders; constructing an unused root must not reserve an empty promise needed by another root. Extend `core/src/test/scala/dev/bosatsu/MemoryPlatformIOTest.scala` for the platform contract and use the existing memoizer tests where appropriate. Add a small compiler regression through MemoryMain for a consumer and shared source providers whose dependency sorts after the consumer, checking reordered input equivalence. The existing failing workspace suites supply broader integration coverage. Retain scoped compiler tests for disjoint owners, source exposures, cycle diagnostics and one-time inference.
+
+This boundary repair makes dependency-order workarounds, promise retries and separate patches in each failing test or compiler caller unnecessary. Preserve the current memoized source DAG and checked binding representation; do not remove deterministic ordering or introduce another scheduler or worker cache.
+
+Run the focused platform, memoizer and scoped compiler tests on JVM and Scala.js, then the three failing suites on both platforms. Run `coreJS/test` to close the previously failing Scala.js acceptance leg. MergeXO automatically reruns the separate supervised `scripts/test_basic.sh` gate after implementation; this step does not wait for its report. Completion means the new effect-timing and DAG regressions pass, all previously failing focused suites pass, and Scala.js core acceptance passes.
+
+Required-test repair provenance: tested SHA `59a2a1a803efe177701045459fcb40854a0f2f4f`; gate/run ID `01a1e4f97cf1714287b742b347586bb0`; status `failed`; configured gate `required_tests`; failure: test_failure required gate failed with exit code 1.
+
+#### Invariants
+
+- Constructing MemoryMain delay, compute, completion and wait actions does not evaluate their thunks or inspect or mutate promise state before execution.
+- Within one memoized DAG execution, shared dependencies compute once and repeated waits preserve the completed value or failure.
+- The existing source DAG retains checked member bindings, source exposure handling, cycle diagnostics and supported legacy compilation behavior.
+- The repair preserves MemoryMain state updates and error propagation without adding a scheduler or worker inference cache.
+
+#### Property Tests
+
+- For bounded acyclic graphs evaluated through MemoryMain's Either-backed CanPromise and Memoize.memoizeDag, preconstructing root actions and permuting root and dependency order yields the pure reference results; every executed dependency computes once.
+- For successful and throwing delay/compute thunks, action construction performs no evaluation, execution captures the result or error, and repeated waits on a completed promise do not rerun its body.
+
+#### Assertion Tests
+
+- Preconstruct actions for A and B where A depends on B, execute A before B's root action, and assert successful shared computation without an uninitialized-promise error.
+- Construct a wait action before executing completion, then sequence completion before that wait; assert it observes the completed result and preserves StateT updates.
+- Compile a small shared-source dependency graph through MemoryMain in reversed input orders and assert equivalent inferred results.
+- Pass EvaluationTest, ToolAndLibCommandTest and PredefWorkspaceTest on JVM and Scala.js, retain scoped compiler regressions, and pass coreJS/test.
