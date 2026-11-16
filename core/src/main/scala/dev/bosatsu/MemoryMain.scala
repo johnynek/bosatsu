@@ -215,11 +215,14 @@ object MemoryMain {
       val canPromiseF: CanPromise[F] = new CanPromise[F] {
         type Promise[A] = PromiseBox[A]
 
-        def delay[A](a: => A): F[A] =
-          moduleIOMonad.fromTry(scala.util.Try(a))
+        private def evaluateOnRun[A](a: => A): F[A] =
+          StateT { state =>
+            innerMonad.fromTry(scala.util.Try(a)).map(value => (state, value))
+          }
 
-        def compute[A](a: => A): F[A] =
-          moduleIOMonad.fromTry(scala.util.Try(a))
+        def delay[A](a: => A): F[A] = evaluateOnRun(a)
+
+        def compute[A](a: => A): F[A] = evaluateOnRun(a)
 
         def unsafeNewPromise[A]: Promise[A] =
           new PromiseBox[A]
@@ -228,20 +231,26 @@ object MemoryMain {
           delay(p.setPending(fa))
 
         def wait[A](p: Promise[A]): F[A] =
-          p.get match {
-            case PromiseState.Done(result) =>
-              moduleIOMonad.fromEither(result)
-            case PromiseState.Pending(run) =>
-              run.attempt.flatMap { result =>
-                p.setDone(result)
-                moduleIOMonad.fromEither(result)
-              }
-            case PromiseState.Empty() =>
-              moduleIOMonad.raiseError(
-                new Exception(
-                  "invariant violation: waited on uninitialized promise"
+          StateT { state =>
+            p.get match {
+              case PromiseState.Done(result) =>
+                innerMonad.fromEither(result).map(value => (state, value))
+              case PromiseState.Pending(run) =>
+                innerMonad.attempt(run.run(state)).flatMap {
+                  case Right((nextState, value)) =>
+                    p.setDone(Right(value))
+                    innerMonad.pure((nextState, value))
+                  case Left(error) =>
+                    p.setDone(Left(error))
+                    innerMonad.raiseError[(State, A)](error)
+                }
+              case PromiseState.Empty() =>
+                innerMonad.raiseError[(State, A)](
+                  new Exception(
+                    "invariant violation: waited on uninitialized promise"
+                  )
                 )
-              )
+            }
           }
       }
       def pathOrdering = Chain.catsDataOrderForChain[String].toOrdering

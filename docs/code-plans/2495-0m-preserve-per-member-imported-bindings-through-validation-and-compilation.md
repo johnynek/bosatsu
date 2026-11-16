@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2495` 0m: Preserve per-member imported bindings through validation and compilation
-- Pending steps: `1`
-- Completed steps: `12`
+- Pending steps: `0`
+- Completed steps: `13`
 - Total steps: `13`
 
 ## Summary
@@ -453,7 +453,7 @@ Update docs/design/hermetic-bazel-rules.md in this same slice: document the actu
 
 Added checked-in scope fixtures and candidate-worker scenarios for private releases, disjoint member scopes, visible release conflicts, reordered inputs, warm-worker binding changes and recovery, and private-path core conflicts. Updated the hermetic Bazel documentation and tracker 0m with the implemented scope-map contract and decoder handoff; 0n remains incomplete. The full `scripts/test_bazel_worker.py` run and `./test_cli.sh` passed, as did focused fixture and graph suites, `cli/test`, `cliJSJS/test`, and assembly. The combined JVM/Scala.js matrix was run but `coreJVM/test` and `coreJS/test` failed on `MemoryMain.wait` invariant violations in EvaluationTest, ToolAndLibCommandTest, and PredefWorkspaceTest; an isolated PredefWorkspaceTest reproduced the failure. This round changed no code or tests in those paths.
 
-13. [ ] `step_7_memory_promise_execution` Defer in-memory promise operations until execution
+13. [x] `step_7_memory_promise_execution` Defer in-memory promise operations until execution
 
 Close the source-DAG compatibility failure required by issue #2495's legacy-compilation and Linux acceptance contracts. The supervised `scripts/test_basic.sh` gate at candidate `59a2a1a803efe177701045459fcb40854a0f2f4f`, run `01a1e4f97cf1714287b742b347586bb0`, failed with exit code 1: 13 tests across EvaluationTest, ToolAndLibCommandTest and PredefWorkspaceTest hit an uninitialized promise. Step 6 also records the same failure on Scala.js. All existing steps are completed, so this single corrective step covers the shared cause and its validation.
 
@@ -485,3 +485,7 @@ Required-test repair provenance: tested SHA `59a2a1a803efe177701045459fcb40854a0
 - Construct a wait action before executing completion, then sequence completion before that wait; assert it observes the completed result and preserves StateT updates.
 - Compile a small shared-source dependency graph through MemoryMain in reversed input orders and assert equivalent inferred results.
 - Pass EvaluationTest, ToolAndLibCommandTest and PredefWorkspaceTest on JVM and Scala.js, retain scoped compiler regressions, and pass coreJS/test.
+
+#### Completion Notes
+
+Deferred MemoryMain delay/compute evaluation, promise registration and completion, and promise-state inspection until StateT execution, preserving state threading and cached successes or failures. Added platform and memoized-DAG regressions, including proof that the promise tests fail against the original adapter, plus a reordered scoped compiler test with consumers before a shared provider. Focused MemoryPlatformIOTest, MemoizeTest and CompilerApiScopedTest passed on JVM and Scala.js; EvaluationTest, ToolAndLibCommandTest and PredefWorkspaceTest passed on both platforms; `coreJS/test` passed 2,285 tests (8 ignored); `git diff --check` passed.

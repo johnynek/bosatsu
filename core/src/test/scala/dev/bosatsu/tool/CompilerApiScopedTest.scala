@@ -1,15 +1,16 @@
 package dev.bosatsu.tool
 
 import _root_.bosatsu.{TypedAst => proto}
-import cats.{Applicative, Show}
+import cats.{Applicative, Monad, Parallel, Show}
 import cats.Id
 import cats.data.{Chain, Ior, NonEmptyList, Validated}
 import dev.bosatsu.CompileOptions
 import dev.bosatsu.cache.{CompileCache, InferCache, InferPhases}
+import dev.bosatsu.graph.CanPromise
 import dev.bosatsu.hashing.Algo
 import dev.bosatsu.rankn.Type
 import dev.bosatsu.{
-  ExportedName, Identifier, LocationMap, Package, PackageError, PackageMap,
+  ExportedName, Identifier, LocationMap, MemoryMain, Package, PackageError, PackageMap,
   PackageName, PackageSignatures, Par, ParTest, Referant, TypeName
 }
 import dev.bosatsu.library.{Name, Version}
@@ -18,6 +19,8 @@ import java.util.concurrent.atomic.AtomicInteger
 
 class CompilerApiScopedTest extends munit.FunSuite with ParTest {
   private type Path = Chain[String]
+  private type MemoryResult[A] = Either[Throwable, A]
+  private type MemoryF[A] = MemoryMain.StateF[MemoryResult][A]
 
   private given Ordering[Path] = Ordering.by(_.toList.mkString("/"))
   private given Show[Path] = Show.show(_.toList.mkString("/"))
@@ -407,5 +410,71 @@ class CompilerApiScopedTest extends munit.FunSuite with ParTest {
       case _ => false
     }
     assert(hasCycle, "cycle is reported before recursive inference")
+  }
+
+  test("scoped source DAG in MemoryMain is independent of input order") {
+    val platform = MemoryMain.memoryPlatformIO[MemoryResult]
+    given Monad[MemoryF] = platform.moduleIOMonad
+    given Parallel[MemoryF] = platform.parallelF
+    given CanPromise[MemoryF] = platform.canPromiseF
+
+    val first = parsed(
+      "package Client/First\nfrom Z/Provider import value\nexport result\nresult = value"
+    )
+    val second = parsed(
+      "package Client/Second\nfrom Z/Provider import value\nexport result\nresult = value"
+    )
+    val provider = parsed("package Z/Provider\nexport value\nvalue = 42")
+    assert(provider.name.asString > first.name.asString)
+    assert(provider.name.asString > second.name.asString)
+
+    def compile(sources: List[Package.Parsed]): Map[PackageName, Package.Interface] = {
+      val consumers = Set(first.name, second.name)
+      val imports = sources.iterator.map { source =>
+        val selected =
+          if (consumers.contains(source.name)) Map(provider.name -> Right(provider.name))
+          else Map.empty[PackageName, Either[Package.Interface, PackageName]]
+        source.name -> selected
+      }.toMap
+      val inference = PackageMap.ScopedInference[MemoryF](
+        imports,
+        Map(
+          first.name -> List(provider.name),
+          second.name -> List(provider.name),
+          provider.name -> Nil
+        ),
+        Map.empty,
+        (_, _) => Applicative[MemoryF].pure(Nil),
+        builtinPredef = true
+      )
+      val sourceUnits = NonEmptyList.fromListUnsafe(sources.map { source =>
+        PackageMap.SourceUnit.fromParsed[MemoryF, String](
+          source.name.asString,
+          LocationMap(""),
+          source
+        )
+      })
+      val action = PackageMap.typeCheckSourcesScoped[MemoryF, String](
+        sourceUnits,
+        inference,
+        "predef",
+        CompileOptions.Default,
+        InferCache.noop[MemoryF, CompileCache.GenerateKeyInput, Package.Compiled],
+        InferPhases.default
+      )
+      action.runA(MemoryMain.State.empty) match {
+        case Right(Ior.Right(result)) =>
+          result.compiled.toMap.iterator.map { case (name, compiled) =>
+            name -> Package.interfaceOf(compiled)
+          }.toMap
+        case Right(Ior.Both(errors, _)) => fail(errors.toString)
+        case Right(Ior.Left(errors)) => fail(errors.toString)
+        case Left(error) => fail(error.toString)
+      }
+    }
+
+    val original = compile(List(first, second, provider))
+    val reordered = compile(List(provider, second, first))
+    assertEquals(reordered, original)
   }
 }
