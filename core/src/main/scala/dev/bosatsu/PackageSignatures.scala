@@ -4,6 +4,7 @@ import _root_.bosatsu.{TypedAst => proto}
 import cats.Show
 import cats.syntax.all._
 import dev.bosatsu.hashing.Algo
+import dev.bosatsu.graph.Toposort
 import dev.bosatsu.library.Name
 import dev.bosatsu.rankn.{Type, TypeEnv}
 import dev.bosatsu.tool.CliException
@@ -188,7 +189,7 @@ object PackageSignatures {
     def display(using Show[P]): String = label.fold(path.show)(l => show"$path ($l)")
   }
 
-  private final class Root(val name: PackageName, val file: String, wire: proto.Interface) {
+  private[bosatsu] final class Root(val name: PackageName, val file: String, wire: proto.Interface) {
     // Unselected siblings are indexed by name only, including legacy entries.
     private lazy val entry = symbolicReferences(wire)
 
@@ -307,7 +308,8 @@ object PackageSignatures {
   private[bosatsu] final case class SelectedInterface[P](
       owner: PackageOwner,
       input: Input[P],
-      entry: proto.Interface
+      entry: proto.Interface,
+      root: Root
   )
 
   /** The checked external interfaces visible while inferring one source.
@@ -330,6 +332,42 @@ object PackageSignatures {
         .map(_.display).sorted
       if (extra.isEmpty) Success(())
       else Failure(CliException.Basic(s"unused direct interfaces: ${extra.mkString(", ")}"))
+    }
+
+    /** Bind only one member's checked interfaces, after its source providers
+      * have been inferred. This preserves the existing Root decoder and its
+      * kind/layout checks while allowing a foreign API to refer back to a
+      * source member.
+      */
+    def bindMember(
+        member: PackageName,
+        sourceInterfaces: List[Package.Interface],
+        builtinPredef: Boolean
+    ): Try[List[Package.Interface]] = Try {
+      val selected = members.getOrElse(member,
+        throw CliException.Basic(s"missing scoped selection for ${member.asString}"))
+      val roots = selected.interfaces.map(_.root)
+      val rootsByName = roots.iterator.map(root => root.name -> root).toMap
+      val rootNames = rootsByName.keys.toList.sorted
+      def dependencies(root: Root): List[PackageName] = root.dependencies.map { raw =>
+        PackageName.parse(raw).getOrElse(
+          throw CliException.Basic(s"invalid package '$raw' in ${root.name.asString}"))
+      }.filter(rootsByName.contains)
+      val sorted = Toposort.sort(rootNames)(name => dependencies(rootsByName(name)))
+      val layers = sorted.toSuccess.getOrElse {
+        throw CliException.Basic(
+          s"cyclic interface dependencies: ${sorted.loopNodes.map(_.asString).mkString(", ")}"
+        )
+      }
+      val initial = sourceInterfaces.foldLeft(
+        if (builtinPredef) implicitProviders else Map.empty[PackageName, PublicInterface]
+      ) { (available, iface) =>
+        available.updated(iface.name, new PublicInterface(canonical(iface)))
+      }
+      val bound = layers.iterator.flatMap(_.toList).foldLeft(initial) { (available, name) =>
+        available.updated(name, rootsByName(name).bind(available))
+      }
+      selected.interfaces.map(iface => bound(iface.owner.packageName).iface)
     }
   }
 
@@ -480,7 +518,9 @@ object PackageSignatures {
                         s"${scopeText(existing.owner.scope)} and ${scopeText(owner.scope)}"
                     )
                   case _ =>
-                    selected.update(need.packageName, SelectedInterface(owner, input, root.selectedEntry))
+                    selected.update(need.packageName, SelectedInterface(
+                      owner, input, root.selectedEntry, root
+                    ))
                 }
                 publicPackage.exposures.keysIterator.foreach { exposed =>
                   todo.append(Need(

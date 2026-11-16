@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2495` 0m: Preserve per-member imported bindings through validation and compilation
-- Pending steps: `5`
-- Completed steps: `7`
+- Pending steps: `4`
+- Completed steps: `8`
 - Total steps: `12`
 
 ## Summary
@@ -284,7 +284,7 @@ Add internal compiler/source-DAG regressions using the existing PackageMap, Pack
 
 Added `CompilerApi.prepareScopedCompilation` to derive dependency edges from actual source headers, validate them against the authenticated public index, and plan from authenticated signature snapshots. Added `PackageMap.resolvePackagesScoped` to honor each member’s selected source or interface owner and fail closed when a binding is missing. Regression coverage includes forged declared edges, missing bindings, distinct member interfaces despite a same-named source, and legacy resolver stack safety. The focused suites passed (24 tests); `sbt "coreJVM/test:compile"` and `git diff --check` passed. Member-DAG inference, foreign-interface binding after source dependencies, and scoped `CompiledGroup` results remain pending.
 
-8. [ ] `step_3_member_dag_execution` Infer members through the checked source DAG
+8. [x] `step_3_member_dag_execution` Infer members through the checked source DAG
 
 Parent step: `step_3_member_dag`; family: per-member scoped source inference for issue #2495. The parent added `CompilerApi.prepareScopedCompilation` for source-header-derived validation and `PackageMap.resolvePackagesScoped` for exact per-member import resolution. Complete the remaining execution layer before `step_4_scoped_publication` consumes its results.
 
@@ -315,6 +315,10 @@ Add source-DAG regressions for incompatible same-named providers in one batch, a
 - Cover source-supplied exposure chains and a selected foreign API that refers back to a source owner.
 - Reject source dependency cycles and conflicting exposed-owner rebinding before inference or cache lookup.
 - Retain effective Predef, legacy CheckCommand, cache, layout, and lint regressions.
+
+#### Completion Notes
+
+Extended the memoized source DAG and scoped CompilerApi path to resolve each member’s checked imports, infer source providers once, diagnose cycles before recursion, bind selected signature roots through `Root.bind` after source providers finish, and retain each member’s bindings and dependency interfaces in `CompiledGroup`. Added regressions for incompatible same-named providers, source-to-source imports, source-exposed owners, signature binding against source types, single inference, and cycle diagnostics. `sbt "coreJVM/test:compile" "coreJVM/testOnly dev.bosatsu.tool.CompilerApiScopedTest dev.bosatsu.PackageSignaturesTest dev.bosatsu.PackageMapStackSafetyTest"` passed (27 tests); `git diff --check` passed.
 
 9. [ ] `step_4_scoped_publication` Publish scoped compilation with member requirements
 
