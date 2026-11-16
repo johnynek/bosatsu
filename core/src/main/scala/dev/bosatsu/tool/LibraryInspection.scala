@@ -13,6 +13,11 @@ import dev.bosatsu.library.{
   VerifiedLibrarySnapshot,
   Version
 }
+import dev.bosatsu.tool.PackageBindings.{
+  PublicIndex,
+  PublicPackage,
+  PublicProvider
+}
 import scala.collection.immutable.SortedMap
 import scala.util.Try
 
@@ -220,16 +225,16 @@ private[bosatsu] object LibraryInspection {
     loop(List(referring -> List(referring)), Set.empty, SortedMap.empty).toList
   }
 
-  /** Compute typed exposure ownership in each decoded scope. Public and
+  /** Compute typed public package ownership in each decoded scope. Public and
     * legacy unused-transitive-public edges are followed; private implementation
     * edges remain present only in the implementation projection.
     */
-  def exposureProjection[Path](
+  def publicIndex[Path](
       graph: VerifiedLibraryGraph[Path],
       decoded: SortedMap[LibraryIdentity, DecodedLibrary[Algo.Blake3]],
       pathText: Path => String
-  ): Either[String, Json] = {
-    def oneLibrary(identity: LibraryIdentity): Either[String, List[Json]] =
+  ): Either[String, PublicIndex] = {
+    def oneLibrary(identity: LibraryIdentity): Either[String, List[PublicPackage]] =
       decoded.get(identity).toRight(
         s"missing decoded library ${identity._1.name} ${identity._2.render}"
       ).flatMap { library =>
@@ -240,14 +245,7 @@ private[bosatsu] object LibraryInspection {
             .sorted
           exposed.traverse { packageName =>
             if (packageName == PackageName.PredefName) {
-              Right(Json.JObject(List(
-                "package" -> Json.JString(packageName.asString),
-                "provider" -> Json.JObject(List(
-                  "kind" -> Json.JString("compiler"),
-                  "name" -> Json.JString("Predef")
-                )),
-                "witness_path" -> Json.JArray(Vector.empty)
-              )))
+              Right(packageName -> PublicProvider.CompilerPredef)
             } else {
               val providers = providerPaths(graph, decoded, identity, packageName)
               val sourcePath = graph.snapshot(identity).fold(identity._1.name) { snapshot =>
@@ -258,11 +256,8 @@ private[bosatsu] object LibraryInspection {
                   s"missing provider for exposed package ${packageName.asString} " +
                     s"from ${identity._1.name} ${identity._2.render} at $sourcePath"
                 )
-                case (provider, witness) :: Nil => Right(Json.JObject(List(
-                  "package" -> Json.JString(packageName.asString),
-                  "provider" -> identityJson(provider),
-                  "witness_path" -> identitiesJson(witness)
-                )))
+                case (provider, witness) :: Nil =>
+                  Right(packageName -> PublicProvider.Library(provider, witness))
                 case many =>
                   val details = many.map { case (provider, witness) =>
                     val path = witness.map(id => s"${id._1.name} ${id._2.render}").mkString(" -> ")
@@ -275,23 +270,29 @@ private[bosatsu] object LibraryInspection {
               }
             }
           }.map { edges =>
-            Json.JObject(List(
-              "library" -> identityJson(identity),
-              "package" -> Json.JString(iface.name.asString),
-              "owner" -> identityJson(identity),
-              "exposes" -> Json.JArray(edges.toVector)
-            ))
+            PublicPackage(
+              identity,
+              iface.name,
+              SortedMap.from(edges)(using summon[Ordering[PackageName]])
+            )
           }
         }
       }
 
     graph.identities.traverse(oneLibrary).map { entries =>
-      Json.JObject(List(
-        "schema_version" -> Json.JNumberStr("1"),
-        "packages" -> Json.JArray(entries.flatten.toVector)
-      ))
+      PackageBindings.indexFromPackages(entries.flatten, graph.identities)
     }
   }
+
+  /** Preserve the established version-1 exposure projection while exposing
+    * its typed records to scoped binding validation.
+    */
+  def exposureProjection[Path](
+      graph: VerifiedLibraryGraph[Path],
+      decoded: SortedMap[LibraryIdentity, DecodedLibrary[Algo.Blake3]],
+      pathText: Path => String
+  ): Either[String, Json] =
+    publicIndex(graph, decoded, pathText).map(_.toJson)
 
   /** List package membership independently from both public signatures and
     * full artifact references.

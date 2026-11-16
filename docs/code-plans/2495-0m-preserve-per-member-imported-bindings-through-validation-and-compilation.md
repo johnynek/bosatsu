@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2495` 0m: Preserve per-member imported bindings through validation and compilation
-- Pending steps: `6`
-- Completed steps: `0`
+- Pending steps: `5`
+- Completed steps: `1`
 - Total steps: `6`
 
 ## Summary
@@ -35,7 +35,7 @@ The change must resolve only each member's imports and selected API exposures, p
 
 ## Steps
 
-1. [ ] `step_1` Define the shared scoped binding and public-index contract
+1. [x] `step_1` Define the shared scoped binding and public-index contract
 
 Add one immutable internal representation, in core/src/main/scala/dev/bosatsu/PackageBindings.scala, for loose/source members, exact imported library identities, scoped package owners and checked bindings. A binding key identifies a referring local member or imported scope plus a required package; its target identifies the provider scope, package and original declared interface file. Keep file paths, labels and witness routes as provenance rather than nominal type identity. Use existing Name/Version identity semantics, including exact version identity, and explicit Order/Eq/Show instances where needed.
 
@@ -61,6 +61,10 @@ Provide an explicit legacy/unscoped mode for existing callers. Do not infer impo
 
 - Add focused reader tests for duplicate keys, unknown referring members/providers, invalid exact versions, undeclared interface paths and forged exposure/provider edges.
 - Extend LibraryInspectionProjectionTest to confirm that introducing typed projection records preserves existing projection bytes and private-body stability.
+
+#### Completion Notes
+
+Added the shared scoped binding types and versioned scope-map reader, then refactored LibraryInspection to produce typed public-index records while preserving its existing JSON projection. Validation checks declared interface paths, public-index facts, source-derived package edges, provider ownership, and witness routes; the in-memory index also retains inspected identities for libraries with no exported packages. `sbt "coreJVM/test:compile"` passed, and `sbt "coreJVM/testOnly dev.bosatsu.tool.PackageBindingsTest dev.bosatsu.tool.LibraryInspectionProjectionTest"` passed all 13 tests.
 
 2. [ ] `step_2` Validate imported topology and selected-core composition
 

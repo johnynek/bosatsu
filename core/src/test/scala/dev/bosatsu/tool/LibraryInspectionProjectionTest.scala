@@ -14,6 +14,7 @@ import dev.bosatsu.library.{
   VerifiedLibraryGraph,
   VerifiedLibrarySnapshot
 }
+import dev.bosatsu.tool.PackageBindings.PublicIndex
 
 class LibraryInspectionProjectionTest extends munit.FunSuite {
   private type ErrorOr[A] = Either[Throwable, A]
@@ -68,6 +69,7 @@ class LibraryInspectionProjectionTest extends munit.FunSuite {
   private final case class Projections(
       signature: Array[Byte],
       exposure: Json,
+      publicIndex: PublicIndex,
       membership: Json,
       implementation: Json
   )
@@ -92,11 +94,17 @@ class LibraryInspectionProjectionTest extends munit.FunSuite {
               decoded,
               platform.pathToString
             ).leftMap[Throwable](error => new Exception(error))
+            publicIndex <- LibraryInspection.publicIndex(
+              verified,
+              decoded,
+              platform.pathToString
+            ).leftMap[Throwable](error => new Exception(error))
             membership <- LibraryInspection.membershipProjection(verified, decoded)
               .leftMap[Throwable](error => new Exception(error))
           } yield Projections(
             signature.toByteArray,
             exposure,
+            publicIndex,
             membership,
             LibraryInspection.implementationProjection(verified, platform.pathToString)
           )
@@ -116,6 +124,42 @@ class LibraryInspectionProjectionTest extends munit.FunSuite {
   private def string(json: Json): String = json match {
     case Json.JString(value) => value
     case _                   => fail(s"expected JSON string, found $json")
+  }
+
+  private def legacyExposureContract(index: PublicIndex): Json = {
+    def identityJson(identity: PackageBindings.LibraryIdentity): Json = Json.JObject(List(
+      "name" -> Json.JString(identity._1.name),
+      "version" -> Json.JString(identity._2.render)
+    ))
+
+    val packages = index.packages.valuesIterator.map { pkg =>
+      val exposures = pkg.exposures.iterator.map { case (name, provider) =>
+        val (providerJson, witness) = provider match {
+          case PackageBindings.PublicProvider.CompilerPredef =>
+            Json.JObject(List(
+              "kind" -> Json.JString("compiler"),
+              "name" -> Json.JString("Predef")
+            )) -> List.empty[PackageBindings.LibraryIdentity]
+          case PackageBindings.PublicProvider.Library(identity, path) =>
+            identityJson(identity) -> path
+        }
+        Json.JObject(List(
+          "package" -> Json.JString(name.asString),
+          "provider" -> providerJson,
+          "witness_path" -> Json.JArray(witness.iterator.map(identityJson).toVector)
+        ))
+      }.toVector
+      Json.JObject(List(
+        "library" -> identityJson(pkg.identity),
+        "package" -> Json.JString(pkg.packageName.asString),
+        "owner" -> identityJson(pkg.identity),
+        "exposes" -> Json.JArray(exposures)
+      ))
+    }.toVector
+    Json.JObject(List(
+      "schema_version" -> Json.JNumberStr("1"),
+      "packages" -> Json.JArray(packages)
+    ))
   }
 
   private def record(
@@ -193,6 +237,10 @@ class LibraryInspectionProjectionTest extends munit.FunSuite {
     val output = projections(rootFixture, context, current).toOption.get
 
     val child = record(output.exposure, "public_child", "1.0.0", "Public/Child")
+    val originalContract = legacyExposureContract(output.publicIndex)
+    assertEquals(output.publicIndex.toJson.render, originalContract.render)
+    assertEquals(output.exposure.render, originalContract.render)
+    assert(output.publicIndex.packages.keysIterator.exists(_.packageName.asString == "Public/Child"))
     val common = array(field(child, "exposes")).find { edge =>
       string(field(edge, "package")) == "Common/Util"
     }.getOrElse(fail(child.render))
@@ -268,5 +316,6 @@ class LibraryInspectionProjectionTest extends munit.FunSuite {
 
     assert(baseline.signature.sameElements(changed.signature))
     assertNotEquals(baseline.implementation.render, changed.implementation.render)
+    assertEquals(baseline.publicIndex.toJson.render, changed.publicIndex.toJson.render)
   }
 }
