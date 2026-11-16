@@ -72,9 +72,9 @@ class ToolchainManifestTest extends munit.FunSuite {
       advertisedRuntimeHash: String = ""
   ): Result[Unit] = {
     val initial = MemoryMain.State.empty
-      .withFile(manifestPath, MemoryMain.FileContent.Bytes(manifestBytes)).get
+      .withFile(manifestPath, MemoryMain.FileContent.Bytes(Bytes.copyFromArray(manifestBytes))).get
     val state = files.foldLeft(initial) { case (next, (path, content)) =>
-      next.withFile(path, MemoryMain.FileContent.Bytes(content)).get
+      next.withFile(path, MemoryMain.FileContent.Bytes(Bytes.copyFromArray(content))).get
     }
     (for {
       selected <- ToolchainManifest.read(platform, manifestPath)

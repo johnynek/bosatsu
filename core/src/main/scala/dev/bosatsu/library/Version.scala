@@ -1,6 +1,6 @@
 package dev.bosatsu.library
 
-import cats.parse.Numbers.{bigInt, nonNegativeIntString}
+import cats.parse.Numbers.nonNegativeIntString
 import cats.parse.Parser
 import cats.parse.Rfc5234.{digit, alpha}
 import cats.syntax.all._
@@ -159,11 +159,13 @@ object Version {
     private def splitPreRelease(pre: PreRelease): Array[String] =
       pre.asString.split('.')
 
-    /** Attempts to parse a string as an integer. Returns Some(Int) if
+    /** Attempts to parse an unsigned decimal identifier. Returns Some(BigInt) if
       * successful, None otherwise.
       */
     private def parseNumeric(id: String): Option[BigInt] =
-      bigInt.parseAll(id).toOption
+      if (id.nonEmpty && id.forall(ch => ch >= '0' && ch <= '9'))
+        Some(BigInt(id))
+      else None
 
     /** Compares two pre-release identifiers according to SemVer rules.
       *
@@ -177,7 +179,9 @@ object Version {
     private def compareIdentifiers(a: String, b: String): Int =
       (parseNumeric(a), parseNumeric(b)) match {
         case (Some(numA), Some(numB)) =>
-          numA.compareTo(numB)
+          val numericCompare = numA.compareTo(numB)
+          // Build metadata permits leading zeroes, so numeric ties need a spelling tie-break.
+          if (numericCompare == 0) a.compareTo(b) else numericCompare
         case (Some(_), None) =>
           // Numeric identifiers have lower precedence than non-numeric
           -1
@@ -283,13 +287,28 @@ object Version {
       major = pv.major,
       minor = pv.minor,
       patch = pv.patch,
-      preRelease = Option(pv.preRelease).flatMap {
-        case "" => None
-        case pr => Some(PreRelease(pr))
+      preRelease = pv.preRelease match {
+        case null | "" => None
+        case pr        => Some(PreRelease(pr))
       },
-      build = Option(pv.build).flatMap {
-        case "" => None
-        case b  => Some(Build(b))
+      build = pv.build match {
+        case null | "" => None
+        case b         => Some(Build(b))
+      }
+    )
+
+  def fromProtoChecked(pv: proto.Version): Option[Version] =
+    ifValid(
+      pv.major,
+      pv.minor,
+      pv.patch,
+      pv.preRelease match {
+        case null | "" => None
+        case pr        => Some(PreRelease(pr))
+      },
+      pv.build match {
+        case null | "" => None
+        case b         => Some(Build(b))
       }
     )
 

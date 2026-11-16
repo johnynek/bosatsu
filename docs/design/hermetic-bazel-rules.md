@@ -342,6 +342,241 @@ The consumer milestone needs `headers`, `compile-packages`, `inspect-library` (i
 | `tool inspect-library --descriptors-only` | Read a verified file and return its identity and dependency descriptors, including hashes, mirror URIs and visibility, for the extension's resolver. The full inspection mode derives exported interfaces and exposures after the verified dependency context is available. Both operations take files. Bazel handles acquisition and lockfile updates. |
 | `tool publish-artifacts` (producer phase) | `--manifest FILE` verifies the prepared closure and deploys in dependency order outside the worker. |
 
+### Library inspection dependency context
+
+Full `tool inspect-library` accepts a UTF-8 version 1 JSON dependency context.
+Each `libraries` entry declares one local file, its exact library identity, and
+the caller-recorded digest pins:
+
+```json
+{"schema_version":1,"libraries":[{"name":"parser","version":"1.0.0","path":"deps/parser.bosatsu_lib","hashes":["blake3:…","sha256:…"]}]}
+```
+
+`name` is nonempty and `version` uses the library SemVer syntax. `path` is
+parsed by the platform's command-line path argument parser and is relative to
+the command's declared input context; it is never treated as a URI. `hashes`
+must contain at least one nonempty pin. Each entry represents one file, so
+multiple entries may name the same library and version at different paths.
+Inspection preserves those aliases so the verifier can authenticate each edge
+and reject conflicting bytes. Callers acquire all files before the action;
+inspection does not fetch descriptors' URIs. Descriptor-only inspection takes
+only the pinned root and does not read this dependency context.
+
+Inspection outputs use UTF-8 JSON with `schema_version: 1`, except the signature
+projection, which is the existing canonical `TypedAst.Interfaces` protobuf
+encoding produced by `PackageSignatures.encode`. Each output is independently
+requestable. Signature bytes include only the root's exported interfaces; they
+do not include artifact paths or digests, mirror URIs, private scopes, or
+implementation metadata.
+
+Descriptor-only output is available after authenticating the root, even while
+all children are absent. The shape is:
+
+```json
+{
+  "schema_version": 1,
+  "identity": {"name": "parser", "version": "1.0.0"},
+  "digests": {"sha256": "…", "blake3": "…"},
+  "descriptor": {"version": "1.0.0", "hashes": [], "uris": []},
+  "dependencies": [
+    {
+      "identity": {"name": "common", "version": "1.0.0"},
+      "visibility": "public",
+      "hashes": ["blake3:…"],
+      "uris": ["https://example.invalid/common.bosatsu_lib"]
+    }
+  ]
+}
+```
+
+The root descriptor is the metadata embedded in the artifact; `digests` are
+computed from the authenticated bytes. Dependency entries retain the descriptor
+pins and URIs and use `public`, `private`, or `unused_transitive_public`
+visibility. Entries are ordered by visibility and exact target identity, then
+by pins and URIs. Full inspection first authenticates the complete declared
+graph against those edges.
+
+The exposure projection has one record for each exported package in every
+verified scope. `owner` is the library identity that owns that package; each
+`exposes` item names a typed foreign package, its provider identity, and the
+library-identity witness path from the referring scope. Provider lookup follows
+public and legacy unused-transitive-public edges. Private implementation edges
+remain in the implementation projection and cannot introduce unrelated public
+exposures. A compiler-provided `Predef` reference is represented with
+`{"kind":"compiler","name":"Predef"}` and an empty witness path, never as a
+downloaded library. For example:
+
+```json
+{
+  "schema_version": 1,
+  "packages": [
+    {
+      "library": {"name": "public_child", "version": "1.0.0"},
+      "package": "Public/Child",
+      "owner": {"name": "public_child", "version": "1.0.0"},
+      "exposes": [
+        {
+          "package": "Common/Util",
+          "provider": {"name": "common", "version": "1.0.0"},
+          "witness_path": [
+            {"name": "public_child", "version": "1.0.0"},
+            {"name": "common", "version": "1.0.0"}
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+The membership projection lists each graph identity with sorted
+`internal_packages` and `exported_packages`. The implementation projection
+lists the root identity, each authenticated artifact's SHA-256, BLAKE3 and
+declared paths, plus every scoped edge with visibility, pins, URIs and witness
+path. These artifact references point to the original library files; inspection
+does not define another implementation codec. Identities sort by library name
+and exact version, package names sort lexically, and edge lists sort by referring
+identity, visibility and target identity. Thus equivalent declaration/context
+ordering yields identical metadata while implementation-only changes affect
+artifact metadata without changing signature bytes.
+
+All requested inspection files are serialized before publication and are
+reported through one complete-file-set operation. A failure while staging or
+publishing preserves the prior set, including when the signature bundle is
+requested with JSON projections. JVM file commands join this operation to the
+request's existing staged-output transaction. On Scala.js, identical existing
+files remain in place; changed existing files are rejected before installation
+because Node cannot preserve their access controls. If installing a later new
+file fails, files already installed by that attempt are removed.
+
+#### Running inspection during resolution
+
+The resolver starts with one pinned root. Descriptor-only mode checks the root
+identity and every supplied digest before returning child descriptors; it does
+not read any child files. For example, the committed Parser fixture can be
+inspected from the repository root before its dependencies are placed in a
+workspace:
+
+```sh
+sbt "cli/assembly"
+candidate_jar="$(find cli/target/scala-3.8.2 -maxdepth 1 -name 'bosatsu-cli-assembly-*.jar' -print -quit)"
+mkdir -p build
+java -jar "$candidate_jar" tool inspect-library \
+  --input test_workspace/inspect_library/parser-v1.0.0.bosatsu_lib \
+  --expected-name parser --expected-version 1.0.0 \
+  --expected-hash blake3:37ce913c3ccf6b2d09c3a19439afd7ec7cd661c0083f9ae5f8d1201aca9b8777 \
+  --expected-hash sha256:09f017b006d11225508cbdbc703d726f898788bb5853ef80a67b48e308dbdf7c \
+  --descriptors-only --descriptor-out build/parser-descriptor.json
+```
+
+For each `dependencies` entry, the resolver acquires that one selected child,
+passes only its path, exact name/version, and the entry's `hashes` to another
+descriptor-only invocation, and follows the child's descriptors only after
+that invocation succeeds. The committed fixture descriptors use BLAKE3-only
+pins to exercise older releases. A resolver may compute SHA-256 from the
+authenticated bytes for later lock metadata, but the derived value does not
+replace or weaken the parent's recorded edge pin. Repeat this for every incoming
+edge, including a second edge to an identity already seen through a diamond.
+Only after this walk has acquired the closure should the caller pass a complete
+version-1 dependency context for full inspection:
+
+```sh
+candidate_jar="$(find cli/target/scala-3.8.2 -maxdepth 1 -name 'bosatsu-cli-assembly-*.jar' -print -quit)"
+mkdir -p build
+java -jar "$candidate_jar" tool inspect-library \
+  --input test_workspace/inspect_library/parser-v1.0.0.bosatsu_lib \
+  --expected-name parser --expected-version 1.0.0 \
+  --expected-hash blake3:37ce913c3ccf6b2d09c3a19439afd7ec7cd661c0083f9ae5f8d1201aca9b8777 \
+  --expected-hash sha256:09f017b006d11225508cbdbc703d726f898788bb5853ef80a67b48e308dbdf7c \
+  --dependency-context test_workspace/inspect_library/parser-context.json \
+  --sig-out build/parser.sig \
+  --exposures-out build/parser-exposures.json \
+  --membership-out build/parser-membership.json \
+  --implementation-out build/parser-implementation.json \
+  --descriptor-out build/parser-full-descriptor.json
+```
+
+Every `blake3:` and `sha256:` value in the root or a dependency descriptor is
+checked against the same file bytes that are parsed; every supplied supported
+pin must match. At least one supported pin is required. A mismatch fails even
+if another pin matches. Unknown digest algorithms do not authenticate a file.
+Aliases for the same name/version may coalesce only when their authenticated
+bytes are equal. Different bytes claiming one identity fail with both paths;
+different versions remain separate scopes. Public and legacy
+unused-transitive-public edges can provide exposed packages. Private edges
+remain implementation references and do not provide another library's public
+exposures. Each exported package is owned by its exact library identity, and
+each typed exposure names the provider identity and witness path used to reach
+it.
+
+The JSON outputs all use `schema_version: 1`. The membership and implementation
+projections have these shapes (the arrays contain the complete deterministically
+sorted graph):
+
+```json
+{
+  "schema_version": 1,
+  "libraries": [
+    {
+      "identity": {"name": "parser", "version": "1.0.0"},
+      "internal_packages": ["Parser"],
+      "exported_packages": ["Parser"]
+    }
+  ]
+}
+```
+
+```json
+{
+  "schema_version": 1,
+  "root": {"name": "parser", "version": "1.0.0"},
+  "artifacts": [
+    {
+      "identity": {"name": "parser", "version": "1.0.0"},
+      "sha256": "<authenticated digest>",
+      "blake3": "<authenticated digest>",
+      "paths": ["test_workspace/inspect_library/parser-v1.0.0.bosatsu_lib"]
+    }
+  ],
+  "edges": [
+    {
+      "from": {"name": "parser", "version": "1.0.0"},
+      "to": {"name": "public_child", "version": "1.0.0"},
+      "visibility": "public",
+      "hashes": ["blake3:<parent-recorded digest>"],
+      "uris": ["<mirror URI from the parent descriptor>"],
+      "witness_path": [
+        {"name": "parser", "version": "1.0.0"},
+        {"name": "public_child", "version": "1.0.0"}
+      ]
+    }
+  ]
+}
+```
+
+For candidate-jar checks, stage all offline inputs before invoking the worker.
+The preparation script copies the serialized graph fixtures and downloads the
+real `core_alpha` 9.0.1 release from
+`https://github.com/johnynek/bosatsu/releases/download/v0.0.69/core_alpha-v9.0.1.bosatsu_lib`.
+It verifies the 937080-byte file against SHA-256
+`b6e7d87fcb786084dd90da490fe9514678fee7f6920fc17e0abdf28210a11dff`; inspection
+also checks its legacy BLAKE3
+`098f5eff00611599b54b5e6bce8b7696c8fdf89f4e99f8bfbbec521764ed8927`.
+Preparation is the only networked step. The worker suite runs against local
+prepared files:
+
+```sh
+python3 scripts/prepare_inspect_library_fixtures.py --out-dir build/inspection-fixtures
+sbt "cli/assembly"
+candidate_jar="$(find cli/target/scala-3.8.2 -maxdepth 1 -name 'bosatsu-cli-assembly-*.jar' -print -quit)"
+python3 scripts/test_bazel_worker.py \
+  --jar "$candidate_jar" \
+  --inspection-fixtures build/inspection-fixtures
+```
+
+The candidate harness fails when the prepared directory or legacy artifact is
+missing or has changed; it never downloads fixtures during a command test.
+
 ### File contracts for steps 0e and 0f
 
 All manifests in this section use UTF-8 JSON. Invalid byte sequences fail validation before paths or labels are compared.
@@ -579,10 +814,10 @@ Change **Complete?** to **Yes** when the implementation has landed and its accep
 | 0i. Program C emission | Yes | On 0g, add `tool emit-c --main-packages FILE --main-package NAME` as the program selector, validate the selected root group and main type, and emit declared C outputs. | From the separately compiled Prog/Types/Api/Main bundles, generate C and link a program that exits 7. Reject a main outside the selected group or with an invalid type. Neither emission mode invokes a host C compiler. [Implementation](../../core/src/main/scala/dev/bosatsu/tool_command/EmitCCommand.scala) · [CLI checks](../../cli/src/test/scala/dev/bosatsu/EmitCCommandTest.scala) · [Native fixture](../../scripts/test_emit_c.py) |
 | 0j. One-shot worker arguments | Yes | On 0a and 0d, add the `tool bazel-worker @params` dispatcher for file operations. Keep filenames and multiline parameter-file semantics consistent with the standalone CLI. | Run the candidate jar on a params file containing paths with spaces and non-ASCII characters. Compare output bytes, diagnostics and status with the direct invocation. [Issue #2475](https://github.com/johnynek/bosatsu/issues/2475) · [Candidate-jar harness](../../scripts/test_bazel_worker.py) · [Launcher passthrough test](../../scripts/test_launcher_passthrough.sh) · [Worker unit tests](../../cli/src/test/scala/dev/bosatsu/BazelWorkerTest.scala) |
 | 0k. Persistent JSON worker | Yes — [#2484](https://github.com/johnynek/bosatsu/issues/2484) | On 0j, add the `--persistent_worker` entry point over the shared `BazelWorker.Operation` registry and request-scoped runner. Use sequential UTF-8 physical-line framing, immediate response flushes, request-local diagnostics and cleanup, cache-free recomputation, and clean EOF handling. V1 ignores cancellation controls and verbosity, rejects nonempty `sandboxDir`, and does not advertise cancellation or multiplexing. Future inspection and verification operations join the same registry after implementation. | Pass `sbt "cli/test; cli/assembly"`, `python3 scripts/test_bazel_worker.py --jar <resolved-candidate-assembly>`, `./scripts/test_launcher_passthrough.sh` and `./test_cli.sh` on Linux. The harness drives the assembled candidate through direct, @params, warm-worker and restarted-worker paths, including changed bytes, failures, framing and strict interfaces. This local candidate evidence does not replace later Bazel integration qualification. |
-| 0l. Inspect verified imports | No | On 0c, add `tool inspect-library` over declared files. Verify artifact digests and name/version. Project each exported interface with its owner and provider identities for its exposure edges. Emit the scoped implementation view and descriptor. | Read an existing released library with verified dependencies. Recover scoped exposure edges for an unindexed interface. Check the interface projection is stable across implementation-only changes. Reject a bad hash or incomplete declared dependency context, including a second diamond edge claiming another digest for an already verified name/version. |
+| 0l. Inspect verified imports | Yes | On 0c, add `tool inspect-library` over declared files. Verify artifact digests and name/version. Project each exported interface with its owner and provider identities for its exposure edges. Emit the scoped implementation view and descriptor. [InspectLibraryCommand](../../core/src/main/scala/dev/bosatsu/tool_command/InspectLibraryCommand.scala) · [LibraryInspection](../../core/src/main/scala/dev/bosatsu/tool/LibraryInspection.scala) | Read an existing released library with verified dependencies. Recover scoped exposure edges for an unindexed interface. Check the interface projection is stable across implementation-only changes. Reject a bad hash or incomplete declared dependency context, including a second diamond edge claiming another digest for an already verified name/version. [Projection tests](../../core/src/test/scala/dev/bosatsu/tool/LibraryInspectionProjectionTest.scala) · [Graph tests](../../core/src/test/scala/dev/bosatsu/library/VerifiedLibraryGraphTest.scala) · [Command tests](../../core/src/test/scala/dev/bosatsu/InspectLibraryCommandTest.scala) |
 | 0m. Validate imported scopes | No | On 0f and 0l, extend structural validation, signature selection and batched compilation to per-member import bindings and the selected toolchain core. | Accept a shared diamond and legal private versions, including disjoint member closures in one batch. Reject two versions of one library visible to one package and show both paths, including when the versions contribute different package names or identical signature bytes. Coalesce identical core references. Reject an incompatible transitive core, including on a private path, and report the path. |
 | 0n. Emit C for mixed graphs | No | On 0h, 0i, 0l and 0m, teach both C emission modes to resolve imported implementations and native bindings within their library scopes. | Generate a working program and test using a pinned library. Link and run two private releases exporting the same package and symbol with different signatures. Check both results and diagnose incompatible native bindings. |
-| 0o. Inspect import descriptors | No | On 0l, expose file-only descriptor inspection to the repository-host resolver, including legacy hashes and scoped edges. | Enumerate both versions in a private-release fixture with their referring edges. From a pinned Parser artifact enumerate its closure, verify child hashes before trusting child descriptors, derive SHA-256 for a BLAKE3-only edge, and reject a tampered child. Repeated inspection yields the same repository inputs and package index. |
+| 0o. Inspect import descriptors | Yes | On 0l, expose file-only descriptor inspection to the repository-host resolver, including legacy hashes and scoped edges. [InspectLibraryCommand](../../core/src/main/scala/dev/bosatsu/tool_command/InspectLibraryCommand.scala) · [Candidate-worker resolver checks](../../scripts/test_bazel_worker.py) | Enumerate both versions in a private-release fixture with their referring edges. From a pinned Parser artifact enumerate its closure, verify child hashes before trusting child descriptors, derive SHA-256 for a BLAKE3-only edge, and reject a tampered child. Repeated inspection yields the same repository inputs and package index. [Serialized graph fixtures](../../test_workspace/inspect_library/README.md) · [Fixture preparation](../../scripts/prepare_inspect_library_fixtures.py) · [Candidate jar checks](../../scripts/test_bazel_worker.py) |
 | 0p. Compiler/core/runtime compatibility | Yes | Add `tool verify-toolchain` against a detached manifest. Verify only requested components, with an additional archive check for jars advertising a runtime hash. | The command and JVM/Scala.js suites cover the manifest schema, exact requested-component reads, core identity/source checks, runtime stamp states and failure-safe stamp publication. `scripts/test_bazel_worker.py` exercises the exact candidate jar for matched compiler-only, binary core, source core and native requests, plus independently mismatched compiler/core/runtime bytes and invalid core/source replacements; each case compares direct and one-shot worker results. |
 | 0q. CLI cutover and artifact qualification | No | Exercise the candidate deploy jar through its file CLI and worker entry points. Migrate CI, sanitizer and Valgrind callers when retiring superseded commands. Have release/CI generate and pin the manifest after building the jar, core and runtime archive. | Round-trip the manifest against the staged files. Run the same native program using `Bosatsu/Prog` and a `ProgTest` using a core external against the exact tuple that will be distributed. Hand off the jar alone for compiler-only CI or the manifest and three local files for full CI. |
 | Optional after 0e. Narrow interfaces | No | Add `tool select-interfaces` as a separate cache optimization. The packages rule can ship with whole direct signatures. | Compare raw and narrowed builds on the X/Sibling/Y fixture. Both enforce the same strict deps on the original declarations. Measure action misses after unrelated edits to a wide provider. |

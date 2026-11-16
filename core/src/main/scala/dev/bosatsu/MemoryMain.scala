@@ -4,6 +4,7 @@ import _root_.bosatsu.{TypedAst => proto}
 import cats.{Hash, MonadError}
 import cats.data.{Chain, StateT, Validated}
 import com.monovore.decline.Argument
+import dev.bosatsu.{Bytes => ImmutableBytes}
 import java.nio.charset.StandardCharsets
 import scala.collection.immutable.SortedMap
 import dev.bosatsu.graph.CanPromise
@@ -44,7 +45,7 @@ object MemoryMain {
   sealed abstract class FileContent
   object FileContent {
     case class Str(str: String) extends FileContent
-    case class Bytes(bytes: Array[Byte]) extends FileContent
+    case class Bytes(bytes: ImmutableBytes) extends FileContent
     case class Packages(ps: List[Package.Compiled]) extends FileContent
     case class Interfaces(ifs: List[Package.Interface]) extends FileContent
     case class Lib(lib: Hashed[Algo.Blake3, proto.Library]) extends FileContent
@@ -363,7 +364,7 @@ object MemoryMain {
               case Some(Right(MemoryMain.FileContent.Str(res))) =>
                 moduleIOMonad.pure(res)
               case Some(Right(MemoryMain.FileContent.Bytes(bytes))) =>
-                moduleIOMonad.pure(new String(bytes, StandardCharsets.UTF_8))
+                moduleIOMonad.pure(new String(bytes.unsafeReadOnlyView, StandardCharsets.UTF_8))
               case other =>
                 moduleIOMonad.raiseError(
                   new Exception(s"expect String content, found: $other")
@@ -377,7 +378,7 @@ object MemoryMain {
           .flatMap { files =>
             files.get(p) match {
               case Some(Right(MemoryMain.FileContent.Bytes(bytes))) =>
-                moduleIOMonad.pure(bytes)
+                moduleIOMonad.pure(bytes.copyToArray)
               case Some(Right(MemoryMain.FileContent.Str(res))) =>
                 moduleIOMonad.pure(res.getBytes(StandardCharsets.UTF_8))
               case Some(Right(MemoryMain.FileContent.Packages(packs))) =>
@@ -442,7 +443,7 @@ object MemoryMain {
                   case Some(Right(MemoryMain.FileContent.Bytes(bytes))) =>
                     for {
                       ppack <- moduleIOMonad.fromTry(
-                        scala.util.Try(proto.Packages.parseFrom(bytes))
+                        scala.util.Try(proto.Packages.parseFrom(bytes.unsafeReadOnlyView))
                       )
                       packs <- moduleIOMonad.fromTry(
                         ProtoConverter.packagesFromProto(Nil, ppack.packages)
@@ -544,7 +545,23 @@ object MemoryMain {
       def writeDoc(p: Path, d: Doc): F[Unit] =
         writeFC(p, FileContent.Str(d.renderTrim(100)))
 
-      def writeDocAtomic(p: Path, d: Doc): F[Unit] = writeDoc(p, d)
+      def writeDocAtomic(p: Path, d: Doc): F[Unit] =
+        writeFileSetAtomic(
+          List(p -> Bytes.fromUTF8String(d.render(100)))
+        )
+
+      def writeFileSetAtomic(files: List[(Path, Bytes)]): F[Unit] =
+        StateT.modifyF { state =>
+          files.foldLeft(Option(state)) { case (current, (path, bytes)) =>
+            current.flatMap(_.withFile(path, FileContent.Bytes(bytes)))
+          } match {
+            case Some(next) => innerMonad.pure(next)
+            case None =>
+              innerMonad.raiseError(
+                new Exception("could not publish complete output file set")
+              )
+          }
+        }
 
       def writeInterfaces(
           ifaces: List[Package.Interface],
@@ -556,7 +573,7 @@ object MemoryMain {
         writeFC(path, FileContent.Packages(packs))
 
       def writeBytes(path: Path, bytes: Array[Byte]): F[Unit] =
-        writeFC(path, FileContent.Bytes(bytes.clone()))
+        writeFC(path, FileContent.Bytes(Bytes.copyFromArray(bytes)))
 
       def writeLibrary(lib: proto.Library, path: Path): F[Unit] = {
         val hash = Algo.hashBytes[Algo.Blake3](lib.toByteArray)
@@ -577,8 +594,8 @@ object MemoryMain {
       def readStdinBytes: F[Array[Byte]] =
         moduleIOMonad.pure(Array.emptyByteArray)
 
-      def writeStdoutBytes(bytes: Array[Byte]): F[Unit] =
-        writeStdout(Doc.text(new String(bytes, StandardCharsets.ISO_8859_1)))
+      def writeStdoutBytes(bytes: Bytes): F[Unit] =
+        writeStdout(Doc.text(new String(bytes.unsafeReadOnlyView, StandardCharsets.ISO_8859_1)))
 
       def println(str: String): F[Unit] =
         writeStdout(Doc.text(str))

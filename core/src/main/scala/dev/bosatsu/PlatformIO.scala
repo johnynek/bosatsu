@@ -147,10 +147,12 @@ trait PlatformIO[F[_], Path] {
     * failure. Fail before replacement if its access controls cannot be retained.
     */
   def writeDocAtomic(p: Path, d: Doc): F[Unit]
+  /** Publish a complete set of already serialized files as one operation. */
+  def writeFileSetAtomic(files: List[(Path, Bytes)]): F[Unit]
   def writeStdout(doc: Doc): F[Unit]
   def writeError(doc: Doc): F[Unit]
   def readStdinBytes: F[Array[Byte]]
-  def writeStdoutBytes(bytes: Array[Byte]): F[Unit]
+  def writeStdoutBytes(bytes: Bytes): F[Unit]
 
   def system(command: String, args: List[String]): F[Unit]
   def systemStdout(command: String, args: List[String]): F[String]

@@ -8,6 +8,7 @@ import cats.syntax.all._
 import dev.bosatsu.{
   BosatsuInt as BInt,
   CompileOptions,
+  Bytes,
   Identifier,
   Json,
   Kind,
@@ -77,6 +78,8 @@ sealed abstract class Output[+Path] {
       case Output.JsonOutput(json, pathOpt) =>
         writeOut(json.toDoc, pathOpt)
           .as(ExitCode.Success)
+      case Output.AtomicFileSet(files) =>
+        writeFileSetAtomic(files).as(ExitCode.Success)
 
       case Output.TranspileOut(outs) =>
         outs.toList
@@ -330,6 +333,10 @@ object Output {
   ) extends Output[Nothing]
 
   case class JsonOutput[Path](json: Json, output: Option[Path])
+      extends Output[Path]
+
+  /** Publish fully serialized immutable bytes through one output transaction. */
+  case class AtomicFileSet[Path](files: List[(Path, Bytes)])
       extends Output[Path]
 
   final case class PackageGroup[Path](

@@ -17,7 +17,7 @@ class LocalRuntimeScopeTest extends munit.FunSuite {
   private def wire(name: String): proto.Package =
     proto.Package(strings = List(name), packageName = 1)
   private def bundle(packs: proto.Package*): MemoryMain.FileContent =
-    MemoryMain.FileContent.Bytes(proto.Packages(packs.toList).toByteArray)
+    MemoryMain.FileContent.Bytes(Bytes.fromMessage(proto.Packages(packs.toList)))
   private def graph(files: String*): String =
     Json.JObject(List(
       "schema_version" -> Json.JNumberStr("1"),
@@ -100,10 +100,10 @@ class LocalRuntimeScopeTest extends munit.FunSuite {
     rejects(load(json, name -> bundle()), "empty implementation bundle", name)
     rejects(load(json, name -> bundle(wire("not/a/package"))), "invalid package name", name)
     rejects(load(json, name -> bundle(wire("Real").copy(packageName = 0))), "invalid package name", name)
-    rejects(load(json, name -> MemoryMain.FileContent.Bytes(Array(10.toByte, 80.toByte))),
+    rejects(load(json, name -> MemoryMain.FileContent.Bytes(Bytes.copyFromArray(Array(10.toByte, 80.toByte)))),
       "cannot read implementation bundle", name)
     val signature = proto.Interfaces(List(proto.Interface(strings = List("Demo"), packageName = 1)))
-    rejects(load(json, name -> MemoryMain.FileContent.Bytes(signature.toByteArray)), name)
+    rejects(load(json, name -> MemoryMain.FileContent.Bytes(Bytes.fromMessage(signature))), name)
   }
 
   test("runtime manifest schema and scope errors precede all implementation reads") {
