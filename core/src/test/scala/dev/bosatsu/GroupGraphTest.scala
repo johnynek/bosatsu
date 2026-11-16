@@ -181,7 +181,7 @@ class GroupGraphTest extends munit.FunSuite {
     }
   }
 
-  test("member-visible releases follow selected API exposures, while private releases stay disjoint") {
+  test("shared member closure resolution retains exposure routes and permits disjoint releases") {
     def identity(name: String, version: String): PackageBindings.LibraryIdentity =
       Name(name) -> Version.parser.parseAll(version).toOption.get
 
@@ -207,49 +207,127 @@ class GroupGraphTest extends munit.FunSuite {
       ))(using summon[Ordering[PackageName]])
     )
 
-    def imported(
-        id: PackageBindings.LibraryIdentity,
-        packages: List[PublicPackage]
-    ): GroupGraph.ImportedLibrary[String] =
-      GroupGraph.ImportedLibrary(id, id._1.name, Nil, packages)
-
-    val topology = GroupGraph.MixedTopology(
-      Nil,
-      SortedMap.from(List(
-        left -> imported(left, List(leftPackage)),
-        right -> imported(right, List(rightPackage)),
-        sharedV1 -> imported(sharedV1, List(PublicPackage(
-          sharedV1,
-          sharedPackage,
-          SortedMap.empty(using summon[Ordering[PackageName]])
-        ))),
-        sharedV2 -> imported(sharedV2, List(PublicPackage(
-          sharedV2,
-          sharedPackage,
-          SortedMap.empty(using summon[Ordering[PackageName]])
-        )))
-      ))(using Ordering.Tuple2(using Name.orderingName, Version.versionOrdering))
+    val publicIndex = PackageBindings.indexFromPackages(
+      List(
+        leftPackage,
+        rightPackage,
+        PublicPackage(sharedV1, sharedPackage, SortedMap.empty(using summon[Ordering[PackageName]])),
+        PublicPackage(sharedV2, sharedPackage, SortedMap.empty(using summon[Ordering[PackageName]]))
+      ),
+      List(left, right, sharedV1, sharedV2)
     )
     val app = packageName("App")
     val appScope = PackageBindings.Scope.Member(app)
     val leftScope = PackageBindings.Scope.Library(left)
     val rightScope = PackageBindings.Scope.Library(right)
-    val leftRoot = PackageOwner(leftScope, packageName("Left")) -> List(appScope, leftScope)
-    val rightRoot = PackageOwner(rightScope, packageName("Right")) -> List(appScope, rightScope)
+    val leftName = packageName("Left")
+    val rightName = packageName("Right")
+    val first = packageName("First")
+    val second = packageName("Second")
+    val sharedScopeOne = PackageBindings.Scope.Library(sharedV1)
+    val sharedScopeTwo = PackageBindings.Scope.Library(sharedV2)
+    val emptyImports = SortedMap.empty[
+      PackageBindings.LibraryIdentity,
+      PackageBindings.ImportedScope[String]
+    ](using Ordering.Tuple2(using Name.orderingName, Version.versionOrdering))
+    val emptyRequests = SortedMap.empty[
+      PackageBindings.BindingKey,
+      PackageBindings.BindingRequest[String]
+    ](using PackageBindings.bindingKeyOrdering)
+    val scopeMap = PackageBindings.ScopeMap(
+      scala.collection.immutable.SortedSet.from(List(app, first, second)),
+      Nil,
+      emptyImports,
+      publicIndex,
+      scala.collection.immutable.SortedSet.empty[String],
+      emptyRequests
+    )
+    def checkedBinding(
+        referrer: PackageBindings.Scope,
+        packageName: PackageName,
+        provider: PackageBindings.Scope,
+        witness: List[PackageBindings.Scope]
+    ): (PackageBindings.BindingKey, PackageBindings.CheckedBinding[String]) = {
+      val key = PackageBindings.BindingKey(referrer, packageName)
+      key -> PackageBindings.CheckedBinding(
+        key, PackageOwner(provider, packageName), None, witness
+      )
+    }
+    val checkedBindings = List(
+      checkedBinding(appScope, leftName, leftScope, List(appScope, leftScope)),
+      checkedBinding(appScope, rightName, rightScope, List(appScope, rightScope)),
+      checkedBinding(PackageBindings.Scope.Member(first), leftName, leftScope,
+        List(PackageBindings.Scope.Member(first), leftScope)),
+      checkedBinding(PackageBindings.Scope.Member(second), rightName, rightScope,
+        List(PackageBindings.Scope.Member(second), rightScope)),
+      checkedBinding(leftScope, sharedPackage, sharedScopeOne, List(leftScope, sharedScopeOne)),
+      checkedBinding(rightScope, sharedPackage, sharedScopeTwo, List(rightScope, sharedScopeTwo))
+    )
+    val checked = PackageBindings.CheckedScopeMap(
+      scopeMap,
+      publicIndex,
+      SortedMap.from(checkedBindings)(using PackageBindings.bindingKeyOrdering)
+    )
 
-    val conflict = GroupGraph.validateVisibleReleases(topology, List(app -> List(leftRoot, rightRoot)))
-      .left.toOption.get
+    val conflict = PackageBindings.resolveMemberClosures(
+      List(app -> List(leftName, rightName)), checked, Map.empty, builtinPredef = true
+    ).left.toOption.get
     assert(conflict.contains("two releases of library shared"), conflict)
     assert(conflict.contains("library left@1.0.0 -> library shared@1.0.0"), conflict)
     assert(conflict.contains("library right@1.0.0 -> library shared@2.0.0"), conflict)
 
-    val disjoint = GroupGraph.validateVisibleReleases(
-      topology,
+    val disjoint = PackageBindings.resolveMemberClosures(
       List(
-        packageName("First") -> List(leftRoot),
-        packageName("Second") -> List(rightRoot)
-      )
+        first -> List(leftName),
+        second -> List(rightName)
+      ),
+      checked,
+      Map.empty,
+      builtinPredef = true
     )
-    assertEquals(disjoint, Right(()))
+    assert(disjoint.isRight, disjoint.left.toOption.getOrElse(""))
+
+    val wrapper = packageName("Wrapper")
+    val facade = packageName("Facade")
+    val apiOne = packageName("Names/One")
+    val apiTwo = packageName("Names/Two")
+    val facadeLibrary = identity("facade", "1.0.0")
+    val facadeScope = PackageBindings.Scope.Library(facadeLibrary)
+    val sourceIndex = PackageBindings.indexFromPackages(List(
+      PublicPackage(
+        facadeLibrary,
+        facade,
+        SortedMap.from(List(
+          apiTwo -> PublicProvider.Library(sharedV2, List(facadeLibrary, sharedV2))
+        ))(using summon[Ordering[PackageName]])
+      ),
+      PublicPackage(sharedV1, apiOne, SortedMap.empty(using summon[Ordering[PackageName]])),
+      PublicPackage(sharedV2, apiTwo, SortedMap.empty(using summon[Ordering[PackageName]]))
+    ))
+    val wrapperScope = PackageBindings.Scope.Member(wrapper)
+    val sourceBindings = List(
+      checkedBinding(appScope, wrapper, wrapperScope, List(appScope, wrapperScope)),
+      checkedBinding(appScope, facade, facadeScope, List(appScope, facadeScope)),
+      checkedBinding(wrapperScope, apiOne, sharedScopeOne, List(wrapperScope, sharedScopeOne)),
+      checkedBinding(facadeScope, apiTwo, sharedScopeTwo, List(facadeScope, sharedScopeTwo))
+    )
+    val sourceScopeMap = scopeMap.copy(
+      members = scala.collection.immutable.SortedSet.from(List(app, wrapper)),
+      publicIndex = sourceIndex
+    )
+    val sourceChecked = PackageBindings.CheckedScopeMap(
+      sourceScopeMap,
+      sourceIndex,
+      SortedMap.from(sourceBindings)(using PackageBindings.bindingKeyOrdering)
+    )
+    val sourceConflict = PackageBindings.resolveMemberClosures(
+      List(app -> List(wrapper, facade)),
+      sourceChecked,
+      Map(app -> Some(Nil), wrapper -> Some(List(apiOne))),
+      builtinPredef = true
+    ).left.toOption.get
+    assert(sourceConflict.contains("conflicting visible releases for shared"), sourceConflict)
+    assert(sourceConflict.contains("member App -> member Wrapper -> library shared@1.0.0"), sourceConflict)
+    assert(sourceConflict.contains("member App -> library facade@1.0.0 -> library shared@2.0.0"), sourceConflict)
   }
 }

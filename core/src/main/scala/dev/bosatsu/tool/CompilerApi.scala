@@ -854,7 +854,12 @@ object CompilerApi {
     for {
       allBundles <- signatureInputs.toTry
       checked <- PackageBindings
-        .validateAgainstInspection(scopeMap, imported.publicIndex, sourceDependencies)
+        .validateAgainstInspection(
+          scopeMap,
+          imported.publicIndex,
+          sourceDependencies,
+          sources.iterator.map(source => source.member -> Some(source.exposes)).toMap
+        )
         .leftMap(CliException.Basic(_))
         .toTry
       selection <- PackageSignatures.planScoped(

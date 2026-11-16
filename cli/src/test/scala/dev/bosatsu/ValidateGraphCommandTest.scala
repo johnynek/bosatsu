@@ -32,6 +32,22 @@ class ValidateGraphCommandTest extends FileCommandFixtures {
     )).render
   }
 
+  private def groupWithMembers(
+      label: String,
+      members: List[(String, String, Option[List[String]])]
+  ): String = Json.JObject(List(
+    "schema_version" -> Json.JNumberStr("1"),
+    "kind" -> Json.JString("group"),
+    "label" -> Json.JString(label),
+    "members" -> Json.JArray(members.map { case (pkg, source, exposes) =>
+      val fields = List("package" -> Json.JString(pkg), "source" -> Json.JString(source))
+      Json.JObject(fields ::: exposes.toList.map(items =>
+        "exposes" -> Json.JArray(items.map(Json.JString(_)).toVector)
+      ))
+    }.toVector),
+    "deps" -> Json.JArray(Vector.empty)
+  )).render
+
   private def validate(runner: FileCommandRunner, root: Path, nodes: List[String], local: Boolean) =
     runner.run(root, List("validate-graph", "--root", rootFile, "--out", stamp) :::
       nodes.flatMap(n => List("--node", n)) ::: Option.when(local)("--local").toList)
@@ -116,6 +132,45 @@ class ValidateGraphCommandTest extends FileCommandFixtures {
     }
   }
 
+  test("mixed validation requires source exposure metadata only when following that provider") {
+    withRunner { (root, runner) =>
+      val emptySha = Algo.hashBytes[Algo.Sha256](Array.emptyByteArray).hex
+      val toolchain =
+        s"""{"schema_version":1,"compiler":{"uri":"unused","sha256":"$emptySha"},"core":{"library_name":"bosatsu","version":"1.2.3","uri":"unused","sha256":"$emptySha"},"c_runtime":{"uri":"unused","sha256":"$emptySha"}}"""
+      val scopeMap =
+        """{"schema_version":1,"members":["App","Wrapper"],"dependencies":[{"from":{"kind":"member","member":"App"},"package":"Wrapper","to":{"kind":"member","member":"Wrapper"}}],"imports":[],"bindings":[{"referrer":{"kind":"member","member":"App"},"package":"Wrapper","provider":{"kind":"member","member":"Wrapper"},"interface_path":null}]}"""
+      val command = List(
+        "validate-graph",
+        "--root", rootFile,
+        "--scope-map", "graph/scope-map.json",
+        "--dependency-context", "graph/dependencies.json",
+        "--toolchain-manifest", "graph/toolchain.json",
+        "--out", stamp
+      )
+      for {
+        _ <- write(root, rootFile, groupWithMembers(
+          "//app:g", List(("App", "App.bosatsu", None), ("Wrapper", "Wrapper.bosatsu", None))
+        ))
+        _ <- write(root, "graph/scope-map.json", scopeMap)
+        _ <- write(root, "graph/dependencies.json", "{\"schema_version\":1,\"libraries\":[]}")
+        _ <- write(root, "graph/toolchain.json", toolchain)
+        missing <- runner.run(root, command)
+        _ = failure(missing)
+        _ = assert(
+          missing.stderr.contains("missing public exposure metadata for source provider Wrapper"),
+          missing.stderr
+        )
+        _ <- write(root, rootFile, groupWithMembers(
+          "//app:g", List(("App", "App.bosatsu", Some(Nil)), ("Wrapper", "Wrapper.bosatsu", Some(Nil)))
+        ))
+        emptyExposures <- runner.run(root, command)
+        _ = success(emptyExposures)
+        _ = assertEquals(emptyExposures.stdout, "")
+        _ = assertEquals(emptyExposures.stderr, "")
+      } yield ()
+    }
+  }
+
   test("mixed validation authenticates imported roots and ignores their private versions for visibility") {
     withRunner { (root, runner) =>
       val parserPath = s"$inspectionFixtureRoot/parser-v1.0.0.bosatsu_lib"
@@ -134,6 +189,12 @@ class ValidateGraphCommandTest extends FileCommandFixtures {
       val identity = """{"name":"parser","version":"1.0.0"}"""
       val scopeMap =
         s"""{"schema_version":1,"members":["App"],"dependencies":[{"from":{"kind":"member","member":"App"},"package":"Parser","to":{"kind":"library","identity":$identity}}],"imports":[{"identity":$identity,"signature_path":"graph/parser.sig","public_index_path":"graph/parser-index.json","label":"parser"}],"bindings":[{"referrer":{"kind":"member","member":"App"},"package":"Parser","provider":{"kind":"library","identity":$identity},"interface_path":"graph/parser.sig"}]}"""
+      val emptyBindingsScopeMap = Json.parserFile.parseAll(scopeMap).toOption.get match {
+        case obj: Json.JObject =>
+          Json.JObject(obj.items.filterNot(_._1 == "bindings") :+
+            ("bindings" -> Json.JArray(Vector.empty))).render
+        case other => fail(s"expected scope map object, found $other")
+      }
       val command = List(
         "validate-graph",
         "--root", rootFile,
@@ -161,6 +222,18 @@ class ValidateGraphCommandTest extends FileCommandFixtures {
         _ = assertEquals(validated.stderr, "")
         stampText <- read(root, stamp)
         _ = assertEquals(stampText, "ok")
+        _ <- write(root, stamp, "previous")
+        _ <- write(root, "graph/scope-map.json", emptyBindingsScopeMap)
+        missingBinding <- runner.run(root, command)
+        _ = failure(missingBinding)
+        _ = assert(
+          missingBinding.stderr.contains("missing interface binding for Parser"),
+          missingBinding.stderr
+        )
+        missingBindingStamp <- read(root, stamp)
+        _ = assertEquals(missingBindingStamp, "previous")
+        _ <- write(root, "graph/scope-map.json", scopeMap)
+        _ <- write(root, stamp, "ok")
         _ <- writeBytes(root, "graph/parser.sig", proto.Interfaces().toByteArray)
         substitutedSignature <- runner.run(root, command)
         _ = failure(substitutedSignature)

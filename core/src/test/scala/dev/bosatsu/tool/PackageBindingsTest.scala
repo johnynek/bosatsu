@@ -284,6 +284,28 @@ class PackageBindingsTest extends munit.FunSuite {
     assertEquals(checked.bindings(key).interface, None)
   }
 
+  test("closure resolution requires declared roots even when the binding list is empty") {
+    val packageApi = packageName("Api")
+    val scopeMap = scopeMapJson(
+      List("App"),
+      List(dependencyJson(app, "Api", apiScope)),
+      List(importJson(libApi, "api.sig"), importJson(libOne, "types.sig")),
+      Nil
+    )
+    val parsed = read(scopeMap, apiIndex, List("api.sig", "types.sig")).toOption.get
+    val checked = PackageBindings.validateAgainstInspection(
+      parsed, apiIndex, parsed.dependencies
+    ).fold(error => fail(error), identity)
+
+    val closure = PackageBindings.resolveMemberClosures(
+      List(packageName("App") -> List(packageApi)),
+      checked,
+      Map(packageName("App") -> Some(Nil)),
+      builtinPredef = true
+    )
+    assert(closure.left.toOption.get.contains("missing interface binding for Api"))
+  }
+
   test("duplicate keys, unknown scopes, and undeclared interfaces are rejected") {
     val index = apiIndex
     val duplicate = scopeMapJson(
@@ -393,5 +415,7 @@ class PackageBindingsTest extends munit.FunSuite {
       .left.toOption.get
 
     assert(error.contains("ambiguous providers"), error)
+    assert(error.contains("library shared@1.0.0:Shared/Api via member App -> library shared@1.0.0"), error)
+    assert(error.contains("library shared@2.0.0:Shared/Api via member App -> library shared@2.0.0"), error)
   }
 }

@@ -616,145 +616,86 @@ object PackageSignatures {
       index.updated(key, index.getOrElse(key, Nil) :+ pair)
     }
     val sourceByName = sources.iterator.map(source => source.member -> source).toMap
+    val requirements = sources.map { source =>
+      source.member -> (source.imports ::: source.exposes).distinct
+    }
+    val sourceExposures = sources.iterator.map { source =>
+      source.member -> Some(source.exposes)
+    }.toMap
+    val closures = PackageBindings.resolveMemberClosures(
+      requirements,
+      checked,
+      sourceExposures,
+      builtinPredef,
+      localPackages = sourceNames
+    ).fold(message => throw CliException.Basic(message), identity)
+
     val members = sources.map { source =>
+      val closure = closures(source.member)
       val selected = mutable.Map.empty[PackageName, SelectedInterface[P]]
       val sourceDependencies = mutable.Set.empty[PackageName]
-      val selectedBindingKeys = mutable.TreeSet.empty[PackageBindings.BindingKey](using
-        PackageBindings.bindingKeyOrdering
-      )
-      val visibleOwners = mutable.Map.empty[PackageName, PackageOwner]
-      val releases = mutable.Map.empty[PackageBindings.LibraryIdentity, List[Scope]]
-      val releaseByName = mutable.Map.empty[Name, PackageBindings.LibraryIdentity]
-      val seen = mutable.TreeSet.empty[PackageBindings.BindingKey](using
-        PackageBindings.bindingKeyOrdering
-      )
-      final case class Need(referrer: Scope, packageName: PackageName, path: List[Scope])
 
-      val initial = (source.imports ::: source.exposes).distinct.sorted
-      val todo = mutable.ArrayDeque.from(initial.map(name =>
-        Need(Scope.Member(source.member), name, List(Scope.Member(source.member)))
-      ))
-      def scopeText(scope: Scope): String = scope match {
-        case Scope.Member(name) => s"member ${name.asString}"
-        case Scope.Library((name, version)) => s"library ${name.name}@${version.render}"
-        case Scope.Predef => "compiler Predef"
-      }
-      def routeText(path: List[Scope]): String = path.map(scopeText).mkString(" -> ")
-
-      def visible(owner: PackageOwner, binding: CheckedBinding[P]): Unit = {
-        val pn = owner.packageName
-        visibleOwners.get(pn) match {
-          case Some(existing) if !PackageBindings.samePackageOwner(existing, owner) =>
-            throw CliException.Basic(
-              s"conflicting visible owners for ${pn.asString}: ${scopeText(existing.scope)} and " +
-                s"${scopeText(owner.scope)}"
+      closure.bindings.valuesIterator.foreach { binding =>
+        binding.owner.scope match {
+          case Scope.Member(provider) =>
+            if (!sourceByName.contains(provider))
+              throw CliException.Basic(s"unknown source member ${provider.asString}")
+            sourceDependencies += provider
+          case Scope.Predef => ()
+          case Scope.Library(identity) =>
+            val packageName = binding.key.requiredPackage
+            val interfaceSource = binding.interface.getOrElse(
+              throw CliException.Basic(s"missing interface path for ${packageName.asString}")
             )
-          case _ => visibleOwners.update(pn, owner)
-        }
-        owner.scope match {
-          case Scope.Library(identity @ (name, _)) =>
-            releaseByName.get(name) match {
-              case Some(previous) if !PackageBindings.sameLibraryIdentity(previous, identity) =>
-                val previousPath = routeText(releases.getOrElse(previous, Nil))
-                throw CliException.Basic(
-                  s"conflicting visible releases for ${name.name}: " +
-                    s"${previous._1.name}@${previous._2.render} via $previousPath; " +
-                    s"${identity._1.name}@${identity._2.render} via ${routeText(binding.witnessPath)}"
-                )
-              case _ => releaseByName.update(name, identity)
+            val candidates = rootsByPathAndName.getOrElse(
+              (interfaceSource.path, packageName), Nil
+            )
+            val (input, root) = candidates match {
+              case one :: Nil => one
+              case Nil => throw CliException.Basic(
+                s"unknown package ${packageName.asString}, missing interface: " +
+                  binding.witnessPath.map(_.show).mkString(" -> ")
+              )
+              case many => throw CliException.Basic(
+                s"ambiguous interface ${packageName.asString} in " +
+                  many.map(_._1.display).sorted.mkString(", ")
+              )
             }
-            releases.update(identity, binding.witnessPath)
-          case _ => ()
-        }
-      }
-
-      while (todo.nonEmpty) {
-        val need = todo.removeHead()
-        val key = PackageBindings.BindingKey(need.referrer, need.packageName)
-        if (seen.add(key)) {
-          val binding = if (need.packageName.isPredef && builtinPredef &&
-              !checked.bindings.contains(key)) None
-            else Some(checked.bindings.getOrElse(key,
+            val owner = PackageOwner(Scope.Library(identity), packageName)
+            val publicPackage = checked.publicIndex.packages.getOrElse(owner,
+              throw CliException.Basic(s"missing inspected public package ${packageName.asString}"))
+            val declaredExposures = root.dependencies.distinct.sorted
+            // Inspection retains the implicit Predef provider so its
+            // ownership is authenticated, while serialized signature
+            // dependencies deliberately omit compiler-provided Predef.
+            val indexedExposures = publicPackage.exposures.keysIterator
+              .filterNot(_.isPredef).map(_.asString).toList.sorted
+            if (declaredExposures != indexedExposures)
               throw CliException.Basic(
-                s"missing interface binding for ${need.packageName.asString}: ${routeText(need.path)}"
-              )))
-          binding.foreach { binding =>
-            val _ = selectedBindingKeys.add(key)
-            visible(binding.owner, binding)
-            binding.owner.scope match {
-              case Scope.Member(provider) =>
-                if (!sourceByName.contains(provider))
-                  throw CliException.Basic(s"unknown source member ${provider.asString}")
-                sourceDependencies += provider
-                // A source dependency contributes only its declared public
-                // exposures. Its private imports remain in its own context.
-                val exposed = sourceByName(provider).exposes.distinct.sorted
-                todo.appendAll(exposed.map(name => Need(
-                  Scope.Member(provider), name, need.path :+ Scope.Member(provider)
-                )))
-              case Scope.Predef =>
-                if (need.packageName != PackageName.PredefName)
-                  throw CliException.Basic("compiler Predef can only provide Bosatsu/Predef")
-                if (!builtinPredef)
-                  throw CliException.Basic("compiler Predef binding requires builtin Predef")
-              case Scope.Library(identity) =>
-                val interfaceSource = binding.interface.getOrElse(
-                  throw CliException.Basic(s"missing interface path for ${need.packageName.asString}")
+                s"signature exposure index disagrees for ${packageName.asString} in ${input.display}"
+              )
+            selected.get(packageName) match {
+              case Some(existing) if !PackageBindings.samePackageOwner(existing.owner, owner) ||
+                    summon[Ordering[P]].compare(existing.input.path, input.path) != 0 =>
+                throw CliException.Basic(
+                  s"conflicting visible owners for ${packageName.asString}: " +
+                    s"${existing.owner.scope.show}:${packageName.asString} via " +
+                    s"${closure.routes(PackageOwner(existing.owner.scope, packageName)).map(_.show).mkString(" -> ")} and " +
+                    s"${owner.scope.show}:${packageName.asString} via " +
+                    binding.witnessPath.map(_.show).mkString(" -> ")
                 )
-                val candidates = rootsByPathAndName.getOrElse(
-                  (interfaceSource.path, need.packageName), Nil
-                )
-                val (input, root) = candidates match {
-                  case one :: Nil => one
-                  case Nil => throw CliException.Basic(
-                    s"unknown package ${need.packageName.asString}, missing interface: ${routeText(binding.witnessPath)}"
-                  )
-                  case many => throw CliException.Basic(
-                    s"ambiguous interface ${need.packageName.asString} in " +
-                      many.map(_._1.display).sorted.mkString(", ")
-                  )
-                }
-                val owner = PackageOwner(Scope.Library(identity), need.packageName)
-                val publicPackage = checked.publicIndex.packages.getOrElse(owner,
-                  throw CliException.Basic(s"missing inspected public package ${need.packageName.asString}"))
-                val declaredExposures = root.dependencies.distinct.sorted
-                // Inspection retains the implicit Predef provider so its
-                // ownership is authenticated, while serialized signature
-                // dependencies deliberately omit compiler-provided Predef.
-                val indexedExposures = publicPackage.exposures.keysIterator
-                  .filterNot(_.isPredef).map(_.asString).toList.sorted
-                if (declaredExposures != indexedExposures)
-                  throw CliException.Basic(
-                    s"signature exposure index disagrees for ${need.packageName.asString} in ${input.display}"
-                  )
-                selected.get(need.packageName) match {
-                  case Some(existing) if !PackageBindings.samePackageOwner(existing.owner, owner) ||
-                        summon[Ordering[P]].compare(existing.input.path, input.path) != 0 =>
-                    throw CliException.Basic(
-                      s"conflicting visible owners for ${need.packageName.asString}: " +
-                        s"${scopeText(existing.owner.scope)} and ${scopeText(owner.scope)}"
-                    )
-                  case _ =>
-                    selected.update(need.packageName, SelectedInterface(
-                      owner, input, root.selectedEntry, root
-                    ))
-                }
-                publicPackage.exposures.keysIterator.foreach { exposed =>
-                  todo.append(Need(
-                    Scope.Library(identity), exposed, need.path :+ Scope.Library(identity)
-                  ))
-                }
-              }
-          }
+              case _ =>
+                selected.update(packageName, SelectedInterface(
+                  owner, input, root.selectedEntry, root
+                ))
+            }
         }
       }
       source.member -> MemberSelection(
         source.member,
         selected.values.toList.sortBy(_.owner.packageName),
         sourceDependencies.toList.sorted,
-        checked.bindings.iterator.collect {
-          case (key, binding) if selectedBindingKeys.contains(key) => binding
-        }.toList
+        closure.bindings.valuesIterator.toList
       )
     }.toMap
     ScopedResolution(members)

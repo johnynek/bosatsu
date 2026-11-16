@@ -6,7 +6,6 @@ import com.monovore.decline.Opts
 import dev.bosatsu.PlatformIO
 import dev.bosatsu.graph.CanPromise
 import dev.bosatsu.tool.{
-  CliException,
   GroupGraph,
   LibraryInspection,
   Output,
@@ -48,20 +47,12 @@ object ValidateGraphCommand {
           dependencyContext,
           toolchain
         )
-        checked <- moduleIOMonad.fromEither(
-          PackageBindings.validateAgainstInspection(
-            scopeMap,
-            importedInputs.publicIndex,
-            scopeMap.dependencies
-          )
-            .leftMap(CliException.Basic(_))
-        )
         _ <- GroupGraph.validateMixed(
           root,
           nodes.toSet,
           scope,
-          checked,
-          importedInputs.graph,
+          scopeMap,
+          importedInputs.publicIndex,
           platform.pathToString
         )(GroupGraph.readNode(platform, _, _))
       } yield Output.Basic(Doc.text("ok"), Some(output)): Output[Path]

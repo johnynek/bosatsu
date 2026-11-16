@@ -4,45 +4,24 @@ import cats.MonadThrow
 import cats.syntax.all._
 import dev.bosatsu.{PackageName, PlatformIO}
 import dev.bosatsu.Json
-import dev.bosatsu.library.{LibraryDependencyVisibility, VerifiedLibraryGraph}
-import dev.bosatsu.tool.PackageBindings.{
-  CheckedScopeMap,
-  LibraryIdentity,
-  PackageOwner,
-  PublicPackage,
-  PublicProvider,
-  Scope as BindingScope
-}
-import scala.collection.immutable.{SortedMap, SortedSet}
+import dev.bosatsu.tool.PackageBindings.{ScopeMap, Scope as BindingScope}
 import scala.collection.mutable
 
-/** A structural manifest describes a local group in the loose implementation
-  * scope. Imported libraries have their own versioned scopes and will need a
-  * distinct node kind. Treating their private contents as loose groups would
-  * reject legal compositions.
+/** Structural manifests describe local groups in the loose implementation
+  * scope. Imported libraries stay in their verified versioned scopes;
+  * treating their private contents as loose groups would reject legal
+  * compositions.
   */
 private[bosatsu] object GroupGraph {
-  final case class Member(source: String, packageName: PackageName)
+  final case class Member(
+      source: String,
+      packageName: PackageName,
+      exposes: Option[List[PackageName]] = None
+  )
   final case class Edge[P](label: String, manifest: P)
   final case class Node[P](label: String, members: List[Member], deps: List[Edge[P]])
 
-  /** Local group and imported library scopes occupy different namespaces.
-    * Library edges retain their visibility for implementation composition;
-    * only the authenticated public packages participate in member visibility.
-    */
-  sealed trait TopologyNode[P]
-  final case class LocalGroup[P](file: P, node: Node[P]) extends TopologyNode[P]
-  final case class ImportedLibrary[P](
-      identity: LibraryIdentity,
-      artifact: P,
-      dependencies: List[(LibraryDependencyVisibility, LibraryIdentity)],
-      packages: List[PublicPackage]
-  ) extends TopologyNode[P]
-
-  final case class MixedTopology[P](
-      localGroups: List[LocalGroup[P]],
-      importedLibraries: SortedMap[LibraryIdentity, ImportedLibrary[P]]
-  )
+  final case class LocalGroup[P](file: P, node: Node[P])
 
   enum View derives CanEqual {
     case Topology, DirectMembers
@@ -55,8 +34,14 @@ private[bosatsu] object GroupGraph {
   }
 
   private given Json.Reader[Member] = BuildManifest.obj("group member") { from =>
-    (from.field[String]("source")(using BuildManifest.nonEmpty),
-      from.field[PackageName]("package")).mapN(Member(_, _))
+    for {
+      _ <- BuildManifest.onlyFields(from, "group member", Set("source", "package", "exposes"))
+      source <- from.field[String]("source")(using BuildManifest.nonEmpty)
+      packageName <- from.field[PackageName]("package")
+      exposes <- from.optional[List[PackageName]]("exposes")(
+        using Json.Reader.listReader(using summon[Json.Reader[PackageName]])
+      )
+    } yield Member(source, packageName, exposes)
   }
 
   private given Json.Reader[Edge[String]] = BuildManifest.obj("group dependency") { from =>
@@ -209,165 +194,46 @@ private[bosatsu] object GroupGraph {
   )(read: (P, View) => F[Node[P]])(using F: MonadThrow[F]): F[Unit] =
     validateLocalGraph(root, declared, scope, showFile)(read).void
 
-  private def identityOrdering: Ordering[LibraryIdentity] =
-    Ordering.Tuple2(using summon[Ordering[dev.bosatsu.library.Name]],
-      summon[Ordering[dev.bosatsu.library.Version]])
-
-  private def libraryText(identity: LibraryIdentity): String =
-    s"${identity._1.name}@${identity._2.render}"
-
-  private def scopeText(scope: BindingScope): String = scope match {
-    case BindingScope.Member(name) => s"member ${name.asString}"
-    case BindingScope.Library(identity) => s"library ${libraryText(identity)}"
-    case BindingScope.Predef => "compiler Predef"
-  }
-
-  private def routeText(route: List[BindingScope]): String =
-    route.map(scopeText).mkString(" -> ")
-
-  private def appendExposureRoute(
-      prefix: List[BindingScope],
-      witness: List[LibraryIdentity]
-  ): List[BindingScope] = {
-    val suffix = witness.map(BindingScope.Library(_))
-    (prefix.lastOption, suffix.headOption) match {
-      case (Some(last), Some(first)) if last == first => prefix.dropRight(1) ::: suffix
-      case _ => prefix ::: suffix
-    }
-  }
-
-  private def mixedTopology[P](
+  private def validateMemberClosures[P](
       localGroups: List[LocalGroup[P]],
-      graph: Option[VerifiedLibraryGraph[P]],
-      publicIndex: PackageBindings.PublicIndex
-  ): Either[String, MixedTopology[P]] = {
-    val imported = graph.fold[Either[String, List[(LibraryIdentity, ImportedLibrary[P])]]](Right(Nil)) { verified =>
-      verified.identities.traverse { identity =>
-        verified.snapshot(identity).toRight(
-          s"missing authenticated snapshot for ${libraryText(identity)}"
-        ).map { snapshot =>
-          val edges = verified.dependencyEdges(identity).map(edge => edge.visibility -> edge.targetIdentity)
-          val packages = publicIndex.packagesFor(BindingScope.Library(identity))
-          identity -> ImportedLibrary(identity, snapshot.path, edges, packages)
-        }
+      checked: PackageBindings.CheckedScopeMap[P],
+      memberExposures: Map[PackageName, Option[List[PackageName]]]
+  ): Either[String, Unit] = {
+    val requirements = checked.scopeMap.members.toList.map { member =>
+      member -> checked.scopeMap.dependencies.collect {
+        case dependency if dependency.from == BindingScope.Member(member) => dependency.packageName
       }
     }
-    imported.map { entries =>
-      MixedTopology(
-        localGroups,
-        SortedMap.from(entries)(using identityOrdering)
-      )
-    }
-  }
-
-  private[bosatsu] def validateVisibleReleases[P](
-      topology: MixedTopology[P],
-      selections: List[(PackageName, List[(PackageOwner, List[BindingScope])])]
-  ): Either[String, Unit] = {
-    val localPackages = SortedSet.from(
-      topology.localGroups.iterator.flatMap(_.node.members.iterator.map(_.packageName))
-    )(using summon[Ordering[PackageName]])
-    def validateMember(
-        member: PackageName,
-        roots: List[(PackageOwner, List[BindingScope])]
-    ): Either[String, Unit] = {
-      val releases = mutable.Map.empty[
-        dev.bosatsu.library.Name,
-        (dev.bosatsu.library.Version, LibraryIdentity, List[BindingScope])
-      ]
-      val visited = mutable.Set.empty[PackageOwner]
-      val pending = mutable.Queue.from(roots)
-      var result: Either[String, Unit] = Right(())
-
-      while (pending.nonEmpty && result.isRight) {
-        val (owner, route) = pending.dequeue()
-        owner.scope match {
-          case BindingScope.Library(identity) =>
-            if (localPackages.contains(owner.packageName)) {
-              result = Left(
-                s"imported provider ${scopeText(owner.scope)} also claims local package " +
-                  owner.packageName.asString
-              )
-            } else {
-              val previous = releases.get(identity._1)
-              previous match {
-                case Some((version, priorIdentity, priorRoute))
-                    if summon[Ordering[dev.bosatsu.library.Version]].compare(version, identity._2) != 0 =>
-                  result = Left(
-                    s"member ${member.asString} sees two releases of library ${identity._1.name}: " +
-                      s"${libraryText(priorIdentity)} via ${routeText(priorRoute)} and " +
-                      s"${libraryText(identity)} via ${routeText(route)}"
-                  )
-                case None => releases.update(identity._1, (identity._2, identity, route))
-                case _ => ()
-              }
-
-              if (result.isRight && visited.add(owner)) {
-                topology.importedLibraries.get(identity) match {
-                  case None =>
-                    result = Left(
-                      s"selected provider ${libraryText(identity)} is absent from the authenticated graph"
-                    )
-                  case Some(imported) =>
-                    imported.packages.find(_.packageName == owner.packageName) match {
-                      case None =>
-                        result = Left(
-                          s"authenticated scope ${libraryText(identity)} has no public package " +
-                            owner.packageName.asString
-                        )
-                      case Some(pkg) =>
-                        pkg.exposures.foreach {
-                          case (_, PublicProvider.CompilerPredef) => ()
-                          case (packageName, PublicProvider.Library(provider, witness)) =>
-                            pending.enqueue((
-                              PackageOwner(BindingScope.Library(provider), packageName),
-                              appendExposureRoute(route, witness)
-                            ))
-                        }
-                    }
-                }
-              }
-            }
-          case _ => ()
-        }
-      }
-      result
-    }
-
-    selections.traverse_ { case (member, roots) => validateMember(member, roots) }
-  }
-
-  private def validateMemberReleases[P](
-      topology: MixedTopology[P],
-      checked: CheckedScopeMap[P]
-  ): Either[String, Unit] = {
-    val selections = checked.scopeMap.members.toList.map { member =>
-      val roots = checked.bindings.iterator.collect {
-        case (key, binding) if key.referrer == BindingScope.Member(member) =>
-          (PackageOwner(binding.owner.scope, key.requiredPackage), binding.witnessPath)
-      }.toList
-      member -> roots
-    }
-    validateVisibleReleases(topology, selections)
+    val localPackages = localGroups.iterator.flatMap(
+      _.node.members.iterator.map(_.packageName)
+    ).toSet
+    PackageBindings.resolveMemberClosures(
+      requirements,
+      checked,
+      memberExposures,
+      builtinPredef = true,
+      localPackages = localPackages
+    ).void
   }
 
   /** Validate a local topology together with the authenticated imported
-    * scopes selected for its members. Imported implementation dependencies
-    * remain graph nodes but do not become type-visible without an exposure.
+    * public index selected for its members. Imported implementation edges are
+    * authenticated by LibraryInspection but do not become type-visible
+    * without a public exposure.
     */
   def validateMixed[F[_], P](
       root: P,
       declared: Set[P],
       scope: Scope,
-      checked: CheckedScopeMap[P],
-      graph: Option[VerifiedLibraryGraph[P]],
+      scopeMap: ScopeMap[P],
+      inspectedIndex: PackageBindings.PublicIndex,
       showFile: P => String
   )(read: (P, View) => F[Node[P]])(using F: MonadThrow[F]): F[Unit] = {
     import cats.syntax.all._
     validateLocalGraph(root, declared, scope, showFile)(read).flatMap { localGroups =>
       val rootMembers = localGroups.headOption.toList.flatMap(_.node.members.map(_.packageName))
         .sorted(using summon[Ordering[PackageName]])
-      val declaredMembers = checked.scopeMap.members.toList
+      val declaredMembers = scopeMap.members.toList
       val memberMatch = rootMembers.lengthCompare(declaredMembers.length) == 0 &&
         rootMembers.zip(declaredMembers).forall { case (left, right) =>
           summon[Ordering[PackageName]].compare(left, right) == 0
@@ -377,10 +243,16 @@ private[bosatsu] object GroupGraph {
           "scope-map members do not match the root group membership"
         ))
       else
+        val memberExposures = localGroups.iterator.flatMap(_.node.members.iterator).map { member =>
+          member.packageName -> member.exposes
+        }.toMap
         F.fromEither(
-          mixedTopology(localGroups, graph, checked.publicIndex).leftMap(CliException.Basic(_))
-        ).flatMap { topology =>
-          F.fromEither(validateMemberReleases(topology, checked).leftMap(CliException.Basic(_)))
+          PackageBindings.validateDeclaredBindingsAgainstInspection(
+            scopeMap, inspectedIndex, memberExposures
+          ).leftMap(CliException.Basic(_))
+        ).flatMap { checked =>
+          F.fromEither(validateMemberClosures(localGroups, checked, memberExposures)
+            .leftMap(CliException.Basic(_)))
         }
     }
   }

@@ -8,8 +8,8 @@
 - Flow: `small_job`
 - Issue: `#2495` 0m: Preserve per-member imported bindings through validation and compilation
 - Pending steps: `2`
-- Completed steps: `13`
-- Total steps: `15`
+- Completed steps: `14`
+- Total steps: `16`
 
 ## Summary
 
@@ -488,7 +488,7 @@ Required-test repair provenance: tested SHA `59a2a1a803efe177701045459fcb40854a0
 
 Deferred MemoryMain delay/compute evaluation, promise registration and completion, and promise-state inspection until StateT execution, preserving state threading and cached successes or failures. Added platform and memoized-DAG regressions, including proof that the promise tests fail against the original adapter, plus a reordered scoped compiler test with consumers before a shared provider. Focused MemoryPlatformIOTest, MemoizeTest and CompilerApiScopedTest passed on JVM and Scala.js; EvaluationTest, ToolAndLibCommandTest and PredefWorkspaceTest passed on both platforms; `coreJS/test` passed 2,285 tests (8 ignored); `git diff --check` passed.
 
-14. [ ] `step_8_checked_binding_closure` Resolve complete member closures at the shared binding boundary
+14. [x] `step_8_checked_binding_closure` Resolve complete member closures at the shared binding boundary
 
 Invariant family: caller-relative-binding-closure
 
@@ -550,7 +550,48 @@ Add focused regressions and property checks in PackageBindingsTest, PackageSigna
 - Assert complete member-to-wrapper-to-provider routes for imported ambiguity, same-package conflicts and source-wrapper release conflicts.
 - Retain existing unscoped local signatures, separate local bundle loading, self-contained scoped bundles, disjoint private releases, shared diamonds, layout checks, manifest-visit counts and membership-cache-input regressions.
 
-15. [ ] `step_9_binding_closure_acceptance` Exercise repaired closures through workers and document the contract
+#### Completion Notes
+
+Added a required-root member-closure resolver in PackageBindings with composed routes, source-provider public exposures, and per-member library release checks. Routed scoped PackageSignatures planning and mixed graph validation through it, removing their duplicate closure walk. Added regressions for missing bindings, source exposure metadata, disjoint selections, and conflict routes. The focused JVM core suites passed (44 tests), CLI validation suite passed (11 tests), and matching coreJS suites passed (44 tests). External local signatures, persisted requirements, and scoped decoding remain for the continuation.
+
+15. [ ] `step_8_external_local_and_decoder_closure` Carry external local signature owners through scoped decoding
+
+Invariant family: `caller-relative-binding-closure`.
+
+Continuation of parent step `step_8_checked_binding_closure`. The completed slice resolves required roots for current-batch source providers and mixed graph validation through PackageBindings. The remaining issue #2495 behavior is separately compiled local signatures and preserving their selected owners through serialized requirements and scoped bundle decoding. Step `step_9_binding_closure_acceptance` exercises and documents the implementation, so it cannot absorb this prerequisite implementation work.
+
+Extend the existing PackageSignatures.Root selection and shared PackageBindings boundary to support external local signature providers. A current-batch `Scope.Member` provider has no interface file; an external local provider is valid only when exactly one directly declared interface file contains the package. Keep the member set equal to the actual current sources or bundle members. Reject contradictory source/signature declarations and ambiguous or undeclared local files. Index local signature packages and their public exposures through PackageSignatures.Root, select only the requested package from wide signatures before foreign decoding, and follow only its public exposures, including chains back to current-batch source owners. Use these resolved choices in the existing per-member inference and strict-unused mechanisms.
+
+Extend `PackageSignatures.buildRequirements` and `parseBuildRequirements` using existing BuildScope and requirement fields to persist the reached external-local and library owners. Keep current-bundle source owners distinct from external local owners; justify outside-bundle referrers and owners through the resolved external signature closure. Preserve legacy encoding, layout-digest checks, and provider-switch rejection even when signature bytes match. Do not serialize paths, labels, routes, or implementation hashes as consumer signature inputs.
+
+Adapt `ProtoConverter.packagesFromProtoScoped` to resolve external local owners from explicitly supplied interfaces and current-bundle owners from decoded source members. Derive roots from actual encoded imports and public exports, use the actual supplied or decoded public exposures, and run the shared closure resolver before returning members. Recorded binding lists are not completeness evidence. Preserve source-topological decoding, digest and layout validation, malformed or unreachable record checks, and supported legacy loading. Adjust standalone bundle and LocalRuntime requirement checks only as needed for these external local requirements, retaining explicit failure when required scoped context is unavailable; do not add mixed runtime or native emission.
+
+The planner approved approximately 1,200–2,200 additional lines of repair and test churn, including this family and step `step_9_binding_closure_acceptance`. This completed slice changed 979 lines total; keep the remaining implementation and acceptance work within the approved cumulative range. If evidence shows the required behavior cannot fit, request planning judgment rather than narrowing correctness requirements.
+
+Complete this step when scoped compilation planning, mixed graph validation, serialized requirements, and scoped typed-bundle decoding obtain complete external-local and imported closures through the shared boundary, with compatibility and provider-switch regressions passing.
+
+#### Invariants
+
+- External local owners must resolve to exactly one directly declared interface containing the required package; they are not added to current bundle members.
+- Each consuming member retains one owner per visible package and one exact release per visible library name, while disjoint member selections remain legal.
+- Requirement and decoder completeness is derived from actual roots and public exposures, not from recorded binding lists alone.
+- Legacy local bundle/signature behavior and existing layout-digest and provider-switch safeguards remain intact.
+- Consumer signature inputs exclude paths, labels, routes, and implementation hashes.
+
+#### Property Tests
+
+- For reordered requirement and interface inputs, resolved owner choices and serialized scoped requirements are identical.
+- For each member, resolving its actual imports and public exports reaches every required non-implicit package and no private imports or unselected sibling exports.
+
+#### Assertion Tests
+
+- A scoped consumer compiles from a separately produced local signature and a pinned library, including under strict-unused checking.
+- Ambiguous or undeclared external local signature providers and contradictory source/signature declarations fail with actionable diagnostics.
+- Scoped requirements round-trip external local owners; changing a selected provider at the same path is rejected even when signature bytes match.
+- Scoped typed-bundle decoding resolves current-bundle sources and explicitly supplied external local signatures through the shared closure resolver, and rejects missing or forged closure context.
+- Existing standalone bundle and LocalRuntime suites preserve legacy compatibility and reject scoped requirements when required owner context is unavailable.
+
+16. [ ] `step_9_binding_closure_acceptance` Exercise repaired closures through workers and document the contract
 
 Invariant family: caller-relative-binding-closure
 
