@@ -12,7 +12,8 @@ import dev.bosatsu.library.{
   LibraryInspectionFixtures,
   Name,
   VerifiedLibraryGraph,
-  VerifiedLibrarySnapshot
+  VerifiedLibrarySnapshot,
+  Version
 }
 import dev.bosatsu.tool.PackageBindings.PublicIndex
 
@@ -317,5 +318,72 @@ class LibraryInspectionProjectionTest extends munit.FunSuite {
     assert(baseline.signature.sameElements(changed.signature))
     assertNotEquals(baseline.implementation.render, changed.implementation.render)
     assertEquals(baseline.publicIndex.toJson.render, changed.publicIndex.toJson.render)
+  }
+
+  test("authenticated imported inputs return the parsed signature bundles they checked") {
+    val current = state()
+    val context = readContext(current).toOption.get
+    val expected = projections(rootFixture, context, current).toOption.get
+    val rootVersion = Library.getVersion(rootFixture._2).get
+    val libraryIdentity = Name(rootFixture._2.name) -> rootVersion
+    val importedContext = context.copy(libraries =
+      LibraryInspection.DeclaredLibraryFile(
+        libraryIdentity._1,
+        libraryIdentity._2,
+        path(rootFixture._1),
+        rootFixture._4
+      ) :: context.libraries
+    )
+    val scopeMapJson = Json.JObject(List(
+      "schema_version" -> Json.JNumberStr("1"),
+      "members" -> Json.JArray(Vector.empty),
+      "dependencies" -> Json.JArray(Vector.empty),
+      "imports" -> Json.JArray(Vector(Json.JObject(List(
+        "identity" -> Json.JObject(List(
+          "name" -> Json.JString(libraryIdentity._1.name),
+          "version" -> Json.JString(libraryIdentity._2.render)
+        )),
+        "signature_path" -> Json.JString("imports/parser.sig"),
+        "public_index_path" -> Json.JString("imports/parser-index.json")
+      )))),
+      "bindings" -> Json.JArray(Vector.empty)
+    )).render
+    val inputState = state(List(
+      "imports/scope-map.json" -> scopeMapJson.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+      "imports/parser.sig" -> expected.signature,
+      "imports/parser-index.json" -> expected.publicIndex.toJson.render
+        .getBytes(java.nio.charset.StandardCharsets.UTF_8)
+    ))
+    val sha = Algo.hashBytes[Algo.Sha256](Array.emptyByteArray)
+    val version = Version.parser.parseAll("1.2.3").toOption.get
+    val toolchain = ToolchainManifest(
+      ToolchainManifest.Artifact("unused", sha),
+      ToolchainManifest.Core(Name("bosatsu"), version, "unused", sha),
+      ToolchainManifest.Artifact("unused", sha),
+      None
+    )
+
+    val loaded = for {
+      scopeMap <- PackageBindings.read(
+        platform,
+        path("imports/scope-map.json"),
+        List(path("imports/parser.sig"))
+      )
+      inputs <- LibraryInspection.loadImportedInputs(
+        platform,
+        scopeMap,
+        importedContext,
+        toolchain
+      )
+    } yield inputs
+
+    val result = loaded.runA(inputState).fold(error => fail(error.getMessage), identity)
+    assert(result.graph.nonEmpty)
+    assertEquals(result.publicIndex.toJson.render, expected.publicIndex.toJson.render)
+    assertEquals(result.signatureBundles.keysIterator.toList, List(libraryIdentity))
+    assertEquals(
+      result.signatureBundles(libraryIdentity),
+      proto.Interfaces.parseFrom(expected.signature)
+    )
   }
 }

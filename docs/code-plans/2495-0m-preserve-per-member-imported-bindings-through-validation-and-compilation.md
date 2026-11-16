@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2495` 0m: Preserve per-member imported bindings through validation and compilation
-- Pending steps: `7`
-- Completed steps: `4`
+- Pending steps: `6`
+- Completed steps: `5`
 - Total steps: `11`
 
 ## Summary
@@ -176,7 +176,7 @@ Carry a deterministic fingerprint of selected public facts and owner bindings in
 
 Added `PackageSignatures.planScoped`, which selects interfaces by checked per-member owners, follows selected public exposures to a fixed point, retains source dependency references, checks visible release conflicts, and unions selected physical files for strict-unused checks. Tests cover disjoint members selecting byte-identical releases, exposure chains, wide-file siblings, private source imports, source exposures, and visible release conflicts. `sbt "coreJVM/testOnly dev.bosatsu.PackageSignaturesTest"` passed all 19 tests; `PackageBindingsTest` passed all 9 tests in the combined focused run; `git diff --check` passed. CLI and inference wiring remains pending in the inserted continuation.
 
-5. [ ] `step_3_authenticated_inputs` Share authenticated imported-input loading
+5. [x] `step_3_authenticated_inputs` Share authenticated imported-input loading
 
 The scoped selector is implemented, but compilation cannot authenticate a scope map using its caller-supplied public index alone. The necessary authentication already exists in the private verifyImports method of core/src/main/scala/dev/bosatsu/tool_command/ValidateGraphCommand.scala. Extract that implementation into core/src/main/scala/dev/bosatsu/tool/LibraryInspection.scala and make validate-graph use it. This replaces the command-private implementation rather than adding a second verifier.
 
@@ -202,6 +202,10 @@ Extend existing LibraryInspectionProjectionTest, PackageBindingsTest and Validat
 - Retain successful shared-diamond and legal-private-version validation.
 - Reject substituted signature contents, forged public ownership, invalid pins and private-path core conflicts through the shared loader.
 - Retain local-only validation and partial mixed-option rejection in ValidateGraphCommandTest.
+
+#### Completion Notes
+
+Moved imported artifact verification into `LibraryInspection.loadImportedInputs`, which returns the verified graph, regenerated public index, and the parsed interface bundles checked against authenticated projections. `validate-graph` now uses this shared boundary. Added coverage for returned bundles, substituted signatures, forged public-index ownership, invalid artifact pins, and private-path core conflicts. `sbt "coreJVM/test:compile"` passed; focused core tests passed (14 tests), focused `ValidateGraphCommandTest` passed (10 tests), and `git diff --check` passed.
 
 6. [ ] `step_3_binding_cache` Include selected bindings in existing cache identity
 

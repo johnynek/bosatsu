@@ -1,11 +1,10 @@
 package dev.bosatsu.tool_command
 
-import cats.data.{NonEmptyList, Validated}
+import cats.data.Validated
 import cats.syntax.all._
 import com.monovore.decline.Opts
 import dev.bosatsu.PlatformIO
 import dev.bosatsu.graph.CanPromise
-import dev.bosatsu.library.{DecodedLibraryWithDeps, VerifiedLibraryGraph, VerifiedLibrarySnapshot}
 import dev.bosatsu.tool.{
   CliException,
   GroupGraph,
@@ -15,8 +14,6 @@ import dev.bosatsu.tool.{
   ToolchainManifest
 }
 import org.typelevel.paiges.Doc
-import scala.util.Try
-import _root_.bosatsu.{TypedAst => proto}
 
 object ValidateGraphCommand {
   private final case class MixedInputs[Path](
@@ -25,89 +22,6 @@ object ValidateGraphCommand {
       toolchainManifest: Path,
       directInterfaces: List[Path]
   )
-
-  private def sameIdentity(
-      left: PackageBindings.LibraryIdentity,
-      right: PackageBindings.LibraryIdentity
-  ): Boolean =
-    summon[Ordering[PackageBindings.LibraryIdentity]].compare(left, right) == 0
-
-  private def verifyImports[F[_], Path](
-      platform: PlatformIO[F, Path],
-      scopeMap: PackageBindings.ScopeMap[Path],
-      dependencyContext: LibraryInspection.DependencyContext[Path],
-      toolchain: ToolchainManifest
-  )(using CanPromise[F]): F[(Option[VerifiedLibraryGraph[Path]], PackageBindings.PublicIndex)] = {
-    import platform.{moduleIOMonad, showPath}
-    val importedIdentities = scopeMap.imports.keysIterator.toList
-    val roots = importedIdentities.traverse { identity =>
-      val declared = dependencyContext.libraries.filter(library =>
-        sameIdentity((library.name, library.version), identity)
-      )
-      if (declared.isEmpty)
-        moduleIOMonad.raiseError[List[VerifiedLibrarySnapshot[Path]]](
-          CliException.Basic(
-            s"missing declared library artifact for ${identity._1.name} ${identity._2.render}"
-          )
-        )
-      else
-        declared.traverse { library =>
-          VerifiedLibrarySnapshot.verify(
-            platform,
-            library.path,
-            library.name,
-            library.version,
-            library.hashes
-          )
-        }
-    }.map(_.flatten)
-
-    roots.flatMap {
-      case Nil =>
-        val empty = PackageBindings.indexFromPackages(Nil)
-        moduleIOMonad.pure(None -> empty)
-      case first :: rest =>
-        val nonEmptyRoots = NonEmptyList(first, rest)
-        for {
-          graph <- VerifiedLibraryGraph.verifyRoots(platform, nonEmptyRoots, dependencyContext)
-          (_, decoded) <- DecodedLibraryWithDeps.decodeVerifiedGraphWithLibraries(graph)
-          publicIndex <- moduleIOMonad.fromEither(
-            LibraryInspection.publicIndex(graph, decoded, platform.pathToString)
-              .leftMap(CliException.Basic(_))
-          )
-          _ <- moduleIOMonad.fromEither(
-            ToolchainManifest.validateCoreReferences(graph, toolchain.core)
-              .leftMap(CliException.Basic(_))
-          )
-          _ <- scopeMap.imports.valuesIterator.toList.traverse_ { imported =>
-            decoded.get(imported.identity) match {
-              case None =>
-                moduleIOMonad.raiseError[Unit](CliException.Basic(
-                  s"imported scope ${imported.identity._1.name} ${imported.identity._2.render} " +
-                    "is absent from the authenticated graph"
-                ))
-              case Some(library) =>
-                moduleIOMonad.fromTry(LibraryInspection.signatureProjection(library)).flatMap { expected =>
-                  platform.readBytes(imported.signature.path).adaptError { case error =>
-                    CliException.Basic(
-                      show"cannot read imported interface ${imported.signature.path}: ${error.getMessage}"
-                    )
-                  }.flatMap { bytes =>
-                    moduleIOMonad.fromTry(Try(proto.Interfaces.parseFrom(bytes))).flatMap { actual =>
-                      if (java.util.Arrays.equals(actual.toByteArray, expected.toByteArray))
-                        moduleIOMonad.unit
-                      else moduleIOMonad.raiseError(CliException.Basic(
-                        show"imported interface ${imported.signature.path} does not match " +
-                          s"${imported.identity._1.name} ${imported.identity._2.render}"
-                      ))
-                    }
-                  }
-                }
-            }
-          }
-        } yield Some(graph) -> publicIndex
-    }
-  }
 
   private def runMixed[F[_], Path](
       platform: PlatformIO[F, Path],
@@ -128,9 +42,18 @@ object ValidateGraphCommand {
           nodes ::: inputs.directInterfaces ::: dependencyContext.libraries.map(_.path) :::
           scopeMap.imports.valuesIterator.map(_.publicIndexPath).toList
         _ <- OutputPathChecks.checkOutputFiles(platform, inputPaths, List(output))
-        (graph, inspectedIndex) <- verifyImports(platform, scopeMap, dependencyContext, toolchain)
+        importedInputs <- LibraryInspection.loadImportedInputs(
+          platform,
+          scopeMap,
+          dependencyContext,
+          toolchain
+        )
         checked <- moduleIOMonad.fromEither(
-          PackageBindings.validateAgainstInspection(scopeMap, inspectedIndex, scopeMap.dependencies)
+          PackageBindings.validateAgainstInspection(
+            scopeMap,
+            importedInputs.publicIndex,
+            scopeMap.dependencies
+          )
             .leftMap(CliException.Basic(_))
         )
         _ <- GroupGraph.validateMixed(
@@ -138,7 +61,7 @@ object ValidateGraphCommand {
           nodes.toSet,
           scope,
           checked,
-          graph,
+          importedInputs.graph,
           platform.pathToString
         )(GroupGraph.readNode(platform, _, _))
       } yield Output.Basic(Doc.text("ok"), Some(output)): Output[Path]

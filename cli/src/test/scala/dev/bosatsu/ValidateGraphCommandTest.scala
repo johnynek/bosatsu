@@ -47,6 +47,13 @@ class ValidateGraphCommandTest extends FileCommandFixtures {
     finally files.close()
   }
 
+  private def writeBytes(root: Path, file: String, bytes: Array[Byte]): IO[Unit] = IO.blocking {
+    val destination = root.resolve(file)
+    Files.createDirectories(destination.getParent)
+    Files.write(destination, bytes)
+    ()
+  }
+
   private def libraryEntries(root: Path, file: String): IO[Vector[Json]] =
     read(root, file).map { content =>
       Json.parserFile.parseAll(content).toOption.get match {
@@ -142,6 +149,9 @@ class ValidateGraphCommandTest extends FileCommandFixtures {
         bytes <- IO.blocking(Files.readAllBytes(root.resolve(parserPath)))
         inspected <- runner.run(root, inspection ++ hashes(bytes).flatMap(hash => List("--expected-hash", hash)))
         _ = success(inspected)
+        signatureBytes <- IO.blocking(Files.readAllBytes(root.resolve("graph/parser.sig")))
+        inspectedIndex <- read(root, "graph/parser-index.json")
+        _ <- IO.blocking(Files.write(root.resolve(parserPath), bytes))
         _ <- write(root, rootFile, group("//app:g", "App", "App.bosatsu"))
         _ <- write(root, "graph/scope-map.json", scopeMap)
         _ <- write(root, "graph/toolchain.json", selectedToolchain)
@@ -151,6 +161,48 @@ class ValidateGraphCommandTest extends FileCommandFixtures {
         _ = assertEquals(validated.stderr, "")
         stampText <- read(root, stamp)
         _ = assertEquals(stampText, "ok")
+        _ <- writeBytes(root, "graph/parser.sig", proto.Interfaces().toByteArray)
+        substitutedSignature <- runner.run(root, command)
+        _ = failure(substitutedSignature)
+        _ = assert(substitutedSignature.stderr.contains("does not match parser 1.0.0"), substitutedSignature.stderr)
+        _ <- writeBytes(root, "graph/parser.sig", signatureBytes)
+        actualIndexPackages = Json.parserFile.parseAll(inspectedIndex).toOption.get match {
+          case index: Json.JObject => index.toMap.get("packages") match {
+              case Some(Json.JArray(packages)) => packages
+              case other => fail(s"expected inspected package array, found $other")
+            }
+          case other => fail(s"expected inspected index object, found $other")
+        }
+        forgedIndex = Json.JObject(List(
+          "schema_version" -> Json.JNumberStr("1"),
+          "packages" -> Json.JArray(actualIndexPackages :+ Json.JObject(List(
+            "library" -> Json.JObject(List(
+              "name" -> Json.JString("forged"),
+              "version" -> Json.JString("1.0.0")
+            )),
+            "package" -> Json.JString("Forged/Owner"),
+            "owner" -> Json.JObject(List(
+              "name" -> Json.JString("forged"),
+              "version" -> Json.JString("1.0.0")
+            )),
+            "exposes" -> Json.JArray(Vector.empty)
+          )))
+        ))
+        _ <- write(root, "graph/parser-index.json", forgedIndex.render)
+        forgedOwnership <- runner.run(root, command)
+        _ = failure(forgedOwnership)
+        _ = assert(
+          forgedOwnership.stderr.contains("scope-map public index does not match the inspected library index"),
+          forgedOwnership.stderr
+        )
+        _ <- write(root, "graph/parser-index.json", inspectedIndex)
+        _ <- writeBytes(root, parserPath, bytes :+ 0.toByte)
+        substitutedArtifact <- runner.run(root, command)
+        _ = failure(substitutedArtifact)
+        _ = assert(substitutedArtifact.stderr.contains("pin mismatch"), substitutedArtifact.stderr)
+        _ <- writeBytes(root, parserPath, bytes)
+        preserved <- read(root, stamp)
+        _ = assertEquals(preserved, "ok")
       } yield ()
     }
   }
