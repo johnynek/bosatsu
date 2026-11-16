@@ -8,8 +8,8 @@
 - Flow: `small_job`
 - Issue: `#2495` 0m: Preserve per-member imported bindings through validation and compilation
 - Pending steps: `5`
-- Completed steps: `1`
-- Total steps: `6`
+- Completed steps: `2`
+- Total steps: `7`
 
 ## Summary
 
@@ -66,7 +66,7 @@ Provide an explicit legacy/unscoped mode for existing callers. Do not infer impo
 
 Added the shared scoped binding types and versioned scope-map reader, then refactored LibraryInspection to produce typed public-index records while preserving its existing JSON projection. Validation checks declared interface paths, public-index facts, source-derived package edges, provider ownership, and witness routes; the in-memory index also retains inspected identities for libraries with no exported packages. `sbt "coreJVM/test:compile"` passed, and `sbt "coreJVM/testOnly dev.bosatsu.tool.PackageBindingsTest dev.bosatsu.tool.LibraryInspectionProjectionTest"` passed all 13 tests.
 
-2. [ ] `step_2` Validate imported topology and selected-core composition
+2. [x] `step_2` Validate imported topology and selected-core composition
 
 Extend core/src/main/scala/dev/bosatsu/tool/GroupGraph.scala and tool_command/ValidateGraphCommand.scala with a distinct library topology node. Reuse LibraryInspection's declared pinned-artifact/context records and its membership/exposure projections instead of treating imported members as loose groups. Add declared scope-map and selected-toolchain-manifest inputs for mixed validation. Preserve the existing version-1 local group and group-members contracts and --local behavior; membership-only inputs must never certify transitive topology.
 
@@ -98,7 +98,40 @@ Continue publishing only the existing success stamp through Output and staged pu
 - Cover matching repeated core references, wrong core version, same-version wrong bytes, and private-path core conflicts with path diagnostics.
 - Repeat local membership-cache-input, membership-only full-scan rejection, undeclared/surplus inputs and failed-stamp publication regressions.
 
-3. [ ] `step_3` Carry member bindings through selection and source inference
+#### Completion Notes
+
+Added `VerifiedLibraryGraph.verifyRoots`, with the existing single-root API delegating to it. Shared roots and diamonds use one path-keyed snapshot table; the two-root test checks each artifact is read once and root reordering preserves edge routes. Added `ToolchainManifest.validateCoreReferences` to check every reachable core reference against the selected exact version and authenticated SHA-256, with private-route tests for matching, wrong-version, and wrong-digest cases. `sbt "coreJVM/testOnly dev.bosatsu.library.VerifiedLibraryGraphTest"` passed all 13 tests.
+
+3. [ ] `step_2_mixed_validation` Wire mixed topology and core validation
+
+This is the first continuation of the original `step_2` imported-topology and selected-core family. Its completed slice provides `VerifiedLibraryGraph.verifyRoots` and `ToolchainManifest.validateCoreReferences`; this step completes the remaining command-level composition required by tracker 0m. The parent slice changed 282 production and test lines. Estimate 500–650 additional lines for this continuation, keeping the family below the 1,000-line threshold.
+
+Extend `core/src/main/scala/dev/bosatsu/tool/GroupGraph.scala` to represent local groups and imported library scopes as distinct topology nodes. Preserve the version-1 `group`, `group-members`, and `--local` behavior; membership-only nodes must not certify transitive topology. Extend `core/src/main/scala/dev/bosatsu/tool_command/ValidateGraphCommand.scala` to accept a checked `--scope-map`, the existing `LibraryInspection.DependencyContext` format, and a selected `ToolchainManifest` for mixed validation. Require these inputs together for mixed validation, and keep every artifact and manifest read within the caller-declared inputs.
+
+Use `PackageBindings` and `LibraryInspection` to validate imported identities and public exposure records against the authenticated graph. Compose all imported roots in one `VerifiedLibraryGraph.verifyRoots` call, and run `ToolchainManifest.validateCoreReferences` on the complete graph so private and legacy edges are checked too. Derive per-member visible releases by following only the selected package bindings and their exposures. Reject two exact releases of one library name in a member's visible closure with both witness routes; permit disjoint members and private implementation scopes to select different releases. Retain local membership collisions and local/import ownership checks without flattening unrelated private package names into one namespace. Keep full artifact digests in this validation path rather than public binding fingerprints.
+
+Publish only the existing success stamp through the current output lifecycle. Preserve the existing local manifest visit-count and membership-cache-input behavior. Finish when mixed validation uses the shared verifier and selected manifest, rejects invalid visible selections and core references with routes, and the legacy local command behavior remains covered.
+
+#### Invariants
+
+- Version-1 local topology and membership-only scan behavior remain unchanged; membership-only inputs never certify transitive topology.
+- Imported libraries remain exact-identity scopes, and private package names are not merged into one global namespace.
+- Every imported descriptor edge is authenticated, and every reachable selected-core reference matches the manifest's exact identity and full-file digest.
+- Mixed validation reads only declared inputs and publishes the success stamp only after validation succeeds.
+
+#### Property Tests
+
+- Permute root, node, and edge declaration order and require equivalent validation results and stable conflict routes.
+- Generate bounded mixed DAGs and verify per-member visible releases follow only selected bindings and exposures; adding an unexposed private dependency does not alter a member's visible closure.
+- Extend shared-diamond and N/2N visit-count checks to assert one read per distinct full-graph input while preserving the aggregate local-scan bound.
+
+#### Assertion Tests
+
+- Extend `GroupGraphTest` and `ValidateGraphCommandTest` for mixed local/import composition, legal private versions, disjoint members, same-signature and different-package release conflicts, missing or ambiguous bindings, and both conflict routes.
+- Cover a shared imported diamond, undeclared and surplus inputs, and local membership-only and visit-count regressions; failures preserve the prior validation stamp.
+- Cover matching repeated core references, wrong core version, same-version wrong digest, and private or legacy-path core conflicts with dependency routes.
+
+4. [ ] `step_3` Carry member bindings through selection and source inference
 
 Add optional --scope-map FILE to CompilePackagesCommand using Decline option validation, then thread the checked representation through CompilerApi.compileWithSignatures and PackageSignatures.plan. Keep CheckCommand's existing unscoped behavior through an explicit legacy adapter. The compile-packages path continues to pass no filesystem cache.
 
@@ -129,7 +162,7 @@ Carry a deterministic fingerprint of selected public facts and owner bindings in
 - Cover missing and ambiguous bindings, exposed-owner rebinding, extra interfaces, repeated labels, wide signatures, legacy re-exports and implicit Predef.
 - Retain duplicate-source, stale constructor/alias/kind, deep traversal, strict diagnostics and existing interactive cache regressions.
 
-4. [ ] `step_4` Persist member requirements and decode with their original owners
+5. [ ] `step_4` Persist member requirements and decode with their original owners
 
 Extend proto/src/main/protobuf/bosatsu/TypedAst.proto additively so BuildRequirements can record requirements by referring member and selected scoped owner, including the bindings required to interpret selected interfaces. Preserve existing field numbers and the legacy interfaces list. Keep canonical public Interfaces unchanged. For scoped output, record member/package identities, provider scope and canonical public-interface BLAKE3; exclude physical paths, labels, witness formatting and full implementation hashes. Use an explicit presence/version distinction so empty scoped requirements cannot be mistaken for absent legacy metadata.
 
@@ -158,7 +191,7 @@ Retain the existing packagesFromProto API for legacy/local callers. Adapt LocalR
 - Read existing unscoped requirements and older bundles/signatures, retaining the current rejection of unverifiable legacy external layouts.
 - Preserve private Test/ProgTest discovery order and existing source/decoded declaration validation.
 
-5. [ ] `step_5` Prevent bundle readers from discarding scoped context
+6. [ ] `step_5` Prevent bundle readers from discarding scoped context
 
 Close the bounded file-reader bypass created by the new bundle metadata. Audit and update cli/src/main/scala/dev/bosatsu/IOPlatformIO.scala readInterfacesAndPackages/readPackages, cliJS/src/main/scala/dev/bosatsu/Fs2PlatformIO.scala readPackages, MemoryMain's package reader, PlatformIO's applicable bundle helpers and LocalRuntime.load. These are the repository-controlled readers that currently extract proto.Packages.packages before decoding.
 
@@ -182,7 +215,7 @@ Add focused coverage through the actual JVM, Scala.js and in-memory reader bound
 - Exercise ordinary local compile output and legacy bundle fixtures through those readers to retain compatibility.
 - Verify malformed or stale requirement failures preserve previous declared outputs through FileCommandRunner.
 
-6. [ ] `step_6` Add candidate-worker scope fixtures and document the implemented contract
+7. [ ] `step_6` Add candidate-worker scope fixtures and document the implemented contract
 
 Extend the existing LibraryInspectionFixtures and test_workspace/inspect_library fixture family only where additional serialized graphs are needed for 0m. Reuse the existing preparation script and pinned artifacts; command tests remain offline. Add scoped compilation and validation scenarios to scripts/test_bazel_worker.py using the assembled candidate jar and existing direct, @params and persistent-worker helpers.
 
