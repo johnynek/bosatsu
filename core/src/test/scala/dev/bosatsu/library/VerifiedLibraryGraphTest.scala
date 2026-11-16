@@ -159,7 +159,7 @@ class VerifiedLibraryGraphTest extends munit.ScalaCheckSuite {
 
   test("authenticates all visibility edges and decodes each private version in its own scope") {
     val result = verify().toOption.get
-    assertEquals(result.identities.size, fixtures.size)
+    assertEquals(result.identities.size, LibraryInspectionFixtures.parserFixtureCount)
     assertEquals(result.edges.size, 11)
     assertEquals(
       result.edges.map(_.visibility).distinct.sortBy(_.rank),

@@ -55,7 +55,7 @@ class LibraryInspectionFixturesTest extends munit.ScalaCheckSuite {
     val context = dev.bosatsu.tool.LibraryInspection
       .readDependencyContext(platform, contextPath)
       .runA(fixtureState).toOption.get
-    assertEquals(context.libraries.size, fixtures.size - 1)
+    assertEquals(context.libraries.size, LibraryInspectionFixtures.parserFixtureCount - 1)
     assertEquals(context.libraries.count(_.name.name == "shared"), 2)
     val rootContext = dev.bosatsu.tool.LibraryInspection
       .readDependencyContext(

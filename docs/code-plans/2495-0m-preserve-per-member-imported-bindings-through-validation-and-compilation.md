@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2495` 0m: Preserve per-member imported bindings through validation and compilation
-- Pending steps: `1`
-- Completed steps: `11`
+- Pending steps: `0`
+- Completed steps: `12`
 - Total steps: `12`
 
 ## Summary
@@ -422,7 +422,7 @@ Cover the listed JVM, Scala.js, in-memory and LocalRuntime boundaries through th
 
 Added shared whole-bundle requirement validation and routed JVM, Scala.js, in-memory, and LocalRuntime readers through it. Added `PlatformIO.readPackagesScoped` for callers with checked provider context. Readers without that context reject scoped library bindings while retaining local scoped and legacy behavior. Focused suites passed: `LocalRuntimeScopeTest` (12), `IOPlatformIOTest` (9), `CompilePackagesCommandTest` (19), `EmitCCommandTest` (34), and `Fs2PlatformIOTest` (14); `git diff --check` passed.
 
-12. [ ] `step_6` Add candidate-worker scope fixtures and document the implemented contract
+12. [x] `step_6` Add candidate-worker scope fixtures and document the implemented contract
 
 Extend the existing LibraryInspectionFixtures and test_workspace/inspect_library fixture family only where additional serialized graphs are needed for 0m. Reuse the existing preparation script and pinned artifacts; command tests remain offline. Add scoped compilation and validation scenarios to scripts/test_bazel_worker.py using the assembled candidate jar and existing direct, @params and persistent-worker helpers.
 
@@ -448,3 +448,7 @@ Update docs/design/hermetic-bazel-rules.md in this same slice: document the actu
 - Add the specified warm-success/visible-conflict/restart/recovery sequence for both scoped compilation and graph validation.
 - Run the required named Scala suites, cross-platform suites, candidate assembly, CLI checks and extended Linux worker harness.
 - Repeat existing local graph visit-count and membership-cache-input regressions alongside the new scoped cases.
+
+#### Completion Notes
+
+Added checked-in scope fixtures and candidate-worker scenarios for private releases, disjoint member scopes, visible release conflicts, reordered inputs, warm-worker binding changes and recovery, and private-path core conflicts. Updated the hermetic Bazel documentation and tracker 0m with the implemented scope-map contract and decoder handoff; 0n remains incomplete. The full `scripts/test_bazel_worker.py` run and `./test_cli.sh` passed, as did focused fixture and graph suites, `cli/test`, `cliJSJS/test`, and assembly. The combined JVM/Scala.js matrix was run but `coreJVM/test` and `coreJS/test` failed on `MemoryMain.wait` invariant violations in EvaluationTest, ToolAndLibCommandTest, and PredefWorkspaceTest; an isolated PredefWorkspaceTest reproduced the failure. This round changed no code or tests in those paths.

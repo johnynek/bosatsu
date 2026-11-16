@@ -3,13 +3,19 @@
 These serialized typed libraries exercise a declared `Parser` graph. The graph
 contains a public child and a private child that both depend on `common`, an
 older unused-transitive-public `legacy` child, and two wrappers that select
-incompatible private releases of `shared`.
+incompatible private releases of `shared`. The `scoped-context.json` fixture
+adds the caller-relative compile cases: `equal_left` and two `equal_right`
+releases expose byte-identical `equal_api` interfaces from different
+releases; `named_left` and `named_right` expose different package names from
+two `named_api` releases. `private-core-context.json` carries a
+`private_core_conflict` edge to an incompatible `bosatsu` core release.
 
 `parser-root.json` pins the root artifact. `parser-context.json` declares every
-dependency artifact by name, version, path, BLAKE3 and SHA-256. Library
+dependency artifact by name, version, path, BLAKE3 and SHA-256. The scoped
+contexts declare the serialized graphs used by the candidate worker. Library
 descriptors retain BLAKE3-only dependency pins, as older released descriptors
-do. The context contains both `shared` versions and all files are checked in so
-later tests can run offline.
+do. All generated artifacts are checked in so scoped compilation and graph
+validation can run offline.
 
 Representative source snippets used by the builder:
 
@@ -64,6 +70,15 @@ python3 scripts/test_bazel_worker.py \
   --jar <candidate-assembly-jar> \
   --inspection-fixtures build/inspection-fixtures
 ```
+
+The same candidate suite compiles two members with disjoint private `shared`
+releases in one batch, validates the Parser diamond, rejects visible releases
+with equal signatures and with different exported package names, and rejects
+the private-path core mismatch. It compares direct, `@params`, warm-worker,
+cold-worker and restarted-worker results. A warm success followed by a scope
+map edit at the same path must reject the conflicting provider, preserve the
+published bundle, and recover after the original binding is restored. Reversed
+source, interface and label order must preserve output bytes and diagnostics.
 
 Preparation downloads
 `https://github.com/johnynek/bosatsu/releases/download/v0.0.69/core_alpha-v9.0.1.bosatsu_lib`
