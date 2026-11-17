@@ -40,7 +40,7 @@ object InlineBenefitModel {
   val MinDefinitionInlineBudget = 12
   val DefinitionInlineBudgetPenaltyDivisor = 64
 
-  def shouldInlineCall(summary: CallSiteSummary): Boolean = {
+  def shouldInlineCall(summary: CallSiteSummary): Boolean =
     if (summary.calleeWeight > MaxCallWeightBudget) false
     else {
       val structuralBenefit =
@@ -93,17 +93,18 @@ object InlineBenefitModel {
           !summary.containsLoopLike &&
           (
             hasArgSpecificPayoff ||
-            (
-              summary.calleeWeight <= TinyCallWeightBudget &&
-              summary.allArgsCheap
-            )
+              (
+                summary.calleeWeight <= TinyCallWeightBudget &&
+                  summary.allArgsCheap
+              )
           )
         ) 2
         else 0
       val followOnArgBenefit =
         if (
           summary.exposesFollowOnReduction &&
-          summary.args.exists(arg => arg.isKnownValue || arg.isKnownDirectCallee)
+          summary.args
+            .exists(arg => arg.isKnownValue || arg.isKnownDirectCallee)
         ) 2
         else 0
       val totalBenefit =
@@ -126,7 +127,6 @@ object InlineBenefitModel {
 
       (score > 0) && (totalBenefit > 0)
     }
-  }
 
   def callInlineBudgetCost(summary: CallSiteSummary): Int = {
     val baseCost =

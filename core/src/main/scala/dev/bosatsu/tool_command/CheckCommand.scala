@@ -47,21 +47,46 @@ object CheckCommand {
       )
       ifacePaths <- ifaces.read
       inputs <- inNel
-      packs <- if (ifacePaths.isEmpty && dependencies._1.isEmpty && dependencies._2.isEmpty)
-        CompilerApi.typeCheck(platformIO, inputs, Nil,
-          errColor, packageResolver, CompileOptions.NoOptimize, compileCacheDirOpt).map(_._1)
-      else {
-        val libraries = (dependencies._1 ::: dependencies._2).map { case (path, lib) =>
-          path -> proto.Interfaces(lib.arg.exportedIfaces)
+      packs <-
+        if (
+          ifacePaths.isEmpty && dependencies._1.isEmpty && dependencies._2.isEmpty
+        )
+          CompilerApi
+            .typeCheck(
+              platformIO,
+              inputs,
+              Nil,
+              errColor,
+              packageResolver,
+              CompileOptions.NoOptimize,
+              compileCacheDirOpt
+            )
+            .map(_._1)
+        else {
+          val libraries = (dependencies._1 ::: dependencies._2).map {
+            case (path, lib) =>
+              path -> proto.Interfaces(lib.arg.exportedIfaces)
+          }
+          for {
+            sources <- CompilerApi.loadSources(
+              platformIO,
+              inputs,
+              packageResolver,
+              errColor
+            )
+            resPacks <- CompilerApi.compileWithSignatures(
+              platformIO,
+              sources,
+              ifacePaths.map(_ -> None),
+              libraries,
+              useExplicitPredef = true,
+              errorUnusedInterfaces = false,
+              errColor,
+              CompileOptions.NoOptimize,
+              compileCacheDirOpt
+            )
+          } yield PackageMap.fromIterable(resPacks.members)
         }
-        for {
-          sources <- CompilerApi.loadSources(platformIO, inputs, packageResolver, errColor)
-          resPacks <- CompilerApi.compileWithSignatures(
-            platformIO, sources, ifacePaths.map(_ -> None), libraries,
-            useExplicitPredef = true, errorUnusedInterfaces = false, errColor, CompileOptions.NoOptimize, compileCacheDirOpt
-          )
-        } yield PackageMap.fromIterable(resPacks.members)
-      }
     } yield packs
   }
 

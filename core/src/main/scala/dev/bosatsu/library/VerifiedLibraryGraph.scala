@@ -16,16 +16,16 @@ private[bosatsu] enum LibraryDependencyVisibility derives CanEqual {
   case Public, Private, UnusedTransitivePublic
 
   def rank: Int = this match {
-    case Public                  => 0
-    case Private                 => 1
-    case UnusedTransitivePublic  => 2
+    case Public                 => 0
+    case Private                => 1
+    case UnusedTransitivePublic => 2
   }
 }
 
 /** A library artifact whose exact bytes have been checked against external
   * pins.
   */
-private[bosatsu] final class VerifiedLibrarySnapshot[Path] private (
+final private[bosatsu] class VerifiedLibrarySnapshot[Path] private (
     val path: Path,
     val name: Name,
     val version: Version,
@@ -34,8 +34,11 @@ private[bosatsu] final class VerifiedLibrarySnapshot[Path] private (
     val protoLib: proto.Library,
     private val bytes: Array[Byte]
 ) {
+
   /** Compare aliases by their bytes, not only by their digest identifiers. */
-  private[bosatsu] def hasSameBytes(other: VerifiedLibrarySnapshot[?]): Boolean =
+  private[bosatsu] def hasSameBytes(
+      other: VerifiedLibrarySnapshot[?]
+  ): Boolean =
     java.util.Arrays.equals(bytes, other.bytes)
 
   private[bosatsu] def authenticatePins(
@@ -80,7 +83,7 @@ private[bosatsu] object VerifiedLibrarySnapshot {
       else None
 
     algorithm match {
-      case None => Right(None)
+      case None       => Right(None)
       case Some(name) =>
         Algo.parseIdent.parseAll(raw) match {
           case Right(parsed) => Right(Some(name -> parsed.value.hex))
@@ -95,11 +98,13 @@ private[bosatsu] object VerifiedLibrarySnapshot {
       blake3: HashValue[Algo.Blake3],
       sha256: HashValue[Algo.Sha256]
   ): Either[String, Unit] = {
-    val parsed = expectedHashes.traverse(supportedPin)
+    val parsed = expectedHashes
+      .traverse(supportedPin)
       .leftMap(error => s"$error for $path")
     parsed.flatMap { all =>
       val supported = all.flatten
-      if (expectedHashes.isEmpty) Left(s"no expected hashes were supplied for $path")
+      if (expectedHashes.isEmpty)
+        Left(s"no expected hashes were supplied for $path")
       else if (supported.isEmpty)
         Left(s"no supported expected hashes were supplied for $path")
       else {
@@ -125,9 +130,12 @@ private[bosatsu] object VerifiedLibrarySnapshot {
   ): F[VerifiedLibrarySnapshot[Path]] = {
     import platform.{moduleIOMonad, showPath}
 
-    platform.readBytes(path)
+    platform
+      .readBytes(path)
       .adaptError { case error =>
-        CliException.Basic(show"cannot read pinned library $path: ${error.getMessage}")
+        CliException.Basic(
+          show"cannot read pinned library $path: ${error.getMessage}"
+        )
       }
       .flatMap { readBytes =>
         val snapshotBytes = readBytes.clone()
@@ -136,20 +144,25 @@ private[bosatsu] object VerifiedLibrarySnapshot {
         val pathString = showPath.show(path)
         val result = for {
           _ <- checkPins(pathString, expectedHashes, blake3, sha256)
-          library <- Try(proto.Library.parseFrom(snapshotBytes)).toEither.leftMap {
-            error => s"cannot parse pinned library $pathString: ${error.getMessage}"
-          }
+          library <- Try(proto.Library.parseFrom(snapshotBytes)).toEither
+            .leftMap { error =>
+              s"cannot parse pinned library $pathString: ${error.getMessage}"
+            }
           _ <- Either.cond(
             library.name == expectedName.name,
             (),
             s"pinned library $pathString has name '${library.name}', expected '${expectedName.name}'"
           )
-          versionProto <- library.descriptor.flatMap(_.version).toRight(
-            s"pinned library $pathString has no version, expected ${expectedVersion.render}"
-          )
-          actualVersion <- Version.fromProtoChecked(versionProto).toRight(
-            s"pinned library $pathString has invalid version, expected ${expectedVersion.render}"
-          )
+          versionProto <- library.descriptor
+            .flatMap(_.version)
+            .toRight(
+              s"pinned library $pathString has no version, expected ${expectedVersion.render}"
+            )
+          actualVersion <- Version
+            .fromProtoChecked(versionProto)
+            .toRight(
+              s"pinned library $pathString has invalid version, expected ${expectedVersion.render}"
+            )
           _ <- Either.cond(
             Version.versionOrder.eqv(actualVersion, expectedVersion),
             (),
@@ -177,7 +190,7 @@ private[bosatsu] object VerifiedLibrarySnapshot {
   * callers retain hashes and mirror URIs; `selectedFile` names the canonical
   * declared alias whose verified bytes represent this identity.
   */
-private[bosatsu] final case class VerifiedLibraryEdge[Path](
+final private[bosatsu] case class VerifiedLibraryEdge[Path](
     referringIdentity: LibraryIdentity,
     visibility: LibraryDependencyVisibility,
     targetIdentity: LibraryIdentity,
@@ -188,7 +201,7 @@ private[bosatsu] final case class VerifiedLibraryEdge[Path](
     witnessPath: List[LibraryIdentity]
 )
 
-private[bosatsu] final class VerifiedLibraryGraph[Path] private (
+final private[bosatsu] class VerifiedLibraryGraph[Path] private (
     val rootIdentity: LibraryIdentity,
     private val nodeMap: SortedMap[
       LibraryIdentity,
@@ -201,7 +214,9 @@ private[bosatsu] final class VerifiedLibraryGraph[Path] private (
 
   def identities: List[LibraryIdentity] = nodeMap.keysIterator.toList
 
-  def snapshot(identity: LibraryIdentity): Option[VerifiedLibrarySnapshot[Path]] =
+  def snapshot(
+      identity: LibraryIdentity
+  ): Option[VerifiedLibrarySnapshot[Path]] =
     nodeMap.get(identity).map(_.primary)
 
   def dependencyEdges(
@@ -212,7 +227,9 @@ private[bosatsu] final class VerifiedLibraryGraph[Path] private (
   private[bosatsu] def aliases(
       identity: LibraryIdentity
   ): List[VerifiedLibrarySnapshot[Path]] =
-    nodeMap.get(identity).fold(List.empty[VerifiedLibrarySnapshot[Path]])(_.aliases)
+    nodeMap
+      .get(identity)
+      .fold(List.empty[VerifiedLibrarySnapshot[Path]])(_.aliases)
 }
 
 private[bosatsu] object VerifiedLibraryGraph {
@@ -223,13 +240,13 @@ private[bosatsu] object VerifiedLibraryGraph {
   private given Ordering[Identity] =
     Ordering.Tuple2(using summon[Ordering[Name]], summon[Ordering[Version]])
 
-  private final case class Node[Path](
+  final private case class Node[Path](
       primary: VerifiedLibrarySnapshot[Path],
       aliases: List[VerifiedLibrarySnapshot[Path]],
       witness: List[Identity]
   )
 
-  private final case class PendingEdge(
+  final private case class PendingEdge(
       visibility: LibraryDependencyVisibility,
       descriptor: proto.LibDependency,
       target: Identity,
@@ -237,7 +254,7 @@ private[bosatsu] object VerifiedLibraryGraph {
       uris: List[String]
   )
 
-  private final case class BuildState[Path](
+  final private case class BuildState[Path](
       queue: List[Identity],
       nodes: SortedMap[Identity, Node[Path]],
       edges: List[VerifiedLibraryEdge[Path]]
@@ -253,9 +270,9 @@ private[bosatsu] object VerifiedLibraryGraph {
     @annotation.tailrec
     def loop(leftRest: List[String], rightRest: List[String]): Int =
       (leftRest, rightRest) match {
-        case (Nil, Nil) => 0
-        case (Nil, _)   => -1
-        case (_, Nil)   => 1
+        case (Nil, Nil)                                     => 0
+        case (Nil, _)                                       => -1
+        case (_, Nil)                                       => 1
         case (leftHead :: leftTail, rightHead :: rightTail) =>
           val comparison = leftHead.compareTo(rightHead)
           if (comparison == 0) loop(leftTail, rightTail) else comparison
@@ -269,52 +286,63 @@ private[bosatsu] object VerifiedLibraryGraph {
       witness: List[Identity]
   ): Either[String, List[PendingEdge]] = {
     val all =
-      library.publicDependencies.toList.map(LibraryDependencyVisibility.Public -> _) :::
-        library.privateDependencies.toList.map(LibraryDependencyVisibility.Private -> _) :::
+      library.publicDependencies.toList.map(
+        LibraryDependencyVisibility.Public -> _
+      ) :::
+        library.privateDependencies.toList.map(
+          LibraryDependencyVisibility.Private -> _
+        ) :::
         library.unusedTransitivePublicDependencies.toList.map(
           LibraryDependencyVisibility.UnusedTransitivePublic -> _
         )
 
-    all.traverse { case (visibility, dependency) =>
-      val context = s"dependency of ${identityText(from)} via ${witnessText(witness)}"
-      for {
-        descriptor <- dependency.desc.toRight(
-          s"missing descriptor for dependency '${dependency.name}' in $context"
+    all
+      .traverse { case (visibility, dependency) =>
+        val context =
+          s"dependency of ${identityText(from)} via ${witnessText(witness)}"
+        for {
+          descriptor <- dependency.desc.toRight(
+            s"missing descriptor for dependency '${dependency.name}' in $context"
+          )
+          versionProto <- descriptor.version.toRight(
+            s"missing version for dependency '${dependency.name}' in $context"
+          )
+          version <- Version
+            .fromProtoChecked(versionProto)
+            .toRight(
+              s"invalid version for dependency '${dependency.name}' in $context"
+            )
+          _ <- Either.cond(
+            descriptor.hashes.nonEmpty,
+            (),
+            s"missing expected hashes for dependency '${dependency.name}' in $context"
+          )
+        } yield PendingEdge(
+          visibility,
+          dependency,
+          (Name(dependency.name), version),
+          descriptor.hashes.toList,
+          descriptor.uris.toList
         )
-        versionProto <- descriptor.version.toRight(
-          s"missing version for dependency '${dependency.name}' in $context"
-        )
-        version <- Version.fromProtoChecked(versionProto).toRight(
-          s"invalid version for dependency '${dependency.name}' in $context"
-        )
-        _ <- Either.cond(
-          descriptor.hashes.nonEmpty,
-          (),
-          s"missing expected hashes for dependency '${dependency.name}' in $context"
-        )
-      } yield PendingEdge(
-        visibility,
-        dependency,
-        (Name(dependency.name), version),
-        descriptor.hashes.toList,
-        descriptor.uris.toList
-      )
-    }.map { pending =>
-      val targetOrdering = summon[Ordering[Identity]]
-      pending.sortWith { (left, right) =>
-        val visibilityCompare = left.visibility.rank.compare(right.visibility.rank)
-        if (visibilityCompare != 0) visibilityCompare < 0
-        else {
-          val targetCompare = targetOrdering.compare(left.target, right.target)
-          if (targetCompare != 0) targetCompare < 0
+      }
+      .map { pending =>
+        val targetOrdering = summon[Ordering[Identity]]
+        pending.sortWith { (left, right) =>
+          val visibilityCompare =
+            left.visibility.rank.compare(right.visibility.rank)
+          if (visibilityCompare != 0) visibilityCompare < 0
           else {
-            val hashesCompare = compareStrings(left.hashes, right.hashes)
-            if (hashesCompare != 0) hashesCompare < 0
-            else compareStrings(left.uris, right.uris) < 0
+            val targetCompare =
+              targetOrdering.compare(left.target, right.target)
+            if (targetCompare != 0) targetCompare < 0
+            else {
+              val hashesCompare = compareStrings(left.hashes, right.hashes)
+              if (hashesCompare != 0) hashesCompare < 0
+              else compareStrings(left.uris, right.uris) < 0
+            }
           }
         }
       }
-    }
   }
 
   private[bosatsu] def topologicalOrder(
@@ -340,11 +368,14 @@ private[bosatsu] object VerifiedLibraryGraph {
       )
     }
 
-    val remaining = mutable.Map.from(dependencies.iterator.map { case (key, deps) =>
-      key -> deps.size
-    })
+    val remaining =
+      mutable.Map.from(dependencies.iterator.map { case (key, deps) =>
+        key -> deps.size
+      })
     val ready = mutable.TreeSet.empty[Identity]
-    remaining.iterator.collect { case (identity, 0) => identity }.foreach(ready.add)
+    remaining.iterator
+      .collect { case (identity, 0) => identity }
+      .foreach(ready.add)
     val result = List.newBuilder[Identity]
     var count = 0
     while (ready.nonEmpty) {
@@ -360,10 +391,13 @@ private[bosatsu] object VerifiedLibraryGraph {
     }
     if (count == identities.size) Right(result.result())
     else {
-      val cyclic = remaining.iterator.collect { case (identity, left) if left > 0 => identity }
-        .toList.sorted
+      val cyclic = remaining.iterator
+        .collect { case (identity, left) if left > 0 => identity }
+        .toList
+        .sorted
       val first = cyclic.headOption.fold(identityText(root))(identityText)
-      val witness = witnesses.get(cyclic.headOption.getOrElse(root))
+      val witness = witnesses
+        .get(cyclic.headOption.getOrElse(root))
         .fold(identityText(root))(witnessText)
       Left(
         s"dependency cycle prevents ordering ${cyclic.map(identityText).mkString(", ")} " +
@@ -381,7 +415,9 @@ private[bosatsu] object VerifiedLibraryGraph {
       root,
       nodes.keysIterator.toList,
       edges.map(edge => edge.referringIdentity -> edge.targetIdentity),
-      nodes.iterator.map { case (identity, node) => identity -> node.witness }.toMap
+      nodes.iterator.map { case (identity, node) =>
+        identity -> node.witness
+      }.toMap
     )
 
   /** Authenticate the reachable descriptor graph before any decoder identity
@@ -453,39 +489,45 @@ private[bosatsu] object VerifiedLibraryGraph {
             declaration :: all.getOrElse(declaration.path, Nil)
           )
       }
-      byPath.toList.traverse { case (path, aliases) =>
-        val pins = aliases.flatMap(_.hashes).distinct
-        val snapshotF = verifyPath(path, identity, pins, witness)
-        snapshotF.map(path -> _)
-      }.flatMap { loaded =>
-        val rootSnapshot = knownRoot.toList
-        val snapshots = (rootSnapshot ::: loaded.map(_._2)).foldLeft(
-          SortedMap.empty[Path, VerifiedLibrarySnapshot[Path]]
-        )((all, snapshot) => all.updated(snapshot.path, snapshot)).values.toList
-        snapshots.headOption match {
-          case None =>
-            F.raiseError[Node[Path]](
-              CliException.Basic(
-                s"missing declared file for ${identityText(identity)} " +
-                  s"via ${witnessText(witness)}"
-              )
-            )
-          case Some(primary) =>
-            val conflicting = snapshots.find(snapshot => !snapshot.hasSameBytes(primary))
-            conflicting match {
-              case Some(other) =>
-                F.raiseError[Node[Path]](
-                  CliException.Basic(
-                    s"conflicting files claim ${identityText(identity)}: " +
-                      s"${pathText(primary.path)} and ${pathText(other.path)} " +
-                      s"via ${witnessText(witness)}"
-                  )
-                )
-              case None =>
-                F.pure(Node(primary, snapshots, witness))
-            }
+      byPath.toList
+        .traverse { case (path, aliases) =>
+          val pins = aliases.flatMap(_.hashes).distinct
+          val snapshotF = verifyPath(path, identity, pins, witness)
+          snapshotF.map(path -> _)
         }
-      }
+        .flatMap { loaded =>
+          val rootSnapshot = knownRoot.toList
+          val snapshots = (rootSnapshot ::: loaded.map(_._2))
+            .foldLeft(
+              SortedMap.empty[Path, VerifiedLibrarySnapshot[Path]]
+            )((all, snapshot) => all.updated(snapshot.path, snapshot))
+            .values
+            .toList
+          snapshots.headOption match {
+            case None =>
+              F.raiseError[Node[Path]](
+                CliException.Basic(
+                  s"missing declared file for ${identityText(identity)} " +
+                    s"via ${witnessText(witness)}"
+                )
+              )
+            case Some(primary) =>
+              val conflicting =
+                snapshots.find(snapshot => !snapshot.hasSameBytes(primary))
+              conflicting match {
+                case Some(other) =>
+                  F.raiseError[Node[Path]](
+                    CliException.Basic(
+                      s"conflicting files claim ${identityText(identity)}: " +
+                        s"${pathText(primary.path)} and ${pathText(other.path)} " +
+                        s"via ${witnessText(witness)}"
+                    )
+                  )
+                case None =>
+                  F.pure(Node(primary, snapshots, witness))
+              }
+          }
+        }
     }
 
     def edgeFor(
@@ -495,27 +537,31 @@ private[bosatsu] object VerifiedLibraryGraph {
         targetNode: Node[Path]
     ): F[VerifiedLibraryEdge[Path]] = {
       val edgeWitness = fromNode.witness :+ pending.target
-      targetNode.aliases.traverse_ { snapshot =>
-        F.fromEither(
-          snapshot.authenticatePins(pathText(snapshot.path), pending.hashes).leftMap { error =>
-            CliException.Basic(
-              s"$error for edge ${identityText(from)} -${pending.visibility}-> " +
-                s"${identityText(pending.target)} via ${witnessText(edgeWitness)}"
-            )
-          }
+      targetNode.aliases
+        .traverse_ { snapshot =>
+          F.fromEither(
+            snapshot
+              .authenticatePins(pathText(snapshot.path), pending.hashes)
+              .leftMap { error =>
+                CliException.Basic(
+                  s"$error for edge ${identityText(from)} -${pending.visibility}-> " +
+                    s"${identityText(pending.target)} via ${witnessText(edgeWitness)}"
+                )
+              }
+          )
+        }
+        .as(
+          VerifiedLibraryEdge(
+            from,
+            pending.visibility,
+            pending.target,
+            pending.descriptor,
+            pending.hashes,
+            pending.uris,
+            targetNode.primary.path,
+            edgeWitness
+          )
         )
-      }.as(
-        VerifiedLibraryEdge(
-          from,
-          pending.visibility,
-          pending.target,
-          pending.descriptor,
-          pending.hashes,
-          pending.uris,
-          targetNode.primary.path,
-          edgeWitness
-        )
-      )
     }
 
     val rootWitness = List(rootIdentity)
@@ -544,14 +590,18 @@ private[bosatsu] object VerifiedLibraryGraph {
                 )
                 if (targetCompare != 0) targetCompare < 0
                 else {
-                  val hashCompare = compareStrings(left.expectedHashes, right.expectedHashes)
+                  val hashCompare =
+                    compareStrings(left.expectedHashes, right.expectedHashes)
                   if (hashCompare != 0) hashCompare < 0
                   else compareStrings(left.mirrorUris, right.mirrorUris) < 0
                 }
               }
             }
             topology(rootIdentity, state.nodes, graphEdges) match {
-              case Left(error) => F.raiseError[Either[BuildState[Path], VerifiedLibraryGraph[Path]]](
+              case Left(error) =>
+                F.raiseError[Either[BuildState[Path], VerifiedLibraryGraph[
+                  Path
+                ]]](
                   CliException.Basic(error)
                 )
               case Right(order) =>
@@ -572,32 +622,41 @@ private[bosatsu] object VerifiedLibraryGraph {
               pendingEdges(node.primary.protoLib, current, node.witness)
                 .leftMap(CliException.Basic(_))
             ).flatMap { pending =>
-              pending.foldLeftM(
-                (state.nodes, state.edges, List.empty[Identity])
-              ) { case ((nodes, edges, newlyFound), descriptor) =>
-                val targetF = nodes.get(descriptor.target) match {
-                  case Some(existing) => F.pure(existing -> false)
-                  case None =>
-                    val targetWitness = node.witness :+ descriptor.target
-                    val rootAlias =
-                      if (summon[Ordering[Identity]].equiv(descriptor.target, rootIdentity))
-                        Some(root)
-                      else None
-                    loadAliases(descriptor.target, targetWitness, rootAlias)
-                      .map(_ -> true)
-                }
-                targetF.flatMap { case (targetNode, isNew) =>
-                  edgeFor(current, node, descriptor, targetNode).map { edge =>
-                    val nextNodes =
-                      if (isNew) nodes.updated(descriptor.target, targetNode) else nodes
-                    val nextQueue =
-                      if (isNew) newlyFound :+ descriptor.target else newlyFound
-                    (nextNodes, edges :+ edge, nextQueue)
+              pending
+                .foldLeftM(
+                  (state.nodes, state.edges, List.empty[Identity])
+                ) { case ((nodes, edges, newlyFound), descriptor) =>
+                  val targetF = nodes.get(descriptor.target) match {
+                    case Some(existing) => F.pure(existing -> false)
+                    case None           =>
+                      val targetWitness = node.witness :+ descriptor.target
+                      val rootAlias =
+                        if (
+                          summon[Ordering[Identity]].equiv(
+                            descriptor.target,
+                            rootIdentity
+                          )
+                        )
+                          Some(root)
+                        else None
+                      loadAliases(descriptor.target, targetWitness, rootAlias)
+                        .map(_ -> true)
+                  }
+                  targetF.flatMap { case (targetNode, isNew) =>
+                    edgeFor(current, node, descriptor, targetNode).map { edge =>
+                      val nextNodes =
+                        if (isNew) nodes.updated(descriptor.target, targetNode)
+                        else nodes
+                      val nextQueue =
+                        if (isNew) newlyFound :+ descriptor.target
+                        else newlyFound
+                      (nextNodes, edges :+ edge, nextQueue)
+                    }
                   }
                 }
-              }.map { case (nodes, edges, newlyFound) =>
-                Left(BuildState(rest ::: newlyFound, nodes, edges))
-              }
+                .map { case (nodes, edges, newlyFound) =>
+                  Left(BuildState(rest ::: newlyFound, nodes, edges))
+                }
             }
         }
       }

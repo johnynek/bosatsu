@@ -50,7 +50,9 @@ object RecursionCheck {
       }
     )
 
-  def renderArgs[A](args: NonEmptyList[NonEmptyList[A]])(show: A => Doc): String =
+  def renderArgs[A](args: NonEmptyList[NonEmptyList[A]])(
+      show: A => Doc
+  ): String =
     argsDoc(args)(show).render(80)
 
   sealed abstract class Error {
@@ -184,7 +186,7 @@ object RecursionCheck {
       recurKind match {
         case Declaration.MatchKind.Recur =>
           "Use `match` for non-recursive branching."
-        case Declaration.MatchKind.Loop  =>
+        case Declaration.MatchKind.Loop =>
           "Use `match` if this code is not recursive."
         case Declaration.MatchKind.Match =>
           sys.error("unexpected non-recursive match kind in recursion lint")
@@ -194,7 +196,7 @@ object RecursionCheck {
       likelyRenamedCall match {
         case Some((calledName, count)) =>
           s"$missingRecursiveCallMessage\n$nonRecursiveHint\n${likelyRenameMessage(fnname, calledName, count)}"
-        case None                      =>
+        case None =>
           s"$missingRecursiveCallMessage\n$nonRecursiveHint"
       }
   }

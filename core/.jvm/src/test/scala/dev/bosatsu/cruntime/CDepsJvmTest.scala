@@ -32,10 +32,12 @@ class CDepsJvmTest extends munit.FunSuite {
       hash = bdwgcHash,
       source_subdir = "gc-8.2.8",
       recipe = CDeps.BdwgcCmakeStatic,
-      options = Some(Json.JObject(
-        ("threadsafe" -> Json.JBool(true)) ::
-          Nil
-      ))
+      options = Some(
+        Json.JObject(
+          ("threadsafe" -> Json.JBool(true)) ::
+            Nil
+        )
+      )
     )
 
   private val libuvDependency =
@@ -50,7 +52,10 @@ class CDepsJvmTest extends munit.FunSuite {
 
   test("checked-in manifest pins bdwgc and libuv source contracts") {
     val content =
-      Files.readString(Paths.get("c_runtime", "deps.json"), StandardCharsets.UTF_8)
+      Files.readString(
+        Paths.get("c_runtime", "deps.json"),
+        StandardCharsets.UTF_8
+      )
 
     val parsed = CDeps.parseManifestString(content)
 

@@ -193,7 +193,7 @@ object MemoryMain {
       type FileKey = Chain[String]
       val fileKeyHash: Hash[FileKey] = Hash[FileKey]
 
-      private sealed trait PromiseState[+A]
+      sealed private trait PromiseState[+A]
       private object PromiseState {
         final case class Empty[A]() extends PromiseState[A]
         final case class Pending[A](run: F[A]) extends PromiseState[A]
@@ -201,7 +201,7 @@ object MemoryMain {
             extends PromiseState[A]
       }
 
-      private final class PromiseBox[A] {
+      final private class PromiseBox[A] {
         private var state: PromiseState[A] = PromiseState.Empty()
         def setPending(run: F[A]): Unit =
           state = PromiseState.Pending(run)
@@ -364,7 +364,9 @@ object MemoryMain {
               case Some(Right(MemoryMain.FileContent.Str(res))) =>
                 moduleIOMonad.pure(res)
               case Some(Right(MemoryMain.FileContent.Bytes(bytes))) =>
-                moduleIOMonad.pure(new String(bytes.unsafeReadOnlyView, StandardCharsets.UTF_8))
+                moduleIOMonad.pure(
+                  new String(bytes.unsafeReadOnlyView, StandardCharsets.UTF_8)
+                )
               case other =>
                 moduleIOMonad.raiseError(
                   new Exception(s"expect String content, found: $other")
@@ -443,7 +445,9 @@ object MemoryMain {
                   case Some(Right(MemoryMain.FileContent.Bytes(bytes))) =>
                     for {
                       ppack <- moduleIOMonad.fromTry(
-                        scala.util.Try(proto.Packages.parseFrom(bytes.unsafeReadOnlyView))
+                        scala.util.Try(
+                          proto.Packages.parseFrom(bytes.unsafeReadOnlyView)
+                        )
                       )
                       packs <- moduleIOMonad.fromTry(
                         ProtoConverter.packagesFromProto(Nil, ppack.packages)
@@ -458,12 +462,16 @@ object MemoryMain {
               .map(_.flatten)
           }
 
-      override def readInterfaces(paths: List[Path]): F[List[Package.Interface]] =
+      override def readInterfaces(
+          paths: List[Path]
+      ): F[List[Package.Interface]] =
         StateT.get[G, MemoryMain.State].flatMap { files =>
           // In-memory fixtures can supply already decoded interfaces without
           // their source artifacts. Keep that fast path for existing callers.
           paths.traverse { path =>
-            files.get(path).collect { case Right(FileContent.Interfaces(ifs)) => ifs }
+            files.get(path).collect { case Right(FileContent.Interfaces(ifs)) =>
+              ifs
+            }
           } match {
             case Some(ready) => moduleIOMonad.pure(ready.flatten)
             case None        => super.readInterfaces(paths)
@@ -556,7 +564,7 @@ object MemoryMain {
             current.flatMap(_.withFile(path, FileContent.Bytes(bytes)))
           } match {
             case Some(next) => innerMonad.pure(next)
-            case None =>
+            case None       =>
               innerMonad.raiseError(
                 new Exception("could not publish complete output file set")
               )
@@ -595,7 +603,11 @@ object MemoryMain {
         moduleIOMonad.pure(Array.emptyByteArray)
 
       def writeStdoutBytes(bytes: Bytes): F[Unit] =
-        writeStdout(Doc.text(new String(bytes.unsafeReadOnlyView, StandardCharsets.ISO_8859_1)))
+        writeStdout(
+          Doc.text(
+            new String(bytes.unsafeReadOnlyView, StandardCharsets.ISO_8859_1)
+          )
+        )
 
       def println(str: String): F[Unit] =
         writeStdout(Doc.text(str))

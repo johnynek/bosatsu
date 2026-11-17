@@ -92,9 +92,8 @@ main = parse_value(" null")
         case Matchless.Local(_) | Matchless.Global(_, _, _) |
             Matchless.ClosureSlot(_) | Matchless.LocalAnon(_) |
             Matchless.LocalAnonMut(_) | Matchless.Literal(_) |
-            Matchless.LitInt64(_) |
-            Matchless.MakeEnum(_, _, _) | Matchless.MakeStruct(_) |
-            Matchless.ZeroNat | Matchless.SuccNat =>
+            Matchless.LitInt64(_) | Matchless.MakeEnum(_, _, _) |
+            Matchless.MakeStruct(_) | Matchless.ZeroNat | Matchless.SuccNat =>
           false
       }
 
@@ -135,7 +134,11 @@ main = parse_value(" null")
     withRepro { (pm, _) =>
       given Order[Unit] = Order.fromOrdering
       val compiled =
-        MatchlessFromTypedExpr.compile((), pm, Matchless.LocalPassOptions.Default)
+        MatchlessFromTypedExpr.compile(
+          (),
+          pm,
+          Matchless.LocalPassOptions.Default
+        )
       val parseValueMatchless = compiled
         .getOrElse(
           reproPackage,

@@ -112,7 +112,11 @@ object ShowCommand {
     import platformIO.moduleIOMonad
     import LocationMap.Colorize
     import ShowSelection.{typeArgument, valueArgument}
-    import ShowSupport.{matchlessPassArgument, showIrArgument, typedPassArgument}
+    import ShowSupport.{
+      matchlessPassArgument,
+      showIrArgument,
+      typedPassArgument
+    }
 
     val irOpt =
       Opts
@@ -170,15 +174,19 @@ object ShowCommand {
             enableGlobalInlining = true
           )
 
-        ShowSupport.matchlessShowValue(selectedPacks, request, pack => {
-          val scope = namespace.depFor(namespace.rootKey, pack.name)
-          val lets =
-            compiled
-              .get(scope)
-              .flatMap(_.get(pack.name))
-              .getOrElse(Nil)
-          defsInOriginalOrder(pack, lets)
-        })
+        ShowSupport.matchlessShowValue(
+          selectedPacks,
+          request,
+          pack => {
+            val scope = namespace.depFor(namespace.rootKey, pack.name)
+            val lets =
+              compiled
+                .get(scope)
+                .flatMap(_.get(pack.name))
+                .getOrElse(Nil)
+            defsInOriginalOrder(pack, lets)
+          }
+        )
       } else {
         val compiled =
           MatchlessFromTypedExpr.compile(
@@ -187,8 +195,10 @@ object ShowCommand {
             localPassOptions
           )
 
-        ShowSupport.matchlessShowValue(selectedPacks, request, pack =>
-          defsInOriginalOrder(pack, compiled.getOrElse(pack.name, Nil))
+        ShowSupport.matchlessShowValue(
+          selectedPacks,
+          request,
+          pack => defsInOriginalOrder(pack, compiled.getOrElse(pack.name, Nil))
         )
       }
     }
@@ -244,7 +254,8 @@ object ShowCommand {
       Opts
         .flag(
           "no-opt",
-          help = "disable all typed passes to inspect the unoptimized typed pipeline"
+          help =
+            "disable all typed passes to inspect the unoptimized typed pipeline"
         )
         .orFalse,
       commonOpts.outputPathOpt.orNone,

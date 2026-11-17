@@ -63,7 +63,10 @@ class ClangGenTest extends munit.ScalaCheckSuite {
     }
   }
 
-  private def extractCFunction(code: String, mangledNameFragment: String): String = {
+  private def extractCFunction(
+      code: String,
+      mangledNameFragment: String
+  ): String = {
     val start = code.indexOf(mangledNameFragment)
     assert(start >= 0, code)
     val headerStart = code.lastIndexOf("BValue ", start)
@@ -85,7 +88,10 @@ class ClangGenTest extends munit.ScalaCheckSuite {
 
     def lineReads(name: String, line: String): Boolean = {
       val trimmed = line.trim
-      if (trimmed.startsWith(s"BValue $name") || trimmed.startsWith(s"_Bool $name")) {
+      if (
+        trimmed
+          .startsWith(s"BValue $name") || trimmed.startsWith(s"_Bool $name")
+      ) {
         val eqIdx = line.indexOf('=')
         (eqIdx >= 0) && line.substring(eqIdx + 1).contains(name)
       } else if (trimmed.startsWith(s"$name =")) {
@@ -111,8 +117,7 @@ class ClangGenTest extends munit.ScalaCheckSuite {
         mat => {
           val matched = mat.matched.nn
           mapping.getOrElseUpdate(
-            matched,
-            {
+            matched, {
               val renamed = s"$prefix$next"
               next += 1
               renamed
@@ -308,7 +313,9 @@ main = has_two
     }
   }
 
-  test("segmented end-anchored list search lowers to one suffix-positioning loop in C") {
+  test(
+    "segmented end-anchored list search lowers to one suffix-positioning loop in C"
+  ) {
     val pm = typeCheckPackage("""package Test
 
 def find_before_one(xs):
@@ -331,7 +338,8 @@ main = find_before_one
         fail(err.toString)
       case Right(doc) =>
         val rendered = doc.render(120)
-        val findBeforeOne = extractCFunction(rendered, "_l_find__before__one(BValue")
+        val findBeforeOne =
+          extractCFunction(rendered, "_l_find__before__one(BValue")
         val whileCount = "while \\(".r.findAllMatchIn(findBeforeOne).length
         val selfAdvancingTemps =
           """(__bsts_a_\d+) = get_enum_index\(\1, 1\);""".r
@@ -386,15 +394,23 @@ main = foo_before_bar
 
     (hasFooRenderedE, fooBeforeBarRenderedE) match {
       case (Right(hasFooDoc), Right(fooBeforeBarDoc)) =>
-        val hasFoo = extractCFunction(hasFooDoc.render(120), "_l_has__foo(BValue")
+        val hasFoo =
+          extractCFunction(hasFooDoc.render(120), "_l_has__foo(BValue")
         val fooBeforeBar =
-          extractCFunction(fooBeforeBarDoc.render(120), "_l_foo__before__bar(BValue")
+          extractCFunction(
+            fooBeforeBarDoc.render(120),
+            "_l_foo__before__bar(BValue"
+          )
 
         assertEquals("while \\(".r.findAllMatchIn(hasFoo).length, 0, hasFoo)
         assert(hasFoo.contains("foo"), hasFoo)
         assertEquals(deadCTemps(hasFoo), Set.empty, hasFoo)
 
-        assertEquals("while \\(".r.findAllMatchIn(fooBeforeBar).length, 2, fooBeforeBar)
+        assertEquals(
+          "while \\(".r.findAllMatchIn(fooBeforeBar).length,
+          2,
+          fooBeforeBar
+        )
         assert(fooBeforeBar.contains("foo"), fooBeforeBar)
         assert(fooBeforeBar.contains("bar"), fooBeforeBar)
         assertEquals(deadCTemps(fooBeforeBar), Set.empty, fooBeforeBar)
@@ -541,8 +557,8 @@ main = use
         )
         assert(!add1Fn.contains("call_fn2("), add1Fn)
         assert(!add1Fn.contains("___bsts_g_Test_l_add__alias2"), add1Fn)
-      }
     }
+  }
 
   test(
     "top-level unit-arg function remains direct when nested matches share False branches"
@@ -671,7 +687,9 @@ main = pick
     }
   }
 
-  test("CheckVariantSet guards compile to direct variant membership comparisons") {
+  test(
+    "CheckVariantSet guards compile to direct variant membership comparisons"
+  ) {
     val famArities = 0 :: 0 :: 0 :: 0 :: 0 :: Nil
     val arg = Identifier.Name("v")
     val body = Matchless.If(
@@ -739,9 +757,12 @@ main = pick
       def compiledWithMatchlessOptions(
           localPassOptions: Matchless.LocalPassOptions,
           enableGlobalInlining: Boolean
-      ): scala.collection.immutable.SortedMap[Unit, MatchlessFromTypedExpr.Compiled[
-        Unit
-      ]] =
+      ): scala.collection.immutable.SortedMap[
+        Unit,
+        MatchlessFromTypedExpr.Compiled[
+          Unit
+        ]
+      ] =
         compiled
       def exportedValues(
           packageName: PackageName
@@ -1177,7 +1198,7 @@ main = a
               }
             }
           )
-        }
+      }
     }
   }
 
@@ -1380,7 +1401,9 @@ main = same
 
         val neq = extractCFunction(rendered, "_l_neq(BValue")
         assert(
-          neq.contains("bsts_integer_equals") || neq.contains("bsts_integer_cmp"),
+          neq.contains("bsts_integer_equals") || neq.contains(
+            "bsts_integer_cmp"
+          ),
           neq
         )
         assert(!neq.contains("get_variant("), neq)
@@ -1723,7 +1746,10 @@ main = same
         |""".stripMargin
 
     val parsed = NonEmptyList.of(
-      (("float", LocationMap(floatPkg)), Parser.unsafeParse(Package.parser, floatPkg)),
+      (
+        ("float", LocationMap(floatPkg)),
+        Parser.unsafeParse(Package.parser, floatPkg)
+      ),
       (("test", LocationMap(src)), Parser.unsafeParse(Package.parser, src))
     )
     val pm = Par.noParallelism {
@@ -1848,9 +1874,10 @@ main = same
       val std = gen.ExternalResolver.stdExternals
       val resolver =
         if (allowExternal) std
-        else std.filter((_, packageName, name) =>
-          packageName != extPackage || name != externalName
-        )
+        else
+          std.filter((_, packageName, name) =>
+            packageName != extPackage || name != externalName
+          )
       gen.renderMain(
         PackageName.parts("Test"),
         Identifier.Name("main"),
@@ -1877,7 +1904,8 @@ main = same
       )
     }
     assertEquals(directExplicitStandard, directLegacy)
-    val directCode = directAllowed.fold(err => fail(err.toString), _.render(120))
+    val directCode =
+      directAllowed.fold(err => fail(err.toString), _.render(120))
     assert(
       directCode.contains("bosatsu_ext_Bosatsu_l_Num_l_Float64.h"),
       directCode
@@ -1891,12 +1919,14 @@ main = same
 
     val deniedDirect = render(directSource, allowExternal = false)
     assert(
-      deniedDirect.swap.toOption.exists(_.isInstanceOf[ClangGen.Error.UnknownValue]),
+      deniedDirect.swap.toOption
+        .exists(_.isInstanceOf[ClangGen.Error.UnknownValue]),
       deniedDirect.toString
     )
 
     val firstClass = render(firstClassSource, allowExternal = true)
-    val firstClassCode = firstClass.fold(err => fail(err.toString), _.render(120))
+    val firstClassCode =
+      firstClass.fold(err => fail(err.toString), _.render(120))
     assert(
       firstClassCode.contains(
         "___bsts_g_Bosatsu_l_Num_l_Float64_l_float32__bits__to__Float64"
@@ -1905,7 +1935,8 @@ main = same
     )
     val deniedFirstClass = render(firstClassSource, allowExternal = false)
     assert(
-      deniedFirstClass.swap.toOption.exists(_.isInstanceOf[ClangGen.Error.UnknownValue]),
+      deniedFirstClass.swap.toOption
+        .exists(_.isInstanceOf[ClangGen.Error.UnknownValue]),
       deniedFirstClass.toString
     )
   }
@@ -1928,31 +1959,38 @@ main = same
       explicitResolver <- List(false, true)
     } {
       val mainPackage =
-        if (usesProgExternal) "package Test\nfrom Bosatsu/Prog import pure\nmain = pure(1)"
+        if (usesProgExternal)
+          "package Test\nfrom Bosatsu/Prog import pure\nmain = pure(1)"
         else "package Test\nmain = 1"
       val sources =
         if (usesProgExternal) List(progPackage, mainPackage)
         else List(mainPackage)
-      val rendered = Par.withEC {
-        val gen = ClangGen(typeCheckPackages(sources))
-        if (explicitResolver)
-          gen.renderMain(
-            rootPackage,
-            mainName,
-            runner,
-            gen.ExternalResolver.stdExternals
-          )
-        else gen.renderMain(rootPackage, mainName, runner)
-      }.fold(err => fail(err.toString), _.render(120))
+      val rendered = Par
+        .withEC {
+          val gen = ClangGen(typeCheckPackages(sources))
+          if (explicitResolver)
+            gen.renderMain(
+              rootPackage,
+              mainName,
+              runner,
+              gen.ExternalResolver.stdExternals
+            )
+          else gen.renderMain(rootPackage, mainName, runner)
+        }
+        .fold(err => fail(err.toString), _.render(120))
 
-      val declaration = "int run_main(BValue main_value, int argc, char** argv);"
+      val declaration =
+        "int run_main(BValue main_value, int argc, char** argv);"
       val declarationIndex = rendered.indexOf(declaration)
       val mainIndex = rendered.indexOf("int main(")
       val callIndex = rendered.indexOf("run_main(main_value, argc, argv)")
       assert(declarationIndex >= 0, rendered)
       assert(declarationIndex < mainIndex, rendered)
       assert(mainIndex < callIndex, rendered)
-      assertEquals(rendered.contains("bosatsu_ext_Bosatsu_l_Prog.h"), usesProgExternal)
+      assertEquals(
+        rendered.contains("bosatsu_ext_Bosatsu_l_Prog.h"),
+        usesProgExternal
+      )
     }
   }
 }

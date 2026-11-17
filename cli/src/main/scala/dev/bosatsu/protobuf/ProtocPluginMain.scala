@@ -7,12 +7,12 @@ import com.google.protobuf.compiler.plugin.{
 
 object ProtocPluginMain {
 
-  def main(args: Array[String]): Unit = {
+  def main(args: Array[String]): Unit =
     runFromStdio()
-  }
 
   def runFromStdio(): Unit = {
-    val responseBytes = CodeGenerator.generateResponseBytes(System.in.readAllBytes())
+    val responseBytes =
+      CodeGenerator.generateResponseBytes(System.in.readAllBytes())
     System.out.write(responseBytes)
     System.out.flush()
   }

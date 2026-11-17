@@ -49,7 +49,7 @@ class TypedExprRecursionCheckTest extends munit.FunSuite with ParTest {
         Right(())
       case Validated.Invalid(errs) =>
         Left(errs)
-      }
+    }
   }
 
   private def recursionDiagnosticsOf(
@@ -112,8 +112,9 @@ class TypedExprRecursionCheckTest extends munit.FunSuite with ParTest {
       case Right(_) =>
         fail("expected recursion-check failure")
       case Left(errs) =>
-        val recursionErrs = errs.toList.collect { case r: PackageError.RecursionError =>
-          r
+        val recursionErrs = errs.toList.collect {
+          case r: PackageError.RecursionError =>
+            r
         }
         if (recursionErrs.nonEmpty) ()
         else
@@ -135,16 +136,19 @@ class TypedExprRecursionCheckTest extends munit.FunSuite with ParTest {
       case Right(_) =>
         fail("expected recursion-check failure")
       case Left(errs) =>
-        val recursionErrs = errs.toList.collect { case r: PackageError.RecursionError =>
-          r
+        val recursionErrs = errs.toList.collect {
+          case r: PackageError.RecursionError =>
+            r
         }
         recursionErrs match {
           case Nil =>
             fail(
               s"expected recursion error, got:\n${formatErrors(source, errs, packageName)}"
             )
-          case _   =>
-            assertMessage(recursionErrs.map(_.err.message).mkString("\n-----\n"))
+          case _ =>
+            assertMessage(
+              recursionErrs.map(_.err.message).mkString("\n-----\n")
+            )
         }
     }
 
@@ -172,16 +176,18 @@ class TypedExprRecursionCheckTest extends munit.FunSuite with ParTest {
           case Some(pkg) =>
             val (prog, _) = pkg.program
             (prog.types, prog.lets, stmts)
-          case None      =>
+          case None =>
             fail("internal test error: inferred package missing")
         }
       case cats.data.Ior.Both(errs, inferred) =>
-        fail(s"unexpected warnings/errors while inferring test source:\n${formatErrors(source, errs)}")
+        fail(
+          s"unexpected warnings/errors while inferring test source:\n${formatErrors(source, errs)}"
+        )
         inferred.toMap.get(pack) match {
           case Some(pkg) =>
             val (prog, _) = pkg.program
             (prog.types, prog.lets, stmts)
-          case None      =>
+          case None =>
             fail("internal test error: inferred package missing")
         }
     }
@@ -302,7 +308,9 @@ def drop(opt: Option[a]) -> Option[a]:
 """)
   }
 
-  test("loop allows constructor-rank decrease from non-empty to empty custom ADT") {
+  test(
+    "loop allows constructor-rank decrease from non-empty to empty custom ADT"
+  ) {
     allowed("""#
 enum Seq[a]:
   Empty
@@ -317,7 +325,9 @@ def reset(xs: Seq[a]) -> Seq[a]:
 """)
   }
 
-  test("loop allows constructor-rank decrease followed by structural recursion") {
+  test(
+    "loop allows constructor-rank decrease followed by structural recursion"
+  ) {
     allowed("""#
 enum BinNat:
   Zero
@@ -353,7 +363,9 @@ def bad(v: T) -> T:
 """)
   }
 
-  test("recur rejects constructor-rank step when direct recursive payload is not a smaller local") {
+  test(
+    "recur rejects constructor-rank step when direct recursive payload is not a smaller local"
+  ) {
     disallowed("""#
 enum T:
   A(t: T)
@@ -371,7 +383,9 @@ def bad(v: T) -> T:
 """)
   }
 
-  test("recur does not use constructor-rank rule when current constructor is ambiguous") {
+  test(
+    "recur does not use constructor-rank rule when current constructor is ambiguous"
+  ) {
     disallowed("""#
 enum Option[a]:
   None
@@ -384,7 +398,9 @@ def bad(opt: Option[a]) -> Option[a]:
 """)
   }
 
-  test("loop allows union branches when recursive args are smaller for every branch") {
+  test(
+    "loop allows union branches when recursive args are smaller for every branch"
+  ) {
     allowed("""#
 enum T:
   Z
@@ -436,7 +452,9 @@ def bad(n, m):
 """)
   }
 
-  test("tuple loop allows singleton empty list literal in unchanged earlier component") {
+  test(
+    "tuple loop allows singleton empty list literal in unchanged earlier component"
+  ) {
     allowed("""#
 enum Nat:
   Z
@@ -510,7 +528,9 @@ def step(rem: Nat, current: LL[a], pending: List[LL[a]]) -> Int:
 """)
   }
 
-  test("tuple loop allows custom singleton constructor literal in unchanged earlier component") {
+  test(
+    "tuple loop allows custom singleton constructor literal in unchanged earlier component"
+  ) {
     allowed("""#
 enum Nat:
   Z
@@ -538,7 +558,9 @@ def step(rem: Nat, current: LL[a], pending: MyList[LL[a]]) -> Int:
 """)
   }
 
-  test("tuple loop allows custom singleton alias substitution (EList as e then e)") {
+  test(
+    "tuple loop allows custom singleton alias substitution (EList as e then e)"
+  ) {
     allowed("""#
 enum Nat:
   Z
@@ -566,7 +588,9 @@ def step(rem: Nat, current: LL[a], pending: MyList[LL[a]]) -> Int:
 """)
   }
 
-  test("loop supports Int targets with provable decrease and non-negative next values") {
+  test(
+    "loop supports Int targets with provable decrease and non-negative next values"
+  ) {
     allowed("""#
 def int_loop[a](i: Int, state: a, fn: (Int, a) -> (Int, a)) -> a:
   loop i:
@@ -663,7 +687,9 @@ def ok(i: Int) -> Int:
 """)
   }
 
-  test("Int recursion lowers total string-pattern guard matches via final fallback") {
+  test(
+    "Int recursion lowers total string-pattern guard matches via final fallback"
+  ) {
     allowed("""#
 def walk(idx: Int, txt: String) -> Int:
   loop idx:
@@ -691,7 +717,9 @@ def demo(n: Int) -> Int:
 """)
   }
 
-  test("loop Int recursion accepts infix decrement via top-level operator alias") {
+  test(
+    "loop Int recursion accepts infix decrement via top-level operator alias"
+  ) {
     allowed("""#
 def operator +(a, b): a.add(b)
 def operator -(a, b): a.sub(b)
@@ -709,7 +737,9 @@ def demo(n: Int) -> Int:
 """)
   }
 
-  test("loop Int recursion accepts infix decrement via operator assignment alias") {
+  test(
+    "loop Int recursion accepts infix decrement via operator assignment alias"
+  ) {
     allowed("""#
 operator - = sub
 
@@ -804,7 +834,9 @@ def bad(s: Stream) -> Stream:
 """)
   }
 
-  test("thunk-force rule allows polymorphic recursion when recur target type is unchanged") {
+  test(
+    "thunk-force rule allows polymorphic recursion when recur target type is unchanged"
+  ) {
     allowed("""#
 enum Fuel:
   Done
@@ -820,7 +852,9 @@ def run[a](fuel: Fuel, value: a) -> a:
 """)
   }
 
-  test("recur allows thunk force when thunk returns a polymorphic recur target") {
+  test(
+    "recur allows thunk force when thunk returns a polymorphic recur target"
+  ) {
     allowed("""#
 enum FreeF[a]:
   Done(value: a)
@@ -963,7 +997,9 @@ def step(t: Tree) -> Tree:
     )
   }
 
-  test("recur allows nested match after trusted lazy force on wrapped payload") {
+  test(
+    "recur allows nested match after trusted lazy force on wrapped payload"
+  ) {
     val lazyPack = PackageName.parts("Bosatsu", "Lazy")
     allowed(
       """#
@@ -993,7 +1029,9 @@ def map_Trees(trees: LazyList[Tree]) -> LazyList[Tree]:
     )
   }
 
-  test("recur allows trusted lazy force when lazy returns a polymorphic recur target") {
+  test(
+    "recur allows trusted lazy force when lazy returns a polymorphic recur target"
+  ) {
     val lazyPack = PackageName.parts("Bosatsu", "Lazy")
     allowed(
       """#
@@ -1015,7 +1053,9 @@ def eval[a](ff: FreeF[a]) -> a:
     )
   }
 
-  test("lazy-force rule allows polymorphic recursion when recur target type is unchanged") {
+  test(
+    "lazy-force rule allows polymorphic recursion when recur target type is unchanged"
+  ) {
     val lazyPack = PackageName.parts("Bosatsu", "Lazy")
     allowed(
       """#
@@ -1142,13 +1182,17 @@ def bad(i: Int) -> Int:
     case _:
       i
 """) { msg =>
-      assert(clue(msg).contains("cannot prove Int recursion obligation for bad"))
+      assert(
+        clue(msg).contains("cannot prove Int recursion obligation for bad")
+      )
       assert(clue(msg).contains("recur target: i"))
       assert(clue(msg).contains("path condition:"))
     }
   }
 
-  test("Int recursion rejects calls that do not prove non-negative next values") {
+  test(
+    "Int recursion rejects calls that do not prove non-negative next values"
+  ) {
     disallowedWithMessage("""#
 def bad(i: Int) -> Int:
   recur i:
@@ -1157,7 +1201,11 @@ def bad(i: Int) -> Int:
     case _:
       i
 """) { msg =>
-      assert(clue(msg).contains("cannot prove Int recursion obligation for bad: (>= "))
+      assert(
+        clue(msg).contains(
+          "cannot prove Int recursion obligation for bad: (>= "
+        )
+      )
       assert(clue(msg).contains("(- "))
       assert(!clue(msg).contains("(* (- 1)"))
       assert(clue(msg).contains("recur target: i"))
@@ -1216,11 +1264,17 @@ def bad(i: Int) -> Int:
 """) { msg =>
       assert(clue(msg).contains("unable to lower recursive argument"))
       assert(clue(msg).contains("recur target: i"))
-      assert(clue(msg).contains("hint: rewrite recursive argument using canonical Int operations"))
+      assert(
+        clue(msg).contains(
+          "hint: rewrite recursive argument using canonical Int operations"
+        )
+      )
     }
   }
 
-  test("Int recursion rejects non-local Int expressions that are equal to current value") {
+  test(
+    "Int recursion rejects non-local Int expressions that are equal to current value"
+  ) {
     disallowed("""#
 def bad(i: Int) -> Int:
   recur i:
@@ -1266,7 +1320,9 @@ def split_sum(i: Int) -> Int:
 """)
   }
 
-  test("nested matches in loop branches contribute pattern and guard path facts") {
+  test(
+    "nested matches in loop branches contribute pattern and guard path facts"
+  ) {
     allowed("""#
 def via_match(i: Int) -> Int:
   loop i:
@@ -1283,7 +1339,9 @@ def via_match(i: Int) -> Int:
 """)
   }
 
-  test("loop branches inherit negated guarded fallthrough facts for Int recursion") {
+  test(
+    "loop branches inherit negated guarded fallthrough facts for Int recursion"
+  ) {
     allowed("""#
 def countdown(fuel, stack):
   loop (fuel, stack):
@@ -1293,7 +1351,9 @@ def countdown(fuel, stack):
 """)
   }
 
-  test("vector-style loop uses negated guarded fallthrough facts for Int recursion") {
+  test(
+    "vector-style loop uses negated guarded fallthrough facts for Int recursion"
+  ) {
     allowed("""#
 enum Vector[a: *]:
   Leaf(size: Int, items: List[a])
@@ -1326,7 +1386,9 @@ def foldl_Vector[a: *, b: *](vec: Vector[a], init: b, fn: (b, a) -> b) -> b:
 """)
   }
 
-  test("loop uses negated guard fallthrough when total branch pattern is not directly lowerable") {
+  test(
+    "loop uses negated guard fallthrough when total branch pattern is not directly lowerable"
+  ) {
     allowed("""#
 enum Node:
   Leaf
@@ -1346,7 +1408,9 @@ def walk(fuel: Int, frame: Frame) -> Int:
 """)
   }
 
-  test("loop uses negated guard fallthrough when prior non-lowerable pattern subsumes current") {
+  test(
+    "loop uses negated guard fallthrough when prior non-lowerable pattern subsumes current"
+  ) {
     allowed("""#
 def walk(idx: Int, stack: List[Int]) -> Int:
   loop (idx, stack):
@@ -1360,7 +1424,9 @@ def walk(idx: Int, stack: List[Int]) -> Int:
 """)
   }
 
-  test("loop aligns subsumed guard facts when current branch renames pattern bindings") {
+  test(
+    "loop aligns subsumed guard facts when current branch renames pattern bindings"
+  ) {
     allowed("""#
 enum Node:
   Branch(size: Int)
@@ -1377,7 +1443,9 @@ def walk(idx: Int, stack: List[Node]) -> Int:
 """)
   }
 
-  test("loop aligns subsumed guard facts when current branch shadows recur names") {
+  test(
+    "loop aligns subsumed guard facts when current branch shadows recur names"
+  ) {
     allowed("""#
 enum Node:
   Branch(size: Int)
@@ -1431,7 +1499,10 @@ def f(opt: Int, y: Int) -> Int:
           Some(
             TypedExpr.MatchGuard(
               yLocal,
-              Pattern.Var(fName): Pattern[(PackageName, Identifier.Constructor), Type],
+              Pattern.Var(fName): Pattern[
+                (PackageName, Identifier.Constructor),
+                Type
+              ],
               Some(
                 TypedExpr.App(
                   eqInt,
@@ -1444,7 +1515,11 @@ def f(opt: Int, y: Int) -> Int:
           ),
           shadowedLocal
         )(using Region.empty),
-        TypedExpr.Branch(Pattern.WildCard, None, TypedExpr.Literal(Lit.fromInt(0), intType, fTag))(using
+        TypedExpr.Branch(
+          Pattern.WildCard,
+          None,
+          TypedExpr.Literal(Lit.fromInt(0), intType, fTag)
+        )(using
           Region.empty
         )
       ),
@@ -1487,7 +1562,9 @@ def f(opt: Int, y: Int) -> Int:
     }
   }
 
-  test("loop combines renamed subsumed guards with shared loop-variable guards") {
+  test(
+    "loop combines renamed subsumed guards with shared loop-variable guards"
+  ) {
     allowed("""#
 enum Node:
   Branch(size: Int)
@@ -1522,7 +1599,9 @@ def walk(stack: List[Either]) -> Int:
 """)
   }
 
-  test("loop uses disjunctive union-derived guard facts for Int recursion proofs") {
+  test(
+    "loop uses disjunctive union-derived guard facts for Int recursion proofs"
+  ) {
     allowed("""#
 enum Duo:
   Pair(left: Int, right: Int)
@@ -1559,7 +1638,9 @@ def walk(idx: Int, node: Either) -> Int:
 """)
   }
 
-  test("loop aligns list prefix wildcard-to-named splice bindings in subsumed branches") {
+  test(
+    "loop aligns list prefix wildcard-to-named splice bindings in subsumed branches"
+  ) {
     allowed("""#
 def walk(idx: Int, stack: List[Int]) -> Int:
   loop idx:
@@ -1576,7 +1657,9 @@ def walk(idx: Int, stack: List[Int]) -> Int:
 """)
   }
 
-  test("loop aligns list prefix named-to-wildcard splice bindings in subsumed branches") {
+  test(
+    "loop aligns list prefix named-to-wildcard splice bindings in subsumed branches"
+  ) {
     allowed("""#
 def walk(idx: Int, stack: List[Int]) -> Int:
   loop idx:
@@ -1595,7 +1678,9 @@ def walk(idx: Int, stack: List[Int]) -> Int:
 """)
   }
 
-  test("loop aligns list prefix named-to-named splice bindings in subsumed branches") {
+  test(
+    "loop aligns list prefix named-to-named splice bindings in subsumed branches"
+  ) {
     allowed("""#
 def walk(idx: Int, stack: List[Int]) -> Int:
   loop idx:
@@ -1614,7 +1699,9 @@ def walk(idx: Int, stack: List[Int]) -> Int:
 """)
   }
 
-  test("loop aligns subsumed guard facts for string patterns with wildcard captures") {
+  test(
+    "loop aligns subsumed guard facts for string patterns with wildcard captures"
+  ) {
     allowed("""#
 def walk(idx: Int, txt: String) -> Int:
   loop idx:
@@ -1633,7 +1720,9 @@ def walk(idx: Int, txt: String) -> Int:
 """)
   }
 
-  test("loop aligns subsumed guard facts for string patterns with named-to-wildcard captures") {
+  test(
+    "loop aligns subsumed guard facts for string patterns with named-to-wildcard captures"
+  ) {
     allowed("""#
 def walk(idx: Int, txt: String) -> Int:
   loop idx:
@@ -1654,7 +1743,9 @@ def walk(idx: Int, txt: String) -> Int:
 """)
   }
 
-  test("loop aligns subsumed guard facts for string patterns with literal prefixes and renamed captures") {
+  test(
+    "loop aligns subsumed guard facts for string patterns with literal prefixes and renamed captures"
+  ) {
     allowed("""#
 def walk(idx: Int, txt: String) -> Int:
   loop idx:
@@ -1697,7 +1788,9 @@ def walk(idx: Int, stack: List[Int]) -> Int:
 """)
   }
 
-  test("loop aligns subsumed guard facts through whole-pattern alias alternatives") {
+  test(
+    "loop aligns subsumed guard facts through whole-pattern alias alternatives"
+  ) {
     allowed("""#
 enum Node:
   Branch(size: Int)
@@ -1717,7 +1810,9 @@ def walk(idx: Int, stack: List[Int], node: Node) -> Int:
 """)
   }
 
-  test("loop ignores subsumed guard facts when required Int binders cannot align") {
+  test(
+    "loop ignores subsumed guard facts when required Int binders cannot align"
+  ) {
     disallowed("""#
 def walk(idx: Int, pair: (Int, Int)) -> Int:
   loop idx:
@@ -1734,7 +1829,9 @@ def walk(idx: Int, pair: (Int, Int)) -> Int:
 """)
   }
 
-  test("loop does not conflate subsumed guard names bound at different pattern positions") {
+  test(
+    "loop does not conflate subsumed guard names bound at different pattern positions"
+  ) {
     disallowed("""#
 enum Node:
   Pair(left: Int, right: Int)
@@ -1802,7 +1899,9 @@ main = bar(1, "", Thing1)
 """)
   }
 
-  test("passing recursive function value through reachable continuation is allowed") {
+  test(
+    "passing recursive function value through reachable continuation is allowed"
+  ) {
     allowed("""#
 enum Cont[a: *]:
   Item(a: a)
@@ -1840,7 +1939,10 @@ main = loop(1)
   }
 
   test("Platform.onJvm only evaluates on JVM") {
-    assertEquals(Try(Platform.onJvm(sys.error("boom"))).isFailure, Platform.isJvm)
+    assertEquals(
+      Try(Platform.onJvm(sys.error("boom"))).isFailure,
+      Platform.isJvm
+    )
   }
 
   Platform.onJvm(
@@ -1892,7 +1994,7 @@ main = vals
           throw other
         case None =>
           result match {
-            case Some(Validated.Valid(_)) => ()
+            case Some(Validated.Valid(_))      => ()
             case Some(Validated.Invalid(errs)) =>
               fail(
                 s"expected recursion checker success, got:\n${errs.iterator.mkString("\n")}"
@@ -1900,7 +2002,7 @@ main = vals
             case None =>
               fail("recursion checker thread did not produce a result")
           }
-        }
+      }
     }
   )
 }

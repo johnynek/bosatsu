@@ -43,7 +43,7 @@ object SmtToSExpr {
         else s("-", Vector(atom(value.abs.toString)))
       case BoolConst(value) =>
         atom(if (value) "true" else "false")
-      case Var(name)       =>
+      case Var(name) =>
         symbol(name)
       case App(name, args) =>
         s(escapedSymbol(name), args.map(expr(_)))
@@ -78,7 +78,7 @@ object SmtToSExpr {
         s("not", Vector(expr(inner)))
       case And(args) =>
         variadic("and", args.map(expr(_)))
-      case Or(args)  =>
+      case Or(args) =>
         variadic("or", args.map(expr(_)))
       case Xor(left, right) =>
         s("xor", Vector(expr(left), expr(right)))

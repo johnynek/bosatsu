@@ -47,17 +47,23 @@ class Fs2PlatformIO private[dev] (
   val fileKeyHash: Hash[FileKey] = Hash[FileKey]
 
   def withTempDirectoryIn[A](parent: Path)(fn: Path => IO[A]): IO[A] =
-    Resource.make(FilesIO.createTempDirectory(Some(parent), ".bosatsu-probe-", None))(
-      FilesIO.deleteRecursively(_)
-    ).use(fn)
+    Resource
+      .make(FilesIO.createTempDirectory(Some(parent), ".bosatsu-probe-", None))(
+        FilesIO.deleteRecursively(_)
+      )
+      .use(fn)
 
   def existingFileKey(path: Path): IO[Option[FileKey]] =
-    FilesIO.getBasicFileAttributes(path, followLinks = true).flatMap { attrs =>
-      attrs.fileKey match {
-        case Some(key) => IO.pure(Some(Right(key)): Option[FileKey])
-        case None => FilesIO.realPath(path).map(p => Some(Left(p)): Option[FileKey])
+    FilesIO
+      .getBasicFileAttributes(path, followLinks = true)
+      .flatMap { attrs =>
+        attrs.fileKey match {
+          case Some(key) => IO.pure(Some(Right(key)): Option[FileKey])
+          case None      =>
+            FilesIO.realPath(path).map(p => Some(Left(p)): Option[FileKey])
+        }
       }
-    }.recover { case _: NoSuchFileException => None }
+      .recover { case _: NoSuchFileException => None }
 
   def pendingOutputPath(path: Path): IO[Path] = {
     // realpath requires the leaf to exist. Resolve its parent or, for a
@@ -66,12 +72,21 @@ class Fs2PlatformIO private[dev] (
       FilesIO.realPath(p).recoverWith { case _: NoSuchFileException =>
         target(p.parent.getOrElse(Path(".")), links).flatMap { dir =>
           val leaf = dir.resolve(p.fileName).normalize
-          FilesIO.isSymbolicLink(leaf).recover { case _: NoSuchFileException => false }.flatMap {
-            case true if links(leaf) => IO.raiseError(new java.io.IOException(s"output symlink cycle at $leaf"))
-            case true => IO.fromPromise(IO(ReadLink(leaf.toString)))
-              .flatMap(s => target(leaf.resolveSibling(Path(s)), links + leaf))
-            case false => IO.pure(leaf)
-          }
+          FilesIO
+            .isSymbolicLink(leaf)
+            .recover { case _: NoSuchFileException => false }
+            .flatMap {
+              case true if links(leaf) =>
+                IO.raiseError(
+                  new java.io.IOException(s"output symlink cycle at $leaf")
+                )
+              case true =>
+                IO.fromPromise(IO(ReadLink(leaf.toString)))
+                  .flatMap(s =>
+                    target(leaf.resolveSibling(Path(s)), links + leaf)
+                  )
+              case false => IO.pure(leaf)
+            }
         }
       }
     target(path, Set.empty)
@@ -311,7 +326,10 @@ class Fs2PlatformIO private[dev] (
   override def readInterfaceBundle(path: Path): IO[proto.Interfaces] =
     read[proto.Interfaces](path)
 
-  override def writeInterfaceBundle(bundle: proto.Interfaces, path: Path): IO[Unit] =
+  override def writeInterfaceBundle(
+      bundle: proto.Interfaces,
+      path: Path
+  ): IO[Unit] =
     write(bundle, path)
 
   def readLibrary(path: Path): IO[Hashed[Algo.Blake3, proto.Library]] =
@@ -390,7 +408,10 @@ class Fs2PlatformIO private[dev] (
                             source = tempPath,
                             target = path,
                             // Reflink tries to do an atomic copy, and falls back to non-atomic if not
-                            CopyFlags(CopyFlag.Reflink, CopyFlag.ReplaceExisting)
+                            CopyFlags(
+                              CopyFlag.Reflink,
+                              CopyFlag.ReplaceExisting
+                            )
                           )
                           .as(Right(()))
                       } else {
@@ -407,7 +428,9 @@ class Fs2PlatformIO private[dev] (
                     }
                 } else {
                   IO.pure(
-                    Left(FetchHashFailure.HttpStatus(uri, response.status.toString))
+                    Left(
+                      FetchHashFailure.HttpStatus(uri, response.status.toString)
+                    )
                   )
                 }
               }
@@ -492,7 +515,8 @@ class Fs2PlatformIO private[dev] (
 
   def writeStdoutBytes(bytes: Bytes): IO[Unit] =
     IO.blocking {
-      val _ = nodeFs.writeFileSync(1, bytesToUint8Array(bytes.unsafeReadOnlyView))
+      val _ =
+        nodeFs.writeFileSync(1, bytesToUint8Array(bytes.unsafeReadOnlyView))
       ()
     }
 
@@ -530,7 +554,7 @@ class Fs2PlatformIO private[dev] (
 }
 
 object Fs2PlatformIO extends Fs2PlatformIO(None) {
-  private[dev] final case class DocumentWriteOps(
+  final private[dev] case class DocumentWriteOps(
       createParentDirectories: Path => IO[Unit],
       resolveDestination: Path => IO[Path],
       stagedFile: Path => Resource[IO, Path],
@@ -541,33 +565,48 @@ object Fs2PlatformIO extends Fs2PlatformIO(None) {
   )
 
   private def shouldInstall(source: Path, target: Path): IO[Boolean] =
-    Files[IO].getBasicFileAttributes(target, followLinks = false).map(Some(_))
+    Files[IO]
+      .getBasicFileAttributes(target, followLinks = false)
+      .map(Some(_))
       .recover { case _: NoSuchFileException => None }
       .flatMap {
-        case None => IO.pure(true)
+        case None                                          => IO.pure(true)
         case Some(attributes) if !attributes.isRegularFile =>
-          IO.raiseError(new IOException(s"expected a regular output file: $target"))
+          IO.raiseError(
+            new IOException(s"expected a regular output file: $target")
+          )
         case Some(_) =>
           // Node exposes mode/owner/group, but no ACL reader or copier. Keep
           // identical outputs in place; fail closed for changed ones.
-          Files[IO].readAll(source).map(Option(_))
+          Files[IO]
+            .readAll(source)
+            .map(Option(_))
             .zipAll(Files[IO].readAll(target).map(Option(_)))(None, None)
             .forall { case (left, right) => left == right }
-            .compile.lastOrError.flatMap {
-              case true => IO.pure(false)
-              case false => IO.raiseError(new IOException(
-                s"cannot preserve output access controls with Node's filesystem API: $target"
-              ))
+            .compile
+            .lastOrError
+            .flatMap {
+              case true  => IO.pure(false)
+              case false =>
+                IO.raiseError(
+                  new IOException(
+                    s"cannot preserve output access controls with Node's filesystem API: $target"
+                  )
+                )
             }
       }
 
   private[dev] val documentWriteOps: DocumentWriteOps = DocumentWriteOps(
-    createParentDirectories = p => p.parent.traverse_(Files[IO].createDirectories(_)),
+    createParentDirectories =
+      p => p.parent.traverse_(Files[IO].createDirectories(_)),
     resolveDestination = path => Fs2PlatformIO.pendingOutputPath(path),
     stagedFile = destination => {
       val directory = destination.parent.getOrElse(Path("."))
       Resource
-        .make(Files[IO].createTempDirectory(Some(directory), ".bosatsu-write-", None)) { stage =>
+        .make(
+          Files[IO]
+            .createTempDirectory(Some(directory), ".bosatsu-write-", None)
+        ) { stage =>
           // Own the directory, not fs2's JS tempFile, whose release removes only
           // the file. Cleanup must not report failure after a committed rename.
           Files[IO].deleteRecursively(stage).handleErrorWith(_ => IO.unit)
@@ -575,25 +614,28 @@ object Fs2PlatformIO extends Fs2PlatformIO(None) {
         .map(_ / "document")
     },
     writeStaged = (path, bytes) =>
-      Files[IO].writeAll(path)(fs2.Stream.chunk(fs2.Chunk.array(bytes))).compile.drain,
+      Files[IO]
+        .writeAll(path)(fs2.Stream.chunk(fs2.Chunk.array(bytes)))
+        .compile
+        .drain,
     needsInstall = shouldInstall,
     replace = (source, target) =>
       shouldInstall(source, target).flatMap {
         case false => IO.pure(false)
-        case true =>
+        case true  =>
           IO.fromPromise(IO(Rename(source.toString, target.toString))).as(true)
-        },
+      },
     remove = path =>
       IO.fromPromise(IO(Unlink(path.toString))).handleErrorWith {
         case _: NoSuchFileException => IO.unit
-        case error => IO.raiseError(error)
+        case error                  => IO.raiseError(error)
       }
   )
 
   private[dev] def withDocumentWriteOps(ops: DocumentWriteOps): Fs2PlatformIO =
     new Fs2PlatformIO(Some(ops))
 
-  private final case class PendingFile(
+  final private case class PendingFile(
       destination: Path,
       staged: Path,
       bytes: Bytes
@@ -618,45 +660,56 @@ object Fs2PlatformIO extends Fs2PlatformIO(None) {
     destinations.flatMap { resolved =>
       val uniqueDestinations = resolved.map(_._1).distinct
       if (uniqueDestinations.size != resolved.size)
-        IO.raiseError(new IOException("multiple outputs refer to the same file"))
+        IO.raiseError(
+          new IOException("multiple outputs refer to the same file")
+        )
       else {
         val staged = resolved.traverse { case (destination, bytes) =>
-          ops.stagedFile(destination).map(path => PendingFile(destination, path, bytes))
+          ops
+            .stagedFile(destination)
+            .map(path => PendingFile(destination, path, bytes))
         }
 
         staged.use { pending =>
           pending.traverse_ { file =>
             ops.writeStaged(file.staged, file.bytes.unsafeReadOnlyView)
-          } *> pending.traverse(file =>
-            ops.needsInstall(file.staged, file.destination)
-          ).flatMap { shouldInstall =>
-            // Once installation begins, keep each rename adjacent to its
-            // bookkeeping and complete rollback before honoring cancellation.
-            IO.uncancelable { poll =>
-              IO.defer {
-                var installed = List.empty[Path]
-                val installation = pending.zip(shouldInstall).traverse_ {
-                  case (file, true) =>
-                    ops.replace(file.staged, file.destination).flatMap {
-                      case true => IO { installed = file.destination :: installed }
-                      case false => IO.unit
+          } *> pending
+            .traverse(file => ops.needsInstall(file.staged, file.destination))
+            .flatMap { shouldInstall =>
+              // Once installation begins, keep each rename adjacent to its
+              // bookkeeping and complete rollback before honoring cancellation.
+              IO.uncancelable { poll =>
+                IO.defer {
+                  var installed = List.empty[Path]
+                  val installation = pending
+                    .zip(shouldInstall)
+                    .traverse_ {
+                      case (file, true) =>
+                        ops.replace(file.staged, file.destination).flatMap {
+                          case true =>
+                            IO { installed = file.destination :: installed }
+                          case false => IO.unit
+                        }
+                      case (_, false) => IO.unit
                     }
-                  case (_, false) => IO.unit
-                }.handleErrorWith { failure =>
-                  installed.traverse(path => ops.remove(path).attempt).flatMap { rollback =>
-                    rollback.collect { case Left(error) => error }
-                      .foreach(failure.addSuppressed)
-                    IO.raiseError(failure)
+                    .handleErrorWith { failure =>
+                      installed
+                        .traverse(path => ops.remove(path).attempt)
+                        .flatMap { rollback =>
+                          rollback
+                            .collect { case Left(error) => error }
+                            .foreach(failure.addSuppressed)
+                          IO.raiseError(failure)
+                        }
+                    }
+                  installation.attempt.flatMap { result =>
+                    // Let queued cancellation take effect only after publication or
+                    // the full rollback, while retaining ordinary install failures.
+                    poll(IO.cede) *> IO.fromEither(result)
                   }
-                }
-                installation.attempt.flatMap { result =>
-                  // Let queued cancellation take effect only after publication or
-                  // the full rollback, while retaining ordinary install failures.
-                  poll(IO.cede) *> IO.fromEither(result)
                 }
               }
             }
-          }
         }
       }
     }

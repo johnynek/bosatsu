@@ -83,8 +83,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
 
   private def decodeOptionalLike(value: Value): Option[Option[Value]] =
     value match {
-      case s: SumValue
-          if (s.variant == 0) && (s.value == UnitValue) =>
+      case s: SumValue if (s.variant == 0) && (s.value == UnitValue) =>
         Some(None)
       case s: SumValue if s.variant == 1 =>
         s.value.values match {
@@ -147,7 +146,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
 
     def loop(t: Type, revPath: List[Type], working: List[Type]): Unit =
       t match {
-        case _ if working.contains(t)                                    => ()
+        case _ if working.contains(t) => ()
         case Type.IntType | Type.Float64Type | Type.StrType | Type.CharType |
             Type.BoolType | Type.UnitType =>
           ()
@@ -167,21 +166,21 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
           loop(inner, t :: revPath, t :: working)
         case Type.DictT(Type.StrType, inner) =>
           loop(inner, t :: revPath, t :: working)
-        case Type.Fun(_)                     =>
+        case Type.Fun(_) =>
           addIssue(t, revPath, "function types are not serializable to Json")
-        case Type.DictT(_, _)                =>
+        case Type.DictT(_, _) =>
           addIssue(
             t,
             revPath,
             "only Dict[String, a] can be encoded as a Json object"
           )
-        case Type.ForAll(_, _)               =>
+        case Type.ForAll(_, _) =>
           addIssue(
             t,
             revPath,
             "forall (polymorphic) types are not serializable to Json"
           )
-        case Type.Exists(_, _)               =>
+        case Type.Exists(_, _) =>
           addIssue(
             t,
             revPath,
@@ -190,7 +189,11 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
         case Type.TyVar(_) =>
           addIssue(t, revPath, "unresolved type variables are not serializable")
         case Type.TyMeta(_) =>
-          addIssue(t, revPath, "unsolved type metavariables are not serializable")
+          addIssue(
+            t,
+            revPath,
+            "unsolved type metavariables are not serializable"
+          )
         case Type.Tuple(ts) =>
           val w1 = t :: working
           val p1 = t :: revPath
@@ -254,10 +257,10 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
   def fieldName(n: Identifier.Bindable): String = {
     import Identifier.{Name, Backticked, Operator, Synthetic}
     n match {
-      case Name(n) => n
+      case Name(n)       => n
       case Backticked(n) => n
       // these are kind of weird, but I guess allowed
-      case Operator(n) => n
+      case Operator(n)  => n
       case Synthetic(n) => n
     }
   }
@@ -277,7 +280,6 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
     type Fn = Value => Either[IllTyped, Json]
     // when we complete a custom type, we put it in here
     val successCache: MMap[Type, Eval[Fn]] = MMap()
-
 
     def loop(tpe: Type, revPath: List[Type]): Eval[Fn] =
       // we know we can support this, so when we recurse it
@@ -358,26 +360,23 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
 
               if (canEncodeToNull(opt)) {
                 // not a nested option
-                {
-                  case value =>
-                    decodeOptionalLike(value) match {
-                      case Some(None)    => Right(Json.JNull)
-                      case Some(Some(a)) => inner(a)
-                      case None          =>
-                        Left(IllTyped(revPath.reverse, tpe, value))
-                    }
+                { case value =>
+                  decodeOptionalLike(value) match {
+                    case Some(None)    => Right(Json.JNull)
+                    case Some(Some(a)) => inner(a)
+                    case None          =>
+                      Left(IllTyped(revPath.reverse, tpe, value))
+                  }
                 }
-              } else {
-                {
-                  case value =>
-                    decodeOptionalLike(value) match {
-                      case Some(None)    => Right(Json.JArray(Vector.empty))
-                      case Some(Some(a)) =>
-                        inner(a).map(j => Json.JArray(Vector(j)))
-                      case None =>
-                        Left(IllTyped(revPath.reverse, tpe, value))
-                    }
+              } else { { case value =>
+                decodeOptionalLike(value) match {
+                  case Some(None)    => Right(Json.JArray(Vector.empty))
+                  case Some(Some(a)) =>
+                    inner(a).map(j => Json.JArray(Vector(j)))
+                  case None =>
+                    Left(IllTyped(revPath.reverse, tpe, value))
                 }
+              }
               }
             case NullableT(t1) =>
               lazy val inner = loop(t1, tpe :: revPath).value
@@ -513,24 +512,25 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                     arr.data.iterator
                       .slice(arr.offset, arr.offset + arr.len)
                       .toList
-                  values.traverse(inner).map(items => Json.JArray(items.toVector))
+                  values
+                    .traverse(inner)
+                    .map(items => Json.JArray(items.toVector))
                 case other =>
                   Left(IllTyped(revPath.reverse, tpe, other))
               }
-            case Type.TyConst(`bytesTypeConst`) =>
-              {
-                case ExternalValue(bytes: PredefImpl.BytesValue) =>
-                  val items = Vector.newBuilder[Json]
-                  var idx = 0
-                  while (idx < bytes.len) {
-                    val intValue = bytes.data(bytes.offset + idx).toInt & 0xff
-                    items += Json.JNumberStr(intValue.toString)
-                    idx = idx + 1
-                  }
-                  Right(Json.JArray(items.result()))
-                case other =>
-                  Left(IllTyped(revPath.reverse, tpe, other))
-              }
+            case Type.TyConst(`bytesTypeConst`) => {
+              case ExternalValue(bytes: PredefImpl.BytesValue) =>
+                val items = Vector.newBuilder[Json]
+                var idx = 0
+                while (idx < bytes.len) {
+                  val intValue = bytes.data(bytes.offset + idx).toInt & 0xff
+                  items += Json.JNumberStr(intValue.toString)
+                  idx = idx + 1
+                }
+                Right(Json.JArray(items.result()))
+              case other =>
+                Left(IllTyped(revPath.reverse, tpe, other))
+            }
 
             case Type.ForAll(_, inner) =>
               // we assume the generic positions don't matter and to continue
@@ -587,7 +587,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                         fn(value).map(json => (key, json) :: Nil)
                       case OptionalField(key, fn) =>
                         decodeOptionalLike(value) match {
-                          case Some(None) => Right(Nil)
+                          case Some(None)    => Right(Nil)
                           case Some(Some(v)) =>
                             fn(v).map(json => (key, json) :: Nil)
                           case None =>
@@ -603,13 +603,13 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                           subsT match {
                             case OptionalT(inner) =>
                               loop(inner, fullPath)
-                                .map(
-                                  fn => OptionalField(fieldName(param.name), fn)
+                                .map(fn =>
+                                  OptionalField(fieldName(param.name), fn)
                                 )
                             case _ =>
                               loop(subsT, fullPath)
-                                .map(
-                                  fn => RequiredField(fieldName(param.name), fn)
+                                .map(fn =>
+                                  RequiredField(fieldName(param.name), fn)
                                 )
                           }
                         }
@@ -873,9 +873,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                       .traverse { case (k, v) =>
                         recur(v).map(decoded => Tuple(Str(k), decoded))
                       }
-                      .map(vs =>
-                        SumValue(6, ProductValue.single(VList(vs)))
-                      )
+                      .map(vs => SumValue(6, ProductValue.single(VList(vs))))
                 }
               case Type.ListT(t) =>
                 lazy val inner = loop(t, tpe :: revPath).value
@@ -936,39 +934,38 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                   case other =>
                     Left(IllTypedJson(revPath.reverse, tpe, other))
                 }
-              case Type.TyConst(`bytesTypeConst`) =>
-                {
-                  case Json.JArray(items) =>
-                    val data = new Array[Byte](items.length)
-                    var idx = 0
-                    var invalid: Option[Json] = None
-                    while (idx < items.length && invalid.isEmpty) {
-                      items(idx) match {
-                        case Json.JBigInteger(bi)
-                            if bi.signum >= 0 &&
-                              bi.compareTo(BigInteger.valueOf(255L)) <= 0 =>
-                          data(idx) = (bi.intValue & 0xff).toByte
-                          idx = idx + 1
-                        case other =>
-                          invalid = Some(other)
-                      }
+              case Type.TyConst(`bytesTypeConst`) => {
+                case Json.JArray(items) =>
+                  val data = new Array[Byte](items.length)
+                  var idx = 0
+                  var invalid: Option[Json] = None
+                  while (idx < items.length && invalid.isEmpty) {
+                    items(idx) match {
+                      case Json.JBigInteger(bi)
+                          if bi.signum >= 0 &&
+                            bi.compareTo(BigInteger.valueOf(255L)) <= 0 =>
+                        data(idx) = (bi.intValue & 0xff).toByte
+                        idx = idx + 1
+                      case other =>
+                        invalid = Some(other)
                     }
+                  }
 
-                    invalid match {
-                      case Some(bad) =>
-                        Left(IllTypedJson(revPath.reverse, tpe, bad))
-                      case None      =>
-                        if (data.isEmpty) Right(PredefImpl.emptyBytes)
-                        else
-                          Right(
-                            ExternalValue(
-                              PredefImpl.BytesValue(data, 0, data.length)
-                            )
+                  invalid match {
+                    case Some(bad) =>
+                      Left(IllTypedJson(revPath.reverse, tpe, bad))
+                    case None =>
+                      if (data.isEmpty) Right(PredefImpl.emptyBytes)
+                      else
+                        Right(
+                          ExternalValue(
+                            PredefImpl.BytesValue(data, 0, data.length)
                           )
-                    }
-                  case other =>
-                    Left(IllTypedJson(revPath.reverse, tpe, other))
-                }
+                        )
+                  }
+                case other =>
+                  Left(IllTypedJson(revPath.reverse, tpe, other))
+              }
 
               case Type.ForAll(_, inner) =>
                 // we assume the generic positions don't matter and to continue
@@ -1015,22 +1012,20 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                           val subsT = Type.substituteVar(param.tpe, replaceMap)
                           subsT match {
                             case OptionalT(inner) =>
-                              loop(inner, fullPath).map(
-                                fn =>
-                                  OptionalField(
-                                    fieldIdx,
-                                    fieldName(param.name),
-                                    fn
-                                  )
+                              loop(inner, fullPath).map(fn =>
+                                OptionalField(
+                                  fieldIdx,
+                                  fieldName(param.name),
+                                  fn
+                                )
                               )
                             case _ =>
-                              loop(subsT, fullPath).map(
-                                fn =>
-                                  RequiredField(
-                                    fieldIdx,
-                                    fieldName(param.name),
-                                    fn
-                                  )
+                              loop(subsT, fullPath).map(fn =>
+                                RequiredField(
+                                  fieldIdx,
+                                  fieldName(param.name),
+                                  fn
+                                )
                               )
                           }
                         }
@@ -1086,8 +1081,10 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                                 case RequiredField(_, k, _) => k
                               }.toSet
 
-                              if (requiredKeys.subsetOf(keySet) && keySet
-                                  .subsetOf(allKeys)) {
+                              if (
+                                requiredKeys.subsetOf(keySet) && keySet
+                                  .subsetOf(allKeys)
+                              ) {
                                 val itemArray = new Array[Value](decode.size)
                                 decode
                                   .foldM(itemArray) { (ary, field) =>

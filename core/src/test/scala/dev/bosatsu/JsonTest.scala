@@ -8,7 +8,10 @@ class JsonTest extends munit.FunSuite {
   test("Reader has shared codecs for basic scala and json types") {
     assertEquals(Reader[Int].read(Path.Root, JNumberStr("42")), Right(42))
     assertEquals(Reader[Boolean].read(Path.Root, JBool.True), Right(true))
-    assertEquals(Reader[Json].read(Path.Root, JString("x")), Right(JString("x")))
+    assertEquals(
+      Reader[Json].read(Path.Root, JString("x")),
+      Right(JString("x"))
+    )
   }
 
   test("Writer has shared codecs for basic scala and java types") {
@@ -25,12 +28,14 @@ class JsonTest extends munit.FunSuite {
       flags: List[String],
       iflags: List[String],
       note: Option[String]
-  ) derives Json.Reader, Json.Writer
+  ) derives Json.Reader,
+        Json.Writer
 
   case class DerivedNullableConfig(
       cc_path: String,
       note: Nullable[String]
-  ) derives Json.Reader, Json.Writer
+  ) derives Json.Reader,
+        Json.Writer
 
   test("derived writer uses case class field names and omits none fields") {
     val config = DerivedConfig(
@@ -79,7 +84,8 @@ class JsonTest extends munit.FunSuite {
       ("cc_path" -> Json.JString("cc")) :: Nil
     )
 
-    val decoded = Json.Reader[DerivedNullableConfig]
+    val decoded = Json
+      .Reader[DerivedNullableConfig]
       .read(Json.Path.Root, json)
       .toOption
       .getOrElse(sys.error("expected successful decode"))
@@ -126,7 +132,9 @@ class JsonTest extends munit.FunSuite {
     assertEquals(Json.Writer.write(conf), json)
   }
 
-  test("strict JSON documents use JSON string escapes without changing the permissive parser") {
+  test(
+    "strict JSON documents use JSON string escapes without changing the permissive parser"
+  ) {
     val valid = List(
       "\"\\/\"" -> JString("/"),
       "\"\\b\\f\\n\\r\\t\\\"\\\\\"" -> JString("\b\f\n\r\t\"\\"),
@@ -136,7 +144,11 @@ class JsonTest extends munit.FunSuite {
       )
     )
     valid.foreach { case (document, expected) =>
-      assertEquals(Json.strictParserFile.parseAll(document), Right(expected), document)
+      assertEquals(
+        Json.strictParserFile.parseAll(document),
+        Right(expected),
+        document
+      )
     }
 
     val invalidEscapes = List(
@@ -154,11 +166,17 @@ class JsonTest extends munit.FunSuite {
 
     (0 until 0x20).foreach { control =>
       val document = "\"a" + control.toChar + "b\""
-      assert(Json.strictParserFile.parseAll(document).isLeft, s"accepted control U+${control.toHexString}")
+      assert(
+        Json.strictParserFile.parseAll(document).isLeft,
+        s"accepted control U+${control.toHexString}"
+      )
     }
 
     assertEquals(Json.parserFile.parseAll("\"\\x41\""), Right(JString("A")))
-    assertEquals(Json.parserFile.parseAll("\"raw\nnewline\""), Right(JString("raw\nnewline")))
+    assertEquals(
+      Json.parserFile.parseAll("\"raw\nnewline\""),
+      Right(JString("raw\nnewline"))
+    )
     assert(Json.parserFile.parseAll("\"\\/\"").isLeft)
   }
 }

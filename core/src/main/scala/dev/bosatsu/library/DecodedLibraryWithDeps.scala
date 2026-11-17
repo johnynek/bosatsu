@@ -199,15 +199,17 @@ object DecodedLibraryWithDeps {
   )(implicit
       F: MonadError[F, Throwable],
       C: CanPromise[F]
-  ): F[(
-    DecodedLibraryWithDeps[Algo.Blake3],
-    SortedMap[LibraryIdentity, DecodedLibrary[Algo.Blake3]]
-  )] = {
+  ): F[
+    (
+        DecodedLibraryWithDeps[Algo.Blake3],
+        SortedMap[LibraryIdentity, DecodedLibrary[Algo.Blake3]]
+    )
+  ] = {
     type Identity = LibraryIdentity
     type State = (
-      List[Identity],
-      SortedMap[Identity, DecodedLibrary[Algo.Blake3]],
-      SortedMap[Identity, DecodedLibraryWithDeps[Algo.Blake3]]
+        List[Identity],
+        SortedMap[Identity, DecodedLibrary[Algo.Blake3]],
+        SortedMap[Identity, DecodedLibraryWithDeps[Algo.Blake3]]
     )
     given Ordering[Identity] = Ordering.Tuple2(using
       summon[Ordering[Name]],
@@ -219,8 +221,8 @@ object DecodedLibraryWithDeps {
     ): F[Either[
       State,
       (
-        DecodedLibraryWithDeps[Algo.Blake3],
-        SortedMap[LibraryIdentity, DecodedLibrary[Algo.Blake3]]
+          DecodedLibraryWithDeps[Algo.Blake3],
+          SortedMap[LibraryIdentity, DecodedLibrary[Algo.Blake3]]
       )
     ]] =
       state._1 match {
@@ -238,28 +240,40 @@ object DecodedLibraryWithDeps {
                 )
               )
             case Some(snapshot) =>
-              val dependencyIds = graph.dependencyEdges(identity).iterator
+              val dependencyIds = graph
+                .dependencyEdges(identity)
+                .iterator
                 .map(_.targetIdentity)
                 .to(SortedSet)
                 .toList
               val dependencyLibraries = dependencyIds.flatMap { dependencyId =>
                 state._2.get(dependencyId).map(dependencyId -> _)
               }
-              val providers = dependencyLibraries.flatMap { case (provider, library) =>
-                library.interfaces.map(iface => iface.name -> provider)
+              val providers = dependencyLibraries.flatMap {
+                case (provider, library) =>
+                  library.interfaces.map(iface => iface.name -> provider)
               }
-              val ambiguous = providers.groupBy(_._1).iterator.collect {
-                case (packageName, entries) if entries.map(_._2).distinct.size > 1 =>
-                  packageName -> entries.map(_._2).distinct.sorted
-              }.toList.sortBy(_._1.asString)
+              val ambiguous = providers
+                .groupBy(_._1)
+                .iterator
+                .collect {
+                  case (packageName, entries)
+                      if entries.map(_._2).distinct.size > 1 =>
+                    packageName -> entries.map(_._2).distinct.sorted
+                }
+                .toList
+                .sortBy(_._1.asString)
 
               if (ambiguous.nonEmpty) {
-                val detail = ambiguous.map { case (packageName, providerIds) =>
-                  val providerNames = providerIds.map { case (name, version) =>
-                    s"${name.name} ${version.render}"
+                val detail = ambiguous
+                  .map { case (packageName, providerIds) =>
+                    val providerNames = providerIds.map {
+                      case (name, version) =>
+                        s"${name.name} ${version.render}"
+                    }
+                    s"${packageName.asString}: ${providerNames.mkString(", ")}"
                   }
-                  s"${packageName.asString}: ${providerNames.mkString(", ")}"
-                }.mkString("; ")
+                  .mkString("; ")
                 F.raiseError(
                   CliException.Basic(
                     s"ambiguous dependency providers in ${identity._1.name} " +
@@ -267,7 +281,8 @@ object DecodedLibraryWithDeps {
                   )
                 )
               } else {
-                val dependencyIfaces = dependencyLibraries.flatMap(_._2.interfaces)
+                val dependencyIfaces =
+                  dependencyLibraries.flatMap(_._2.interfaces)
                 checkReserved(snapshot.protoLib) *> DecodedLibrary
                   .decode[F, Algo.Blake3](
                     Hashed(snapshot.blake3, snapshot.protoLib),
@@ -281,15 +296,22 @@ object DecodedLibraryWithDeps {
                   }
                   .map { decoded =>
                     val decodedMap = state._2.updated(identity, decoded)
-                    val childIds = graph.dependencyEdges(identity).iterator
-                      .filter(_.visibility != LibraryDependencyVisibility.UnusedTransitivePublic)
+                    val childIds = graph
+                      .dependencyEdges(identity)
+                      .iterator
+                      .filter(
+                        _.visibility != LibraryDependencyVisibility.UnusedTransitivePublic
+                      )
                       .map(_.targetIdentity)
                       .to(SortedSet)
-                    val children = childIds.iterator.flatMap { childId =>
-                      state._3.get(childId).map(childId -> _)
-                    }.to(SortedMap)
+                    val children = childIds.iterator
+                      .flatMap { childId =>
+                        state._3.get(childId).map(childId -> _)
+                      }
+                      .to(SortedMap)
                     val value = DecodedLibraryWithDeps(decoded, children)
-                    val next = (remaining, decodedMap, state._3.updated(identity, value))
+                    val next =
+                      (remaining, decodedMap, state._3.updated(identity, value))
                     Left(next)
                   }
               }
@@ -299,8 +321,8 @@ object DecodedLibraryWithDeps {
     F.tailRecM[
       State,
       (
-        DecodedLibraryWithDeps[Algo.Blake3],
-        SortedMap[LibraryIdentity, DecodedLibrary[Algo.Blake3]]
+          DecodedLibraryWithDeps[Algo.Blake3],
+          SortedMap[LibraryIdentity, DecodedLibrary[Algo.Blake3]]
       )
     ](
       (graph.decodeOrder, SortedMap.empty, SortedMap.empty)

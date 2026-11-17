@@ -16,68 +16,74 @@ class VerifiedLibrarySnapshotTest extends munit.ScalaCheckSuite {
   private val version = Version(1, 2, 3)
   private var pinnedReads = 0
 
-  private val countingPlatform = new PlatformIO[MemoryMain.StateF[Result], Path] {
-    type FileKey = platform.FileKey
-    export platform.{
-      moduleIOMonad,
-      parallelF,
-      canPromiseF,
-      pathArg,
-      pathOrdering,
-      withEC,
-      pathToString,
-      readUtf8,
-      readPackages,
-      readLibrary,
-      fetchHash,
-      fsDataType,
-      pendingOutputPath,
-      withTempDirectoryIn,
-      resolve,
-      relativize,
-      parent,
-      unfoldDir,
-      hasExtension,
-      writeDoc,
-      writeDocAtomic,
-      writeStdout,
-      writeError,
-      readStdinBytes,
-      writeStdoutBytes,
-      system,
-      systemStdout,
-      env,
-      hostOs,
-      hostArch,
-      gitShaHead,
-      println,
-      errorln,
-      writeInterfaces,
-      writeFileSetAtomic,
-      writeBytes,
-      writeLibrary,
-      writePackages,
-      withTempPrefix
-    }
+  private val countingPlatform =
+    new PlatformIO[MemoryMain.StateF[Result], Path] {
+      type FileKey = platform.FileKey
+      export platform.{
+        moduleIOMonad,
+        parallelF,
+        canPromiseF,
+        pathArg,
+        pathOrdering,
+        withEC,
+        pathToString,
+        readUtf8,
+        readPackages,
+        readLibrary,
+        fetchHash,
+        fsDataType,
+        pendingOutputPath,
+        withTempDirectoryIn,
+        resolve,
+        relativize,
+        parent,
+        unfoldDir,
+        hasExtension,
+        writeDoc,
+        writeDocAtomic,
+        writeStdout,
+        writeError,
+        readStdinBytes,
+        writeStdoutBytes,
+        system,
+        systemStdout,
+        env,
+        hostOs,
+        hostArch,
+        gitShaHead,
+        println,
+        errorln,
+        writeInterfaces,
+        writeFileSetAtomic,
+        writeBytes,
+        writeLibrary,
+        writePackages,
+        withTempPrefix
+      }
 
-    override def fileKeyHash = platform.fileKeyHash
-    override def existingFileKey(path: Path) = platform.existingFileKey(path)
+      override def fileKeyHash = platform.fileKeyHash
+      override def existingFileKey(path: Path) = platform.existingFileKey(path)
 
-    override def readBytes(path: Path): MemoryMain.StateF[Result][Array[Byte]] = {
-      pinnedReads += 1
-      platform.readBytes(path)
+      override def readBytes(
+          path: Path
+      ): MemoryMain.StateF[Result][Array[Byte]] = {
+        pinnedReads += 1
+        platform.readBytes(path)
+      }
     }
-  }
 
   private def library(
       repoUri: String = "https://example.invalid/repo",
       libraryVersion: Version = version
   ): Array[Byte] =
-    proto.Library(
-      name = "sample",
-      repoUri = repoUri,
-      descriptor = Some(proto.LibDescriptor(version = Some(libraryVersion.toProto)))
-    ).toByteArray
+    proto
+      .Library(
+        name = "sample",
+        repoUri = repoUri,
+        descriptor =
+          Some(proto.LibDescriptor(version = Some(libraryVersion.toProto)))
+      )
+      .toByteArray
 
   private def pin(name: String, bytes: Array[Byte]): String =
     if (name == "blake3") s"blake3:${Algo.hashBytes[Algo.Blake3](bytes).hex}"
@@ -90,19 +96,23 @@ class VerifiedLibrarySnapshotTest extends munit.ScalaCheckSuite {
       expectedVersion: Version = version
   ): Result[VerifiedLibrarySnapshot[Path]] = {
     val state = MemoryMain.State.empty
-      .withFile(path, MemoryMain.FileContent.Bytes(Bytes.copyFromArray(bytes))).get
+      .withFile(path, MemoryMain.FileContent.Bytes(Bytes.copyFromArray(bytes)))
+      .get
     VerifiedLibrarySnapshot
       .verify(platform, path, expectedName, expectedVersion, hashes)
       .runA(state)
   }
 
   private def rejects(result: Result[?], messageParts: String*): Unit = {
-    val message = result.swap.toOption.flatMap(error => Option(error.getMessage))
+    val message = result.swap.toOption
+      .flatMap(error => Option(error.getMessage))
       .getOrElse(fail("accepted unauthenticated library input"))
     messageParts.foreach(part => assert(message.contains(part), message))
   }
 
-  property("supported pins authenticate one exact identity and altered bytes fail") {
+  property(
+    "supported pins authenticate one exact identity and altered bytes fail"
+  ) {
     Prop.forAll(Gen.alphaStr) { repoUri =>
       val bytes = library(repoUri)
       val altered = library(repoUri + "/changed")
@@ -117,7 +127,8 @@ class VerifiedLibrarySnapshotTest extends munit.ScalaCheckSuite {
       assert(verify(bytes, pins.reverse :+ pins.head).isRight)
       assert(verify(bytes, pins :+ "future:unrecognized-digest").isRight)
       assert(verify(altered, pins).isLeft)
-      val alteredSnapshot = verify(altered, List(pin("sha256", altered))).toOption.get
+      val alteredSnapshot =
+        verify(altered, List(pin("sha256", altered))).toOption.get
       assert(!snapshot.hasSameBytes(alteredSnapshot))
       assert(snapshot.hasSameBytes(verify(bytes, pins).toOption.get))
     }
@@ -129,7 +140,9 @@ class VerifiedLibrarySnapshotTest extends munit.ScalaCheckSuite {
     assert(verify(bytes, List(pin("sha256", bytes))).isRight)
   }
 
-  test("empty, unsupported-only, malformed, and conflicting supported pins fail") {
+  test(
+    "empty, unsupported-only, malformed, and conflicting supported pins fail"
+  ) {
     val bytes = library()
     rejects(verify(bytes, Nil), "no expected hashes", "pinned/lib.bosatsu_lib")
     rejects(
@@ -183,7 +196,8 @@ class VerifiedLibrarySnapshotTest extends munit.ScalaCheckSuite {
       "expected 1.2.3-0"
     )
 
-    val snapshot = verify(bytes, hashes, expectedVersion = actualVersion).toOption.get
+    val snapshot =
+      verify(bytes, hashes, expectedVersion = actualVersion).toOption.get
     val cachedReauthentication = snapshot.authenticateAs(
       "pinned/lib.bosatsu_lib",
       Name("sample"),
@@ -197,7 +211,9 @@ class VerifiedLibrarySnapshotTest extends munit.ScalaCheckSuite {
     assert(failure.contains("expected 1.2.3-0"), failure)
   }
 
-  test("a correctly pinned root with a malformed serialized version is rejected") {
+  test(
+    "a correctly pinned root with a malformed serialized version is rejected"
+  ) {
     val malformedVersion = proto.Version(
       major = 1L,
       minor = 2L,
@@ -229,7 +245,13 @@ class VerifiedLibrarySnapshotTest extends munit.ScalaCheckSuite {
     )
 
     val missing = VerifiedLibrarySnapshot
-      .verify(platform, path, Name("sample"), version, List("blake3:" + ("0" * 64)))
+      .verify(
+        platform,
+        path,
+        Name("sample"),
+        version,
+        List("blake3:" + ("0" * 64))
+      )
       .runA(MemoryMain.State.empty)
     rejects(missing, "pinned/lib.bosatsu_lib", "cannot read")
   }
@@ -237,11 +259,18 @@ class VerifiedLibrarySnapshotTest extends munit.ScalaCheckSuite {
   test("pinned library verification reads the artifact once") {
     val bytes = library("single-read")
     val state = MemoryMain.State.empty
-      .withFile(path, MemoryMain.FileContent.Bytes(Bytes.copyFromArray(bytes))).get
+      .withFile(path, MemoryMain.FileContent.Bytes(Bytes.copyFromArray(bytes)))
+      .get
     pinnedReads = 0
 
     val result = VerifiedLibrarySnapshot
-      .verify(countingPlatform, path, Name("sample"), version, List(pin("sha256", bytes)))
+      .verify(
+        countingPlatform,
+        path,
+        Name("sample"),
+        version,
+        List(pin("sha256", bytes))
+      )
       .runA(state)
 
     assert(result.isRight)

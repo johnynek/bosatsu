@@ -6,7 +6,13 @@ import cats.data.{NonEmptyList, ReaderT}
 import cats.parse.{Parser => P}
 //import cats.effect.IO
 import dev.bosatsu.graph.Memoize
-import dev.bosatsu.rankn.{ConstructorParam, DefinedType, Type, TypeAlias, TypeEnv}
+import dev.bosatsu.rankn.{
+  ConstructorParam,
+  DefinedType,
+  Type,
+  TypeAlias,
+  TypeEnv
+}
 import dev.bosatsu.tool.CliException
 import scala.util.{Failure, Success, Try}
 import scala.reflect.ClassTag
@@ -107,8 +113,8 @@ object ProtoConverter {
 
     inline def stringId(s: String): Either[(SerState, Int), Int] =
       strings.get(s, s) match {
-        case Right(id)         => Right(id)
-        case Left((next, id))  => Left((copy(strings = next), id))
+        case Right(id)        => Right(id)
+        case Left((next, id)) => Left((copy(strings = next), id))
       }
 
     inline def typeId(
@@ -116,8 +122,8 @@ object ProtoConverter {
         inline protoType: => proto.Type
     ): Either[(SerState, Int), Int] =
       types.get(t, protoType) match {
-        case Right(id)         => Right(id)
-        case Left((next, id))  => Left((copy(types = next), id))
+        case Right(id)        => Right(id)
+        case Left((next, id)) => Left((copy(types = next), id))
       }
   }
 
@@ -177,7 +183,9 @@ object ProtoConverter {
       override def map[A, B](fa: ProtoState[A])(f: A => B): ProtoState[B] =
         fa.map(f)
 
-      def flatMap[A, B](fa: ProtoState[A])(f: A => ProtoState[B]): ProtoState[B] =
+      def flatMap[A, B](fa: ProtoState[A])(
+          f: A => ProtoState[B]
+      ): ProtoState[B] =
         fa.flatMap(f)
 
       def tailRecM[A, B](a: A)(
@@ -215,7 +223,7 @@ object ProtoConverter {
       ProtoState { state =>
         Eval.defer(self.run(state)).map {
           case success @ Success(_) => success
-          case Failure(cause) =>
+          case Failure(cause)       =>
             Failure(new IllegalArgumentException(message, cause))
         }
       }
@@ -251,16 +259,14 @@ object ProtoConverter {
     }
 
   private def getProtoTypeTab(t: Type): Tab[Option[Int]] =
-    ProtoState
-      .get
+    ProtoState.get
       .map(_.types.indexOf(t).map(_ + 1))
 
   private def writePattern(
       p: Pattern[(PackageName, Constructor), Type],
       pp: proto.Pattern
   ): Tab[Int] =
-    ProtoState
-      .get
+    ProtoState.get
       .flatMap { s =>
         s.patterns.get(p, pp) match {
           case Right(_) =>
@@ -272,8 +278,7 @@ object ProtoConverter {
       }
 
   private def writeExpr(te: TypedExpr[Any], pte: proto.TypedExpr): Tab[Int] =
-    ProtoState
-      .get
+    ProtoState.get
       .flatMap { s =>
         s.expressions.get(te, pte) match {
           case Right(_) =>
@@ -375,7 +380,7 @@ object ProtoConverter {
     def run(decodeState: DecodeState): Try[String] =
       decodeState.getString(idx - 1) match {
         case Some(s) => Success(s)
-        case None    => Failure(new Exception(s"invalid index: $idx in $context"))
+        case None => Failure(new Exception(s"invalid index: $idx in $context"))
       }
 
     ReaderT[Try, DecodeState, String](run)
@@ -387,7 +392,7 @@ object ProtoConverter {
     def run(decodeState: DecodeState): Try[Type] =
       decodeState.getType(idx - 1) match {
         case Some(t) => Success(t)
-        case None    => Failure(new Exception(s"invalid index: $idx in $context"))
+        case None => Failure(new Exception(s"invalid index: $idx in $context"))
       }
 
     ReaderT[Try, DecodeState, Type](run)
@@ -399,7 +404,7 @@ object ProtoConverter {
     def run(decodeState: DecodeState): Try[DefinedType[Kind.Arg]] =
       decodeState.getDt(idx - 1) match {
         case Some(dt) => Success(dt)
-        case None     => Failure(new Exception(s"invalid index: $idx in $context"))
+        case None => Failure(new Exception(s"invalid index: $idx in $context"))
       }
 
     ReaderT[Try, DecodeState, DefinedType[Kind.Arg]](run)
@@ -411,7 +416,7 @@ object ProtoConverter {
     def run(decodeState: DecodeState): Try[TypeAlias[Kind.Arg]] =
       decodeState.getTypeAlias(idx - 1) match {
         case Some(ta) => Success(ta)
-        case None     => Failure(new Exception(s"invalid index: $idx in $context"))
+        case None => Failure(new Exception(s"invalid index: $idx in $context"))
       }
 
     ReaderT[Try, DecodeState, TypeAlias[Kind.Arg]](run)
@@ -423,7 +428,7 @@ object ProtoConverter {
     def run(decodeState: DecodeState): Try[TypedExpr[Region]] =
       decodeState.getExpr(idx - 1) match {
         case Some(exp) => Success(exp)
-        case None      => Failure(new Exception(s"invalid index: $idx in $context"))
+        case None => Failure(new Exception(s"invalid index: $idx in $context"))
       }
 
     ReaderT[Try, DecodeState, TypedExpr[Region]](run)
@@ -625,9 +630,9 @@ object ProtoConverter {
       inline context: => String
   ): Try[Declaration.MatchKind] =
     kind.value match {
-      case 0 => Success(Declaration.MatchKind.Match)
-      case 1 => Success(Declaration.MatchKind.Recur)
-      case 2 => Success(Declaration.MatchKind.Loop)
+      case 0     => Success(Declaration.MatchKind.Match)
+      case 1     => Success(Declaration.MatchKind.Recur)
+      case 2     => Success(Declaration.MatchKind.Loop)
       case other =>
         Failure(new Exception(s"invalid match kind: $other, in $context"))
     }
@@ -685,15 +690,16 @@ object ProtoConverter {
                 typeOf(dst),
                 solvedFromProto(fs),
                 solvedFromProto(exs)
-              ).mapN { (sourceAtSolve, targetAtSolve, forallSolved, existsHidden) =>
-                Some(
-                  TypedExpr.QuantifierEvidence(
-                    sourceAtSolve = sourceAtSolve,
-                    targetAtSolve = targetAtSolve,
-                    forallSolved = forallSolved,
-                    existsHidden = existsHidden
+              ).mapN {
+                (sourceAtSolve, targetAtSolve, forallSolved, existsHidden) =>
+                  Some(
+                    TypedExpr.QuantifierEvidence(
+                      sourceAtSolve = sourceAtSolve,
+                      targetAtSolve = targetAtSolve,
+                      forallSolved = forallSolved,
+                      existsHidden = existsHidden
+                    )
                   )
-                )
               }
           }
 
@@ -812,11 +818,15 @@ object ProtoConverter {
                 (litFromProto(lit), typeOf(tpe), exprRegion)
                   .mapN(TypedExpr.Literal(_, _, _))
             }
-          case Value.MatchExpr(proto.MatchExpr(argId, branches, matchKind0, _)) =>
-            def decodeGuard(b: proto.Branch): Try[Option[TypedExpr.BranchGuard[Region]]] = {
+          case Value.MatchExpr(
+                proto.MatchExpr(argId, branches, matchKind0, _)
+              ) =>
+            def decodeGuard(
+                b: proto.Branch
+            ): Try[Option[TypedExpr.BranchGuard[Region]]] = {
               val boolGuard = Option.when(b.guardExpr != 0)(b.guardExpr)
               (boolGuard, b.matchGuard) match {
-                case (None, None) => Success(None)
+                case (None, None)         => Success(None)
                 case (Some(exprId), None) =>
                   exprOf(exprId).map(expr => Some(TypedExpr.BoolGuard(expr)))
                 case (None, Some(protoMatchGuard)) =>
@@ -857,7 +867,9 @@ object ProtoConverter {
                 exprOf(b.resultExpr),
                 regionFromProto(b.patternRegion)
               ).mapN((pattern, guardNode, expr, patternRegion) =>
-                TypedExpr.Branch.fromGuardNode(pattern, guardNode, expr)(using patternRegion)
+                TypedExpr.Branch.fromGuardNode(pattern, guardNode, expr)(using
+                  patternRegion
+                )
               )
 
             NonEmptyList.fromList(branches.toList) match {
@@ -897,7 +909,7 @@ object ProtoConverter {
     parsePack(pstr, context) match {
       case Success(pack) =>
         toConstructor(tstr) match {
-          case Success(cons) => Success((pack, cons))
+          case Success(cons)       => Success((pack, cons))
           case failure: Failure[?] =>
             failure.asInstanceOf[Try[(PackageName, Constructor)]]
         }
@@ -911,7 +923,7 @@ object ProtoConverter {
       inline context: => String
   ): Try[Type.Const.Defined] =
     fullNameFromStr(pstr, tstr, context) match {
-      case Success((p, c)) => Success(Type.Const.Defined(p, TypeName(c)))
+      case Success((p, c))     => Success(Type.Const.Defined(p, TypeName(c)))
       case failure: Failure[?] =>
         failure.asInstanceOf[Try[Type.Const.Defined]]
     }
@@ -1041,8 +1053,7 @@ object ProtoConverter {
     }
 
   def patternToProto(p: Pattern[(PackageName, Constructor), Type]): Tab[Int] =
-    ProtoState
-      .get
+    ProtoState.get
       .map(_.patterns.indexOf(p))
       .flatMap {
         case Some(idx) => tabPure(idx + 1)
@@ -1218,8 +1229,7 @@ object ProtoConverter {
     }
 
   def typedExprToProto[A: HasRegion](te: TypedExpr[A]): Tab[Int] =
-    ProtoState
-      .get
+    ProtoState.get
       .map(_.expressions.indexOf(te))
       .flatMap {
         case Some(idx) => tabPure(idx + 1)
@@ -1262,13 +1272,13 @@ object ProtoConverter {
                 typeToProto(tpe),
                 qev.traverse(quantifierEvidenceToProto)
               ).flatMapN { (term, tpe, qevp) =>
-                  val ex = proto.AnnotationExpr(
-                    expr = term,
-                    typeOf = tpe,
-                    quantifierEvidence = qevp
-                  )
-                  writeTypedExpr(a, proto.TypedExpr.Value.AnnotationExpr(ex))
-                }
+                val ex = proto.AnnotationExpr(
+                  expr = term,
+                  typeOf = tpe,
+                  quantifierEvidence = qevp
+                )
+                writeTypedExpr(a, proto.TypedExpr.Value.AnnotationExpr(ex))
+              }
             case al @ AnnotatedLambda(args, res, _) =>
               args.toList
                 .traverse { case (n, tpe) =>
@@ -1349,7 +1359,11 @@ object ProtoConverter {
                 guard match {
                   case TypedExpr.BoolGuard(guardExpr) =>
                     recurse(guardExpr).map(exprId => (exprId, None))
-                  case guard @ TypedExpr.MatchGuard(argExpr, pattern, guardExpr) =>
+                  case guard @ TypedExpr.MatchGuard(
+                        argExpr,
+                        pattern,
+                        guardExpr
+                      ) =>
                     (
                       recurse(argExpr),
                       patternToProto(pattern),
@@ -1362,7 +1376,8 @@ object ProtoConverter {
                             argExpr = argExprId,
                             pattern = patternId,
                             guardExpr = guardExprId.getOrElse(0),
-                            patternRegion = Some(regionToProto(guard.patternRegion))
+                            patternRegion =
+                              Some(regionToProto(guard.patternRegion))
                           )
                         )
                       )
@@ -1391,7 +1406,11 @@ object ProtoConverter {
               recurse(argE)
                 .product(branches.toList.traverse(encodeBranch))
                 .flatMap { case (argId, branches) =>
-                  val ex = proto.MatchExpr(argId, branches, matchKindToProto(m.matchKind))
+                  val ex = proto.MatchExpr(
+                    argId,
+                    branches,
+                    matchKindToProto(m.matchKind)
+                  )
                   writeTypedExpr(m, proto.TypedExpr.Value.MatchExpr(ex))
                 }
           }
@@ -1716,7 +1735,8 @@ object ProtoConverter {
       allAliases: Map[(PackageName, TypeName), (TypeAlias[Any], Int)],
       e: ExportedName[Referant[V]]
   ): Tab[proto.ExportedName] = {
-    val protoRef: Tab[proto.Referant] = referantToProto(allDts, allAliases, e.tag)
+    val protoRef: Tab[proto.Referant] =
+      referantToProto(allDts, allAliases, e.tag)
     val exKind: Tab[(Int, proto.ExportKind)] = e match {
       case ExportedName.Binding(b, _) =>
         getId(b.sourceCodeRepr).map((_, proto.ExportKind.Binding))
@@ -1772,12 +1792,16 @@ object ProtoConverter {
   ): Try[proto.Interface] = {
     val allDts = DefinedType
       .listToMap(iface.exports.flatMap { ex =>
-        ex.tag.definedType.filter(dt => includeForeignDefinitions || dt.packageName == iface.name)
+        ex.tag.definedType.filter(dt =>
+          includeForeignDefinitions || dt.packageName == iface.name
+        )
       })
       .mapWithIndex((dt, idx) => (dt, idx))
     val allAliases = TypeAlias
       .listToMap(iface.exports.flatMap { ex =>
-        ex.tag.typeAlias.filter(ta => includeForeignDefinitions || ta.packageName == iface.name)
+        ex.tag.typeAlias.filter(ta =>
+          includeForeignDefinitions || ta.packageName == iface.name
+        )
       })
       .mapWithIndex((ta, idx) => (ta, idx))
 
@@ -1798,18 +1822,24 @@ object ProtoConverter {
           !allAliases.get((ta.packageName, ta.name)).map(_._1).contains(ta)
         case Referant.Constructor(dt, cf) =>
           !allDts.get((dt.packageName, dt.name)).map(_._1).contains(dt) ||
-            !dt.constructors.find(_.name == cf.name).contains(cf)
+          !dt.constructors.find(_.name == cf.name).contains(cf)
         case Referant.Value(_) => false
       })
-      if (conflict) tabFail(CliException.Basic(
-        show"conflicting definition in ${iface.name} export ${exp.name}"
-      ))
+      if (conflict)
+        tabFail(
+          CliException.Basic(
+            show"conflicting definition in ${iface.name} export ${exp.name}"
+          )
+        )
       else expNameToProto(allDts, allAliases, exp)
     }
 
     val packageId = getId(iface.name.asString)
 
-    val last = packageId.product(tryProtoDts).product(tryProtoAliases).product(tryExports)
+    val last = packageId
+      .product(tryProtoDts)
+      .product(tryProtoAliases)
+      .product(tryExports)
 
     runTab(last).map { case (serstate, (((nm, dts), tas), exps)) =>
       proto.Interface(
@@ -1978,7 +2008,9 @@ object ProtoConverter {
       for {
         packageName <- lookup(protoIface.packageName, protoIface.toString)
         pn <- ReaderT.liftF(parsePack(packageName, s"interface: $protoIface"))
-        exports <- protoIface.exports.toList.traverse(exportedNameFromProto(loadDT, loadTA, _))
+        exports <- protoIface.exports.toList.traverse(
+          exportedNameFromProto(loadDT, loadTA, _)
+        )
         iface = Package(pn, Nil, exports, ())
         view <- ReaderT.liftF(PackageSignatures.checkedView(protoIface, iface))
         checked <- ReaderT.liftF(
@@ -2042,7 +2074,9 @@ object ProtoConverter {
   ): Tab[proto.Imports] =
     for {
       nm <- getId(i.pack.name.asString)
-      imps <- i.items.toList.traverse(importedNameToProto(allDts, allAliases, _))
+      imps <- i.items.toList.traverse(
+        importedNameToProto(allDts, allAliases, _)
+      )
     } yield proto.Imports(nm, imps, PackageSignatures.isCanonical(i.pack))
 
   def letToProto[A: HasRegion](
@@ -2063,7 +2097,9 @@ object ProtoConverter {
         (getId(nm.sourceCodeRepr), typeToProto(t)).mapN(proto.ExternalDef(_, _))
     }
 
-  def packageToProto[A: HasRegion](cpack: Package.Typed[A]): Try[proto.Package] = {
+  def packageToProto[A: HasRegion](
+      cpack: Package.Typed[A]
+  ): Try[proto.Package] = {
     // the Int is in index in the list of definedTypes:
     val allDts
         : SortedMap[(PackageName, TypeName), (DefinedType[Kind.Arg], Int)] =
@@ -2140,7 +2176,7 @@ object ProtoConverter {
     def run(decodeState: DecodeState): Try[Bindable] =
       decodeState.getString(idx - 1) match {
         case Some(value) => toBindable(value)
-        case None        => Failure(new Exception(s"invalid index: $idx in $context"))
+        case None => Failure(new Exception(s"invalid index: $idx in $context"))
       }
 
     ReaderT[Try, DecodeState, Bindable](run)
@@ -2152,7 +2188,7 @@ object ProtoConverter {
     def run(decodeState: DecodeState): Try[Identifier] =
       decodeState.getString(idx - 1) match {
         case Some(value) => toIdent(value)
-        case None        => Failure(new Exception(s"invalid index: $idx in $context"))
+        case None => Failure(new Exception(s"invalid index: $idx in $context"))
       }
 
     ReaderT[Try, DecodeState, Identifier](run)
@@ -2232,7 +2268,10 @@ object ProtoConverter {
         // this adds all the types and contructors
         // from the given defined types
         val te0: TypeEnv[Kind.Arg] =
-          TypeEnv.fromDefinitionsAndAliases(ds.getDefinedTypes, ds.getTypeAliases)
+          TypeEnv.fromDefinitionsAndAliases(
+            ds.getDefinedTypes,
+            ds.getTypeAliases
+          )
         // we need to also add all the external defs
         val te = exts.foldLeft(te0) { case (te, (b, t)) =>
           te.addExternalValue(pack, b, t)
@@ -2257,7 +2296,8 @@ object ProtoConverter {
   ): Try[(List[Package.Interface], List[Package.Compiled])] = {
 
     type Node = Either[proto.Interface, proto.Package]
-    type Loaded = Either[(Package.Interface, TypeEnv[Kind.Arg]), Package.Compiled]
+    type Loaded =
+      Either[(Package.Interface, TypeEnv[Kind.Arg]), Package.Compiled]
     def nodeName(n: Node): String =
       n match {
         case Left(i)  => iname(i)
@@ -2274,7 +2314,9 @@ object ProtoConverter {
           }
       }
 
-    val ifaceNodes: List[Node] = ifaces.iterator.map(i => Left(PackageSignatures.symbolicReferences(i))).toList
+    val ifaceNodes: List[Node] = ifaces.iterator
+      .map(i => Left(PackageSignatures.symbolicReferences(i)))
+      .toList
     val packNodes: List[Node] = packs.map(Right(_)).toList
     val nodesByName: Map[String, List[Node]] =
       (ifaceNodes ::: packNodes).groupBy(nodeName)
@@ -2325,7 +2367,9 @@ object ProtoConverter {
           // dependencies can point to external packages not included in this proto blob
           Nil
         case None =>
-          throw CliException.Basic(s"missing package $n required by ${nodeName(parent)}")
+          throw CliException.Basic(
+            s"missing package $n required by ${nodeName(parent)}"
+          )
       }
 
     // we only call this when we have done validation
@@ -2408,16 +2452,27 @@ object ProtoConverter {
            */
 
           val publicImports = mutable.Map.empty[PackageName, Package.Interface]
-          val compiledExports = mutable.Map.empty[PackageName, TypeEnv[Kind.Arg]]
+          val compiledExports =
+            mutable.Map.empty[PackageName, TypeEnv[Kind.Arg]]
 
-          def decodeInterface(iface: proto.Interface, load: String => Try[Loaded]): Try[Package.Interface] =
-            PackageSignatures.decode(iface, pn => load(pn.asString).map {
-              case Left((_, types)) => types
-              // Read only exported names. The legacy interface codec retains
-              // their original definitions even when the owner is a full package.
-              case Right(pack) => compiledExports.getOrElseUpdate(pn,
-                ExportedName.typeEnvFromExports(pn, pack.exports))
-            })
+          def decodeInterface(
+              iface: proto.Interface,
+              load: String => Try[Loaded]
+          ): Try[Package.Interface] =
+            PackageSignatures.decode(
+              iface,
+              pn =>
+                load(pn.asString).map {
+                  case Left((_, types)) => types
+                  // Read only exported names. The legacy interface codec retains
+                  // their original definitions even when the owner is a full package.
+                  case Right(pack) =>
+                    compiledExports.getOrElseUpdate(
+                      pn,
+                      ExportedName.typeEnvFromExports(pn, pack.exports)
+                    )
+                }
+            )
 
           def packFromProtoUncached(
               pack: proto.Package,
@@ -2429,7 +2484,7 @@ object ProtoConverter {
             def loadPublic(p: PackageName): Try[Package.Interface] =
               publicImports.get(p) match {
                 case Some(iface) => Success(iface)
-                case None =>
+                case None        =>
                   loadIface(p).map { raw =>
                     val iface = PackageSignatures.canonical(raw)
                     publicImports.update(p, iface)
@@ -2447,7 +2502,12 @@ object ProtoConverter {
                   parsePack(packageNameStr, pack.toString)
                 )
                 imps <- pack.imports.toList.traverse { imp =>
-                  importsFromProto(imp, if (imp.canonicalInterface) loadPublic else loadIface, loadDT, loadTA)
+                  importsFromProto(
+                    imp,
+                    if (imp.canonicalInterface) loadPublic else loadIface,
+                    loadDT,
+                    loadTA
+                  )
                 }
                 impMap <- ReaderT.liftF(
                   ImportMap.fromImports(imps)((_, _) =>
@@ -2484,7 +2544,10 @@ object ProtoConverter {
             tab1
               .run(DecodeState.init(pack.strings))
               .flatMap(decoded =>
-                checkInt64Intrinsics(decoded, Int64Intrinsics.checkPackage(decoded))
+                checkInt64Intrinsics(
+                  decoded,
+                  Int64Intrinsics.checkPackage(decoded)
+                )
               )
           }
 
@@ -2500,7 +2563,10 @@ object ProtoConverter {
                   val ifaceRes = decodeInterface(iface, rec)
                   packFromProtoUncached(p, rec).flatMap { pack0 =>
                     ifaceRes.flatMap { iface0 =>
-                      val derived = PackageSignatures.viewOf(iface, Package.interfaceOf(pack0))
+                      val derived = PackageSignatures.viewOf(
+                        iface,
+                        Package.interfaceOf(pack0)
+                      )
                       if (iface0.equals(derived)) Success(Right(pack0))
                       else
                         Failure(
@@ -2574,18 +2640,21 @@ object ProtoConverter {
           val deserIface: proto.Interface => Try[Package.Interface] = { p =>
             load(iname(p)).map {
               case Left((iface, _)) => iface
-              case Right(pack)      => PackageSignatures.viewOf(p, Package.interfaceOf(pack))
+              case Right(pack)      =>
+                PackageSignatures.viewOf(p, Package.interfaceOf(pack))
             }
           }
 
           // Populate the memo in dependency order. Asking for a root first
           // would recursively decode its entire chain on the JVM stack.
-          sorted.layers.toList.traverse_(_.traverse_(n => load(nodeName(n)))).flatMap { _ =>
-            (
-              ifaces.toList.traverse(deserIface),
-              packs.toList.traverse(deserPack)
-            ).tupled
-          }
+          sorted.layers.toList
+            .traverse_(_.traverse_(n => load(nodeName(n))))
+            .flatMap { _ =>
+              (
+                ifaces.toList.traverse(deserIface),
+                packs.toList.traverse(deserPack)
+              ).tupled
+            }
         }
       }
     }

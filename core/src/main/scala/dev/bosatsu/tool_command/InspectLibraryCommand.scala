@@ -15,7 +15,8 @@ import dev.bosatsu.library.{
 import dev.bosatsu.tool.{CliException, LibraryInspection, Output}
 import org.typelevel.paiges.Doc
 
-/** Inspect one pinned library artifact and, in full mode, its declared graph. */
+/** Inspect one pinned library artifact and, in full mode, its declared graph.
+  */
 object InspectLibraryCommand {
   private def serializedDoc(doc: Doc): Bytes =
     Bytes.fromUTF8String(doc.render(100))
@@ -37,29 +38,55 @@ object InspectLibraryCommand {
 
     val input = Opts.option[Path]("input", "pinned Bosatsu library file")
     val expectedName =
-      Opts.option[String]("expected-name", "expected library name (nonempty)")
+      Opts
+        .option[String]("expected-name", "expected library name (nonempty)")
         .mapValidated { name =>
-          if (name.isEmpty) Validated.invalidNel("--expected-name must be nonempty")
+          if (name.isEmpty)
+            Validated.invalidNel("--expected-name must be nonempty")
           else Validated.valid(Name(name))
         }
     val expectedVersion =
       Opts.option[Version]("expected-version", "expected library version")
     val expectedHashes =
-      Opts.options[String]("expected-hash", "expected ALGO:HEX digest (repeatable)")
+      Opts.options[String](
+        "expected-hash",
+        "expected ALGO:HEX digest (repeatable)"
+      )
     val descriptorsOnly =
-      Opts.flag(
-        "descriptors-only",
-        "authenticate only the root before reporting its dependency descriptors"
-      ).orFalse
+      Opts
+        .flag(
+          "descriptors-only",
+          "authenticate only the root before reporting its dependency descriptors"
+        )
+        .orFalse
     val dependencyContext =
-      Opts.option[Path]("dependency-context", "version-1 declared dependency-file context").orNone
-    val signatureOut = Opts.option[Path]("sig-out", "canonical exported interface bundle").orNone
+      Opts
+        .option[Path](
+          "dependency-context",
+          "version-1 declared dependency-file context"
+        )
+        .orNone
+    val signatureOut =
+      Opts.option[Path]("sig-out", "canonical exported interface bundle").orNone
     val exposuresOut =
-      Opts.option[Path]("exposures-out", "typed package exposure and provider ownership JSON").orNone
-    val membershipOut = Opts.option[Path]("membership-out", "package membership JSON").orNone
+      Opts
+        .option[Path](
+          "exposures-out",
+          "typed package exposure and provider ownership JSON"
+        )
+        .orNone
+    val membershipOut =
+      Opts.option[Path]("membership-out", "package membership JSON").orNone
     val implementationOut =
-      Opts.option[Path]("implementation-out", "scoped authenticated artifact and edge JSON").orNone
-    val descriptorOut = Opts.option[Path]("descriptor-out", "authenticated root descriptor JSON").orNone
+      Opts
+        .option[Path](
+          "implementation-out",
+          "scoped authenticated artifact and edge JSON"
+        )
+        .orNone
+    val descriptorOut = Opts
+      .option[Path]("descriptor-out", "authenticated root descriptor JSON")
+      .orNone
 
     val mode: Opts[Mode[Path]] = (
       descriptorsOnly,
@@ -70,26 +97,47 @@ object InspectLibraryCommand {
       implementationOut,
       descriptorOut
     ).tupled.mapValidated {
-      case (onlyDescriptors, context, signature, exposures, membership, implementation, descriptor) =>
+      case (
+            onlyDescriptors,
+            context,
+            signature,
+            exposures,
+            membership,
+            implementation,
+            descriptor
+          ) =>
         val hasFullOutput =
           signature.nonEmpty || exposures.nonEmpty || membership.nonEmpty || implementation.nonEmpty
         (onlyDescriptors, context, descriptor) match {
           case (true, Some(_), _) =>
-            Validated.invalidNel("--descriptors-only does not accept --dependency-context")
+            Validated.invalidNel(
+              "--descriptors-only does not accept --dependency-context"
+            )
           case (true, _, _) if hasFullOutput =>
-            Validated.invalidNel("--descriptors-only accepts only --descriptor-out")
+            Validated.invalidNel(
+              "--descriptors-only accepts only --descriptor-out"
+            )
           case (true, None, Some(outputPath)) =>
             Validated.valid(Mode.DescriptorsOnly(outputPath))
           case (true, None, None) =>
             Validated.invalidNel("--descriptors-only requires --descriptor-out")
           case (false, None, _) =>
-            Validated.invalidNel("full inspection requires --dependency-context")
+            Validated.invalidNel(
+              "full inspection requires --dependency-context"
+            )
           case (false, Some(_), None) if !hasFullOutput =>
             Validated.invalidNel("full inspection requires at least one output")
           case (false, Some(contextPath), _) =>
-            Validated.valid(Mode.Full(
-              contextPath, signature, exposures, membership, implementation, descriptor
-            ))
+            Validated.valid(
+              Mode.Full(
+                contextPath,
+                signature,
+                exposures,
+                membership,
+                implementation,
+                descriptor
+              )
+            )
         }
     }
 
@@ -106,67 +154,107 @@ object InspectLibraryCommand {
                 snapshot: VerifiedLibrarySnapshot[Path],
                 outputPath: Path
             ): F[Output[Path]] =
-              moduleIOMonad.fromEither(
-                  LibraryInspection.descriptorProjection(snapshot)
+              moduleIOMonad
+                .fromEither(
+                  LibraryInspection
+                    .descriptorProjection(snapshot)
                     .leftMap(CliException.Basic(_))
-              ).map { json =>
-                Output.AtomicFileSet(List(outputPath -> serializedDoc(json.toDoc)))
-              }
+                )
+                .map { json =>
+                  Output.AtomicFileSet(
+                    List(outputPath -> serializedDoc(json.toDoc))
+                  )
+                }
 
             for {
               snapshot <- VerifiedLibrarySnapshot.verify(
-                platform, inputPath, name, version, hashes.toList
+                platform,
+                inputPath,
+                name,
+                version,
+                hashes.toList
               )
               output <- inspectionMode match {
                 case Mode.DescriptorsOnly(descriptorFile) =>
                   for {
                     prepared <- descriptorOutput(snapshot, descriptorFile)
                     _ <- OutputPathChecks.checkOutputFiles(
-                      platform, List(inputPath), List(descriptorFile)
+                      platform,
+                      List(inputPath),
+                      List(descriptorFile)
                     )
                   } yield prepared
                 case Mode.Full(
-                    contextFile, signaturePath, exposuresPath, membershipPath,
-                    implementationPath, descriptorPath
-                ) =>
+                      contextFile,
+                      signaturePath,
+                      exposuresPath,
+                      membershipPath,
+                      implementationPath,
+                      descriptorPath
+                    ) =>
                   val allOutputPaths =
                     signaturePath.toList ::: exposuresPath.toList ::: membershipPath.toList :::
                       implementationPath.toList ::: descriptorPath.toList
                   for {
-                    context <- LibraryInspection.readDependencyContext(platform, contextFile)
-                    graph <- VerifiedLibraryGraph.verify(platform, snapshot, context)
-                    decoded <- DecodedLibraryWithDeps.decodeVerifiedGraphWithLibraries(graph)
+                    context <- LibraryInspection.readDependencyContext(
+                      platform,
+                      contextFile
+                    )
+                    graph <- VerifiedLibraryGraph.verify(
+                      platform,
+                      snapshot,
+                      context
+                    )
+                    decoded <- DecodedLibraryWithDeps
+                      .decodeVerifiedGraphWithLibraries(graph)
                     (rootDecoded, libraries) = decoded
                     signatureBytes <- signaturePath.traverse { _ =>
-                      moduleIOMonad.fromTry(
-                        LibraryInspection.signatureProjection(rootDecoded.lib)
-                      ).map(Bytes.fromMessage(_))
+                      moduleIOMonad
+                        .fromTry(
+                          LibraryInspection.signatureProjection(rootDecoded.lib)
+                        )
+                        .map(Bytes.fromMessage(_))
                     }
                     exposures <- exposuresPath.traverse { _ =>
-                      moduleIOMonad.fromEither(
-                        LibraryInspection.exposureProjection(
-                          graph,
-                          libraries,
-                          platform.pathToString
-                        ).leftMap(CliException.Basic(_))
-                      ).map(_.toDoc)
+                      moduleIOMonad
+                        .fromEither(
+                          LibraryInspection
+                            .exposureProjection(
+                              graph,
+                              libraries,
+                              platform.pathToString
+                            )
+                            .leftMap(CliException.Basic(_))
+                        )
+                        .map(_.toDoc)
                     }
                     membership <- membershipPath.traverse { _ =>
-                      moduleIOMonad.fromEither(
-                        LibraryInspection.membershipProjection(graph, libraries)
-                          .leftMap(CliException.Basic(_))
-                      ).map(_.toDoc)
+                      moduleIOMonad
+                        .fromEither(
+                          LibraryInspection
+                            .membershipProjection(graph, libraries)
+                            .leftMap(CliException.Basic(_))
+                        )
+                        .map(_.toDoc)
                     }
                     implementation <- implementationPath.traverse { _ =>
                       moduleIOMonad.pure(
-                        LibraryInspection.implementationProjection(graph, platform.pathToString).toDoc
+                        LibraryInspection
+                          .implementationProjection(
+                            graph,
+                            platform.pathToString
+                          )
+                          .toDoc
                       )
                     }
                     descriptor <- descriptorPath.traverse { _ =>
-                      moduleIOMonad.fromEither(
-                        LibraryInspection.descriptorProjection(snapshot)
-                          .leftMap(CliException.Basic(_))
-                      ).map(_.toDoc)
+                      moduleIOMonad
+                        .fromEither(
+                          LibraryInspection
+                            .descriptorProjection(snapshot)
+                            .leftMap(CliException.Basic(_))
+                        )
+                        .map(_.toDoc)
                     }
                     _ <- OutputPathChecks.checkOutputFiles(
                       platform,
@@ -182,8 +270,9 @@ object InspectLibraryCommand {
                       membershipPath.zip(membership).map { case (path, doc) =>
                         path -> serializedDoc(doc)
                       },
-                      implementationPath.zip(implementation).map { case (path, doc) =>
-                        path -> serializedDoc(doc)
+                      implementationPath.zip(implementation).map {
+                        case (path, doc) =>
+                          path -> serializedDoc(doc)
                       },
                       descriptorPath.zip(descriptor).map { case (path, doc) =>
                         path -> serializedDoc(doc)

@@ -3,23 +3,33 @@ package dev.bosatsu.library
 import _root_.bosatsu.{TypedAst => proto}
 import cats.data.NonEmptyList
 import dev.bosatsu.IorMethods.IorExtension
-import dev.bosatsu.{CompileOptions, LocationMap, Package, PackageMap, Par, Parser, ProtoConverter}
+import dev.bosatsu.{
+  CompileOptions,
+  LocationMap,
+  Package,
+  PackageMap,
+  Par,
+  Parser,
+  ProtoConverter
+}
 import dev.bosatsu.hashing.Algo
 import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Paths}
 
-/** Typed, serialized inspection graphs shared by core and candidate-jar tests. */
+/** Typed, serialized inspection graphs shared by core and candidate-jar tests.
+  */
 private[bosatsu] object LibraryInspectionFixtures {
   final case class File(path: String, bytes: Array[Byte])
 
-  private final case class Built(
+  final private case class Built(
       name: Name,
       version: Version,
       pack: Package.Compiled,
       protoLib: proto.Library,
       bytes: Array[Byte]
   ) {
-    def path: String = s"test_workspace/inspect_library/${Library.defaultFileName(name, version)}"
+    def path: String =
+      s"test_workspace/inspect_library/${Library.defaultFileName(name, version)}"
     def blake3: String = Algo.hashBytes[Algo.Blake3](bytes).hex
     def sha256: String = Algo.hashBytes[Algo.Sha256](bytes).hex
   }
@@ -35,15 +45,20 @@ private[bosatsu] object LibraryInspectionFixtures {
     val interfaces = Package.interfaceOf(PackageMap.predefCompiled) ::
       dependencies.map(dep => Package.interfaceOf(dep.pack))
     val typed = Par.noParallelism {
-      PackageMap.typeCheckParsed(
-        NonEmptyList.one((("inspection fixture", LocationMap(source)), parsed)),
-        interfaces,
-        "<predef>",
-        CompileOptions.Default
-      ).strictToValidated.fold(
-        errors => throw new AssertionError(errors.toList.mkString("\n")),
-        identity
-      )
+      PackageMap
+        .typeCheckParsed(
+          NonEmptyList.one(
+            (("inspection fixture", LocationMap(source)), parsed)
+          ),
+          interfaces,
+          "<predef>",
+          CompileOptions.Default
+        )
+        .strictToValidated
+        .fold(
+          errors => throw new AssertionError(errors.toList.mkString("\n")),
+          identity
+        )
     }
     typed.toMap(parsed.name)
   }
@@ -51,11 +66,15 @@ private[bosatsu] object LibraryInspectionFixtures {
   private def dependency(library: Built): proto.LibDependency =
     proto.LibDependency(
       name = library.name.name,
-      desc = Some(proto.LibDescriptor(
-        version = Some(library.version.toProto),
-        hashes = List(s"blake3:${library.blake3}"),
-        uris = List(s"https://example.invalid/${Library.defaultFileName(library.name, library.version)}")
-      ))
+      desc = Some(
+        proto.LibDescriptor(
+          version = Some(library.version.toProto),
+          hashes = List(s"blake3:${library.blake3}"),
+          uris = List(
+            s"https://example.invalid/${Library.defaultFileName(library.name, library.version)}"
+          )
+        )
+      )
     )
 
   private def build(
@@ -73,12 +92,14 @@ private[bosatsu] object LibraryInspectionFixtures {
       name = name,
       descriptor = Some(proto.LibDescriptor(version = Some(version.toProto))),
       exportedIfaces = List(
-        if (legacyInterfaces) iface.copy(signatureDependencies = None) else iface
+        if (legacyInterfaces) iface.copy(signatureDependencies = None)
+        else iface
       ),
       internalPackages = List(ProtoConverter.packageToProto(pack).get),
       publicDependencies = public.map(dependency),
       privateDependencies = privateDeps.map(dependency),
-      unusedTransitivePublicDependencies = unusedTransitivePublic.map(dependency)
+      unusedTransitivePublicDependencies =
+        unusedTransitivePublic.map(dependency)
     )
     Built(Name(name), version, pack, raw, raw.toByteArray)
   }
@@ -200,7 +221,9 @@ private[bosatsu] object LibraryInspectionFixtures {
     s"""{"name":"${library.name.name}","version":"${library.version.render}","path":"${library.path}","hashes":["blake3:${library.blake3}","sha256:${library.sha256}"]}"""
 
   private def contextJson(declarations: List[Built]): String =
-    s"""{"schema_version":1,"libraries":[${declarations.map(pinJson).mkString(",")}]}
+    s"""{"schema_version":1,"libraries":[${declarations
+        .map(pinJson)
+        .mkString(",")}]}
       |""".stripMargin
 
   lazy val generatedFiles: List[File] = {
@@ -217,7 +240,8 @@ private[bosatsu] object LibraryInspectionFixtures {
     )
   }
 
-  lazy val parsedLibraries: List[(String, proto.Library, Array[Byte], List[String])] =
+  lazy val parsedLibraries
+      : List[(String, proto.Library, Array[Byte], List[String])] =
     libraries.map { library =>
       (
         library.path,
@@ -234,8 +258,10 @@ private[bosatsu] object LibraryInspectionFixtures {
       Files.write(path, file.bytes)
     }
 
-  def main(args: Array[String]): Unit = {
+  def main(args: Array[String]): Unit =
     if (args.toList == List("--write")) write()
-    else throw new IllegalArgumentException("use --write to regenerate test_workspace/inspect_library")
-  }
+    else
+      throw new IllegalArgumentException(
+        "use --write to regenerate test_workspace/inspect_library"
+      )
 }

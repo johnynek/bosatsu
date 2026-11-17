@@ -70,7 +70,8 @@ class ReservedNamespaceTest extends munit.FunSuite {
     assertEquals(
       LibConfig.validateReservedPackages(bad.arg),
       Validated.invalidNec(
-        LibConfig.Error.ReservedPackageInDependency(bad.arg, NonEmptyList.one(anything))
+        LibConfig.Error
+          .ReservedPackageInDependency(bad.arg, NonEmptyList.one(anything))
       )
     )
   }
@@ -94,19 +95,29 @@ class ReservedNamespaceTest extends munit.FunSuite {
       .withFile(path, MemoryMain.FileContent.Bytes(Bytes.copyFromArray(bytes)))
       .get
     val result = VerifiedLibrarySnapshot
-      .verify(platform, path, Name(lib.arg.name), version, List(lib.hash.toIdent))
+      .verify(
+        platform,
+        path,
+        Name(lib.arg.name),
+        version,
+        List(lib.hash.toIdent)
+      )
       .flatMap { snapshot =>
         val context = LibraryInspection.DependencyContext[Chain[String]](Nil)
         VerifiedLibraryGraph.verify(platform, snapshot, context)
       }
-      .flatMap(DecodedLibraryWithDeps.decodeVerifiedGraph[MemoryMain.StateF[ErrorOr]])
+      .flatMap(
+        DecodedLibraryWithDeps.decodeVerifiedGraph[MemoryMain.StateF[ErrorOr]]
+      )
       .runA(state)
     result.swap.toOption.flatMap(error => Option(error.getMessage)).getOrElse {
       fail("expected verified graph decoding to reject the reserved package")
     }
   }
 
-  test("decoding a library graph rejects a non-core library with Bosatsu/ packages") {
+  test(
+    "decoding a library graph rejects a non-core library with Bosatsu/ packages"
+  ) {
     val bad = library("bad", anythingSrc, Nil)
     val mid = library("mid", "package Mid/Lib\nexport x\nx = 1\n", bad :: Nil)
     val app = library("app", "package App/Main\nexport x\nx = 1\n", mid :: Nil)
@@ -123,6 +134,9 @@ class ReservedNamespaceTest extends munit.FunSuite {
   test("verified graph decoding preserves the reserved namespace check") {
     val bad = library("bad", anythingSrc, Nil)
     val message = decodeVerifiedError(bad)
-    assert(message.contains("dependency bad 1.0.0 contains Bosatsu/Anything"), message)
+    assert(
+      message.contains("dependency bad 1.0.0 contains Bosatsu/Anything"),
+      message
+    )
   }
 }

@@ -121,8 +121,7 @@ object KindFormula {
         Sat(value == Variance.co || value == Variance.in)
     }
 
-    case class RecursiveView(source: Source, idx: Int)
-        extends Constraint {
+    case class RecursiveView(source: Source, idx: Int) extends Constraint {
       def depends = List.empty[Var]
       def satisfied(known: LongMap[Variance], value: Variance) =
         Sat(value == Variance.co)
@@ -298,7 +297,7 @@ object KindFormula {
     (for {
       state <- Impl.newState(imports, alias, allowSelfReference = false)
       params <- alias.annotatedTypeParams.zipWithIndex.traverse {
-        case ((v, Left(ks)), _)    =>
+        case ((v, Left(ks)), _) =>
           state.shapeToArg(Direction.PhantomUp, ks).map(v -> _)
         case ((v, Right(ka)), idx) =>
           state.kindArgToArg(ka)(Constraint.DeclaredParam(idx, _)).map(v -> _)
@@ -396,46 +395,52 @@ object KindFormula {
       }
 
     parsedTypeEnv.orderedTypes.reverse
-      .foldM((List.empty[DefinedType[Kind.Arg]], List.empty[TypeAlias[Kind.Arg]], List.empty[
-        ParsedTypeEnv.TypeStatement[Kind.Arg]
-      ], Set.empty[RankNType.TyConst])) {
-        case ((dtsAcc, aliasAcc, orderedAcc, failed), stmt) =>
-          val priorEnv = ((imports, dtsAcc), aliasAcc)
-          if (failed.nonEmpty && stmtDependsOn(stmt).exists(failed)) {
-            // Skip solving statements that depend on previously failed items.
-            // This preserves the old behavior for non-alias code and avoids
-            // follow-on "unknown type" noise for local names that already failed.
-            Ior.Right((dtsAcc, aliasAcc, orderedAcc, failed + stmtTyConst(stmt)))
-          } else {
-            stmt match {
-              case ParsedTypeEnv.TypeStatement.Defined(dt) =>
-                solvedStmt(
-                  stmt,
-                  Shape
-                    .solveShape(priorEnv, dt)
-                    .leftMap(_.map(Error.FromShapeError(_)))
-                    .andThen(solveKind(priorEnv, _))
-                    .map(ParsedTypeEnv.TypeStatement.Defined(_)),
-                  dtsAcc,
-                  aliasAcc,
-                  orderedAcc,
-                  failed
-                )
-              case ParsedTypeEnv.TypeStatement.Alias(alias) =>
-                solvedStmt(
-                  stmt,
-                  Shape
-                    .solveAlias(priorEnv, alias)
-                    .leftMap(_.map(Error.FromShapeError(_)))
-                    .andThen(solveAliasKinds(priorEnv, _))
-                    .map(ParsedTypeEnv.TypeStatement.Alias(_)),
-                  dtsAcc,
-                  aliasAcc,
-                  orderedAcc,
-                  failed
-                )
-            }
+      .foldM(
+        (
+          List.empty[DefinedType[Kind.Arg]],
+          List.empty[TypeAlias[Kind.Arg]],
+          List.empty[
+            ParsedTypeEnv.TypeStatement[Kind.Arg]
+          ],
+          Set.empty[RankNType.TyConst]
+        )
+      ) { case ((dtsAcc, aliasAcc, orderedAcc, failed), stmt) =>
+        val priorEnv = ((imports, dtsAcc), aliasAcc)
+        if (failed.nonEmpty && stmtDependsOn(stmt).exists(failed)) {
+          // Skip solving statements that depend on previously failed items.
+          // This preserves the old behavior for non-alias code and avoids
+          // follow-on "unknown type" noise for local names that already failed.
+          Ior.Right((dtsAcc, aliasAcc, orderedAcc, failed + stmtTyConst(stmt)))
+        } else {
+          stmt match {
+            case ParsedTypeEnv.TypeStatement.Defined(dt) =>
+              solvedStmt(
+                stmt,
+                Shape
+                  .solveShape(priorEnv, dt)
+                  .leftMap(_.map(Error.FromShapeError(_)))
+                  .andThen(solveKind(priorEnv, _))
+                  .map(ParsedTypeEnv.TypeStatement.Defined(_)),
+                dtsAcc,
+                aliasAcc,
+                orderedAcc,
+                failed
+              )
+            case ParsedTypeEnv.TypeStatement.Alias(alias) =>
+              solvedStmt(
+                stmt,
+                Shape
+                  .solveAlias(priorEnv, alias)
+                  .leftMap(_.map(Error.FromShapeError(_)))
+                  .andThen(solveAliasKinds(priorEnv, _))
+                  .map(ParsedTypeEnv.TypeStatement.Alias(_)),
+                dtsAcc,
+                aliasAcc,
+                orderedAcc,
+                failed
+              )
           }
+        }
       }
       .map { case (dts, aliases, ordered, _) =>
         ParsedTypeEnv(
@@ -881,17 +886,20 @@ object KindFormula {
           case rankn.Type.TyApply(on, _) =>
             // we don't need to unify here,
             // (k1 -> k2)[k1] == k2
-            kindOfType(direction.reverse, thisKind, source, idx, on, kinds).map {
-              case Cons(_, result) => result
-              // $COVERAGE-OFF$ this should be unreachable due to shapechecking happening first
-              case Type =>
-                sys.error(
-                  s"invariant violation: shape violation found * expected k1 -> k2 in typeDecl=$typeDecl, source=$source, tpe=$tpe"
-                )
-              // $COVERAGE-ON$
-            }
+            kindOfType(direction.reverse, thisKind, source, idx, on, kinds)
+              .map {
+                case Cons(_, result) => result
+                // $COVERAGE-OFF$ this should be unreachable due to shapechecking happening first
+                case Type =>
+                  sys.error(
+                    s"invariant violation: shape violation found * expected k1 -> k2 in typeDecl=$typeDecl, source=$source, tpe=$tpe"
+                  )
+                // $COVERAGE-ON$
+              }
           case rankn.Type.TyConst(c) =>
-            if (allowSelfReference && ((tpe: rankn.Type) == typeDecl.toTypeTyConst))
+            if (
+              allowSelfReference && ((tpe: rankn.Type) == typeDecl.toTypeTyConst)
+            )
               RefSpace.pure(thisKind)
             else {
               // Has to be in the imports
@@ -1026,7 +1034,13 @@ object KindFormula {
                     onKind,
                     kinds
                   )
-                  _ <- leftSubsumesRightKindFormula(source, idx, tpe, res, tpeKind)
+                  _ <- leftSubsumesRightKindFormula(
+                    source,
+                    idx,
+                    tpe,
+                    res,
+                    tpeKind
+                  )
                 } yield ()
               // $COVERAGE-OFF$ this should be unreachable due to shapechecking happening first
               case Type =>
@@ -1036,7 +1050,9 @@ object KindFormula {
               // $COVERAGE-ON$
             }
           case tpe @ rankn.Type.TyConst(c) =>
-            if (allowSelfReference && ((tpe: rankn.Type) == typeDecl.toTypeTyConst)) {
+            if (
+              allowSelfReference && ((tpe: rankn.Type) == typeDecl.toTypeTyConst)
+            ) {
               addCons(view, Constraint.RecursiveView(source, idx)) *>
                 unifyKindFormula(source, idx, tpe, thisKind, tpeKind)
             } else {

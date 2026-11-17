@@ -35,7 +35,9 @@ class SmtScriptScopeTest extends munit.ScalaCheckSuite {
         1 -> Gen.zip(recI, recI).map { case (l, r) => Mul(Vector(l, r)) },
         1 -> Gen.zip(recI, recI).map { case (l, r) => Div(l, r) },
         1 -> Gen.zip(recI, recI).map { case (l, r) => Mod(l, r) },
-        1 -> Gen.zip(recB, Gen.zip(recI, recI)).map { case (c, (t, f)) => Ite(c, t, f) }
+        1 -> Gen.zip(recB, Gen.zip(recI, recI)).map { case (c, (t, f)) =>
+          Ite(c, t, f)
+        }
       )
     }
   }
@@ -56,7 +58,9 @@ class SmtScriptScopeTest extends munit.ScalaCheckSuite {
         1 -> Gen.zip(recB, recB).map { case (l, r) => And(Vector(l, r)) },
         1 -> Gen.zip(recB, recB).map { case (l, r) => Or(Vector(l, r)) },
         1 -> Gen.zip(recB, recB).map { case (l, r) => Implies(l, r) },
-        1 -> Gen.zip(recB, Gen.zip(recB, recB)).map { case (c, (t, f)) => Ite(c, t, f) }
+        1 -> Gen.zip(recB, Gen.zip(recB, recB)).map { case (c, (t, f)) =>
+          Ite(c, t, f)
+        }
       )
     }
   }
@@ -77,24 +81,30 @@ class SmtScriptScopeTest extends munit.ScalaCheckSuite {
         if (intNames.contains(name)) UsedVars(Set(name), Set.empty)
         else if (boolNames.contains(name)) UsedVars(Set.empty, Set(name))
         else UsedVars(Set(name), Set.empty)
-      case App(_, args)     => args.iterator.foldLeft(UsedVars.empty)((acc, e) => acc ++ varsInExpr(e))
-      case Ite(c, t, f)     => varsInExpr(c) ++ varsInExpr(t) ++ varsInExpr(f)
-      case Add(args)        => args.iterator.foldLeft(UsedVars.empty)((acc, e) => acc ++ varsInExpr(e))
-      case Sub(args)        => args.iterator.foldLeft(UsedVars.empty)((acc, e) => acc ++ varsInExpr(e))
-      case Mul(args)        => args.iterator.foldLeft(UsedVars.empty)((acc, e) => acc ++ varsInExpr(e))
-      case Div(num, den)    => varsInExpr(num) ++ varsInExpr(den)
-      case Mod(num, den)    => varsInExpr(num) ++ varsInExpr(den)
-      case EqInt(l, r)      => varsInExpr(l) ++ varsInExpr(r)
-      case EqBool(l, r)     => varsInExpr(l) ++ varsInExpr(r)
-      case Lt(l, r)         => varsInExpr(l) ++ varsInExpr(r)
-      case Lte(l, r)        => varsInExpr(l) ++ varsInExpr(r)
-      case Gt(l, r)         => varsInExpr(l) ++ varsInExpr(r)
-      case Gte(l, r)        => varsInExpr(l) ++ varsInExpr(r)
-      case Not(inner)       => varsInExpr(inner)
-      case And(args)        => args.iterator.foldLeft(UsedVars.empty)((acc, e) => acc ++ varsInExpr(e))
-      case Or(args)         => args.iterator.foldLeft(UsedVars.empty)((acc, e) => acc ++ varsInExpr(e))
-      case Xor(l, r)        => varsInExpr(l) ++ varsInExpr(r)
-      case Implies(l, r)    => varsInExpr(l) ++ varsInExpr(r)
+      case App(_, args) =>
+        args.iterator.foldLeft(UsedVars.empty)((acc, e) => acc ++ varsInExpr(e))
+      case Ite(c, t, f) => varsInExpr(c) ++ varsInExpr(t) ++ varsInExpr(f)
+      case Add(args)    =>
+        args.iterator.foldLeft(UsedVars.empty)((acc, e) => acc ++ varsInExpr(e))
+      case Sub(args) =>
+        args.iterator.foldLeft(UsedVars.empty)((acc, e) => acc ++ varsInExpr(e))
+      case Mul(args) =>
+        args.iterator.foldLeft(UsedVars.empty)((acc, e) => acc ++ varsInExpr(e))
+      case Div(num, den) => varsInExpr(num) ++ varsInExpr(den)
+      case Mod(num, den) => varsInExpr(num) ++ varsInExpr(den)
+      case EqInt(l, r)   => varsInExpr(l) ++ varsInExpr(r)
+      case EqBool(l, r)  => varsInExpr(l) ++ varsInExpr(r)
+      case Lt(l, r)      => varsInExpr(l) ++ varsInExpr(r)
+      case Lte(l, r)     => varsInExpr(l) ++ varsInExpr(r)
+      case Gt(l, r)      => varsInExpr(l) ++ varsInExpr(r)
+      case Gte(l, r)     => varsInExpr(l) ++ varsInExpr(r)
+      case Not(inner)    => varsInExpr(inner)
+      case And(args)     =>
+        args.iterator.foldLeft(UsedVars.empty)((acc, e) => acc ++ varsInExpr(e))
+      case Or(args) =>
+        args.iterator.foldLeft(UsedVars.empty)((acc, e) => acc ++ varsInExpr(e))
+      case Xor(l, r)     => varsInExpr(l) ++ varsInExpr(r)
+      case Implies(l, r) => varsInExpr(l) ++ varsInExpr(r)
     }
 
   private def varsInBool(expr: BoolExpr): UsedVars =
@@ -136,7 +146,9 @@ class SmtScriptScopeTest extends munit.ScalaCheckSuite {
     assertEquals(SmtScriptScope.undeclaredVars(script), Set("x"))
   }
 
-  test("all declared vars in generated assertions produce empty undeclared set") {
+  test(
+    "all declared vars in generated assertions produce empty undeclared set"
+  ) {
     forAll(boolExprGen(4)) { expr =>
       val vars = varsInBool(expr)
       val iVars = vars.ints.toList.sorted
@@ -177,14 +189,14 @@ class SmtScriptScopeTest extends munit.ScalaCheckSuite {
                 bDecls ++
                 Vector(Assert(expr), CheckSat)
             )
-          case None       =>
+          case None =>
             SmtScript(Vector(SetLogic.QF_LIA, Assert(expr), CheckSat))
         }
 
       val actual = SmtScriptScope.undeclaredVars(script)
       dropped match {
         case Some(droppedName) => assert(actual.contains(droppedName))
-        case None       => assertEquals(actual, Set.empty)
+        case None              => assertEquals(actual, Set.empty)
       }
     }
   }
