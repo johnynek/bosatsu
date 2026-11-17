@@ -14,17 +14,22 @@ class InspectLibraryCommandTest extends munit.FunSuite {
   private val fixtures = LibraryInspectionFixtures.parsedLibraries
   private val parser = fixtures.find(_._2.name == "parser").get
 
-  private def path(raw: String): Path = Chain.fromSeq(raw.split("/", -1).toIndexedSeq)
+  private def path(raw: String): Path =
+    Chain.fromSeq(raw.split("/", -1).toIndexedSeq)
 
   private val fixtureState = LibraryInspectionFixtures.generatedFiles.foldLeft(
     MemoryMain.State.empty
   ) { case (state, file) =>
-    state.withFile(path(file.path), MemoryMain.FileContent.Bytes(Bytes.copyFromArray(file.bytes))).get
+    state
+      .withFile(
+        path(file.path),
+        MemoryMain.FileContent.Bytes(Bytes.copyFromArray(file.bytes))
+      )
+      .get
   }
 
-  private def args(output: String, descriptorOnly: Boolean): List[String] = {
+  private def args(output: String, descriptorOnly: Boolean): List[String] =
     inspectionArgs(output, descriptorOnly, parser._4)
-  }
 
   private def inspectionArgs(
       output: String,
@@ -43,14 +48,24 @@ class InspectLibraryCommandTest extends munit.FunSuite {
       "1.0.0"
     ) ++ hashes.flatMap(hash => List("--expected-hash", hash)) ++
       (if (descriptorOnly) List("--descriptors-only")
-       else List("--dependency-context", "test_workspace/inspect_library/parser-context.json")) ++
+       else
+         List(
+           "--dependency-context",
+           "test_workspace/inspect_library/parser-context.json"
+         )) ++
       List("--descriptor-out", output) ++
-      (if (descriptorOnly) Nil else List(
-        "--sig-out", "parser.sig",
-        "--exposures-out", "exposures.json",
-        "--membership-out", "membership.json",
-        "--implementation-out", "implementation.json"
-      ))
+      (if (descriptorOnly) Nil
+       else
+         List(
+           "--sig-out",
+           "parser.sig",
+           "--exposures-out",
+           "exposures.json",
+           "--membership-out",
+           "membership.json",
+           "--implementation-out",
+           "implementation.json"
+         ))
   }
 
   private def signatureOnlyArgs(hashes: List[String]): List[String] = {
@@ -78,16 +93,18 @@ class InspectLibraryCommandTest extends munit.FunSuite {
   )
 
   private def failed(result: ErrorOr[?]): String =
-    result.swap.toOption.flatMap(error => Option(error.getMessage)).getOrElse(
-      fail("expected inspection to reject malformed serialized version")
-    )
+    result.swap.toOption
+      .flatMap(error => Option(error.getMessage))
+      .getOrElse(
+        fail("expected inspection to reject malformed serialized version")
+      )
 
   private def run(
       command: List[String],
       state: MemoryMain.State
   ): ErrorOr[(MemoryMain.State, ExitCode)] =
     module.run(command) match {
-      case Left(help) => Left(new Exception(s"unexpected help: $help"))
+      case Left(help)    => Left(new Exception(s"unexpected help: $help"))
       case Right(action) =>
         action.run(state).flatMap { case (next, output) =>
           module.reportOutput(output).run(next)
@@ -97,7 +114,10 @@ class InspectLibraryCommandTest extends munit.FunSuite {
   private def text(state: MemoryMain.State, name: String): String =
     state.get(path(name)) match {
       case Some(Right(MemoryMain.FileContent.Bytes(value))) =>
-        new String(value.unsafeReadOnlyView, java.nio.charset.StandardCharsets.UTF_8)
+        new String(
+          value.unsafeReadOnlyView,
+          java.nio.charset.StandardCharsets.UTF_8
+        )
       case Some(Right(MemoryMain.FileContent.Str(value))) => value
       case other => fail(s"expected JSON output at $name, found $other")
     }
@@ -108,26 +128,43 @@ class InspectLibraryCommandTest extends munit.FunSuite {
       case other => fail(s"expected binary output at $name, found $other")
     }
 
-  test("inspection options reject invalid names and missing hashes during parsing") {
+  test(
+    "inspection options reject invalid names and missing hashes during parsing"
+  ) {
     val valid = args("descriptor.json", descriptorOnly = true)
     val emptyName = valid.updated(valid.indexOf("--expected-name") + 1, "")
     assert(module.run(emptyName).isLeft)
-    val noHashes = valid.grouped(2).flatMap {
-      case List("--expected-hash", _) => Nil
-      case pair => pair
-    }.toList
+    val noHashes = valid
+      .grouped(2)
+      .flatMap {
+        case List("--expected-hash", _) => Nil
+        case pair                       => pair
+      }
+      .toList
     assert(module.run(noHashes).isLeft)
   }
 
-  test("inspection mode and every output subset are validated before creating an action") {
+  test(
+    "inspection mode and every output subset are validated before creating an action"
+  ) {
     val common = List(
-      "tool", "inspect-library", "--input", parser._1,
-      "--expected-name", "parser", "--expected-version", "1.0.0",
-      "--expected-hash", parser._4.head
+      "tool",
+      "inspect-library",
+      "--input",
+      parser._1,
+      "--expected-name",
+      "parser",
+      "--expected-version",
+      "1.0.0",
+      "--expected-hash",
+      parser._4.head
     )
     val outputs = List(
-      "--sig-out", "--exposures-out", "--membership-out",
-      "--implementation-out", "--descriptor-out"
+      "--sig-out",
+      "--exposures-out",
+      "--membership-out",
+      "--implementation-out",
+      "--descriptor-out"
     )
     for {
       onlyDescriptors <- List(false, true)
@@ -135,11 +172,13 @@ class InspectLibraryCommandTest extends munit.FunSuite {
       mask <- 0 until (1 << outputs.size)
     } {
       val selected = outputs.zipWithIndex.collect {
-        case (flag, index) if (mask & (1 << index)) != 0 => List(flag, s"out-$index")
+        case (flag, index) if (mask & (1 << index)) != 0 =>
+          List(flag, s"out-$index")
       }.flatten
       val command = common ++
         (if (onlyDescriptors) List("--descriptors-only") else Nil) ++
-        (if (context) List("--dependency-context", "context.json") else Nil) ++ selected
+        (if (context) List("--dependency-context", "context.json")
+         else Nil) ++ selected
       val valid =
         if (onlyDescriptors) !context && mask == (1 << (outputs.size - 1))
         else context && mask != 0
@@ -147,12 +186,22 @@ class InspectLibraryCommandTest extends munit.FunSuite {
     }
   }
 
-  test("full inspection runs through the in-memory command and emits independent projections") {
-    val result = run(args("descriptor.json", descriptorOnly = false), fixtureState)
-      .fold(error => fail(error.getMessage), identity)
+  test(
+    "full inspection runs through the in-memory command and emits independent projections"
+  ) {
+    val result =
+      run(args("descriptor.json", descriptorOnly = false), fixtureState)
+        .fold(error => fail(error.getMessage), identity)
     assertEquals(result._2, ExitCode.Success)
-    assert(proto.Interfaces.parseFrom(bytes(result._1, "parser.sig")).interfaces.nonEmpty)
-    assert(text(result._1, "descriptor.json").contains("unused_transitive_public"))
+    assert(
+      proto.Interfaces
+        .parseFrom(bytes(result._1, "parser.sig"))
+        .interfaces
+        .nonEmpty
+    )
+    assert(
+      text(result._1, "descriptor.json").contains("unused_transitive_public")
+    )
     assert(text(result._1, "exposures.json").contains("witness_path"))
     assert(text(result._1, "membership.json").contains("Parser"))
     val implementation = text(result._1, "implementation.json")
@@ -160,19 +209,26 @@ class InspectLibraryCommandTest extends munit.FunSuite {
     assert(implementation.contains("\"version\": \"2.0.0\""), implementation)
   }
 
-  test("descriptor-only inspection authenticates the root without child files or typed decoding") {
+  test(
+    "descriptor-only inspection authenticates the root without child files or typed decoding"
+  ) {
     val (rootPath, _, bytes, _) = parser
-    val rootOnly = MemoryMain.State.empty.withFile(
-      path(rootPath),
-      MemoryMain.FileContent.Bytes(Bytes.copyFromArray(bytes))
-    ).get
-    val result = run(args("root-descriptor.json", descriptorOnly = true), rootOnly)
-      .fold(error => fail(error.getMessage), identity)
+    val rootOnly = MemoryMain.State.empty
+      .withFile(
+        path(rootPath),
+        MemoryMain.FileContent.Bytes(Bytes.copyFromArray(bytes))
+      )
+      .get
+    val result =
+      run(args("root-descriptor.json", descriptorOnly = true), rootOnly)
+        .fold(error => fail(error.getMessage), identity)
     assertEquals(result._2, ExitCode.Success)
     assert(text(result._1, "root-descriptor.json").contains("public_child"))
   }
 
-  test("serialized root and dependency versions fail before descriptor or signature output") {
+  test(
+    "serialized root and dependency versions fail before descriptor or signature output"
+  ) {
     val invalidVersion = proto.Version(
       major = 1L,
       minor = 0L,
@@ -180,67 +236,102 @@ class InspectLibraryCommandTest extends munit.FunSuite {
       preRelease = "alpha."
     )
     val malformedRoot = parser._2.copy(
-      descriptor = parser._2.descriptor.map(_.copy(version = Some(invalidVersion)))
+      descriptor =
+        parser._2.descriptor.map(_.copy(version = Some(invalidVersion)))
     )
     val malformedRootBytes = malformedRoot.toByteArray
-    val rootOnly = MemoryMain.State.empty.withFile(
-      path(parser._1),
-      MemoryMain.FileContent.Bytes(Bytes.copyFromArray(malformedRootBytes))
-    ).get
-    val rootDescriptorFailure = failed(run(
-      inspectionArgs(
-        "bad-root.json",
-        descriptorOnly = true,
-        hashes = pins(malformedRootBytes)
-      ),
-      rootOnly
-    ))
-    assert(rootDescriptorFailure.contains("invalid version"), rootDescriptorFailure)
-    assert(rootDescriptorFailure.contains(parser._1), rootDescriptorFailure)
-
-    val rootFullFailure = failed(run(
-      signatureOnlyArgs(pins(malformedRootBytes)),
-      fixtureState.withFile(
+    val rootOnly = MemoryMain.State.empty
+      .withFile(
         path(parser._1),
         MemoryMain.FileContent.Bytes(Bytes.copyFromArray(malformedRootBytes))
-      ).get
-    ))
+      )
+      .get
+    val rootDescriptorFailure = failed(
+      run(
+        inspectionArgs(
+          "bad-root.json",
+          descriptorOnly = true,
+          hashes = pins(malformedRootBytes)
+        ),
+        rootOnly
+      )
+    )
+    assert(
+      rootDescriptorFailure.contains("invalid version"),
+      rootDescriptorFailure
+    )
+    assert(rootDescriptorFailure.contains(parser._1), rootDescriptorFailure)
+
+    val rootFullFailure = failed(
+      run(
+        signatureOnlyArgs(pins(malformedRootBytes)),
+        fixtureState
+          .withFile(
+            path(parser._1),
+            MemoryMain.FileContent
+              .Bytes(Bytes.copyFromArray(malformedRootBytes))
+          )
+          .get
+      )
+    )
     assert(rootFullFailure.contains("invalid version"), rootFullFailure)
     assert(rootFullFailure.contains(parser._1), rootFullFailure)
 
     val malformedTargets = List(
-      parser._2.copy(publicDependencies = parser._2.publicDependencies.map { dependency =>
-        dependency.copy(desc = dependency.desc.map(_.copy(version = Some(invalidVersion))))
+      parser._2.copy(publicDependencies = parser._2.publicDependencies.map {
+        dependency =>
+          dependency.copy(desc =
+            dependency.desc.map(_.copy(version = Some(invalidVersion)))
+          )
       }),
-      parser._2.copy(privateDependencies = parser._2.privateDependencies.map { dependency =>
-        dependency.copy(desc = dependency.desc.map(_.copy(version = Some(invalidVersion))))
+      parser._2.copy(privateDependencies = parser._2.privateDependencies.map {
+        dependency =>
+          dependency.copy(desc =
+            dependency.desc.map(_.copy(version = Some(invalidVersion)))
+          )
       }),
       parser._2.copy(
-        unusedTransitivePublicDependencies = parser._2.unusedTransitivePublicDependencies.map(
-          dependency => dependency.copy(
-            desc = dependency.desc.map(_.copy(version = Some(invalidVersion)))
+        unusedTransitivePublicDependencies =
+          parser._2.unusedTransitivePublicDependencies.map(dependency =>
+            dependency.copy(
+              desc = dependency.desc.map(_.copy(version = Some(invalidVersion)))
+            )
           )
-        )
       )
     )
 
     malformedTargets.foreach { library =>
       val bytes = library.toByteArray
-      val descriptorOnlyState = MemoryMain.State.empty.withFile(
-        path(parser._1),
-        MemoryMain.FileContent.Bytes(Bytes.copyFromArray(bytes))
-      ).get
-      val descriptorFailure = failed(run(
-        inspectionArgs("bad-target.json", descriptorOnly = true, hashes = pins(bytes)),
-        descriptorOnlyState
-      ))
+      val descriptorOnlyState = MemoryMain.State.empty
+        .withFile(
+          path(parser._1),
+          MemoryMain.FileContent.Bytes(Bytes.copyFromArray(bytes))
+        )
+        .get
+      val descriptorFailure = failed(
+        run(
+          inspectionArgs(
+            "bad-target.json",
+            descriptorOnly = true,
+            hashes = pins(bytes)
+          ),
+          descriptorOnlyState
+        )
+      )
       assert(descriptorFailure.contains("invalid version"), descriptorFailure)
       assert(descriptorFailure.contains("parser 1.0.0"), descriptorFailure)
 
-      val fullFailure = failed(run(signatureOnlyArgs(pins(bytes)), fixtureState.withFile(
-        path(parser._1),
-        MemoryMain.FileContent.Bytes(Bytes.copyFromArray(bytes))
-      ).get))
+      val fullFailure = failed(
+        run(
+          signatureOnlyArgs(pins(bytes)),
+          fixtureState
+            .withFile(
+              path(parser._1),
+              MemoryMain.FileContent.Bytes(Bytes.copyFromArray(bytes))
+            )
+            .get
+        )
+      )
       assert(fullFailure.contains("invalid version"), fullFailure)
       assert(fullFailure.contains("parser 1.0.0"), fullFailure)
     }

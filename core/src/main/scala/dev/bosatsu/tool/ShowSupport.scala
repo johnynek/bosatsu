@@ -109,7 +109,9 @@ object ShowSupport {
             CompileOptions.Mode.Emit
           )
       val matchlessPassOptions =
-        Matchless.PassOptions(Matchless.Pass.defaultSet -- disabledMatchlessPasses)
+        Matchless.PassOptions(
+          Matchless.Pass.defaultSet -- disabledMatchlessPasses
+        )
 
       Request(
         selection = selection,
@@ -148,7 +150,9 @@ object ShowSupport {
   def matchlessShowValue(
       packs: List[Package.Typed[Any]],
       request: Request,
-      defsFor: Package.Typed[Any] => List[(Identifier.Bindable, Matchless.Expr[?])]
+      defsFor: Package.Typed[Any] => List[
+        (Identifier.Bindable, Matchless.Expr[?])
+      ]
   ): Output.ShowValue.Matchless =
     Output.ShowValue.Matchless(
       packages = packs.map { pack =>

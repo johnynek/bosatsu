@@ -11,15 +11,22 @@ class MemoryPlatformIOTest extends munit.ScalaCheckSuite {
     forAll { (head: Byte, tail: List[Byte]) =>
       val values = head :: tail
       val paths = List("direct", "write", "atomic").map(Chain.one)
-      val initial = MemoryMain.State.empty.withFile(
-        paths.head,
-        MemoryMain.FileContent.Bytes(Bytes.copyFromArray(values.toArray))
-      ).get
-      val state = platform.writeBytes(paths(1), values.toArray)
-        .flatMap(_ => platform.writeFileSetAtomic(
-          List(paths(2) -> Bytes.copyFromArray(values.toArray))
-        ))
-        .runS(initial).toOption.get
+      val initial = MemoryMain.State.empty
+        .withFile(
+          paths.head,
+          MemoryMain.FileContent.Bytes(Bytes.copyFromArray(values.toArray))
+        )
+        .get
+      val state = platform
+        .writeBytes(paths(1), values.toArray)
+        .flatMap(_ =>
+          platform.writeFileSetAtomic(
+            List(paths(2) -> Bytes.copyFromArray(values.toArray))
+          )
+        )
+        .runS(initial)
+        .toOption
+        .get
 
       paths.foreach { path =>
         val read = platform.readBytes(path)

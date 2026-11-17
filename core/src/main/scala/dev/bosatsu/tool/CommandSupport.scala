@@ -104,7 +104,8 @@ object CommandSupport {
         next_version = Version.zero,
         previous = None,
         exported_packages = Nil,
-        all_packages = LibConfig.PackageFilter.Regex(Pattern.compile(".*")) :: Nil,
+        all_packages =
+          LibConfig.PackageFilter.Regex(Pattern.compile(".*")) :: Nil,
         public_deps = publicDeps,
         private_deps = privateDeps,
         default_main = None
@@ -125,9 +126,10 @@ object CommandSupport {
         DecodedLibrary.decode(lib).map(path -> _)
       }
 
-    readDepArtifacts(platformIO, publicDependencyPaths, privateDependencyPaths).flatMap {
-      case (pub, priv) => (decode(pub), decode(priv)).tupled
-    }
+    readDepArtifacts(platformIO, publicDependencyPaths, privateDependencyPaths)
+      .flatMap { case (pub, priv) =>
+        (decode(pub), decode(priv)).tupled
+      }
   }
 
   def dependencyInterfaces[Path](

@@ -90,13 +90,29 @@ sealed abstract class Output[+Path] {
           .traverse_ { case (_, w) => w }
           .as(ExitCode.Success)
 
-      case Output.PackageGroup(packages, dependencies, implementation, signature) =>
+      case Output.PackageGroup(
+            packages,
+            dependencies,
+            implementation,
+            signature
+          ) =>
         for {
-          bundle <- moduleIOMonad.fromTry(PackageSignatures.encode(packages.map(Package.interfaceOf(_))))
-          requirements <- moduleIOMonad.fromTry(dependencies.traverse(PackageSignatures.requirement))
-          compiled <- moduleIOMonad.fromTry(ProtoConverter.packagesToProto(packages))
+          bundle <- moduleIOMonad.fromTry(
+            PackageSignatures.encode(packages.map(Package.interfaceOf(_)))
+          )
+          requirements <- moduleIOMonad.fromTry(
+            dependencies.traverse(PackageSignatures.requirement)
+          )
+          compiled <- moduleIOMonad.fromTry(
+            ProtoConverter.packagesToProto(packages)
+          )
           _ <- writeInterfaceBundle(bundle, signature)
-          _ <- writePackageBundle(compiled.withBuildRequirements(proto.BuildRequirements(requirements)), implementation)
+          _ <- writePackageBundle(
+            compiled.withBuildRequirements(
+              proto.BuildRequirements(requirements)
+            ),
+            implementation
+          )
         } yield ExitCode.Success
 
       case Output.CompileOut(packList, ifout, output) =>
@@ -265,7 +281,7 @@ sealed abstract class Output[+Path] {
       case Output.Many(items) =>
         items.foldM[F, ExitCode](ExitCode.Success) {
           case (code, item) if code.toInt == 0 => item.report(platformIO)
-          case (err, _)                         => moduleIOMonad.pure(err)
+          case (err, _)                        => moduleIOMonad.pure(err)
         }
     }
   }
@@ -335,7 +351,8 @@ object Output {
   case class JsonOutput[Path](json: Json, output: Option[Path])
       extends Output[Path]
 
-  /** Publish fully serialized immutable bytes through one output transaction. */
+  /** Publish fully serialized immutable bytes through one output transaction.
+    */
   case class AtomicFileSet[Path](files: List[(Path, Bytes)])
       extends Output[Path]
 

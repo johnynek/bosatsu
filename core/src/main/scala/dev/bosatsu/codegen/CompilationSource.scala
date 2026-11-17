@@ -68,7 +68,9 @@ object CompilationSource {
                 localPassOptions
               )
             else
-              SortedMap(() -> MatchlessFromTypedExpr.cleanup(raw, localPassOptions))
+              SortedMap(
+                () -> MatchlessFromTypedExpr.cleanup(raw, localPassOptions)
+              )
           }
 
           lazy val compiled =

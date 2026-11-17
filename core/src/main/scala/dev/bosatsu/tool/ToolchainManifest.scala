@@ -12,7 +12,7 @@ import scala.util.Try
   * with the jar that is about to run. Inspecting the running jar cannot
   * authenticate an otherwise untrusted manifest or jar.
   */
-private[bosatsu] final case class ToolchainManifest(
+final private[bosatsu] case class ToolchainManifest(
     compiler: ToolchainManifest.Artifact,
     core: ToolchainManifest.Core,
     cRuntime: ToolchainManifest.Artifact,
@@ -46,17 +46,28 @@ private[bosatsu] object ToolchainManifest {
       BuildManifest.nonEmpty.read(path, value).map(Name(_))
   }
 
-  private given Json.Reader[Artifact] = BuildManifest.obj("toolchain artifact") { from =>
-    for {
-      _ <- BuildManifest.onlyFields(from, "toolchain artifact", Set("uri", "sha256"))
-      uri <- from.field[String]("uri")(using BuildManifest.nonEmpty)
-      sha256 <- from.field[HashValue[Algo.Sha256]]("sha256")(using sha256Reader)
-    } yield Artifact(uri, sha256)
-  }
+  private given Json.Reader[Artifact] =
+    BuildManifest.obj("toolchain artifact") { from =>
+      for {
+        _ <- BuildManifest.onlyFields(
+          from,
+          "toolchain artifact",
+          Set("uri", "sha256")
+        )
+        uri <- from.field[String]("uri")(using BuildManifest.nonEmpty)
+        sha256 <- from.field[HashValue[Algo.Sha256]]("sha256")(using
+          sha256Reader
+        )
+      } yield Artifact(uri, sha256)
+    }
 
   private given Json.Reader[Core] = BuildManifest.obj("toolchain core") { from =>
     for {
-      _ <- BuildManifest.onlyFields(from, "toolchain core", Set("library_name", "version", "uri", "sha256"))
+      _ <- BuildManifest.onlyFields(
+        from,
+        "toolchain core",
+        Set("library_name", "version", "uri", "sha256")
+      )
       libraryName <- from.field[Name]("library_name")(using libraryNameReader)
       version <- from.field[Version]("version")
       uri <- from.field[String]("uri")(using BuildManifest.nonEmpty)
@@ -64,25 +75,44 @@ private[bosatsu] object ToolchainManifest {
     } yield Core(libraryName, version, uri, sha256)
   }
 
-  private def readCoreSources(from: Json.Reader.FromObj): Result[Option[Map[PackageName, HashValue[Algo.Sha256]]]] =
+  private def readCoreSources(
+      from: Json.Reader.FromObj
+  ): Result[Option[Map[PackageName, HashValue[Algo.Sha256]]]] =
     from.j.getOrNull("core_sources") match {
-      case Json.JNull => Right(None)
+      case Json.JNull            => Right(None)
       case sources: Json.JObject =>
         val sourcePath = from.path.key("core_sources")
-        val repeated = sources.items.groupMapReduce(_._1)(_ => 1)(_ + _)
-          .collect { case (key, count) if count > 1 => key }.toList.sorted
+        val repeated = sources.items
+          .groupMapReduce(_._1)(_ => 1)(_ + _)
+          .collect { case (key, count) if count > 1 => key }
+          .toList
+          .sorted
         if (repeated.nonEmpty)
-          Left((s"repeated core source packages: ${repeated.mkString(", ")}", sources, sourcePath))
+          Left(
+            (
+              s"repeated core source packages: ${repeated.mkString(", ")}",
+              sources,
+              sourcePath
+            )
+          )
         else
-          sources.items.traverse { case (rawName, jsonHash) =>
-            val path = sourcePath.key(rawName)
-            for {
-              name <- PackageName.jsonReader.read(path, Json.JString(rawName))
-              hash <- sha256Reader.read(path, jsonHash)
-            } yield name -> hash
-          }.map(_.toMap.some)
+          sources.items
+            .traverse { case (rawName, jsonHash) =>
+              val path = sourcePath.key(rawName)
+              for {
+                name <- PackageName.jsonReader.read(path, Json.JString(rawName))
+                hash <- sha256Reader.read(path, jsonHash)
+              } yield name -> hash
+            }
+            .map(_.toMap.some)
       case other =>
-        Left(("expected object of package names to SHA-256 hashes", other, from.path.key("core_sources")))
+        Left(
+          (
+            "expected object of package names to SHA-256 hashes",
+            other,
+            from.path.key("core_sources")
+          )
+        )
     }
 
   private val reader: Json.Reader[ToolchainManifest] =
@@ -126,9 +156,12 @@ private[bosatsu] object ToolchainManifest {
     import platform.{moduleIOMonad, showPath}
     val actual = Algo.hashBytes[Algo.Sha256](bytes)
     if (actual.hex == expected.hex) moduleIOMonad.pure(())
-    else moduleIOMonad.raiseError(CliException.Basic(
-      show"$component SHA-256 mismatch for $path: expected ${expected.hex}, found ${actual.hex}"
-    ))
+    else
+      moduleIOMonad.raiseError(
+        CliException.Basic(
+          show"$component SHA-256 mismatch for $path: expected ${expected.hex}, found ${actual.hex}"
+        )
+      )
   }
 
   private def decodeSource[F[_], P](
@@ -139,18 +172,30 @@ private[bosatsu] object ToolchainManifest {
   ): F[PackageName] = {
     import platform.{moduleIOMonad, showPath}
     val parsed = for {
-      source <- BuildManifest.decodeUtf8(bytes).leftMap(_ => show"invalid UTF-8 in core source $path")
-      packageName <- PackageResolver.headerParserIgnoreRest.parseAll(source).leftMap(err =>
-        show"cannot parse package header in core source $path: $err"
-      )
+      source <- BuildManifest
+        .decodeUtf8(bytes)
+        .leftMap(_ => show"invalid UTF-8 in core source $path")
+      packageName <- PackageResolver.headerParserIgnoreRest
+        .parseAll(source)
+        .leftMap(err =>
+          show"cannot parse package header in core source $path: $err"
+        )
       name = packageName._1
     } yield name
-    moduleIOMonad.fromEither(parsed.leftMap(CliException.Basic(_))).flatMap { name =>
-      val expected = manifest.coreSources.flatMap(_.get(name)).toRight(
-        CliException.Basic(show"core source $path declares unlisted package ${name.asString}")
-      )
-      moduleIOMonad.fromEither(expected)
-        .flatMap(hash => checkSha256(platform, path, "core source", bytes, hash).as(name))
+    moduleIOMonad.fromEither(parsed.leftMap(CliException.Basic(_))).flatMap {
+      name =>
+        val expected = manifest.coreSources
+          .flatMap(_.get(name))
+          .toRight(
+            CliException.Basic(
+              show"core source $path declares unlisted package ${name.asString}"
+            )
+          )
+        moduleIOMonad
+          .fromEither(expected)
+          .flatMap(hash =>
+            checkSha256(platform, path, "core source", bytes, hash).as(name)
+          )
     }
   }
 
@@ -169,42 +214,69 @@ private[bosatsu] object ToolchainManifest {
     import platform.moduleIOMonad
     import platform.showPath
     selection match {
-      case CoreSelection.None => moduleIOMonad.pure(())
+      case CoreSelection.None         => moduleIOMonad.pure(())
       case CoreSelection.Binary(path) =>
         readBytes(platform, path, "core library").flatMap { bytes =>
-          checkSha256(platform, path, "core library", bytes, manifest.core.sha256).flatMap { _ =>
-            moduleIOMonad.fromTry(Try(proto.Library.parseFrom(bytes))).adaptError { case err =>
-              CliException.Basic(show"cannot parse core library $path: ${err.getMessage}")
-            }.flatMap { library =>
-              Library.getVersion(library) match {
-                case None => moduleIOMonad.raiseError(CliException.Basic(show"core library $path has no version"))
-                case Some(_) if library.name != manifest.core.libraryName.name =>
-                  moduleIOMonad.raiseError(CliException.Basic(
-                    show"core library identity mismatch for $path: expected ${manifest.core.libraryName.name}, found ${library.name}"
-                  ))
-                case Some(version) if !sameVersionIdentity(version, manifest.core.version) =>
-                  moduleIOMonad.raiseError(CliException.Basic(
-                    show"core library version mismatch for $path: expected ${manifest.core.version.render}, found ${version.render}"
-                  ))
-                case Some(_) => moduleIOMonad.pure(())
+          checkSha256(
+            platform,
+            path,
+            "core library",
+            bytes,
+            manifest.core.sha256
+          ).flatMap { _ =>
+            moduleIOMonad
+              .fromTry(Try(proto.Library.parseFrom(bytes)))
+              .adaptError { case err =>
+                CliException.Basic(
+                  show"cannot parse core library $path: ${err.getMessage}"
+                )
               }
-            }
+              .flatMap { library =>
+                Library.getVersion(library) match {
+                  case None =>
+                    moduleIOMonad.raiseError(
+                      CliException
+                        .Basic(show"core library $path has no version")
+                    )
+                  case Some(_)
+                      if library.name != manifest.core.libraryName.name =>
+                    moduleIOMonad.raiseError(
+                      CliException.Basic(
+                        show"core library identity mismatch for $path: expected ${manifest.core.libraryName.name}, found ${library.name}"
+                      )
+                    )
+                  case Some(version)
+                      if !sameVersionIdentity(version, manifest.core.version) =>
+                    moduleIOMonad.raiseError(
+                      CliException.Basic(
+                        show"core library version mismatch for $path: expected ${manifest.core.version.render}, found ${version.render}"
+                      )
+                    )
+                  case Some(_) => moduleIOMonad.pure(())
+                }
+              }
           }
         }
       case CoreSelection.Sources(paths) =>
-        paths.toList.traverse { path =>
-          readBytes(platform, path, "core source").flatMap(bytes => decodeSource(platform, path, bytes, manifest))
-        }.flatMap { packageNames =>
-          val duplicates = packageNames.groupMapReduce(identity)(_ => 1)(_ + _)
-            .collect { case (name, count) if count > 1 => name }
-            .toList
-            .sorted
-          if (duplicates.nonEmpty)
-            moduleIOMonad.raiseError(CliException.Basic(
-              show"duplicate core source providers: ${duplicates.map(_.asString).mkString(", ")}"
-            ))
-          else moduleIOMonad.pure(())
-        }
+        paths.toList
+          .traverse { path =>
+            readBytes(platform, path, "core source")
+              .flatMap(bytes => decodeSource(platform, path, bytes, manifest))
+          }
+          .flatMap { packageNames =>
+            val duplicates = packageNames
+              .groupMapReduce(identity)(_ => 1)(_ + _)
+              .collect { case (name, count) if count > 1 => name }
+              .toList
+              .sorted
+            if (duplicates.nonEmpty)
+              moduleIOMonad.raiseError(
+                CliException.Basic(
+                  show"duplicate core source providers: ${duplicates.map(_.asString).mkString(", ")}"
+                )
+              )
+            else moduleIOMonad.pure(())
+          }
     }
   }
 
@@ -217,20 +289,31 @@ private[bosatsu] object ToolchainManifest {
     import platform.moduleIOMonad
     import platform.showPath
     readBytes(platform, path, "runtime archive").flatMap { bytes =>
-      checkSha256(platform, path, "runtime archive", bytes, manifest.cRuntime.sha256).flatMap { _ =>
+      checkSha256(
+        platform,
+        path,
+        "runtime archive",
+        bytes,
+        manifest.cRuntime.sha256
+      ).flatMap { _ =>
         if (advertisedRuntimeHash.isEmpty) moduleIOMonad.pure(())
         else
           Algo.parseIdent.parseAll(advertisedRuntimeHash) match {
             case Left(error) =>
-              moduleIOMonad.raiseError(CliException.Basic(
-                show"invalid advertised runtime hash '$advertisedRuntimeHash': $error"
-              ))
+              moduleIOMonad.raiseError(
+                CliException.Basic(
+                  show"invalid advertised runtime hash '$advertisedRuntimeHash': $error"
+                )
+              )
             case Right(advertised) =>
               val actual = advertised.algo.hashBytes(bytes)
               if (actual.hex == advertised.value.hex) moduleIOMonad.pure(())
-              else moduleIOMonad.raiseError(CliException.Basic(
-                show"runtime archive hash mismatch for $path: advertised ${advertised.algo.name}:${advertised.value.hex}, found ${advertised.algo.name}:${actual.hex}"
-              ))
+              else
+                moduleIOMonad.raiseError(
+                  CliException.Basic(
+                    show"runtime archive hash mismatch for $path: advertised ${advertised.algo.name}:${advertised.value.hex}, found ${advertised.algo.name}:${actual.hex}"
+                  )
+                )
           }
       }
     }
@@ -251,9 +334,17 @@ private[bosatsu] object ToolchainManifest {
     import platform.moduleIOMonad
     for {
       compilerBytes <- readBytes(platform, compilerJar, "compiler jar")
-      _ <- checkSha256(platform, compilerJar, "compiler jar", compilerBytes, manifest.compiler.sha256)
+      _ <- checkSha256(
+        platform,
+        compilerJar,
+        "compiler jar",
+        compilerBytes,
+        manifest.compiler.sha256
+      )
       _ <- verifyCore(platform, manifest, core)
-      _ <- runtimeArchive.traverse_(path => verifyRuntime(platform, manifest, path, advertisedRuntimeHash))
+      _ <- runtimeArchive.traverse_(path =>
+        verifyRuntime(platform, manifest, path, advertisedRuntimeHash)
+      )
     } yield ()
   }
 }

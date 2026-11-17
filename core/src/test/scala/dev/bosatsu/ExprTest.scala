@@ -30,7 +30,7 @@ class ExprTest extends munit.ScalaCheckSuite {
       case Expr.Annotation(e, tpe, a) =>
         (traverseTypeOracle[T, F](e, bound)(fn), fn(tpe, bound))
           .mapN(Expr.Annotation(_, _, a))
-      case v: Expr.Name[T]   => F.pure(v)
+      case v: Expr.Name[T]      => F.pure(v)
       case Expr.App(f, args, t) =>
         (
           traverseTypeOracle[T, F](f, bound)(fn),
@@ -53,7 +53,7 @@ class ExprTest extends munit.ScalaCheckSuite {
           traverseTypeOracle[T, F](in, bound)(fn)
         )
           .mapN(Expr.Let(arg, _, _, rec, tag))
-      case l @ Expr.Literal(_, _)   => F.pure(l)
+      case l @ Expr.Literal(_, _)         => F.pure(l)
       case Expr.Match(arg, branches, tag) =>
         val argB = traverseTypeOracle[T, F](arg, bound)(fn)
         type B = Expr.Branch[T]
@@ -67,13 +67,17 @@ class ExprTest extends munit.ScalaCheckSuite {
             ),
             traverseTypeOracle[T, F](b.expr, bound)(fn)
           ).mapN { (pat, guardNode, expr) =>
-            Expr.Branch.fromGuardNode(pat, guardNode, expr)(using b.patternRegion)
+            Expr.Branch.fromGuardNode(pat, guardNode, expr)(using
+              b.patternRegion
+            )
           }
         val branchB = branches.traverse(branchFn)
         (argB, branchB).mapN(Expr.Match(_, _, tag))
     }
 
-  private def freeBoundTyVarsViaTraverseType[A](expr: Expr[A]): List[Type.Var.Bound] = {
+  private def freeBoundTyVarsViaTraverseType[A](
+      expr: Expr[A]
+  ): List[Type.Var.Bound] = {
     val w = traverseTypeOracle(expr, Set.empty) { (t, bound) =>
       val frees = Chain.fromSeq(Type.freeBoundTyVars(t :: Nil))
       Writer(frees.filterNot(bound), t)
@@ -165,7 +169,11 @@ class ExprTest extends munit.ScalaCheckSuite {
           None,
           Some(
             Expr.Annotation(
-              Expr.Global(PackageName.PredefName, Identifier.Constructor("True"), 1),
+              Expr.Global(
+                PackageName.PredefName,
+                Identifier.Constructor("True"),
+                1
+              ),
               Type.TyVar(a),
               2
             )
@@ -181,7 +189,10 @@ class ExprTest extends munit.ScalaCheckSuite {
     )
 
     assertEquals(Expr.freeBoundTyVars(expr), List(a))
-    assertEquals(Expr.freeBoundTyVars(expr), freeBoundTyVarsViaTraverseType(expr))
+    assertEquals(
+      Expr.freeBoundTyVars(expr),
+      freeBoundTyVarsViaTraverseType(expr)
+    )
   }
 
   test("freeBoundTyVars includes MatchGuard guard-pattern annotations") {
@@ -209,7 +220,9 @@ class ExprTest extends munit.ScalaCheckSuite {
     assertEquals(Expr.freeBoundTyVars(expr), List(a))
   }
 
-  test("globalRefs includes constructors referenced only in MatchGuard patterns") {
+  test(
+    "globalRefs includes constructors referenced only in MatchGuard patterns"
+  ) {
     val guardPkg = PackageName.parts("Guard", "Expr")
     val guardCtor = Identifier.Constructor("Hit")
     val guardPattern: Pattern[(PackageName, Identifier.Constructor), Type] =
@@ -239,21 +252,28 @@ class ExprTest extends munit.ScalaCheckSuite {
     )
   }
 
-  test("Expr flattenApp2/rebuildApp2 round trips right-deep binary app chains") {
+  test(
+    "Expr flattenApp2/rebuildApp2 round trips right-deep binary app chains"
+  ) {
     val app = deepRightApp2Chain(64) match {
       case app: Expr.App[Int] => app
       case other              => fail(s"expected App, got $other")
     }
-    val (steps, last) = Expr.flattenApp2(app).getOrElse(
-      fail("expected flattenApp2 to recognize right-deep app2 chain")
-    )
+    val (steps, last) = Expr
+      .flattenApp2(app)
+      .getOrElse(
+        fail("expected flattenApp2 to recognize right-deep app2 chain")
+      )
     assertEquals(Expr.rebuildApp2(steps, last), app)
   }
 
   Platform.onJvm(
-    test("Expr recursive app utilities are stack safe on right-deep binary app chains") {
+    test(
+      "Expr recursive app utilities are stack safe on right-deep binary app chains"
+    ) {
       val depth = sys.props.get("repro.exprApp2Depth").fold(2000)(_.toInt)
-      val stackBytes = sys.props.get("repro.stackBytes").fold(96L * 1024L)(_.toLong)
+      val stackBytes =
+        sys.props.get("repro.stackBytes").fold(96L * 1024L)(_.toLong)
 
       @volatile var failure: Option[Throwable] = None
 

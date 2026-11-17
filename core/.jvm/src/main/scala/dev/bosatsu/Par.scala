@@ -68,10 +68,10 @@ object Par {
   def newService(): ExecutionService =
     newService(Parallelism.availableProcessors)
 
-  /** A work-stealing pool that keeps `parallelism` workers running. A task
-    * may await other tasks on the same pool: while a worker is blocked in
-    * `await` the pool adds a replacement, so nested start/await cannot
-    * deadlock at any parallelism.
+  /** A work-stealing pool that keeps `parallelism` workers running. A task may
+    * await other tasks on the same pool: while a worker is blocked in `await`
+    * the pool adds a replacement, so nested start/await cannot deadlock at any
+    * parallelism.
     */
   def newService(parallelism: Parallelism): ExecutionService =
     new ForkJoinPool(
@@ -91,7 +91,7 @@ object Par {
     * `BlockContext.DefaultBlockContext`, and its pool would lose the worker for
     * as long as it waits.
     */
-  private final class ManagedBlockingWorker(pool: ForkJoinPool)
+  final private class ManagedBlockingWorker(pool: ForkJoinPool)
       extends ForkJoinWorkerThread(pool)
       with BlockContext {
     def blockOn[T](thunk: => T)(implicit permission: CanAwait): T = {

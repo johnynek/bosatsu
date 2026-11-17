@@ -34,7 +34,9 @@ object InferPhases {
           compileOptions: CompileOptions
       ): Package.Inferred = {
         val lowered =
-          if (compileOptions.enables(CompileOptions.TypedPass.LoopRecurLowering)) {
+          if (
+            compileOptions.enables(CompileOptions.TypedPass.LoopRecurLowering)
+          ) {
             val loweredProgram =
               TypedExprLoopRecurLowering.lowerProgram(pack.program._1)
             pack.copy(program = (loweredProgram, pack.program._2))

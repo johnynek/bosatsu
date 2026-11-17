@@ -32,14 +32,14 @@ object CodeGenerator {
   // Matches protoc's FEATURE_PROTO3_OPTIONAL bit (1 << 0).
   private val Proto3OptionalFeatureBit: Long = 1L
 
-  private final case class EnumInfo(
+  final private case class EnumInfo(
       fileName: String,
       path: List[String],
       fullName: String,
       descriptor: EnumDescriptorProto
   )
 
-  private final case class MessageInfo(
+  final private case class MessageInfo(
       fileName: String,
       path: List[String],
       fullName: String,
@@ -49,7 +49,7 @@ object CodeGenerator {
       descriptor.options.flatMap(_.mapEntry).contains(true)
   }
 
-  private final case class TypeIndex(
+  final private case class TypeIndex(
       enumsByFullName: Map[String, EnumInfo],
       messagesByFullName: Map[String, MessageInfo],
       typeNameByFullName: Map[String, String],
@@ -110,26 +110,33 @@ object CodeGenerator {
 
       val rootTypeNames = {
         val typeCandidates =
-          (allEnums.map(info => info.fullName -> ProtoNaming.flattenedTypeName(info.path)) ++
+          (allEnums.map(info =>
+            info.fullName -> ProtoNaming.flattenedTypeName(info.path)
+          ) ++
             allMessages
               .filterNot(_.isMapEntry)
-              .map(info => info.fullName -> ProtoNaming.flattenedTypeName(info.path)))
-            .toVector
+              .map(info =>
+                info.fullName -> ProtoNaming.flattenedTypeName(info.path)
+              )).toVector
 
         ProtoNaming.dedupeNames(typeCandidates)
       }
 
       val typeIndex = TypeIndex(
         enumsByFullName = allEnums.map(info => info.fullName -> info).toMap,
-        messagesByFullName = allMessages.map(info => info.fullName -> info).toMap,
+        messagesByFullName =
+          allMessages.map(info => info.fullName -> info).toMap,
         typeNameByFullName = rootTypeNames,
         packageByFileName = packageByFileName
       )
 
-      val cyclicMessageRefEdges = cyclicMessageReferenceEdges(allMessages, typeIndex)
+      val cyclicMessageRefEdges =
+        cyclicMessageReferenceEdges(allMessages, typeIndex)
 
       val sortedMessages =
-        allMessages.filterNot(_.isMapEntry).sortBy(info => (info.fileName, info.fullName))
+        allMessages
+          .filterNot(_.isMapEntry)
+          .sortBy(info => (info.fileName, info.fullName))
 
       val messageBaseNames = sortedMessages.map { info =>
         info.fullName -> rootTypeNames(info.fullName)
@@ -142,7 +149,9 @@ object CodeGenerator {
           val oneofDecls = info.descriptor.oneofDecl.toVector
           val activeOneofIndexes =
             info.descriptor.field.iterator
-              .filter(field => field.oneofIndex.nonEmpty && !field.getProto3Optional)
+              .filter(field =>
+                field.oneofIndex.nonEmpty && !field.getProto3Optional
+              )
               .map(_.getOneofIndex)
               .toSet
 
@@ -208,7 +217,8 @@ object CodeGenerator {
     val groupErrors =
       collectMessages(file).flatMap { info =>
         info.descriptor.field.toVector.collect {
-          case field if field.getType.equals(FieldDescriptorProto.Type.TYPE_GROUP) =>
+          case field
+              if field.getType.equals(FieldDescriptorProto.Type.TYPE_GROUP) =>
             s"${file.getName}: groups are not supported (${field.getName})"
         }
       }
@@ -237,7 +247,9 @@ object CodeGenerator {
     )
   }
 
-  private def collectMessages(file: FileDescriptorProto): Vector[MessageInfo] = {
+  private def collectMessages(
+      file: FileDescriptorProto
+  ): Vector[MessageInfo] = {
     val protoPackage = optionNonEmpty(file.getPackage)
     collectNestedMessages(
       file.getName,
@@ -255,14 +267,15 @@ object CodeGenerator {
   ): Vector[EnumInfo] =
     messages.flatMap { messageDescriptor =>
       val messagePath = parentPath :+ messageDescriptor.getName
-      val thisEnums = messageDescriptor.enumType.toVector.map { enumDescriptor =>
-        val enumPath = messagePath :+ enumDescriptor.getName
-        EnumInfo(
-          fileName = fileName,
-          path = enumPath,
-          fullName = fullNameOf(protoPackage, enumPath),
-          descriptor = enumDescriptor
-        )
+      val thisEnums = messageDescriptor.enumType.toVector.map {
+        enumDescriptor =>
+          val enumPath = messagePath :+ enumDescriptor.getName
+          EnumInfo(
+            fileName = fileName,
+            path = enumPath,
+            fullName = fullNameOf(protoPackage, enumPath),
+            descriptor = enumDescriptor
+          )
       }
 
       thisEnums ++ collectNestedEnums(
@@ -363,7 +376,8 @@ object CodeGenerator {
       val isMap = resolvedType.isInstanceOf[FieldType.MapEntry]
       val isMessageField =
         field.getType.equals(FieldDescriptorProto.Type.TYPE_MESSAGE) && !isMap
-      val inOneof = field.oneofIndex.nonEmpty && realOneofIndexes(field.getOneofIndex)
+      val inOneof =
+        field.oneofIndex.nonEmpty && realOneofIndexes(field.getOneofIndex)
       val cardinality =
         fieldCardinality(field, resolvedType, isMap, inOneof, isMessageField)
       val packed = fieldPacked(field, resolvedType, cardinality)
@@ -386,7 +400,8 @@ object CodeGenerator {
     val oneofModels = oneofDecls.zipWithIndex.collect {
       case (oneofDecl, oneofIdx) if realOneofIndexes(oneofIdx) =>
         val oneofFieldNameBase = ProtoNaming.bindableBaseName(oneofDecl.getName)
-        val oneofFieldName = uniqueBindableName(oneofFieldNameBase, usedFieldNames)
+        val oneofFieldName =
+          uniqueBindableName(oneofFieldNameBase, usedFieldNames)
         usedFieldNames = usedFieldNames + oneofFieldName
 
         val oneofTypeName = oneofTypeNameMap(oneofIdx)
@@ -400,18 +415,19 @@ object CodeGenerator {
           }
         )
 
-        val oneofFieldModels = oneofFields.zipWithIndex.map { case (field, idx) =>
-          OneofFieldModel(
-            protoName = field.getName,
-            bosatsuCaseName = caseNames(idx),
-            number = field.getNumber,
-            fieldType = resolveFieldType(
-              field,
-              typeIndex,
-              messageInfo.fullName,
-              cyclicMessageRefEdges
+        val oneofFieldModels = oneofFields.zipWithIndex.map {
+          case (field, idx) =>
+            OneofFieldModel(
+              protoName = field.getName,
+              bosatsuCaseName = caseNames(idx),
+              number = field.getNumber,
+              fieldType = resolveFieldType(
+                field,
+                typeIndex,
+                messageInfo.fullName,
+                cyclicMessageRefEdges
+              )
             )
-          )
         }
 
         OneofModel(
@@ -514,12 +530,12 @@ object CodeGenerator {
             ownerMessageFullName,
             cyclicMessageRefEdges
           ) match {
-          case FieldType.Scalar(scalarType) => scalarType
-          case other                        =>
-            throw new IllegalArgumentException(
-              s"map keys must be scalar, found: $other"
-            )
-        }
+            case FieldType.Scalar(scalarType) => scalarType
+            case other                        =>
+              throw new IllegalArgumentException(
+                s"map keys must be scalar, found: $other"
+              )
+          }
 
         val valueType =
           resolveFieldType(
@@ -553,7 +569,9 @@ object CodeGenerator {
       inOneof: Boolean,
       isMessageField: Boolean
   ): Cardinality =
-    if (isMap || field.getLabel.equals(FieldDescriptorProto.Label.LABEL_REPEATED))
+    if (
+      isMap || field.getLabel.equals(FieldDescriptorProto.Label.LABEL_REPEATED)
+    )
       Cardinality.Repeated
     else if (field.getProto3Optional) Cardinality.Optional
     else if (inOneof) Cardinality.Singular
@@ -588,7 +606,10 @@ object CodeGenerator {
     if (trimmed.isEmpty) None else Some(trimmed)
   }
 
-  private def uniqueBindableName(baseName: String, usedNames: Set[String]): String =
+  private def uniqueBindableName(
+      baseName: String,
+      usedNames: Set[String]
+  ): String =
     if (!usedNames(baseName)) baseName
     else {
       @tailrec
@@ -628,7 +649,9 @@ object CodeGenerator {
     sccs.iterator
       .flatMap { component =>
         val isSelfRecursive =
-          component.exists(node => edges.getOrElse(node, Set.empty).contains(node))
+          component.exists(node =>
+            edges.getOrElse(node, Set.empty).contains(node)
+          )
         if (component.size <= 1 && !isSelfRecursive) Iterator.empty
         else {
           val componentSet = component.toSet

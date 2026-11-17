@@ -16,7 +16,7 @@ final class FileCommandRunner private (compilerEC: Par.EC) {
   import FileCommandRunner._
 
   def run(directory: Path, arguments: List[String]): IO[Result] =
-    capture { (stdout, stderr) => runTo(directory, arguments, stdout, stderr) }
+    capture((stdout, stderr) => runTo(directory, arguments, stdout, stderr))
 
   /** Run a classified worker operation through the same request lifecycle as
     * standalone file commands.
@@ -98,7 +98,9 @@ final class FileCommandRunner private (compilerEC: Par.EC) {
             )
           case None =>
             IO.blocking(
-              stderr.println(s"unsupported bazel worker operation: $operationName")
+              stderr.println(
+                s"unsupported bazel worker operation: $operationName"
+              )
             ).as(ExitCode.Error)
         }
       case Nil =>
@@ -130,9 +132,9 @@ object FileCommandRunner {
   // execute native processes. They retain their normal interactive CLI path.
   private[bosatsu] def supports(command: String): Boolean =
     command match {
-      case "check" | "compile-packages" | "validate-graph" | "verify-toolchain" |
-          "inspect-library" | "emit-c" | "headers" | "deps" | "show" | "assemble" |
-          "extract-iface" =>
+      case "check" | "compile-packages" | "validate-graph" |
+          "verify-toolchain" | "inspect-library" | "emit-c" | "headers" |
+          "deps" | "show" | "assemble" | "extract-iface" =>
         true
       case _ => false
     }
@@ -166,8 +168,12 @@ object FileCommandRunner {
               staged.prepare(diskPath(path))
 
             // Join the request's transaction instead of publishing independently.
-            override def writeFileSetAtomic(files: List[(Path, Bytes)]): IO[Unit] =
-              files.traverse_ { case (path, bytes) => writeBytes(path, bytes.unsafeReadOnlyView) }
+            override def writeFileSetAtomic(
+                files: List[(Path, Bytes)]
+            ): IO[Unit] =
+              files.traverse_ { case (path, bytes) =>
+                writeBytes(path, bytes.unsafeReadOnlyView)
+              }
           }
           out.report(reporter).flatMap {
             case ExitCode.Success => staged.publish.as(ExitCode.Success)

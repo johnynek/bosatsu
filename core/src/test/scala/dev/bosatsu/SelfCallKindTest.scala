@@ -87,7 +87,10 @@ def for_all(xs: List[a], fn: a -> B) -> B:
           Some(
             TypedExpr.MatchGuard(
               TypedExpr.Local(gName, fnType, ()),
-              Pattern.Var(fName): Pattern[(PackageName, Identifier.Constructor), Type],
+              Pattern.Var(fName): Pattern[
+                (PackageName, Identifier.Constructor),
+                Type
+              ],
               None
             )(using Region.empty)
           ),

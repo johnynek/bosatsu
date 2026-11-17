@@ -75,11 +75,11 @@ object ProtoNaming {
   ): SortedMap[A, String] = {
     val (_, out) =
       items.foldLeft((Map.empty[String, Int], SortedMap.empty[A, String])) {
-      case ((counts, acc), (key, base0)) =>
-        val base = if (base0.nonEmpty) base0 else "value"
-        val nextCount = counts.getOrElse(base, 0) + 1
-        val name = if (nextCount == 1) base else s"${base}_$nextCount"
-        (counts.updated(base, nextCount), acc.updated(key, name))
+        case ((counts, acc), (key, base0)) =>
+          val base = if (base0.nonEmpty) base0 else "value"
+          val nextCount = counts.getOrElse(base, 0) + 1
+          val name = if (nextCount == 1) base else s"${base}_$nextCount"
+          (counts.updated(base, nextCount), acc.updated(key, name))
       }
 
     out

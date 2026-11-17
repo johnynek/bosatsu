@@ -286,7 +286,9 @@ class PatternTest extends munit.ScalaCheckSuite {
       Pattern.ListPat(List(Pattern.ListPart.NamedList(n))).definitelyTotal
     )
     assert(
-      Pattern.StrPat(NonEmptyList.one(Pattern.StrPart.NamedStr(n))).definitelyTotal
+      Pattern
+        .StrPat(NonEmptyList.one(Pattern.StrPart.NamedStr(n)))
+        .definitelyTotal
     )
     assert(
       Pattern
@@ -295,8 +297,16 @@ class PatternTest extends munit.ScalaCheckSuite {
     )
 
     assert(!Pattern.PositionalStruct("Foo", Nil).definitelyTotal)
-    assert(!Pattern.ListPat(List(Pattern.ListPart.Item(Pattern.WildCard))).definitelyTotal)
-    assert(!Pattern.StrPat(NonEmptyList.one(Pattern.StrPart.WildChar)).definitelyTotal)
+    assert(
+      !Pattern
+        .ListPat(List(Pattern.ListPart.Item(Pattern.WildCard)))
+        .definitelyTotal
+    )
+    assert(
+      !Pattern
+        .StrPat(NonEmptyList.one(Pattern.StrPart.WildChar))
+        .definitelyTotal
+    )
   }
 
   test("substitute identity is identity") {

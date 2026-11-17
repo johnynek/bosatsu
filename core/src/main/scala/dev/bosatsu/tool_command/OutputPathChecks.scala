@@ -13,7 +13,10 @@ import scala.collection.immutable.SortedSet
 private[bosatsu] object OutputPathChecks {
   def fileName[F[_], P](platform: PlatformIO[F, P], path: P): String =
     platform.pathToString(
-      platform.parent(path).flatMap(platform.relativize(_, path)).getOrElse(path)
+      platform
+        .parent(path)
+        .flatMap(platform.relativize(_, path))
+        .getOrElse(path)
     )
 
   private def checkPendingNames[F[_], P](
@@ -29,8 +32,13 @@ private[bosatsu] object OutputPathChecks {
     val names = paths.map(path => fileName(platform, path) -> path)
     val candidates =
       if (names.exists(_._1.exists(_ > 127))) paths
-      else names.groupMap(_._1.toUpperCase(Locale.ROOT))(_._2)
-        .valuesIterator.filter(_.size > 1).flatten.toList
+      else
+        names
+          .groupMap(_._1.toUpperCase(Locale.ROOT))(_._2)
+          .valuesIterator
+          .filter(_.size > 1)
+          .flatten
+          .toList
 
     def locate(path: P): F[Location] =
       moduleIOMonad.tailRecM(path) { current =>
@@ -53,9 +61,10 @@ private[bosatsu] object OutputPathChecks {
     if (candidates.lengthCompare(2) < 0) moduleIOMonad.unit
     else
       candidates.traverse(locate).flatMap { located =>
-        val grouped = located.foldLeft(HashMap.empty[platform.FileKey, List[(P, P)]]) {
-          case (groups, (key, parent, suffix)) =>
-            groups.updated(key, (parent -> suffix) :: groups.getOrElse(key, Nil))
+        val grouped = located.foldLeft(
+          HashMap.empty[platform.FileKey, List[(P, P)]]
+        ) { case (groups, (key, parent, suffix)) =>
+          groups.updated(key, (parent -> suffix) :: groups.getOrElse(key, Nil))
         }
         grouped.valuesIterator.filter(_.size > 1).toList.traverse_ { group =>
           // Mirror absent suffixes beneath the existing directory so the
@@ -66,7 +75,8 @@ private[bosatsu] object OutputPathChecks {
               platform.existingFileKey(marker).flatMap {
                 case Some(_) =>
                   moduleIOMonad.raiseError[Unit](
-                    CliException.Basic("multiple outputs refer to the same file")
+                    CliException
+                      .Basic("multiple outputs refer to the same file")
                   )
                 case None => platform.writeDoc(marker, Doc.empty)
               }
@@ -85,33 +95,41 @@ private[bosatsu] object OutputPathChecks {
     given Hash[platform.FileKey] = platform.fileKeyHash
     type Key = Either[P, platform.FileKey]
 
-    outputs.traverse { path =>
-      platform.pendingOutputPath(path).flatMap { target =>
-        platform.existingFileKey(target).map(key => (key.toRight(target): Key) -> path)
+    outputs
+      .traverse { path =>
+        platform.pendingOutputPath(path).flatMap { target =>
+          platform
+            .existingFileKey(target)
+            .map(key => (key.toRight(target): Key) -> path)
+        }
       }
-    }.flatMap { files =>
-      val existing = files.collect { case (Right(key), path) => key -> path }
-      val byKey = HashMap.fromSeq(existing)
-      val pending = files.collect { case (Left(path), _) => path }
-      if (
-        byKey.size != existing.size ||
+      .flatMap { files =>
+        val existing = files.collect { case (Right(key), path) => key -> path }
+        val byKey = HashMap.fromSeq(existing)
+        val pending = files.collect { case (Left(path), _) => path }
+        if (
+          byKey.size != existing.size ||
           SortedSet.from(pending)(using pathOrdering).size != pending.size
-      )
-        moduleIOMonad.raiseError(
-          CliException.Basic("multiple outputs refer to the same file")
         )
-      else
-        checkPendingNames(platform, pending) *> moduleIOMonad.whenA(byKey.nonEmpty) {
-          inputs.traverse_ { input =>
-            platform.existingFileKey(input).flatMap { inputKey =>
-              inputKey.flatMap(byKey.get).traverse_ { output =>
-                moduleIOMonad.raiseError[Unit](
-                  CliException.Basic(show"output $output refers to runtime input $input")
-                )
+          moduleIOMonad.raiseError(
+            CliException.Basic("multiple outputs refer to the same file")
+          )
+        else
+          checkPendingNames(platform, pending) *> moduleIOMonad.whenA(
+            byKey.nonEmpty
+          ) {
+            inputs.traverse_ { input =>
+              platform.existingFileKey(input).flatMap { inputKey =>
+                inputKey.flatMap(byKey.get).traverse_ { output =>
+                  moduleIOMonad.raiseError[Unit](
+                    CliException.Basic(
+                      show"output $output refers to runtime input $input"
+                    )
+                  )
+                }
               }
             }
           }
-        }
-    }
+      }
   }
 }

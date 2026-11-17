@@ -257,18 +257,25 @@ case class LibraryEvaluation[K] private (
 
   private def testEntryValue(
       pn: PackageName
-  ): Either[Package.TestDiscoveryError, Option[(Package.TestEntry[Any], Eval[
-    Value
-  ])]] =
+  ): Either[Package.TestDiscoveryError, Option[
+    (
+        Package.TestEntry[Any],
+        Eval[
+          Value
+        ]
+    )
+  ]] =
     selectScopeFor(pn).toOption match {
-      case None => Right(None)
+      case None        => Right(None)
       case Some(scope) =>
         packageInScope(scope, pn) match {
-          case None => Right(None)
+          case None       => Right(None)
           case Some(pack) =>
-            Package.testEntry(pack).map(_.flatMap { entry =>
-              evaluate(scope, pn).get(entry.bindable).map((entry, _))
-            })
+            Package
+              .testEntry(pack)
+              .map(_.flatMap { entry =>
+                evaluate(scope, pn).get(entry.bindable).map((entry, _))
+              })
         }
     }
 
@@ -285,7 +292,7 @@ case class LibraryEvaluation[K] private (
               PredefImpl.runProgTest(value, Nil) match {
                 case Right(testValue) =>
                   Test.fromValue(testValue)
-                case Left(errValue)   =>
+                case Left(errValue) =>
                   Test.Assertion(
                     false,
                     s"ProgTest ${pn.asString}::${progTest.bindable.sourceCodeRepr} raised an uncaught error: $errValue"
@@ -319,8 +326,9 @@ case class LibraryEvaluation[K] private (
   ): List[Bindable] = {
     val v2j = valueToJsonFor(scope)
     pack.lets.iterator
-      .collect { case (bindable, _, te) if v2j.supported(te.getType).isRight =>
-        bindable
+      .collect {
+        case (bindable, _, te) if v2j.supported(te.getType).isRight =>
+          bindable
       }
       .toSet
       .toList
@@ -349,7 +357,7 @@ case class LibraryEvaluation[K] private (
         acc: List[Package.Typed[Any]]
     ): List[Package.Typed[Any]] =
       todo match {
-        case Nil => acc
+        case Nil                 => acc
         case (scope, pn) :: rest =>
           val node = (scope, pn)
           if (seen(node)) loop(rest, seen, acc)
@@ -389,7 +397,9 @@ case class LibraryEvaluation[K] private (
       .flatMap { rootData =>
         if (requested.isEmpty)
           Right(
-            rootData.packages.toMap.values.toList.sortBy(_.name).map(rootScope -> _)
+            rootData.packages.toMap.values.toList
+              .sortBy(_.name)
+              .map(rootScope -> _)
           )
         else
           requested.traverse { pn =>

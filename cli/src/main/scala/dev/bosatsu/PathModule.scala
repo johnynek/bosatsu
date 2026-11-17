@@ -37,15 +37,16 @@ object PathModule extends MainModule[IO, Path](IOPlatformIO) {
         }
       case parameterFile :: Nil
           if parameterFile.startsWith("@") && parameterFile.length > 1 =>
-        BazelWorker.readParameterFile(directory, parameterFile).flatMap { parsed =>
-          FileCommandRunner.resource.use { runner =>
-            runner.runWorkerTo(
-              directory,
-              parsed.commandArguments,
-              System.out,
-              System.err
-            )
-          }
+        BazelWorker.readParameterFile(directory, parameterFile).flatMap {
+          parsed =>
+            FileCommandRunner.resource.use { runner =>
+              runner.runWorkerTo(
+                directory,
+                parsed.commandArguments,
+                System.out,
+                System.err
+              )
+            }
         }
       case _ =>
         IO.raiseError[ExitCode](
