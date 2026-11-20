@@ -25,7 +25,7 @@ jobs:
         env:
           BUILDBUDDY_API_KEY: ${{ secrets.BUILDBUDDY_API_KEY }}
         run: |
-          sbt "coreJVM/testOnly * -- --log=failure; cli/testOnly * -- --log=failure; doc; paradox"
+          sbt "coreJVM/test; cli/test; doc; paradox"
           ./test_cli.sh
           if ! command -v protoc >/dev/null 2>&1; then
             sudo apt-get update

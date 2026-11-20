@@ -2,7 +2,11 @@ import com.github.sbt.git.SbtGit.GitKeys
 import sbtcrossproject.CrossPlugin.autoImport.{crossProject, CrossType}
 import sbt.protocol.testing.TestResult
 import Dependencies._
+import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
+import sbt.util.Digest
 import scala.sys.process._
+import scala.util.Try
 
 lazy val generateCoreAlphaParadoxDocs =
   taskKey[Unit](
@@ -53,6 +57,52 @@ ThisBuild / scmInfo := Some(
   )
 )
 
+// Repo files that tests read while they run. sbt 2's `test` skips a suite
+// whose last pass is cached. That cache key covers the suite's classes and
+// everything they depend on, classpath resources and test options, but not
+// files read at runtime, so these are hashed into every suite's key: a change
+// to any of them reruns the tests.
+lazy val testDataPaths =
+  List("test_workspace", ".github/workflows", "bosatsu_libs.json")
+
+lazy val testDataDigest =
+  taskKey[Digest]("Hash of the repo files that tests read while they run")
+
+// Hashes the paths and current contents of the files under `paths`. git lists
+// them, so ignored build outputs don't count; outside a git checkout, every
+// file under `paths` counts.
+def repoFilesDigest(root: File, paths: Seq[String]): Digest = {
+  val gitCommand = Seq(
+    "git",
+    "ls-files",
+    "-z",
+    "--cached",
+    "--others",
+    "--exclude-standard",
+    "--"
+  ) ++ paths
+  val gitListed = Try(Process(gitCommand, root).!!).toOption
+    .map(_.split('\u0000').toList.filter(_.nonEmpty))
+  val relPaths = gitListed.getOrElse {
+    paths.flatMap { p =>
+      (root / p).allPaths.get().filter(_.isFile).flatMap(IO.relativize(root, _))
+    }
+  }
+  val sha = MessageDigest.getInstance("SHA-256")
+  relPaths.distinct.sorted.foreach { rel =>
+    sha.update(rel.getBytes(StandardCharsets.UTF_8))
+    sha.update(0.toByte)
+    val file = root / rel
+    if (file.isFile) sha.update(IO.readBytes(file))
+    sha.update(0.toByte)
+  }
+  Digest.sha256Hash(sha.digest())
+}
+
+ThisBuild / testDataDigest := Def.uncached(
+  repoFilesDigest((ThisBuild / baseDirectory).value, testDataPaths)
+)
+
 lazy val commonSettings = Seq(
   scalacOptions ++= Seq(
     "-deprecation",
@@ -68,7 +118,10 @@ lazy val commonSettings = Seq(
     "-Wvalue-discard",
     "-Werror"
   ),
-  Test / testOptions += Tests.Argument("-oDF")
+  Test / testOptions += Tests.Argument("-oDF"),
+  // munit reports only failing tests.
+  Test / testOptions += Tests.Argument(TestFrameworks.MUnit, "--log=failure"),
+  Test / extraTestDigests += (ThisBuild / testDataDigest).value
 )
 
 lazy val commonJsSettings = Seq(
