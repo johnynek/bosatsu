@@ -103,6 +103,19 @@ ThisBuild / testDataDigest := Def.uncached(
   repoFilesDigest((ThisBuild / baseDirectory).value, testDataPaths)
 )
 
+// Scala.js tests also depend on two things outside their classpath: the
+// linker settings they're linked with and the Node.js that runs them. The JS
+// projects hash both into their test cache keys (see commonJsSettings).
+lazy val nodeVersion =
+  taskKey[String]("Version of the Node.js that runs the Scala.js tests")
+
+lazy val jsTestRuntimeDigest =
+  taskKey[Digest]("Hash of the linker settings and Node.js version JS tests run with")
+
+ThisBuild / nodeVersion := Def.uncached(
+  Try(Seq("node", "--version").!!.trim).getOrElse("unknown")
+)
+
 lazy val commonSettings = Seq(
   scalacOptions ++= Seq(
     "-deprecation",
@@ -133,7 +146,15 @@ lazy val commonJsSettings = Seq(
     .withBatchMode(scala.sys.env.get("BOSATSU_CI").isDefined)
     .withModuleKind(ModuleKind.CommonJSModule),
   coverageEnabled := false,
-  scalaJSUseMainModuleInitializer := false
+  scalaJSUseMainModuleInitializer := false,
+  jsTestRuntimeDigest := Def.uncached {
+    // Batch mode only changes how much memory the linker uses.
+    val linkerConfig =
+      (Test / fastLinkJS / scalaJSLinkerConfig).value.withBatchMode(false)
+    val node = (ThisBuild / nodeVersion).value
+    Digest.sha256Hash(s"$linkerConfig\n$node".getBytes(StandardCharsets.UTF_8))
+  },
+  Test / extraTestDigests += jsTestRuntimeDigest.value
 )
 
 lazy val root =

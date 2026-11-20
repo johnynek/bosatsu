@@ -295,8 +295,8 @@ workflow =
             name: Set("run coreJS tests"),
             env: Set(sbt_remote_cache_env),
             run: Set(cat_lines([
-              "sbt \"coreJS/testOnly * -- --log=failure; jsapiJS/testOnly * -- --log=failure\"",
-              "sbt \"jsuiJS/testOnly * -- --log=failure\"",
+              "sbt \"coreJS/test; jsapiJS/test\"",
+              "sbt \"jsuiJS/test\"",
               "",
             ])),
           },
