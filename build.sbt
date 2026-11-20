@@ -18,6 +18,21 @@ ThisBuild / dynverVTagPrefix := true
 // sbt-git 3 runs `git describe --tags` with the system git while loading,
 // which logs an error on tag-less CI checkouts, so skip that lookup.
 ThisBuild / GitKeys.gitDescribedVersion := None
+
+// sbt 2 caches task results, such as compiled classes, by their inputs. With
+// BUILDBUDDY_API_KEY set (CI passes it from a repository secret), that cache
+// is also shared through BuildBuddy, so a build reuses results from other
+// machines. Without the key, sbt uses only its local disk cache.
+lazy val buildBuddyApiKey: Option[String] =
+  sys.env.get("BUILDBUDDY_API_KEY").map(_.trim).filter(_.nonEmpty)
+Global / remoteCache ~= { configured =>
+  buildBuddyApiKey match {
+    case Some(_) => Some(uri("grpcs://remote.buildbuddy.io"))
+    case None    => configured
+  }
+}
+Global / remoteCacheHeaders ++=
+  buildBuddyApiKey.map(key => s"x-buildbuddy-api-key=$key").toList
 ThisBuild / organization := "dev.bosatsu"
 ThisBuild / homepage := Some(uri("https://github.com/johnynek/bosatsu"))
 ThisBuild / licenses := List(

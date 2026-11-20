@@ -26,6 +26,8 @@ jobs:
       - name: "install sbt"
         uses: "sbt/setup-sbt@v1"
       - name: "build app"
+        env:
+          BUILDBUDDY_API_KEY: ${{ secrets.BUILDBUDDY_API_KEY }}
         run: |
           sbt "jsuiJS/fullLinkJS; docs/paradox"
           mkdir web_deploy

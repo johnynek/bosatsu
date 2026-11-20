@@ -22,6 +22,8 @@ jobs:
       - name: "install sbt"
         uses: "sbt/setup-sbt@v1"
       - name: "run JVM tests"
+        env:
+          BUILDBUDDY_API_KEY: ${{ secrets.BUILDBUDDY_API_KEY }}
         run: |
           sbt "coreJVM/testOnly * -- --log=failure; cli/testOnly * -- --log=failure; doc; paradox"
           ./test_cli.sh
@@ -74,6 +76,8 @@ jobs:
       - name: "install tree-sitter cli"
         run: "npm install -g tree-sitter-cli@0.24.7"
       - name: "run tree-sitter and differential parser checks"
+        env:
+          BUILDBUDDY_API_KEY: ${{ secrets.BUILDBUDDY_API_KEY }}
         run: "./scripts/test_tree_sitter.sh"
     strategy:
       matrix:
@@ -117,6 +121,8 @@ jobs:
         with:
           python-version: "${{matrix.python}}"
       - name: "build assembly"
+        env:
+          BUILDBUDDY_API_KEY: ${{ secrets.BUILDBUDDY_API_KEY }}
         run: 'sbt "cli/assembly"'
       - name: "generate python code"
         run: "./bosatsuj tool transpile --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu python --outdir pyout --externals test_workspace/Prog.bosatsu_externals --evaluators test_workspace/Prog.bosatsu_eval"
@@ -153,10 +159,14 @@ jobs:
       - name: "install sbt"
         uses: "sbt/setup-sbt@v1"
       - name: "run coreJS tests"
+        env:
+          BUILDBUDDY_API_KEY: ${{ secrets.BUILDBUDDY_API_KEY }}
         run: |
           sbt "coreJS/testOnly * -- --log=failure; jsapiJS/testOnly * -- --log=failure"
           sbt "jsuiJS/testOnly * -- --log=failure"
       - name: "verify jsui browser bundle"
+        env:
+          BUILDBUDDY_API_KEY: ${{ secrets.BUILDBUDDY_API_KEY }}
         run: |
           sbt "jsuiJS/fullLinkJS"
     strategy:
@@ -225,6 +235,8 @@ jobs:
       - name: "install sbt"
         uses: "sbt/setup-sbt@v1"
       - name: "verify graalvm native image pin"
+        env:
+          BUILDBUDDY_API_KEY: ${{ secrets.BUILDBUDDY_API_KEY }}
         run: |
           sbt -Dsbt.log.noformat=true "show cli / nativeImageJvm" "show cli / nativeImageVersion" | tee native-image-toolchain.txt
           grep -q "\[info\] graalvm-java23" native-image-toolchain.txt
@@ -232,6 +244,7 @@ jobs:
       - name: "build native image"
         env:
           BOSATSU_NATIVE_IMAGE_THREADS: "2"
+          BUILDBUDDY_API_KEY: ${{ secrets.BUILDBUDDY_API_KEY }}
         run: |
           sbt "cli/nativeImage"
           cp target/out/jvm/scala-*/compiler-cli/native-image/bosatsu-cli bosatsu
@@ -266,6 +279,8 @@ jobs:
       - name: "install sbt"
         uses: "sbt/setup-sbt@v1"
       - name: "build node"
+        env:
+          BUILDBUDDY_API_KEY: ${{ secrets.BUILDBUDDY_API_KEY }}
         run: |
           sbt "cliJSJS/fullOptJS"
       - name: "run bosatsu tests"
@@ -316,6 +331,8 @@ jobs:
       - name: "install sbt"
         uses: "sbt/setup-sbt@v1"
       - name: "build assembly"
+        env:
+          BUILDBUDDY_API_KEY: ${{ secrets.BUILDBUDDY_API_KEY }}
         run: 'sbt "cli/assembly"'
       - name: "install vendored c runtime"
         run: |
@@ -398,6 +415,8 @@ jobs:
       - name: "install sbt"
         uses: "sbt/setup-sbt@v1"
       - name: "build assembly"
+        env:
+          BUILDBUDDY_API_KEY: ${{ secrets.BUILDBUDDY_API_KEY }}
         run: 'sbt "cli/assembly"'
       - name: "run c sanitizer checks"
         run: "./scripts/test_c_sanitizers.sh"
@@ -419,6 +438,8 @@ jobs:
       - name: "install sbt"
         uses: "sbt/setup-sbt@v1"
       - name: "build assembly"
+        env:
+          BUILDBUDDY_API_KEY: ${{ secrets.BUILDBUDDY_API_KEY }}
         run: 'sbt "cli/assembly"'
       - name: "install c toolchain and valgrind"
         run: "sudo apt-get update && sudo apt install -y valgrind"
@@ -442,6 +463,8 @@ jobs:
       - name: "install sbt"
         uses: "sbt/setup-sbt@v1"
       - name: "build assembly"
+        env:
+          BUILDBUDDY_API_KEY: ${{ secrets.BUILDBUDDY_API_KEY }}
         run: 'sbt "cli/assembly"'
       - name: "install vendored c runtime"
         run: |
@@ -519,6 +542,8 @@ jobs:
       - name: "install sbt"
         uses: "sbt/setup-sbt@v1"
       - name: "build assembly"
+        env:
+          BUILDBUDDY_API_KEY: ${{ secrets.BUILDBUDDY_API_KEY }}
         run: 'sbt "cli/assembly"'
       - name: "dry run bosatsu publish"
         env:
