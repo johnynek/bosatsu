@@ -400811,9 +400811,9 @@ function $c_Ldev_bosatsu_BuildInfo$() {
   this.agz = null;
   this.buO = null;
   $n_Ldev_bosatsu_BuildInfo$ = this;
-  this.PG = "0.0.0+1-ca4aaa74-SNAPSHOT";
+  this.PG = "0.0.0+1-fb29eca5-SNAPSHOT";
   this.aSA = "3.8.2";
-  this.Xs = new $c_s_Some("ca4aaa741842a6f36617269985652d433e667a15");
+  this.Xs = new $c_s_Some("fb29eca5dda1e0fb3da261b7e8aed68def1c9487");
   this.agz = "";
   this.buO = ((((((("version: " + this.PG) + ", scalaVersion: ") + this.aSA) + ", gitHeadCommit: ") + this.Xs) + ", cRuntimeArchiveHash: ") + this.agz);
 }
