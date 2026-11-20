@@ -14,6 +14,8 @@ export (
   action_upload_artifact,
   cat_lines,
   codecov_token_secret,
+  buildbuddy_api_key_secret,
+  sbt_remote_cache_env,
   OnPushBranches(),
   OnPush(),
   github_token_secret,
@@ -104,6 +106,7 @@ struct StepEnv(
   `GITHUB_TOKEN`: Optional[String] = Missing,
   `GITHUB_REF_NAME`: Optional[String] = Missing,
   `GH_TOKEN`: Optional[String] = Missing,
+  `BUILDBUDDY_API_KEY`: Optional[String] = Missing,
 )
 
 struct Step[with_t](
@@ -171,6 +174,10 @@ permission_write = "write"
 
 github_token_secret = "\${{ secrets.GITHUB_TOKEN }}"
 codecov_token_secret = "\${{ secrets.CODECOV_TOKEN }}"
+buildbuddy_api_key_secret = "\${{ secrets.BUILDBUDDY_API_KEY }}"
+
+# Only steps that run sbt get the BuildBuddy key, so other actions never see it.
+sbt_remote_cache_env = StepEnv { `BUILDBUDDY_API_KEY`: Set(buildbuddy_api_key_secret) }
 
 timeout_minutes_default = 30
 

@@ -15,6 +15,7 @@ from Bosatsu/Example/Json/Github/Workflows/Util import (
   OnPushBranches,
   permission_write,
   runner_ubuntu_latest,
+  sbt_remote_cache_env,
   setup_java_step,
   setup_sbt_step,
   Step,
@@ -67,6 +68,7 @@ workflow =
           *web_build_setup_steps,
           Step {
             name: Set("build app"),
+            env: Set(sbt_remote_cache_env),
             run: Set(cat_lines([
               "sbt \"jsuiJS/fullLinkJS; docs/paradox\"",
               "mkdir web_deploy",
