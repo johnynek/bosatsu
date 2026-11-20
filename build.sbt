@@ -1,3 +1,4 @@
+import com.github.sbt.git.SbtGit.GitKeys
 import sbtcrossproject.CrossPlugin.autoImport.{crossProject, CrossType}
 import sbt.protocol.testing.TestResult
 import Dependencies._
@@ -13,6 +14,10 @@ lazy val versionString = "3.8.2"
 ThisBuild / scalaVersion := versionString
 ThisBuild / crossScalaVersions := Seq(versionString)
 ThisBuild / dynverVTagPrefix := true
+// sbt-dynver sets the version; we only use sbt-git for the head commit.
+// sbt-git 3 runs `git describe --tags` with the system git while loading,
+// which logs an error on tag-less CI checkouts, so skip that lookup.
+ThisBuild / GitKeys.gitDescribedVersion := None
 ThisBuild / organization := "dev.bosatsu"
 ThisBuild / homepage := Some(uri("https://github.com/johnynek/bosatsu"))
 ThisBuild / licenses := List(
@@ -64,7 +69,9 @@ lazy val commonJsSettings = Seq(
 )
 
 lazy val root =
-  (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure) in file("."))
+  crossProject(JSPlatform, JVMPlatform)
+    .crossType(CrossType.Pure)
+    .in(file("."))
     .aggregate(core)
     .settings(
       commonSettings,
@@ -249,9 +256,10 @@ lazy val rootJS = root.js
 lazy val headCommit = git.gitHeadCommit
 
 lazy val base =
-  (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure) in file(
-    "base"
-  )).enablePlugins(BuildInfoPlugin)
+  crossProject(JSPlatform, JVMPlatform)
+    .crossType(CrossType.Pure)
+    .in(file("base"))
+    .enablePlugins(BuildInfoPlugin)
     .settings(
       commonSettings,
       name := "bosatsu-base",
@@ -381,9 +389,9 @@ lazy val cli = (project in file("cli"))
   .dependsOn(protoJVM, coreJVM % "compile->compile;test->test")
 
 lazy val proto =
-  (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure) in file(
-    "proto"
-  ))
+  crossProject(JSPlatform, JVMPlatform)
+    .crossType(CrossType.Pure)
+    .in(file("proto"))
     .settings(
       name := "bosatsu-proto",
       moduleName := "compiler-proto",
@@ -410,9 +418,9 @@ lazy val protoJs = proto.js
 lazy val protoJVM = proto.jvm
 
 lazy val core =
-  (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure) in file(
-    "core"
-  )).settings(
+  crossProject(JSPlatform, JVMPlatform)
+    .crossType(CrossType.Pure)
+    .in(file("core")).settings(
     commonSettings,
     name := "bosatsu-core",
     moduleName := "compiler-core",
@@ -443,7 +451,9 @@ lazy val coreJS =
   core.js.enablePlugins(ScalaJSPlugin)
 
 lazy val cliJS =
-  (crossProject(JSPlatform).crossType(CrossType.Pure) in file("cliJS"))
+  crossProject(JSPlatform)
+    .crossType(CrossType.Pure)
+    .in(file("cliJS"))
     .settings(
       commonSettings,
       commonJsSettings,
@@ -469,7 +479,9 @@ lazy val cliJS =
     .dependsOn(base, core)
 
 lazy val jsapi =
-  (crossProject(JSPlatform).crossType(CrossType.Pure) in file("jsapi"))
+  crossProject(JSPlatform)
+    .crossType(CrossType.Pure)
+    .in(file("jsapi"))
     .settings(
       commonSettings,
       commonJsSettings,
@@ -490,7 +502,9 @@ lazy val jsapiJS = jsapi.js
 
 // jsui is browser-only: ff4s has no JVM build.
 lazy val jsui =
-  (crossProject(JSPlatform).crossType(CrossType.Pure) in file("jsui"))
+  crossProject(JSPlatform)
+    .crossType(CrossType.Pure)
+    .in(file("jsui"))
     .settings(
       commonSettings,
       commonJsSettings,
