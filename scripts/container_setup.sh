@@ -90,7 +90,7 @@ mkdir -p /opt/mergexo-sbt
 tar -xzf "$staging_dir/sbt.tgz" -C /opt/mergexo-sbt --strip-components=1
 ln -sf /opt/mergexo-sbt/bin/sbt /usr/local/bin/sbt
 
-# Scala.js tests and bundles (scalajs-bundler) run node and npm; pin an LTS release.
+# Scala.js tests run node; pin an LTS release.
 node_version=24.22.3
 curl --fail --location --retry 3 --output "$staging_dir/node.tar.xz" \
   "https://nodejs.org/dist/v${node_version}/node-v${node_version}-linux-${node_arch}.tar.xz"

@@ -436,7 +436,7 @@ lazy val core =
 
 lazy val coreJVM = core.jvm
 lazy val coreJS =
-  core.js.enablePlugins(ScalaJSPlugin).enablePlugins(ScalaJSBundlerPlugin)
+  core.js.enablePlugins(ScalaJSPlugin)
 
 lazy val cliJS =
   (crossProject(JSPlatform).crossType(CrossType.Pure) in file("cliJS"))
@@ -504,15 +504,14 @@ lazy val jsui =
     )
     .jsSettings(
       scalaJSUseMainModuleInitializer := true,
-      Compile / fastOptJS / webpackConfigFile := Some(
-        (LocalRootProject / baseDirectory).value / "jsui" / "webpack.config.js"
-      ),
-      Compile / fullOptJS / webpackConfigFile := Some(
-        (LocalRootProject / baseDirectory).value / "jsui" / "webpack.config.js"
-      )
+      // index.html loads the UI with a plain <script> tag, and the linked
+      // code has no npm imports, so Scala.js can emit the browser script
+      // directly without a bundler.
+      scalaJSLinkerConfig ~= { _.withModuleKind(ModuleKind.NoModule) },
+      // The deployed page is the single fullLinkJS file, with no source map.
+      Compile / fullLinkJS / scalaJSLinkerConfig ~= { _.withSourceMap(false) }
     )
     .enablePlugins(ScalaJSPlugin)
-    .enablePlugins(ScalaJSBundlerPlugin)
     .dependsOn(base, core)
 
 lazy val jsuiJS = jsui.js
