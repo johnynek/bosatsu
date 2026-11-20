@@ -7,7 +7,7 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)
 export NODE_OPTIONS="--no-deprecation${NODE_OPTIONS:+ $NODE_OPTIONS}"
 # make sure to run sbt cliJSJS/fullOptJS
 target_dir=""
-for d in "$SCRIPT_DIR"/cliJS/.js/target/scala-*; do
+for d in "$SCRIPT_DIR"/target/out/sjs1/scala-*/compiler-clijs; do
   if [ -d "$d" ]; then
     target_dir="$d"
     break
