@@ -204,7 +204,7 @@ workflow =
             name: Set("run JVM tests"),
             env: Set(sbt_remote_cache_env),
             run: Set(cat_lines([
-              "sbt \"coreJVM/testOnly * -- --log=failure; cli/testOnly * -- --log=failure; doc; paradox\"",
+              "sbt \"coreJVM/test; cli/test; doc; paradox\"",
               "./test_cli.sh",
               "if ! command -v protoc >/dev/null 2>&1; then",
               "  sudo apt-get update",
