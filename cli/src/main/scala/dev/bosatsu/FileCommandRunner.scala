@@ -12,7 +12,10 @@ import java.nio.file.{Files, Path}
   * compiler execution pool. Each call owns its path context, streams, pending
   * outputs and child fibers, even if the same IO is evaluated a second time.
   */
-final class FileCommandRunner private (compilerEC: Par.EC) {
+final class FileCommandRunner private (
+    compilerEC: Par.EC,
+    buildInfo: CompilerBuildInfo
+) {
   import FileCommandRunner._
 
   def run(directory: Path, arguments: List[String]): IO[Result] =
@@ -117,7 +120,8 @@ final class FileCommandRunner private (compilerEC: Par.EC) {
         stdout,
         stderr,
         compilerEC,
-        supervisor
+        supervisor,
+        buildInfo
       )
     }
 }
@@ -137,16 +141,17 @@ object FileCommandRunner {
       case _ => false
     }
 
-  def resource: Resource[IO, FileCommandRunner] =
-    IOPlatformIO.parResource.map(new FileCommandRunner(_))
+  def resource(buildInfo: CompilerBuildInfo): Resource[IO, FileCommandRunner] =
+    IOPlatformIO.parResource.map(new FileCommandRunner(_, buildInfo))
 
   private[bosatsu] class RequestPlatform(
       directory: Path,
       override protected val stdout: PrintStream,
       override protected val stderr: PrintStream,
       compilerEC: Par.EC,
-      supervisor: Supervisor[IO]
-  ) extends IOPlatformIO {
+      supervisor: Supervisor[IO],
+      buildInfo: CompilerBuildInfo
+  ) extends IOPlatformIO(buildInfo) {
     // Command computation may write an explicitly requested on-disk compiler
     // cache. Stage only declared artifacts, when the resulting Output is reported.
     def publish(out: Output[Path]): IO[ExitCode] =
@@ -160,7 +165,8 @@ object FileCommandRunner {
             stdout,
             stderr,
             compilerEC,
-            supervisor
+            supervisor,
+            buildInfo
           ) {
             override protected def outputPath(path: Path): IO[Path] =
               staged.prepare(diskPath(path))

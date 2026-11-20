@@ -760,7 +760,6 @@ object PackageMap {
                           source.sourceHash,
                           depIfaces,
                           compileOptions,
-                          CompileCache.compilerIdentity,
                           phases.id
                         )
                       )

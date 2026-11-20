@@ -25,7 +25,7 @@ class ParametricPathCommandsTest extends munit.FunSuite {
 
   // Adapt the in-memory filesystem without changing its effects or file keys.
   private val platform: PlatformIO[F, Path] = new PlatformIO[F, Path] {
-    export memory.{moduleIOMonad, parallelF, canPromiseF, withEC, writeStdout, writeError,
+    export memory.{buildInfo, moduleIOMonad, parallelF, canPromiseF, withEC, writeStdout, writeError,
       readStdinBytes, writeStdoutBytes, system, systemStdout, env, hostOs, hostArch,
       gitShaHead, println, errorln}
     type FileKey = memory.FileKey

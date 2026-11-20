@@ -4,8 +4,8 @@ import _root_.bosatsu.{TypedAst => proto}
 import cats.syntax.all._
 import dev.bosatsu.hashing.{Algo, Hashed, HashValue}
 import dev.bosatsu.{
-  BuildInfo,
   CompileOptions,
+  CompilerBuildInfo,
   Package,
   PackageName,
   PlatformIO,
@@ -21,13 +21,14 @@ import scala.collection.immutable.SortedMap
 import scala.util.{Failure, Success, Try}
 
 object CompileCache {
+  // (package, source hash, dependency interfaces, compile options, phase id).
+  // The compiler identity is not here: it is fixed for a cache instance.
   type GenerateKeyInput =
     (
         PackageName,
         HashValue[Algo.Blake3],
         SortedMap[PackageName, Package.Interface],
         CompileOptions,
-        String,
         String
     )
 
@@ -36,16 +37,20 @@ object CompileCache {
   private val utf8 = StandardCharsets.UTF_8
   private val blake3 = Algo.blake3Algo
 
-  def compilerIdentity: String = {
-    val gitSha = BuildInfo.gitHeadCommit.getOrElse("nogit")
-    s"${BuildInfo.version}:$gitSha:${BuildInfo.scalaVersion}"
+  def compilerIdentity(buildInfo: CompilerBuildInfo): String = {
+    val gitSha = buildInfo.gitHeadCommit.getOrElse("nogit")
+    s"${buildInfo.version}:$gitSha:${buildInfo.scalaVersion}"
   }
 
   def filesystem[F[_], P](
       cacheDir: P,
       platformIO: PlatformIO[F, P]
   ): InferCache[F, GenerateKeyInput, Package.Compiled] { type Key = FsKey } =
-    new FilesystemCache(cacheDir, platformIO)
+    new FilesystemCache(
+      cacheDir,
+      platformIO,
+      compilerIdentity(platformIO.buildInfo)
+    )
 
   def sourceExprHash(pack: Package.Parsed): HashValue[Algo.Blake3] = {
     val normalizedStatements = pack.program.collect {
@@ -352,7 +357,8 @@ object CompileCache {
 
   private final class FilesystemCache[F[_], P](
       cacheDir: P,
-      platformIO: PlatformIO[F, P]
+      platformIO: PlatformIO[F, P],
+      compilerIdentity: String
   ) extends AbstractFilesystemCache[F, P, GenerateKeyInput, Package.Compiled](
         cacheDir,
         platformIO
@@ -406,7 +412,6 @@ object CompileCache {
         sourceHash,
         depInterfaces,
         compileOptions,
-        compilerIdentity,
         phaseIdentity
       ) = input
 

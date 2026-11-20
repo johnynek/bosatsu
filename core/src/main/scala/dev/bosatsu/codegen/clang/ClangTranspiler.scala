@@ -6,7 +6,6 @@ import com.monovore.decline.{Argument, Opts}
 import java.util.regex.{Pattern => RegexPat}
 import dev.bosatsu.codegen.{Transpiler, CompilationNamespace}
 import dev.bosatsu.{
-  BuildInfo,
   Identifier,
   Json,
   NameSuggestion,
@@ -296,7 +295,7 @@ case object ClangTranspiler extends Transpiler {
   )
   object Output {
     def ccConfOpt[F[_], P](platformIO: PlatformIO[F, P]): Opts[F[CcConf]] = {
-      import platformIO.{moduleIOMonad, pathArg, showPath}
+      import platformIO.{buildInfo, moduleIOMonad, pathArg, showPath}
 
       def validateExplicitCcConfPath(confPath: P): F[Unit] =
         platformIO.fsDataType(confPath).flatMap {
@@ -342,9 +341,9 @@ case object ClangTranspiler extends Transpiler {
           )
         )
         gitSha <- platformIO.getOrError(
-          BuildInfo.gitHeadCommit,
+          buildInfo.gitHeadCommit,
           CliException.Basic(
-            s"compiler version ${BuildInfo.version} was built without a git-sha.\n" +
+            s"compiler version ${buildInfo.version} was built without a git-sha.\n" +
               "Pass --cc_conf <path/to/cc_conf.json>, or run `bosatsu c-runtime install --git_sha <sha>` and use the generated cc_conf."
           )
         )

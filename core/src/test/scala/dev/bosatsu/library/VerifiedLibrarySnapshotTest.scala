@@ -19,6 +19,7 @@ class VerifiedLibrarySnapshotTest extends munit.ScalaCheckSuite {
   private val countingPlatform = new PlatformIO[MemoryMain.StateF[Result], Path] {
     type FileKey = platform.FileKey
     export platform.{
+      buildInfo,
       moduleIOMonad,
       parallelF,
       canPromiseF,
