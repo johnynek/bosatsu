@@ -24,9 +24,14 @@ import scalapb.{GeneratedMessage, GeneratedMessageCompanion}
 
 import cats.syntax.all._
 
-object IOPlatformIO extends IOPlatformIO
+/** A JVM platform with the fixed `CompilerBuildInfo.constant`, for tests and
+  * for helpers that don't need build info. The cli entry point uses
+  * `CliPlatformIO`, which has this build's real info.
+  */
+object IOPlatformIO extends IOPlatformIO(CompilerBuildInfo.constant)
 
-class IOPlatformIO extends PlatformIO[IO, JPath] {
+class IOPlatformIO(val buildInfo: CompilerBuildInfo)
+    extends PlatformIO[IO, JPath] {
   type F[A] = IO[A]
   type Path = JPath
   type FileKey = Either[JPath, JFileKey]
@@ -34,9 +39,6 @@ class IOPlatformIO extends PlatformIO[IO, JPath] {
     given Hash[JPath] = Hash.fromUniversalHashCode
     Hash[FileKey]
   }
-
-  // BuildInfo is generated in this project, not core; see CompilerBuildInfo.
-  def buildInfo: CompilerBuildInfo = BuildInfo
 
   def pendingOutputPath(path: Path): IO[Path] = IO.blocking {
     def target(p: Path, links: Set[Path]): Eval[Path] = Eval.defer {

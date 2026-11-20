@@ -39,15 +39,13 @@ private object Unlink extends js.Function1[String, js.Promise[Unit]] {
 }
 
 class Fs2PlatformIO private[dev] (
+    val buildInfo: CompilerBuildInfo,
     injectedDocumentWriteOps: Option[Fs2PlatformIO.DocumentWriteOps]
 ) extends PlatformIO[IO, Path] {
   private lazy val documentWriteOps =
     injectedDocumentWriteOps.getOrElse(Fs2PlatformIO.documentWriteOps)
   type FileKey = Either[Path, FsKey]
   val fileKeyHash: Hash[FileKey] = Hash[FileKey]
-
-  // BuildInfo is generated in this project, not core; see CompilerBuildInfo.
-  def buildInfo: CompilerBuildInfo = BuildInfo
 
   def withTempDirectoryIn[A](parent: Path)(fn: Path => IO[A]): IO[A] =
     Resource.make(FilesIO.createTempDirectory(Some(parent), ".bosatsu-probe-", None))(
@@ -532,7 +530,11 @@ class Fs2PlatformIO private[dev] (
     write(lib, path)
 }
 
-object Fs2PlatformIO extends Fs2PlatformIO(None) {
+/** A Node platform with the fixed `CompilerBuildInfo.constant`, for tests and
+  * for helpers that don't need build info. The cliJS entry point,
+  * `tool.Fs2Module`, passes this build's real info.
+  */
+object Fs2PlatformIO extends Fs2PlatformIO(CompilerBuildInfo.constant, None) {
   private[dev] final case class DocumentWriteOps(
       createParentDirectories: Path => IO[Unit],
       resolveDestination: Path => IO[Path],
@@ -594,7 +596,7 @@ object Fs2PlatformIO extends Fs2PlatformIO(None) {
   )
 
   private[dev] def withDocumentWriteOps(ops: DocumentWriteOps): Fs2PlatformIO =
-    new Fs2PlatformIO(Some(ops))
+    new Fs2PlatformIO(buildInfo, Some(ops))
 
   private final case class PendingFile(
       destination: Path,

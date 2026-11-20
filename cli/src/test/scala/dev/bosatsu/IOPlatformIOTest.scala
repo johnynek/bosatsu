@@ -63,7 +63,7 @@ class IOPlatformIOTest extends munit.ScalaCheckSuite {
     forAll { (values: List[Byte]) =>
       val output = new ByteArrayOutputStream()
       val stream = new PrintStream(output)
-      val platform = new IOPlatformIO {
+      val platform = new IOPlatformIO(CompilerBuildInfo.constant) {
         override protected def stdout: PrintStream = stream
       }
       try {
