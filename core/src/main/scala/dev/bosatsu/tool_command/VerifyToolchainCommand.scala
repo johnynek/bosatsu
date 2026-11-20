@@ -3,7 +3,7 @@ package dev.bosatsu.tool_command
 import cats.data.NonEmptyList
 import cats.syntax.all._
 import com.monovore.decline.Opts
-import dev.bosatsu.{BuildInfo, PlatformIO}
+import dev.bosatsu.PlatformIO
 import dev.bosatsu.tool.{CliException, Output, ToolchainManifest}
 import org.typelevel.paiges.Doc
 
@@ -46,7 +46,7 @@ object VerifyToolchainCommand {
   }
 
   def opts[F[_], P](platform: PlatformIO[F, P]): Opts[F[Output[P]]] = {
-    import platform.{moduleIOMonad, pathArg}
+    import platform.{buildInfo, moduleIOMonad, pathArg}
     val manifest =
       Opts.option[P]("manifest", "caller-trusted detached toolchain manifest")
     val compiler =
@@ -88,7 +88,7 @@ object VerifyToolchainCommand {
               compilerJar,
               core,
               runtimeArchive,
-              BuildInfo.cRuntimeArchiveHash
+              buildInfo.cRuntimeArchiveHash
             )
             _ <- checkStampDoesNotAliasInputs(
               platform,

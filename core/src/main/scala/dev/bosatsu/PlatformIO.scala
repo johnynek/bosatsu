@@ -25,6 +25,11 @@ trait PlatformIO[F[_], Path] {
 
   def withEC[A](fn: Par.EC ?=> F[A]): F[A]
 
+  /** How this compiler was built. Entry points supply the generated
+    * `BuildInfo`; see [[CompilerBuildInfo]].
+    */
+  def buildInfo: CompilerBuildInfo
+
   final def path(str: String): ValidatedNel[String, Path] =
     pathArg.read(str)
 

@@ -255,26 +255,32 @@ lazy val rootJS = root.js
 
 lazy val headCommit = git.gitHeadCommit
 
+// BuildInfo holds the version and git commit, which change with every commit.
+// Only the entry point projects (cli, cliJS, jsapi and jsui) generate it and
+// hand it to core as a dev.bosatsu.CompilerBuildInfo, so a new commit doesn't change the
+// compiled output of core and the other shared projects, and sbt's build cache
+// can reuse it.
+lazy val compilerBuildInfoSettings = Seq(
+  buildInfoKeys := Seq[BuildInfoKey](
+    version,
+    scalaVersion,
+    headCommit,
+    BuildInfoKey.action("cRuntimeArchiveHash") {
+      sys.env.getOrElse("BOSATSU_C_RUNTIME_HASH", "")
+    }
+  ),
+  buildInfoPackage := "dev.bosatsu",
+  buildInfoOptions += BuildInfoOption.Traits("dev.bosatsu.CompilerBuildInfo")
+)
+
 lazy val base =
   crossProject(JSPlatform, JVMPlatform)
     .crossType(CrossType.Pure)
     .in(file("base"))
-    .enablePlugins(BuildInfoPlugin)
     .settings(
       commonSettings,
       name := "bosatsu-base",
-      moduleName := "compiler-base",
-      buildInfoKeys := Seq[BuildInfoKey](
-        name,
-        version,
-        scalaVersion,
-        sbtVersion,
-        headCommit,
-        BuildInfoKey.action("cRuntimeArchiveHash") {
-          sys.env.getOrElse("BOSATSU_C_RUNTIME_HASH", "")
-        }
-      ),
-      buildInfoPackage := "dev.bosatsu"
+      moduleName := "compiler-base"
     )
     .jsSettings(commonJsSettings)
 
@@ -282,9 +288,10 @@ lazy val baseJS = base.js
 lazy val baseJVM = base.jvm
 
 lazy val cli = (project in file("cli"))
-  .enablePlugins(NativeImagePlugin)
+  .enablePlugins(NativeImagePlugin, BuildInfoPlugin)
   .settings(
     commonSettings,
+    compilerBuildInfoSettings,
     name := "bosatsu-cli",
     moduleName := "compiler-cli",
     Compile / javacOptions ++= Seq("--release", "17"),
@@ -454,9 +461,11 @@ lazy val cliJS =
   crossProject(JSPlatform)
     .crossType(CrossType.Pure)
     .in(file("cliJS"))
+    .enablePlugins(BuildInfoPlugin)
     .settings(
       commonSettings,
       commonJsSettings,
+      compilerBuildInfoSettings,
       name := "bosatsu-clijs",
       moduleName := "compiler-clijs",
       assembly / test := TestResult.Passed,
@@ -482,9 +491,11 @@ lazy val jsapi =
   crossProject(JSPlatform)
     .crossType(CrossType.Pure)
     .in(file("jsapi"))
+    .enablePlugins(BuildInfoPlugin)
     .settings(
       commonSettings,
       commonJsSettings,
+      compilerBuildInfoSettings,
       name := "bosatsu-jsapi",
       moduleName := "compiler-jsapi",
       assembly / test := TestResult.Passed,
@@ -505,9 +516,11 @@ lazy val jsui =
   crossProject(JSPlatform)
     .crossType(CrossType.Pure)
     .in(file("jsui"))
+    .enablePlugins(BuildInfoPlugin)
     .settings(
       commonSettings,
       commonJsSettings,
+      compilerBuildInfoSettings,
       name := "bosatsu-jsui",
       moduleName := "compiler-jsui",
       libraryDependencies ++=

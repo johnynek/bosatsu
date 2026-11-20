@@ -4,6 +4,7 @@ package jsapi
 import scala.scalajs.js
 
 class JsApiTest extends munit.FunSuite {
+  private val api = new JsApi(CompilerBuildInfo.constant)
   private val webDemoKey = "root/webdemo"
   private val webDemoPackage = JsApi.normalize(webDemoKey)
   private val demoSource =
@@ -17,7 +18,7 @@ class JsApiTest extends munit.FunSuite {
   test("evaluate uses tool eval args") {
     // Pass an explicit normalized package so this regression test isolates
     // the tool-prefix command routing rather than main-file path lookup.
-    JsApi.evaluate(webDemoPackage, webDemoKey, files) match {
+    api.evaluate(webDemoPackage, webDemoKey, files) match {
       case success: JsApi.EvalSuccess =>
         val rendered = success.result.toString
         assert(rendered.contains("42"), rendered)
@@ -28,7 +29,7 @@ class JsApiTest extends munit.FunSuite {
   }
 
   test("evaluateJson uses tool json write args") {
-    JsApi.evaluateJson(webDemoPackage, webDemoKey, files) match {
+    api.evaluateJson(webDemoPackage, webDemoKey, files) match {
       case success: JsApi.EvalSuccess =>
         assertEquals(success.result.asInstanceOf[Double], 42.0)
       case err: JsApi.Error =>

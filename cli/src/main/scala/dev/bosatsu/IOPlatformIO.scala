@@ -35,6 +35,9 @@ class IOPlatformIO extends PlatformIO[IO, JPath] {
     Hash[FileKey]
   }
 
+  // BuildInfo is generated in this project, not core; see CompilerBuildInfo.
+  def buildInfo: CompilerBuildInfo = BuildInfo
+
   def pendingOutputPath(path: Path): IO[Path] = IO.blocking {
     def target(p: Path, links: Set[Path]): Eval[Path] = Eval.defer {
       try Eval.now(p.toRealPath())

@@ -10,7 +10,10 @@ import js.annotation._
 
 import cats.implicits._
 
+/** The API exported to JavaScript as `Bosatsu`, using this build's info. */
 @JSExportTopLevel("Bosatsu")
+object BosatsuJsApi extends JsApi(BuildInfo)
+
 object JsApi {
   private val toolPrefix = List("tool")
 
@@ -21,7 +24,6 @@ object JsApi {
     splitPath(s).mkString("/")
 
   private type ErrorOr[A] = Either[Throwable, A]
-  private val module = MemoryMain[ErrorOr]
 
   private def makeInputArgs(keys: Iterable[String]): List[String] =
     keys.iterator.flatMap(key => "--input" :: normalize(key) :: Nil).toList
@@ -32,6 +34,15 @@ object JsApi {
   class Error(val error_message: String) extends js.Object
 
   class EvalSuccess(val result: js.Any) extends js.Object
+}
+
+/** The JavaScript API. `BosatsuJsApi` passes the generated `BuildInfo`; tests
+  * pass `CompilerBuildInfo.constant`.
+  */
+class JsApi(buildInfo: CompilerBuildInfo) {
+  import JsApi._
+
+  private val module = MemoryMain.withBuildInfo[ErrorOr](buildInfo)
 
   /** mainPackage can be null, in which case we find the package in mainFile
     */

@@ -179,9 +179,19 @@ object MemoryMain {
   def apply[G[_]](implicit
       innerMonad: MonadError[G, Throwable]
   ): MemoryMain[G] =
-    new MemoryMain(memoryPlatformIO[G])
+    withBuildInfo[G](CompilerBuildInfo.constant)
+
+  def withBuildInfo[G[_]](compilerBuildInfo: CompilerBuildInfo)(implicit
+      innerMonad: MonadError[G, Throwable]
+  ): MemoryMain[G] =
+    new MemoryMain(memoryPlatformIOWith[G](compilerBuildInfo))
 
   def memoryPlatformIO[G[_]](implicit
+      innerMonad: MonadError[G, Throwable]
+  ): PlatformIO[StateF[G], Chain[String]] =
+    memoryPlatformIOWith[G](CompilerBuildInfo.constant)
+
+  def memoryPlatformIOWith[G[_]](compilerBuildInfo: CompilerBuildInfo)(implicit
       innerMonad: MonadError[G, Throwable]
   ): PlatformIO[StateF[G], Chain[String]] = {
 
@@ -192,6 +202,7 @@ object MemoryMain {
       type Path = Chain[String]
       type FileKey = Chain[String]
       val fileKeyHash: Hash[FileKey] = Hash[FileKey]
+      def buildInfo: CompilerBuildInfo = compilerBuildInfo
 
       private sealed trait PromiseState[+A]
       private object PromiseState {

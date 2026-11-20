@@ -46,6 +46,9 @@ class Fs2PlatformIO private[dev] (
   type FileKey = Either[Path, FsKey]
   val fileKeyHash: Hash[FileKey] = Hash[FileKey]
 
+  // BuildInfo is generated in this project, not core; see CompilerBuildInfo.
+  def buildInfo: CompilerBuildInfo = BuildInfo
+
   def withTempDirectoryIn[A](parent: Path)(fn: Path => IO[A]): IO[A] =
     Resource.make(FilesIO.createTempDirectory(Some(parent), ".bosatsu-probe-", None))(
       FilesIO.deleteRecursively(_)

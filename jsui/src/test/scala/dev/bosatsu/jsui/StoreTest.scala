@@ -1,9 +1,11 @@
 package dev.bosatsu.jsui
 
 import cats.data.Chain
+import dev.bosatsu.CompilerBuildInfo
 import dev.bosatsu.tool.Output
 
 class StoreTest extends munit.FunSuite {
+  private val store = new Store(CompilerBuildInfo.constant)
   private val webDemoPath = Chain("root", "WebDemo")
   private val webDemoSource =
     """package WebDemo
@@ -22,7 +24,7 @@ class StoreTest extends munit.FunSuite {
   private val webDemoFiles = Map(webDemoPath -> webDemoSource)
 
   private def runWith(args: List[String]): Either[Throwable, Output[Chain[String]]] =
-    Store.memoryMain.runWith(files = webDemoFiles)(args)
+    store.memoryMain.runWith(files = webDemoFiles)(args)
 
   test("legacy root test argv fails in library-mode parser") {
     val legacyArgs = List(
@@ -93,7 +95,7 @@ class StoreTest extends munit.FunSuite {
   test("cmdHandler eval args accept package-less web source") {
     val source = Store.withWebDemoPackage(webDemoSourceNoPackage)
     val (args, _) = Store.cmdHandler(Action.Cmd.Eval)
-    Store.memoryMain.runWith(files = Map(webDemoPath -> source))(args) match {
+    store.memoryMain.runWith(files = Map(webDemoPath -> source))(args) match {
       case Right(Output.EvaluationResult(_, _, _)) => ()
       case Right(other) =>
         fail(s"expected Output.EvaluationResult, got: $other")
@@ -110,7 +112,7 @@ class StoreTest extends munit.FunSuite {
         |""".stripMargin
 
     val (args, _) = Store.cmdHandler(Action.Cmd.Eval)
-    Store.memoryMain.runWith(files = Map(webDemoPath -> reproSource))(args) match {
+    store.memoryMain.runWith(files = Map(webDemoPath -> reproSource))(args) match {
       case Left(err) =>
         val msg = Option(err.getMessage).getOrElse(err.toString)
         assert(msg.contains("in file: root/WebDemo"), msg)
