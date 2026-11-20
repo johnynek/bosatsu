@@ -22,7 +22,8 @@ public dependencies: [`Bosatsu/Json`](../../../../Json.html)
 [`action_checkout_v4`](#value-action-checkout-v4), [`action_codecov`](#value-action-codecov),
 [`action_setup_java`](#value-action-setup-java),
 [`action_setup_python`](#value-action-setup-python), [`action_setup_sbt`](#value-action-setup-sbt),
-[`action_upload_artifact`](#value-action-upload-artifact), [`cache_step`](#value-cache-step),
+[`action_upload_artifact`](#value-action-upload-artifact),
+[`buildbuddy_api_key_secret`](#value-buildbuddy-api-key-secret), [`cache_step`](#value-cache-step),
 [`cat_lines`](#value-cat-lines),
 [`checkout_v2_fetch_depth_0_step`](#value-checkout-v2-fetch-depth-0-step),
 [`checkout_v2_step`](#value-checkout-v2-step),
@@ -57,7 +58,8 @@ public dependencies: [`Bosatsu/Json`](../../../../Json.html)
 [`runner_macos_latest`](#value-runner-macos-latest),
 [`runner_ubuntu_24_04`](#value-runner-ubuntu-24-04),
 [`runner_ubuntu_latest`](#value-runner-ubuntu-latest),
-[`sbt_cache_fetch_step`](#value-sbt-cache-fetch-step), [`setup_java_step`](#value-setup-java-step),
+[`sbt_cache_fetch_step`](#value-sbt-cache-fetch-step),
+[`sbt_remote_cache_env`](#value-sbt-remote-cache-env), [`setup_java_step`](#value-setup-java-step),
 [`setup_sbt_step`](#value-setup-sbt-step), [`setup_sbt_title_step`](#value-setup-sbt-title-step),
 [`timeout_minutes_default`](#value-timeout-minutes-default),
 [`tool_test_workspace_cmd`](#value-tool-test-workspace-cmd),
@@ -201,7 +203,8 @@ type StepEnv
       `BOSATSU_NATIVE_IMAGE_THREADS`: Bosatsu/Json::Optional[String],
       `GITHUB_TOKEN`: Bosatsu/Json::Optional[String],
       `GITHUB_REF_NAME`: Bosatsu/Json::Optional[String],
-      `GH_TOKEN`: Bosatsu/Json::Optional[String]
+      `GH_TOKEN`: Bosatsu/Json::Optional[String],
+      `BUILDBUDDY_API_KEY`: Bosatsu/Json::Optional[String]
   )
 
 ## Values
@@ -294,6 +297,16 @@ references: [`String`](../../../../Predef.html#type-string)
 
 ```bosatsu
 action_upload_artifact: String
+```
+
+<a id="value-buildbuddy-api-key-secret"></a>
+
+### `buildbuddy_api_key_secret`
+
+references: [`String`](../../../../Predef.html#type-string)
+
+```bosatsu
+buildbuddy_api_key_secret: String
 ```
 
 <a id="value-cache-step"></a>
@@ -744,6 +757,18 @@ references: [`FetchJavaWith`](#type-fetchjavawith), [`Step`](#type-step)
 
 ```bosatsu
 sbt_cache_fetch_step: Step[FetchJavaWith]
+```
+
+<a id="value-sbt-remote-cache-env"></a>
+
+### `sbt_remote_cache_env`
+
+Only steps that run sbt get the BuildBuddy key, so other actions never see it.
+
+references: [`StepEnv`](#type-stepenv)
+
+```bosatsu
+sbt_remote_cache_env: StepEnv
 ```
 
 <a id="value-setup-java-step"></a>
