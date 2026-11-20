@@ -10,10 +10,6 @@ import js.annotation._
 
 import cats.implicits._
 
-/** The API exported to JavaScript as `Bosatsu`, using this build's info. */
-@JSExportTopLevel("Bosatsu")
-object BosatsuJsApi extends JsApi(BuildInfo)
-
 object JsApi {
   private val toolPrefix = List("tool")
 
