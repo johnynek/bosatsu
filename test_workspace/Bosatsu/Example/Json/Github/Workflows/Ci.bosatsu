@@ -293,8 +293,7 @@ workflow =
           Step {
             name: Set("verify jsui browser bundle"),
             run: Set(cat_lines([
-              "export NODE_OPTIONS=--openssl-legacy-provider",
-              "sbt \"jsuiJS/fullOptJS::webpack\"",
+              "sbt \"jsuiJS/fullLinkJS\"",
               "",
             ])),
           },

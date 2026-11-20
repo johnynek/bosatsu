@@ -27,16 +27,15 @@ jobs:
         uses: "sbt/setup-sbt@v1"
       - name: "build app"
         run: |
-          export NODE_OPTIONS=--openssl-legacy-provider
-          sbt "jsuiJS/fullOptJS::webpack; docs/paradox"
+          sbt "jsuiJS/fullLinkJS; docs/paradox"
           mkdir web_deploy
           mkdir web_deploy/compiler
           cp -a docs/target/paradox/site/main/* web_deploy
           cp jsui/index.html web_deploy/compiler/
           cp jsui/app.css web_deploy/compiler/
-          bundle_path="$(ls -1t jsui/.js/target/scala-*/scalajs-bundler/main/compiler-jsui-opt-bundle.js 2>/dev/null | head -n 1 || true)"
+          bundle_path="$(ls -1t jsui/.js/target/scala-*/compiler-jsui-opt/main.js 2>/dev/null | head -n 1 || true)"
           if [ -z "$bundle_path" ]; then
-            echo "Unable to locate compiler-jsui-opt-bundle.js under jsui/.js/target/scala-*/" >&2
+            echo "Unable to locate compiler-jsui-opt/main.js under jsui/.js/target/scala-*/" >&2
             exit 1
           fi
           cp "$bundle_path" web_deploy/compiler/bosatsu_ui.js
