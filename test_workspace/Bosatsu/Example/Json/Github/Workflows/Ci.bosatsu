@@ -45,7 +45,7 @@ from Bosatsu/Example/Json/Github/Workflows/Util import (
 
 emit_c_suite_step = Step {
   name: Set("link and run tests emitted from compiled package bundles"),
-  run: Set('python3 scripts/test_emit_c.py --jar cli/target/scala-*/bosatsu-cli-assembly-*.jar --cc-conf ".bosatsuc/$(./bosatsuj version -g)/cc_conf.json"'),
+  run: Set('python3 scripts/test_emit_c.py --jar target/out/jvm/scala-*/compiler-cli/bosatsu-cli-assembly-*.jar --cc-conf ".bosatsuc/$(./bosatsuj version -g)/cc_conf.json"'),
 }
 
 struct WorkflowJobsTest(
@@ -335,7 +335,7 @@ workflow =
             name: Set("build native image"),
             run: Set(cat_lines([
               "sbt \"cli/nativeImage\"",
-              "cp cli/target/native-image/bosatsu-cli bosatsu",
+              "cp target/out/jvm/scala-*/compiler-cli/native-image/bosatsu-cli bosatsu",
               "",
             ])),
             env: Set(StepEnv { `BOSATSU_NATIVE_IMAGE_THREADS`: Set("2") }),

@@ -61,7 +61,7 @@ chmod +x "$FAKE_BIN/java"
 
 PARAMS='@params file 雪'
 JAR_PATH="$(
-  ls -1t "$REPO_ROOT"/cli/target/scala-*/bosatsu-cli-assembly-*.jar 2>/dev/null | head -n 1 || true
+  ls -1t "$REPO_ROOT"/target/out/jvm/scala-*/compiler-cli/bosatsu-cli-assembly-*.jar 2>/dev/null | head -n 1 || true
 )"
 if [ -z "$JAR_PATH" ]; then
   echo "launcher passthrough test requires an assembled bosatsu jar" >&2

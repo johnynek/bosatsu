@@ -1,4 +1,5 @@
 import sbtcrossproject.CrossPlugin.autoImport.{crossProject, CrossType}
+import sbt.protocol.testing.TestResult
 import Dependencies._
 import scala.sys.process._
 
@@ -13,21 +14,21 @@ ThisBuild / scalaVersion := versionString
 ThisBuild / crossScalaVersions := Seq(versionString)
 ThisBuild / dynverVTagPrefix := true
 ThisBuild / organization := "dev.bosatsu"
-ThisBuild / homepage := Some(url("https://github.com/johnynek/bosatsu"))
+ThisBuild / homepage := Some(uri("https://github.com/johnynek/bosatsu"))
 ThisBuild / licenses := List(
-  "Apache-2.0" -> url("https://www.apache.org/licenses/LICENSE-2.0.txt")
+  "Apache-2.0" -> uri("https://www.apache.org/licenses/LICENSE-2.0.txt")
 )
 ThisBuild / developers := List(
   Developer(
     "johnynek",
     "Oscar Boykin",
     "oscar.boykin@gmail.com",
-    url("https://github.com/johnynek")
+    uri("https://github.com/johnynek")
   )
 )
 ThisBuild / scmInfo := Some(
   ScmInfo(
-    url("https://github.com/johnynek/bosatsu"),
+    uri("https://github.com/johnynek/bosatsu"),
     "scm:git:git@github.com:johnynek/bosatsu.git"
   )
 )
@@ -51,9 +52,9 @@ lazy val commonSettings = Seq(
 )
 
 lazy val commonJsSettings = Seq(
-  scalaJSStage in Global := FastOptStage,
+  Global / scalaJSStage := FastOptStage,
   parallelExecution := false,
-  jsEnv := new org.scalajs.jsenv.nodejs.NodeJSEnv(),
+  jsEnv := Def.uncached(new org.scalajs.jsenv.nodejs.NodeJSEnv()),
   // batch mode decreases the amount of memory needed to compile scala.js code
   scalaJSLinkerConfig := scalaJSLinkerConfig.value
     .withBatchMode(scala.sys.env.get("BOSATSU_CI").isDefined)
@@ -82,7 +83,9 @@ lazy val docs = (project in file("docs"))
       "empty" -> "",
       "version" -> version.value
     ),
-    Compile / generateCoreAlphaParadoxDocs := {
+    // Runs bosatsuj and writes files, so it must run every time rather than
+    // being restored from the sbt 2 task cache.
+    Compile / generateCoreAlphaParadoxDocs := Def.uncached {
       val log = streams.value.log
       val repoRoot = (LocalRootProject / baseDirectory).value
       val paradoxGeneratedRoot =
@@ -153,7 +156,7 @@ lazy val docs = (project in file("docs"))
       IO.copyDirectory(generatedDocsRoot, paradoxGeneratedRoot)
 
       val markdownFiles =
-        (paradoxGeneratedRoot ** "*.md").get
+        (paradoxGeneratedRoot ** "*.md").get()
           .filterNot(_.getName == "index.md")
           .sortBy(f =>
             IO.relativize(paradoxGeneratedRoot, f).getOrElse(f.getPath)
@@ -208,17 +211,18 @@ lazy val docs = (project in file("docs"))
         s"generated ${markdownFiles.size} markdown files into $paradoxGeneratedRoot"
       )
     },
-    Compile / paradox := {
+    // Copies generated markdown into the site, so it must not be cached either.
+    Compile / paradox := Def.uncached {
       val paradoxResult = (Compile / paradox)
         .dependsOn(Compile / generateCoreAlphaParadoxDocs)
         .value
       val log = streams.value.log
       val generatedSourceRoot =
         (Compile / sourceDirectory).value / "paradox" / "generated" / "core_alpha"
-      val paradoxSiteRoot = (Compile / target).value / "paradox" / "site" / "main"
+      val paradoxSiteRoot = (Compile / paradox / target).value
       val generatedSiteRoot = paradoxSiteRoot / "generated" / "core_alpha"
 
-      val markdownFiles = (generatedSourceRoot ** "*.md").get
+      val markdownFiles = (generatedSourceRoot ** "*.md").get()
       markdownFiles.foreach { sourceFile =>
         IO.relativize(generatedSourceRoot, sourceFile) match {
           case Some(relPath) =>
@@ -276,7 +280,7 @@ lazy val cli = (project in file("cli"))
     name := "bosatsu-cli",
     moduleName := "compiler-cli",
     Compile / javacOptions ++= Seq("--release", "17"),
-    assembly / test := {},
+    assembly / test := TestResult.Passed,
     assembly / assemblyMergeStrategy := {
       case PathList("module-info.class") =>
         // fat jars shouldn't include module metadata
@@ -386,8 +390,8 @@ lazy val proto =
       // ScalaPB-generated sources currently trigger -Wvalue-discard on builder APIs.
       // Keep strict warnings for handwritten code while silencing warnings in managed code.
       Compile / scalacOptions += "-Wconf:src=.*[/\\\\]src_managed[/\\\\].*:s",
-      Compile / unmanagedResourceDirectories +=
-        (ThisBuild / baseDirectory).value / "proto" / "src" / "main" / "protobuf",
+      // sbt-protoc adds PB.protoSources to the resource directories, so the
+      // .proto files are packaged without listing the directory again here.
       Compile / PB.targets := Seq(
         scalapb.gen(scala3Sources = true) -> (Compile / sourceManaged).value
       ),
@@ -396,7 +400,7 @@ lazy val proto =
         (ThisBuild / baseDirectory).value / "proto" / "src" / "main" / "protobuf"
       ),
       libraryDependencies ++= Seq(
-        "com.thesamet.scalapb" %%% "scalapb-runtime" % scalapb.compiler.Version.scalapbVersion
+        "com.thesamet.scalapb" %% "scalapb-runtime" % scalapb.compiler.Version.scalapbVersion
       ),
       PB.protocVersion := "3.19.1",
       commonSettings
@@ -412,7 +416,7 @@ lazy val core =
     commonSettings,
     name := "bosatsu-core",
     moduleName := "compiler-core",
-    assembly / test := {},
+    assembly / test := TestResult.Passed,
     scalacOptions += "-Yexplicit-nulls",
     libraryDependencies ++=
       Seq(
@@ -427,7 +431,7 @@ lazy val core =
         scalaCheck.value % Test,
         munit.value % Test,
         munitScalaCheck.value % Test,
-        "com.thesamet.scalapb" %%% "scalapb-runtime" % scalapb.compiler.Version.scalapbVersion
+        "com.thesamet.scalapb" %% "scalapb-runtime" % scalapb.compiler.Version.scalapbVersion
       )
   ).dependsOn(base, proto)
     .jsSettings(
@@ -445,7 +449,7 @@ lazy val cliJS =
       commonJsSettings,
       name := "bosatsu-clijs",
       moduleName := "compiler-clijs",
-      assembly / test := {},
+      assembly / test := TestResult.Passed,
       mainClass := Some("dev.bosatsu.tool.Fs2Main"),
       libraryDependencies ++= Seq(
         fs2core.value,
@@ -471,7 +475,7 @@ lazy val jsapi =
       commonJsSettings,
       name := "bosatsu-jsapi",
       moduleName := "compiler-jsapi",
-      assembly / test := {},
+      assembly / test := TestResult.Passed,
       libraryDependencies ++=
         Seq(
           cats.value,
@@ -484,10 +488,9 @@ lazy val jsapi =
 
 lazy val jsapiJS = jsapi.js
 
+// jsui is browser-only: ff4s has no JVM build.
 lazy val jsui =
-  (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure) in file(
-    "jsui"
-  ))
+  (crossProject(JSPlatform).crossType(CrossType.Pure) in file("jsui"))
     .settings(
       commonSettings,
       commonJsSettings,
@@ -511,11 +514,9 @@ lazy val jsui =
       // The deployed page is the single fullLinkJS file, with no source map.
       Compile / fullLinkJS / scalaJSLinkerConfig ~= { _.withSourceMap(false) }
     )
-    .enablePlugins(ScalaJSPlugin)
     .dependsOn(base, core)
 
 lazy val jsuiJS = jsui.js
-lazy val jsuiJVM = jsui.jvm
 
 lazy val bench = project
   .dependsOn(core.jvm)

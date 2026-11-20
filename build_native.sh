@@ -18,7 +18,7 @@ case "$native_image_version" in
 esac
 
 #sbt cli/assembly
-jar_path="$(ls -1t cli/target/scala-*/bosatsu-cli-assembly-*.jar 2>/dev/null | head -n 1 || true)"
+jar_path="$(ls -1t target/out/jvm/scala-*/compiler-cli/bosatsu-cli-assembly-*.jar 2>/dev/null | head -n 1 || true)"
 
 if [ -z "$jar_path" ]; then
   echo "build_native.sh: no assembly jar found; run sbt cli/assembly first" >&2

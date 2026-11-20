@@ -1,21 +1,20 @@
 import sbt._
-import org.portablescala.sbtplatformdeps.PlatformDepsPlugin.autoImport._
 
 object Dependencies {
-  lazy val blake3 = Def.setting("pt.kcry" %%% "blake3" % "3.1.2")
-  lazy val sha = Def.setting("pt.kcry" %%% "sha" % "2.0.2")
-  lazy val cats = Def.setting("org.typelevel" %%% "cats-core" % "2.13.0")
+  lazy val blake3 = Def.setting("pt.kcry" %% "blake3" % "3.1.2")
+  lazy val sha = Def.setting("pt.kcry" %% "sha" % "2.0.2")
+  lazy val cats = Def.setting("org.typelevel" %% "cats-core" % "2.13.0")
   lazy val catsCol =
-    Def.setting("org.typelevel" %%% "cats-collections-core" % "0.9.10")
+    Def.setting("org.typelevel" %% "cats-collections-core" % "0.9.10")
   lazy val catsEffect =
-    Def.setting("org.typelevel" %%% "cats-effect" % "3.7.1")
-  lazy val catsParse = Def.setting("org.typelevel" %%% "cats-parse" % "1.1.0")
-  lazy val decline = Def.setting("com.monovore" %%% "decline" % "2.6.2")
-  lazy val ff4s = Def.setting("io.github.buntec" %%% "ff4s" % "0.26.1")
-  lazy val fs2core = Def.setting("co.fs2" %%% "fs2-core" % "3.16.0")
-  lazy val fs2io = Def.setting("co.fs2" %%% "fs2-io" % "3.16.0")
-  lazy val jawnParser = Def.setting("org.typelevel" %%% "jawn-parser" % "1.8.0")
-  lazy val jawnAst = Def.setting("org.typelevel" %%% "jawn-ast" % "1.8.0")
+    Def.setting("org.typelevel" %% "cats-effect" % "3.7.1")
+  lazy val catsParse = Def.setting("org.typelevel" %% "cats-parse" % "1.1.0")
+  lazy val decline = Def.setting("com.monovore" %% "decline" % "2.6.2")
+  lazy val ff4s = Def.setting("io.github.buntec" %% "ff4s" % "0.26.1")
+  lazy val fs2core = Def.setting("co.fs2" %% "fs2-core" % "3.16.0")
+  lazy val fs2io = Def.setting("co.fs2" %% "fs2-io" % "3.16.0")
+  lazy val jawnParser = Def.setting("org.typelevel" %% "jawn-parser" % "1.8.0")
+  lazy val jawnAst = Def.setting("org.typelevel" %% "jawn-ast" % "1.8.0")
   lazy val jacksonYaml = Def.setting(
     "com.fasterxml.jackson.dataformat" % "jackson-dataformat-yaml" % "2.23.0"
   )
@@ -24,19 +23,19 @@ object Dependencies {
   lazy val nativeImageSdk =
     Def.setting("org.graalvm.sdk" % "nativeimage" % "24.2.2")
   lazy val jython = Def.setting("org.python" % "jython-standalone" % "2.7.4")
-  lazy val http4sCore = Def.setting("org.http4s" %%% "http4s-core" % "0.23.38")
+  lazy val http4sCore = Def.setting("org.http4s" %% "http4s-core" % "0.23.38")
   lazy val http4sEmber =
-    Def.setting("org.http4s" %%% "http4s-ember-client" % "0.23.38")
-  lazy val munit = Def.setting("org.scalameta" %%% "munit" % "1.3.6")
+    Def.setting("org.http4s" %% "http4s-ember-client" % "0.23.38")
+  lazy val munit = Def.setting("org.scalameta" %% "munit" % "1.3.6")
   lazy val munitScalaCheck =
-    Def.setting("org.scalameta" %%% "munit-scalacheck" % "1.3.1")
-  lazy val paiges = Def.setting("org.typelevel" %%% "paiges-core" % "0.4.4")
+    Def.setting("org.scalameta" %% "munit-scalacheck" % "1.3.1")
+  lazy val paiges = Def.setting("org.typelevel" %% "paiges-core" % "0.4.4")
   lazy val protobufJava =
     Def.setting("com.google.protobuf" % "protobuf-java" % "4.36.2")
   lazy val protobufJavaUtil =
     Def.setting("com.google.protobuf" % "protobuf-java-util" % "4.36.1")
   lazy val scalaCheck =
-    Def.setting("org.scalacheck" %%% "scalacheck" % "1.20.0")
-  lazy val scalawasiz3 = Def.setting("dev.bosatsu" %%% "scalawasiz3" % "0.0.13")
+    Def.setting("org.scalacheck" %% "scalacheck" % "1.20.0")
+  lazy val scalawasiz3 = Def.setting("dev.bosatsu" %% "scalawasiz3" % "0.0.13")
   lazy val slf4jNop = Def.setting("org.slf4j" % "slf4j-nop" % "2.0.20")
 }
