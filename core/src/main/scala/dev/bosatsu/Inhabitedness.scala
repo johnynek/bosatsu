@@ -56,22 +56,35 @@ object Inhabitedness {
   // Keep quantifier expansion finite and fast in adversarial inputs.
   private val MaxQuantifierVars = 10
 
-  def check(t: Type, env: TypeEnv[Kind.Arg]): Result[State] = {
-    val an = Analyzer(env)
-    an.validateType(t).andThen(_ => an.checkType(t, Map.empty, Set.empty).validNec)
+  /** Checks against one TypeEnv. Creating one computes the env's kind map,
+    * which sorts every defined type, so reuse it for all the checks against
+    * the same env (TotalityCheck makes one per package).
+    */
+  final class Checker(env: TypeEnv[Kind.Arg]) {
+    private val an = Analyzer(env)
+
+    def check(t: Type): Result[State] =
+      an.validateType(t).andThen(_ => an.checkType(t, Map.empty, Set.empty).validNec)
+
+    def checkMatch(
+        scrutinee: Type,
+        pattern: Pattern[(PackageName, Constructor), Type]
+    ): Result[State] =
+      an.validateType(scrutinee) *>
+        an.validatePattern(pattern).as(
+          an.checkPattern(scrutinee, pattern, Map.empty, Set.empty)
+        )
   }
+
+  def check(t: Type, env: TypeEnv[Kind.Arg]): Result[State] =
+    new Checker(env).check(t)
 
   def checkMatch(
       scrutinee: Type,
       pattern: Pattern[(PackageName, Constructor), Type],
       env: TypeEnv[Kind.Arg]
-  ): Result[State] = {
-    val an = Analyzer(env)
-    an.validateType(scrutinee) *>
-      an.validatePattern(pattern).as(
-        an.checkPattern(scrutinee, pattern, Map.empty, Set.empty)
-      )
-  }
+  ): Result[State] =
+    new Checker(env).checkMatch(scrutinee, pattern)
 
   private final case class Analyzer(env: TypeEnv[Kind.Arg]) {
     import Error._

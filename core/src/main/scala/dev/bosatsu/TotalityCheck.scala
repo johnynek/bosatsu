@@ -70,6 +70,10 @@ object TotalityCheck {
 case class TotalityCheck(inEnv: TypeEnv[Kind.Arg]) {
   import TotalityCheck._
 
+  // one per env: building it computes the env's kind map
+  private lazy val inhabitedness: Inhabitedness.Checker =
+    new Inhabitedness.Checker(inEnv)
+
   /** Constructors must match all items to be legal
     */
   private def checkArity(
@@ -256,7 +260,7 @@ case class TotalityCheck(inEnv: TypeEnv[Kind.Arg]) {
 
     val isUninhabitedScrutinee =
       definitelyUninhabited(
-        Inhabitedness.check(scrutineeType, inEnv)
+        inhabitedness.check(scrutineeType)
       )
     val branchesList = branches.toList
 
@@ -284,7 +288,7 @@ case class TotalityCheck(inEnv: TypeEnv[Kind.Arg]) {
             uninhabitedMemo.getOrElseUpdate(
               p,
               definitelyUninhabited(
-                Inhabitedness.checkMatch(scrutineeType, p, inEnv)
+                inhabitedness.checkMatch(scrutineeType, p)
               )
             )
 
@@ -341,15 +345,14 @@ case class TotalityCheck(inEnv: TypeEnv[Kind.Arg]) {
         case Declaration.Matches(_, _, None)
             if branches.head.isEffectivelyUnguarded &&
               !definitelyUninhabited(
-                Inhabitedness.check(
+                inhabitedness.check(
                   Type.exists(
                     Type
                       .freeBoundTyVars(matchExpr.arg.getType :: Nil)
                       .distinct
                       .map(v => (v, Kind.Type)),
                     matchExpr.arg.getType
-                  ),
-                  inEnv
+                  )
                 )
               ) &&
               patternSetOps.isTop(branches.head.pattern) =>
