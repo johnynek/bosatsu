@@ -29,15 +29,47 @@ import SmtExpr.*
   * functions and booleans other than the connectives are never used to prove
   * anything.
   *
+  * Below, an environment `env` gives every integer variable a value, and
+  * "`env` in box `b`" means `b.contains(env)`. The laws of each function are
+  * checked by LinearBoundsLawsTest, and `implies` against z3 by
+  * LinearBoundsTest.
+  *
   * `implies` returning false means "not proven here": callers fall back to z3.
   */
 private[smt] object LinearBounds {
 
-  /** const + sum(coeff * variable) */
-  final case class Lin(const: BigInt, coeffs: Map[String, BigInt])
+  /** The linear function `const + sum(coeffs(v) * v)` over integer variables.
+    *
+    * Canonical: no coefficient is zero (the constructor is private, and every
+    * operation keeps this), so two Lins are equal exactly when they are equal
+    * as functions.
+    *
+    * Laws, for all Lins `a`, `b`, `c`, integers `j`, `k` and environments
+    * `env`:
+    *   - `eval` is a homomorphism: `(a + b).eval(env) == a.eval(env) +
+    *     b.eval(env)`, `(a * k).eval(env) == a.eval(env) * k`,
+    *     `(-a).eval(env) == -a.eval(env)`, `(a - b).eval(env) == a.eval(env) -
+    *     b.eval(env)` and `a.plus(k).eval(env) == a.eval(env) + k`
+    *   - `+` is associative and commutative, with identity `Lin.zero` and
+    *     inverse `-a`
+    *   - `*` distributes over `+` on either side, `(a * j) * k == a * (j * k)`,
+    *     `a * 1 == a` and `a * 0 == Lin.zero`
+    *   - `a - b == a + (-b)`, `-a == a * -1` and `a.plus(k) == a +
+    *     Lin.constant(k)`
+    *   - `a == b` exactly when `a.eval(env) == b.eval(env)` for every `env`
+    */
+  final case class Lin private (const: BigInt, coeffs: Map[String, BigInt])
       derives CanEqual {
+
+    /** The value at env; variables not in coeffs aren't read. */
+    def eval(env: String => BigInt): BigInt =
+      coeffs.foldLeft(const) { case (acc, (v, c)) => acc + c * env(v) }
+
+    /** Laws: `(a + b).eval(env) == a.eval(env) + b.eval(env)`; associative,
+      * commutative, identity `Lin.zero`.
+      */
     def +(that: Lin): Lin =
-      Lin(
+      new Lin(
         const + that.const,
         that.coeffs.foldLeft(coeffs) { case (acc, (v, c)) =>
           val c1 = acc.getOrElse(v, BigInt(0)) + c
@@ -45,59 +77,201 @@ private[smt] object LinearBounds {
         }
       )
 
+    /** Laws: `(a * k).eval(env) == a.eval(env) * k`; `a * 0 == Lin.zero`;
+      * `a * 1 == a`; `(a * j) * k == a * (j * k)`; distributes over `+`.
+      */
     def *(k: BigInt): Lin =
-      if (k == 0) Lin.constant(BigInt(0))
-      else Lin(const * k, coeffs.map { case (v, c) => (v, c * k) })
+      if (k == 0) Lin.zero
+      else new Lin(const * k, coeffs.map { case (v, c) => (v, c * k) })
 
+    /** Laws: `(-a).eval(env) == -a.eval(env)`; `a + (-a) == Lin.zero`;
+      * `-(-a) == a`.
+      */
     def unary_- : Lin = this * BigInt(-1)
 
+    /** Laws: `(a - b).eval(env) == a.eval(env) - b.eval(env)`; `a - b == a +
+      * (-b)`; `a - a == Lin.zero`.
+      */
     def -(that: Lin): Lin = this + (-that)
 
-    def plus(k: BigInt): Lin = copy(const = const + k)
+    /** Laws: `a.plus(k).eval(env) == a.eval(env) + k`; `a.plus(k) == a +
+      * Lin.constant(k)`.
+      */
+    def plus(k: BigInt): Lin = new Lin(const + k, coeffs)
   }
 
   object Lin {
-    def constant(c: BigInt): Lin = Lin(c, Map.empty)
-    def variable(v: String): Lin = Lin(BigInt(0), Map(v -> BigInt(1)))
+
+    /** Laws: `zero.eval(env) == 0`; the identity of `+`. */
+    val zero: Lin = new Lin(BigInt(0), Map.empty)
+
+    /** Laws: `constant(c).eval(env) == c`; no variables. */
+    def constant(c: BigInt): Lin = new Lin(c, Map.empty)
+
+    /** Laws: `variable(v).eval(env) == env(v)`. */
+    def variable(v: String): Lin = new Lin(BigInt(0), Map(v -> BigInt(1)))
+
+    /** The canonical Lin for `const + sum(coeffs(v) * v)`, dropping zero
+      * coefficients.
+      *
+      * Laws: `of(c, m).eval(env) == c + sum(m(v) * env(v))`; `of(a.const,
+      * a.coeffs) == a`.
+      */
+    def of(const: BigInt, coeffs: Map[String, BigInt]): Lin =
+      new Lin(const, coeffs.filter { case (_, c) => c != 0 })
   }
 
-  /** An integer interval; None means unbounded on that side. */
+  /** The integers `x` with `lo <= x <= hi`. Both bounds are inclusive, and
+    * None means unbounded on that side. The interval is empty when `lo > hi`.
+    *
+    * Every operation is exact on the sets it denotes, as stated with
+    * `contains` in each method's laws, except where a law says the result is
+    * the smallest interval containing a set that isn't itself an interval.
+    */
   final case class Interval(lo: Option[BigInt], hi: Option[BigInt])
       derives CanEqual {
-    def +(that: Interval): Interval =
-      Interval(addOpt(lo, that.lo), addOpt(hi, that.hi))
 
-    def unary_- : Interval = Interval(hi.map(-_), lo.map(-_))
+    /** Laws: `contains(x) == (lo.forall(_ <= x) && hi.forall(x <= _))`. */
+    def contains(x: BigInt): Boolean =
+      (lo match {
+        case Some(l) => l <= x
+        case None    => true
+      }) && (hi match {
+        case Some(h) => x <= h
+        case None    => true
+      })
 
-    def *(k: BigInt): Interval =
-      if (k == 0) Interval.point(BigInt(0))
-      else if (k > 0) Interval(lo.map(_ * k), hi.map(_ * k))
-      else Interval(hi.map(_ * k), lo.map(_ * k))
-
-    def join(that: Interval): Interval =
-      Interval(
-        for { a <- lo; b <- that.lo } yield a.min(b),
-        for { a <- hi; b <- that.hi } yield a.max(b)
-      )
-
-    def meet(that: Interval): Interval =
-      Interval(maxOpt(lo, that.lo), minOpt(hi, that.hi))
-
+    /** Laws: `isEmpty` exactly when no `x` has `contains(x)`. */
     def isEmpty: Boolean =
       (lo, hi) match {
         case (Some(l), Some(h)) => l > h
         case _                  => false
       }
+
+    /** The sums `x + y` of members `x` of this and `y` of that.
+      *
+      * Laws: if `a.contains(x)` and `b.contains(y)` then `(a +
+      * b).contains(x + y)`; if `(a + b).contains(z)` then there are `x`, `y`
+      * with `a.contains(x)`, `b.contains(y)` and `x + y == z`; empty if either
+      * is empty.
+      */
+    def +(that: Interval): Interval =
+      if (isEmpty || that.isEmpty) Interval.empty
+      else Interval(addOpt(lo, that.lo), addOpt(hi, that.hi))
+
+    /** Laws: `(-a).contains(-x) == a.contains(x)`; `-(-a)` contains exactly
+      * the members of `a`.
+      */
+    def unary_- : Interval = Interval(negOpt(hi), negOpt(lo))
+
+    /** The smallest interval containing `x * k` for every member `x`.
+      *
+      * Laws: if `a.contains(x)` then `(a * k).contains(x * k)`; for `k != 0`
+      * every bound of `a * k` is `x * k` for a bound `x` of `a` (so nothing
+      * smaller contains the products); `a * 0` is `Interval.point(0)` unless
+      * `a` is empty; empty if `a` is empty.
+      */
+    def *(k: BigInt): Interval =
+      if (isEmpty) Interval.empty
+      else if (k == 0) Interval.point(BigInt(0))
+      else if (k > 0) Interval(mulOpt(lo, k), mulOpt(hi, k))
+      else Interval(mulOpt(hi, k), mulOpt(lo, k))
+
+    /** The smallest interval containing both: the convex hull of the union.
+      *
+      * Laws: if `a.contains(x) || b.contains(x)` then `(a join
+      * b).contains(x)`; every bound of `a join b` is a bound of `a` or `b`
+      * (so nothing smaller contains both); `Interval.empty` is the identity;
+      * commutative, associative and idempotent.
+      */
+    def join(that: Interval): Interval =
+      if (isEmpty) that
+      else if (that.isEmpty) this
+      else
+        Interval(
+          (lo, that.lo) match {
+            case (Some(a), Some(b)) => Some(a.min(b))
+            case _                  => None
+          },
+          (hi, that.hi) match {
+            case (Some(a), Some(b)) => Some(a.max(b))
+            case _                  => None
+          }
+        )
+
+    /** The intersection.
+      *
+      * Laws: `(a meet b).contains(x) == (a.contains(x) && b.contains(x))`;
+      * `Interval.all` is the identity; commutative, associative and
+      * idempotent; absorption with `join`.
+      */
+    def meet(that: Interval): Interval =
+      Interval(maxOpt(lo, that.lo), minOpt(hi, that.hi))
+
+    /** The smallest interval containing `floorDiv(x, k)` for every member `x`,
+      * for `k > 0`.
+      *
+      * Laws: if `a.contains(x)` then `a.divFloor(k).contains(floorDiv(x,
+      * k))`; every bound of the result is `floorDiv(x, k)` for a bound `x` of
+      * `a`; empty if `a` is empty.
+      */
+    def divFloor(k: BigInt): Interval = {
+      require(k > 0, s"divFloor needs k > 0, got $k")
+      if (isEmpty) Interval.empty
+      else
+        Interval(
+          lo match {
+            case Some(l) => Some(floorDiv(l, k))
+            case None    => None
+          },
+          hi match {
+            case Some(h) => Some(floorDiv(h, k))
+            case None    => None
+          }
+        )
+    }
   }
 
   object Interval {
+
+    /** Laws: `all.contains(x)` for every `x`; the identity of `meet`. */
     val all: Interval = Interval(None, None)
+
+    /** Laws: `!empty.contains(x)` for every `x`; the identity of `join`. */
+    val empty: Interval = Interval(Some(BigInt(1)), Some(BigInt(0)))
+
+    /** Laws: `point(c).contains(x) == (x == c)`. */
     def point(c: BigInt): Interval = Interval(Some(c), Some(c))
   }
 
-  private def addOpt(a: Option[BigInt], b: Option[BigInt]): Option[BigInt] =
-    for { x <- a; y <- b } yield x + y
+  // Interval bound arithmetic. None is an infinite bound, and each helper is
+  // only used on one kind of bound, as its name says.
 
+  // Laws: the sum of two lower bounds, or of two upper bounds; infinite if
+  // either is.
+  private def addOpt(a: Option[BigInt], b: Option[BigInt]): Option[BigInt] =
+    (a, b) match {
+      case (Some(x), Some(y)) => Some(x + y)
+      case _                  => None
+    }
+
+  // Laws: negating flips a lower bound to an upper bound and back; infinite
+  // stays infinite.
+  private def negOpt(a: Option[BigInt]): Option[BigInt] =
+    a match {
+      case Some(x) => Some(-x)
+      case None    => None
+    }
+
+  // Laws: scaling a bound; infinite stays infinite (callers handle k == 0 and
+  // swap ends for k < 0).
+  private def mulOpt(a: Option[BigInt], k: BigInt): Option[BigInt] =
+    a match {
+      case Some(x) => Some(x * k)
+      case None    => None
+    }
+
+  // Laws: the larger of two lower bounds, None (-infinity) the smallest.
   private def maxOpt(a: Option[BigInt], b: Option[BigInt]): Option[BigInt] =
     (a, b) match {
       case (Some(x), Some(y)) => Some(x.max(y))
@@ -105,6 +279,7 @@ private[smt] object LinearBounds {
       case (x, None)          => x
     }
 
+  // Laws: the smaller of two upper bounds, None (+infinity) the largest.
   private def minOpt(a: Option[BigInt], b: Option[BigInt]): Option[BigInt] =
     (a, b) match {
       case (Some(x), Some(y)) => Some(x.min(y))
@@ -112,36 +287,64 @@ private[smt] object LinearBounds {
       case (x, None)          => x
     }
 
-  /** floor(a / k) for k > 0; BigInt's / rounds toward zero */
-  private def floorDiv(a: BigInt, k: BigInt): BigInt = {
+  /** `floor(a / k)` for `k > 0`. BigInt's `/` rounds toward zero.
+    *
+    * Laws: for `k > 0` and `q == floorDiv(a, k)`: `k * q <= a < k * (q + 1)`.
+    */
+  def floorDiv(a: BigInt, k: BigInt): BigInt = {
     val q = a / k
     if ((a % k != 0) && (a < 0)) q - 1 else q
   }
 
-  /** ceil(a / k) for k > 0 */
-  private def ceilDiv(a: BigInt, k: BigInt): BigInt = -floorDiv(-a, k)
+  /** `ceil(a / k)` for `k > 0`.
+    *
+    * Laws: for `k > 0` and `q == ceilDiv(a, k)`: `k * (q - 1) < a <= k * q`.
+    */
+  def ceilDiv(a: BigInt, k: BigInt): BigInt = -floorDiv(-a, k)
 
   // Keep the number of candidate bounds small; sums take all pairs.
   private val MaxCandidates = 4
 
   /** Variable intervals from the facts, and values each variable can't be.
-    * Facts that don't bound a single variable are ignored.
+    * Variables not in `intervals` are unbounded.
     */
   final case class Box(
       intervals: Map[String, Interval],
       excluded: Map[String, Set[BigInt]]
   ) {
+
+    /** Laws: `b.interval(v)` is `Interval.all` for a variable not in
+      * `intervals`.
+      */
     def interval(v: String): Interval = intervals.getOrElse(v, Interval.all)
+
+    /** Laws: `b.contains(env)` exactly when every variable is in its interval
+      * and not excluded.
+      */
+    def contains(env: String => BigInt): Boolean =
+      intervals.forall { case (v, i) => i.contains(env(v)) } &&
+        excluded.forall { case (v, xs) => !xs(env(v)) }
   }
 
-  /** The exact linear form of e, if it has one. */
+  /** The exact linear form of e, if it has one.
+    *
+    * Laws: if `linear(e) == Some(l)` then `l.eval(env)` is the value of `e` at
+    * `env`, for every `env`.
+    */
   def linear(e: IntExpr): Option[Lin] =
     e match {
       case IntConst(c) => Some(Lin.constant(c))
       case Var(name)   => Some(Lin.variable(name))
       case Add(args) if args.nonEmpty =>
-        args.foldLeft(Option(Lin.constant(BigInt(0)))) { (acc, a) =>
-          for { l <- acc; r <- linear(a) } yield l + r
+        args.foldLeft(Option(Lin.zero)) { (acc, a) =>
+          acc match {
+            case Some(l) =>
+              linear(a) match {
+                case Some(r) => Some(l + r)
+                case None    => None
+              }
+            case None => None
+          }
         }
       case Sub(args) =>
         args.toList match {
@@ -149,7 +352,14 @@ private[smt] object LinearBounds {
           case one :: Nil   => linear(one) // rendered as `one`, see above
           case head :: rest =>
             rest.foldLeft(linear(head)) { (acc, a) =>
-              for { l <- acc; r <- linear(a) } yield l - r
+              acc match {
+                case Some(l) =>
+                  linear(a) match {
+                    case Some(r) => Some(l - r)
+                    case None    => None
+                  }
+                case None => None
+              }
             }
         }
       case Mul(args) if args.nonEmpty =>
@@ -165,23 +375,36 @@ private[smt] object LinearBounds {
           }
         }
       case Ite(cond, ifTrue, ifFalse) =>
-        constantBool(cond).flatMap { c =>
-          linear(if (c) ifTrue else ifFalse)
+        constantBool(cond) match {
+          case Some(c) => linear(if (c) ifTrue else ifFalse)
+          case None    => None
         }
       case _ => None
     }
 
-  /** The value of a boolean with no variables, if it can be computed. */
-  private def constantBool(b: BoolExpr): Option[Boolean] = {
+  /** The value of a boolean with no variables, if it can be computed.
+    *
+    * Laws: if `constantBool(p) == Some(v)` then `p` is `v` at every `env`.
+    */
+  def constantBool(p: BoolExpr): Option[Boolean] = {
+    def constantInt(i: IntExpr): Option[BigInt] =
+      linear(i) match {
+        case Some(l) if l.coeffs.isEmpty => Some(l.const)
+        case _                           => None
+      }
     def cmp(l: IntExpr, r: IntExpr)(fn: (BigInt, BigInt) => Boolean) =
-      for {
-        ll <- linear(l).filter(_.coeffs.isEmpty)
-        rr <- linear(r).filter(_.coeffs.isEmpty)
-      } yield fn(ll.const, rr.const)
+      (constantInt(l), constantInt(r)) match {
+        case (Some(a), Some(b)) => Some(fn(a, b))
+        case _                  => None
+      }
 
-    b match {
+    p match {
       case BoolConst(v)    => Some(v)
-      case Not(in)         => constantBool(in).map(!_)
+      case Not(in)         =>
+        constantBool(in) match {
+          case Some(v) => Some(!v)
+          case None    => None
+        }
       case EqInt(l, r)     => cmp(l, r)(_ == _)
       case Lt(l, r)        => cmp(l, r)(_ < _)
       case Lte(l, r)       => cmp(l, r)(_ <= _)
@@ -201,8 +424,12 @@ private[smt] object LinearBounds {
     }
   }
 
-  /** The conjuncts of a fact, pushing negation through and/or. */
-  private def atoms(fact: BoolExpr): Vector[BoolExpr] =
+  /** The conjuncts of a fact, pushing negation through and/or.
+    *
+    * Laws: at every `env`, `fact` holds exactly when every atom in
+    * `atoms(fact)` holds.
+    */
+  def atoms(fact: BoolExpr): Vector[BoolExpr] =
     fact match {
       case And(args)      => args.flatMap(atoms)
       case Not(Or(args))  => args.flatMap(a => atoms(Not(a)))
@@ -210,55 +437,84 @@ private[smt] object LinearBounds {
       case other          => Vector(other)
     }
 
-  private enum Rel derives CanEqual {
+  /** A comparison of a linear form with 0. */
+  enum Rel derives CanEqual {
     case Le, Ge, Eq, Ne
+
+    /** Laws: `Le.holds(x) == (x <= 0)`, and so on. */
+    def holds(x: BigInt): Boolean =
+      this match {
+        case Le => x <= 0
+        case Ge => x >= 0
+        case Eq => x == 0
+        case Ne => x != 0
+      }
   }
 
-  // Reads `lin rel 0` from an atom, if it compares linear integer terms.
-  private def linearAtom(atom: BoolExpr): Option[(Lin, Rel)] = {
-    def diff(l: IntExpr, r: IntExpr): Option[Lin] =
-      for { ll <- linear(l); rr <- linear(r) } yield ll - rr
+  /** Reads `lin rel 0` from an atom, if it compares linear integer terms.
+    *
+    * Laws: if `linearAtom(atom) == Some((lin, rel))` then at every `env`,
+    * `atom` holds exactly when `rel.holds(lin.eval(env))`.
+    */
+  def linearAtom(atom: BoolExpr): Option[(Lin, Rel)] = {
+    def diff(l: IntExpr, r: IntExpr, adjust: BigInt, rel: Rel): Option[(Lin, Rel)] =
+      (linear(l), linear(r)) match {
+        case (Some(ll), Some(rr)) => Some(((ll - rr).plus(adjust), rel))
+        case _                    => None
+      }
+    val zero = BigInt(0)
 
     atom match {
-      case Lt(l, r)       => diff(l, r).map(d => (d.plus(BigInt(1)), Rel.Le))
-      case Lte(l, r)      => diff(l, r).map(d => (d, Rel.Le))
-      case Gt(l, r)       => diff(l, r).map(d => (d.plus(BigInt(-1)), Rel.Ge))
-      case Gte(l, r)      => diff(l, r).map(d => (d, Rel.Ge))
-      case EqInt(l, r)    => diff(l, r).map(d => (d, Rel.Eq))
+      // l < r iff l - r + 1 <= 0, and l > r iff l - r - 1 >= 0 (integers)
+      case Lt(l, r)       => diff(l, r, BigInt(1), Rel.Le)
+      case Lte(l, r)      => diff(l, r, zero, Rel.Le)
+      case Gt(l, r)       => diff(l, r, BigInt(-1), Rel.Ge)
+      case Gte(l, r)      => diff(l, r, zero, Rel.Ge)
+      case EqInt(l, r)    => diff(l, r, zero, Rel.Eq)
       case Not(Lt(l, r))  => linearAtom(Gte(l, r))
       case Not(Lte(l, r)) => linearAtom(Gt(l, r))
       case Not(Gt(l, r))  => linearAtom(Lte(l, r))
       case Not(Gte(l, r)) => linearAtom(Lt(l, r))
-      case Not(EqInt(l, r)) => diff(l, r).map(d => (d, Rel.Ne))
+      case Not(EqInt(l, r)) => diff(l, r, zero, Rel.Ne)
       case _              => None
     }
   }
 
-  /** Bounds from the facts; None if the facts can't all hold. */
+  /** Bounds from the facts; None if the facts can't all hold.
+    *
+    * Laws: if every fact holds at `env` then `box(facts) == Some(b)` with
+    * `b.contains(env)`. So `box(facts) == None` means no `env` satisfies the
+    * facts.
+    */
   def box(facts: Iterable[BoolExpr]): Option[Box] = {
     val start: Option[Box] = Some(Box(Map.empty, Map.empty))
     val withAtoms = facts.iterator.flatMap(atoms).foldLeft(start) {
       case (None, _)       => None
       case (Some(b), atom) =>
         if (atom == BoolConst.False) None
-        else linearAtom(atom).fold(Option(b))(addFact(b, _))
+        else
+          linearAtom(atom) match {
+            case Some(fact) => addFact(b, fact)
+            case None       => Some(b)
+          }
     }
-    withAtoms.flatMap(tighten)
+    withAtoms match {
+      case Some(b) => tighten(b)
+      case None    => None
+    }
   }
 
-  private def addFact(b: Box, fact: (Lin, Rel)): Option[Box] = {
+  /** Narrows b with the fact `lin rel 0` when it involves one variable.
+    *
+    * Laws: if `b.contains(env)` and `rel.holds(lin.eval(env))` then
+    * `addFact(b, (lin, rel)) == Some(b1)` with `b1.contains(env)`.
+    */
+  def addFact(b: Box, fact: (Lin, Rel)): Option[Box] = {
     val (lin, rel) = fact
     lin.coeffs.toList match {
       case Nil =>
         // no variables: the fact is a constant comparison
-        val c = lin.const
-        val holds = rel match {
-          case Rel.Le => c <= 0
-          case Rel.Ge => c >= 0
-          case Rel.Eq => c == 0
-          case Rel.Ne => c != 0
-        }
-        if (holds) Some(b) else None
+        if (rel.holds(lin.const)) Some(b) else None
       case (v, a) :: Nil =>
         // a * v + c rel 0
         val c = lin.const
@@ -295,22 +551,41 @@ private[smt] object LinearBounds {
     }
   }
 
-  // Move bounds past excluded values: n >= 0 and n != 0 give n >= 1.
-  private def tighten(b: Box): Option[Box] =
+  /** Moves each interval's bounds past excluded values: `n >= 0` and `n != 0`
+    * give `n >= 1`.
+    *
+    * Laws: for every `env`, `b.contains(env)` exactly when `tighten(b) ==
+    * Some(b1)` and `b1.contains(env)`.
+    */
+  def tighten(b: Box): Option[Box] =
     b.excluded.foldLeft(Option(b)) {
       case (None, _)               => None
       case (Some(acc), (v, excl)) =>
+        // the excluded set is finite, so these end
+        @annotation.tailrec
+        def up(x: BigInt): BigInt = if (excl(x)) up(x + 1) else x
+        @annotation.tailrec
+        def down(x: BigInt): BigInt = if (excl(x)) down(x - 1) else x
         val i = acc.interval(v)
-        // the excluded set is finite, so these loops end
-        var lo = i.lo
-        while (lo.exists(excl)) lo = lo.map(_ + 1)
-        var hi = i.hi
-        while (hi.exists(excl)) hi = hi.map(_ - 1)
-        val i1 = Interval(lo, hi)
+        val i1 = Interval(
+          i.lo match {
+            case Some(l) => Some(up(l))
+            case None    => None
+          },
+          i.hi match {
+            case Some(h) => Some(down(h))
+            case None    => None
+          }
+        )
         if (i1.isEmpty) None
         else Some(acc.copy(intervals = acc.intervals.updated(v, i1)))
     }
 
+  /** An interval containing every value e takes in the box.
+    *
+    * Laws: if `b.contains(env)` then `interval(e, b).contains(v)` for the value
+    * `v` of `e` at `env`, under any interpretation of division by zero.
+    */
   def interval(e: IntExpr, b: Box): Interval =
     e match {
       case IntConst(c) => Interval.point(c)
@@ -332,8 +607,7 @@ private[smt] object LinearBounds {
             args.map(interval(_, b)).reduce(mulInterval)
         }
       case Div(num, IntConst(k)) if k > 0 =>
-        val i = interval(num, b)
-        Interval(i.lo.map(floorDiv(_, k)), i.hi.map(floorDiv(_, k)))
+        interval(num, b).divFloor(k)
       case Mod(_, IntConst(k)) if k != 0 =>
         Interval(Some(BigInt(0)), Some(k.abs - 1))
       case Ite(cond, ifTrue, ifFalse) =>
@@ -344,15 +618,26 @@ private[smt] object LinearBounds {
       case _ => Interval.all
     }
 
-  private def mulInterval(x: Interval, y: Interval): Interval =
-    (x, y) match {
-      case (Interval(Some(a), Some(b)), Interval(Some(c), Some(d))) =>
-        val ps = List(a * c, a * d, b * c, b * d)
-        Interval(Some(ps.min), Some(ps.max))
-      case _ => Interval.all
-    }
+  /** An interval containing every product of members.
+    *
+    * Laws: if `x.contains(a)` and `y.contains(c)` then `mulInterval(x,
+    * y).contains(a * c)`; empty if either is empty.
+    */
+  def mulInterval(x: Interval, y: Interval): Interval =
+    if (x.isEmpty || y.isEmpty) Interval.empty
+    else
+      (x, y) match {
+        case (Interval(Some(a), Some(b)), Interval(Some(c), Some(d))) =>
+          val ps = List(a * c, a * d, b * c, b * d)
+          Interval(Some(ps.min), Some(ps.max))
+        case _ => Interval.all
+      }
 
-  private def linInterval(lin: Lin, b: Box): Interval =
+  /** The interval of values lin takes in the box's intervals.
+    *
+    * Laws: if `b.contains(env)` then `linInterval(lin, b).contains(lin.eval(env))`.
+    */
+  def linInterval(lin: Lin, b: Box): Interval =
     lin.coeffs.foldLeft(Interval.point(lin.const)) { case (acc, (v, c)) =>
       acc + (b.interval(v) * c)
     }
@@ -362,15 +647,31 @@ private[smt] object LinearBounds {
     */
   final case class Bounds(lowers: List[Lin], uppers: List[Lin])
 
+  // Laws: the constant bounds of i, which hold wherever i contains the value.
   private def constBounds(i: Interval): Bounds =
     Bounds(
-      i.lo.map(Lin.constant).toList,
-      i.hi.map(Lin.constant).toList
+      i.lo match {
+        case Some(l) => Lin.constant(l) :: Nil
+        case None    => Nil
+      },
+      i.hi match {
+        case Some(h) => Lin.constant(h) :: Nil
+        case None    => Nil
+      }
     )
 
+  // Laws: if x <= a for every x in xs and y <= c for every y in ys, then every
+  // result is <= a + c (and likewise for >=).
   private def sums(xs: List[Lin], ys: List[Lin]): List[Lin] =
-    (for { x <- xs; y <- ys } yield x + y).distinct.take(MaxCandidates)
+    xs.flatMap(x => ys.map(x + _)).distinct.take(MaxCandidates)
 
+  /** Linear lower and upper bounds of e within the box.
+    *
+    * Laws: if `b.contains(env)` and `v` is the value of `e` at `env` (under any
+    * interpretation of division by zero), then `l.eval(env) <= v` for every
+    * `l` in `bounds(e, b).lowers`, and `v <= u.eval(env)` for every `u` in
+    * `bounds(e, b).uppers`.
+    */
   def bounds(e: IntExpr, b: Box): Bounds =
     linear(e) match {
       case Some(lin) =>
@@ -380,7 +681,7 @@ private[smt] object LinearBounds {
       case None =>
         e match {
           case Add(args) if args.nonEmpty =>
-            args.map(bounds(_, b)).foldLeft(Bounds(List(Lin.constant(BigInt(0))), List(Lin.constant(BigInt(0))))) {
+            args.map(bounds(_, b)).foldLeft(Bounds(Lin.zero :: Nil, Lin.zero :: Nil)) {
               (acc, bs) => Bounds(sums(acc.lowers, bs.lowers), sums(acc.uppers, bs.uppers))
             }
           case Sub(args) =>
@@ -397,8 +698,13 @@ private[smt] object LinearBounds {
             }
           case Mul(args) if args.nonEmpty =>
             // a constant times one nonlinear term
-            val (consts, terms) = args.partition(linear(_).exists(_.coeffs.isEmpty))
-            val k = consts.foldLeft(BigInt(1))((acc, c) => acc * linear(c).fold(BigInt(1))(_.const))
+            def constantOf(i: IntExpr): Option[BigInt] =
+              linear(i) match {
+                case Some(l) if l.coeffs.isEmpty => Some(l.const)
+                case _                           => None
+              }
+            val (consts, terms) = args.partition(constantOf(_).nonEmpty)
+            val k = consts.foldLeft(BigInt(1))((acc, c) => acc * constantOf(c).getOrElse(BigInt(1)))
             terms.toList match {
               case term :: Nil =>
                 val bs = bounds(term, b)
@@ -408,7 +714,7 @@ private[smt] object LinearBounds {
                 constBounds(interval(e, b))
             }
           case Div(num, IntConst(k)) if k > 0 =>
-            val numI = interval(num, b)
+            val numLo = interval(num, b).lo
             val cb = constBounds(interval(e, b))
             val numUppers = bounds(num, b).uppers
             // For num >= 0, num div k <= num; and for num >= 1 and k >= 2,
@@ -416,9 +722,12 @@ private[smt] object LinearBounds {
             // hold for any upper bound of num too.
             val linUppers =
               if (k == 1) numUppers
-              else if (numI.lo.exists(_ >= 1)) numUppers.map(_.plus(BigInt(-1)))
-              else if (numI.lo.exists(_ >= 0)) numUppers
-              else Nil
+              else
+                numLo match {
+                  case Some(l) if l >= 1 => numUppers.map(_.plus(BigInt(-1)))
+                  case Some(l) if l >= 0 => numUppers
+                  case _                 => Nil
+                }
             val linLowers =
               if (k == 1) bounds(num, b).lowers else Nil
             Bounds(
@@ -435,21 +744,43 @@ private[smt] object LinearBounds {
         }
     }
 
-  /** The largest value of lin within the box, if it is bounded. */
-  private def maxOver(lin: Lin, b: Box): Option[BigInt] =
+  /** The largest value of lin within the box's intervals, if it is bounded.
+    *
+    * Laws: if `maxOver(lin, b) == Some(m)` then `lin.eval(env) <= m` whenever
+    * `b.contains(env)`; and when every interval in `b` is nonempty, some
+    * `env` with every variable in its interval has `lin.eval(env) == m`.
+    */
+  def maxOver(lin: Lin, b: Box): Option[BigInt] =
     lin.coeffs.foldLeft(Option(lin.const)) { case (acc, (v, c)) =>
-      val i = b.interval(v)
-      val end = if (c > 0) i.hi else i.lo
-      for { a <- acc; x <- end } yield a + c * x
+      acc match {
+        case Some(a) =>
+          val i = b.interval(v)
+          val end: Option[BigInt] = if (c > 0) i.hi else i.lo
+          end match {
+            case Some(x) => Some(a + c * x)
+            case None    => None
+          }
+        case None => None
+      }
     }
 
-  // Some U >= a and L <= c with max(U - L) <= limit, so a - c <= limit.
-  private def diffAtMost(a: IntExpr, c: IntExpr, limit: BigInt, b: Box): Boolean = {
+  /** Laws: if `diffAtMost(a, c, limit, b)` then `va - vc <= limit` for the
+    * values `va`, `vc` of `a` and `c` at every `env` in `b`.
+    */
+  def diffAtMost(a: IntExpr, c: IntExpr, limit: BigInt, b: Box): Boolean = {
     val ua = bounds(a, b).uppers
     val lc = bounds(c, b).lowers
-    ua.exists(u => lc.exists(l => maxOver(u - l, b).exists(_ <= limit)))
+    ua.exists { u =>
+      lc.exists { l =>
+        maxOver(u - l, b) match {
+          case Some(m) => m <= limit
+          case None    => false
+        }
+      }
+    }
   }
 
+  /** Laws: if `proves(goal, b)` then `goal` holds at every `env` in `b`. */
   def proves(goal: BoolExpr, b: Box): Boolean =
     goal match {
       case BoolConst(v)    => v
@@ -476,7 +807,12 @@ private[smt] object LinearBounds {
       case _ => false
     }
 
-  /** True if the facts imply the goal. False means not proven here. */
+  /** True if the facts imply the goal. False means not proven here.
+    *
+    * Laws: if `implies(goal, facts)` then `goal` holds at every `env` where
+    * all the facts hold. In particular z3 finds `facts and not goal`
+    * unsatisfiable.
+    */
   def implies(goal: BoolExpr, facts: Iterable[BoolExpr]): Boolean =
     box(facts) match {
       case None    => true // the facts can't all hold, so anything follows
