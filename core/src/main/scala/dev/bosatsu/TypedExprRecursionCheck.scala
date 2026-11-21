@@ -1702,23 +1702,13 @@ object TypedExprRecursionCheck {
                 SmtExpr.Mul(Vector(left, right))
               )
             case Some(Identifier.Name("div")) =>
-              lowerBinaryInt(args, state)((left, right) =>
-                // Bosatsu defines `x / 0 == 0`; Z3 div on zero does not.
-                SmtExpr.Ite(
-                  SmtExpr.EqInt(right, SmtExpr.IntConst(BigInt(0))),
-                  SmtExpr.IntConst(BigInt(0)),
-                  SmtExpr.Div(left, right)
-                )
-              )
+              // Bosatsu rounds toward negative infinity and defines
+              // `x / 0 == 0`; SMT-LIB `div` differs on both
+              lowerBinaryInt(args, state)(SmtExpr.bosatsuDiv)
             case Some(Identifier.Name("mod_Int")) =>
-              lowerBinaryInt(args, state)((left, right) =>
-                // Bosatsu defines `x % 0 == x`; model that instead of SMT's mod-by-zero behavior.
-                SmtExpr.Ite(
-                  SmtExpr.EqInt(right, SmtExpr.IntConst(BigInt(0))),
-                  left,
-                  SmtExpr.Mod(left, right)
-                )
-              )
+              // Bosatsu's `mod_Int` has the sign of the divisor and defines
+              // `x % 0 == x`; SMT-LIB `mod` differs on both
+              lowerBinaryInt(args, state)(SmtExpr.bosatsuMod)
             case _ =>
               inlinedTopLevelAliasApp(fn, args, state) match {
                 case Some(inlined) => lowerIntExpr(inlined, state)

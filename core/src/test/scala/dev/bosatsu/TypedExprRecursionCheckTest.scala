@@ -1253,6 +1253,52 @@ def bad(i: Int) -> Int:
 """)
   }
 
+  // Bosatsu's 5.mod_Int(-3) is -1, while SMT-LIB's (mod 5 (- 3)) is 2: so
+  // here bad(5) calls bad(5) forever, but reading mod_Int as SMT-LIB mod
+  // makes the argument look like it decreases.
+  test("Int recursion uses Bosatsu's mod_Int for a negative divisor") {
+    disallowed("""#
+def bad(i: Int) -> Int:
+  loop i:
+    case _ if cmp_Int(i, 2) matches GT:
+      bad(i.sub(i.mod_Int(-3)).sub(1))
+    case _:
+      i
+""")
+    // i.mod_Int(-3) is in [-2, 0], so this decreases, and stays >= 0
+    allowed("""#
+def good(i: Int) -> Int:
+  loop i:
+    case _ if cmp_Int(i, 2) matches GT:
+      good(i.add(i.mod_Int(-3)).sub(1))
+    case _:
+      i
+""")
+  }
+
+  // Bosatsu's 5.div(-3) is -2, while SMT-LIB's (div 5 (- 3)) is -1: here
+  // i.add(i.div(-3).mul(3)) is Bosatsu's i.mod_Int(-3), in [-2, 0], so bad(5)
+  // calls bad(5) forever, but with SMT-LIB div it is in [0, 2].
+  test("Int recursion uses Bosatsu's div for a negative divisor") {
+    disallowed("""#
+def bad(i: Int) -> Int:
+  loop i:
+    case _ if cmp_Int(i, 3) matches GT:
+      bad(i.sub(i.add(i.div(-3).mul(3))).sub(1))
+    case _:
+      i
+""")
+    // i.div(-2) is -ceil(i / 2), so this is floor(i / 2)
+    allowed("""#
+def good(i: Int) -> Int:
+  loop i:
+    case _ if cmp_Int(i, 0) matches GT:
+      good(i.add(i.div(-2)))
+    case _:
+      i
+""")
+  }
+
   test("Int recursion allows divide-and-conquer recursion on integer splits") {
     allowed("""#
 def split_sum(i: Int) -> Int:

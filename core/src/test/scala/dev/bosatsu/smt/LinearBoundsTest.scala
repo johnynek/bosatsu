@@ -271,22 +271,48 @@ class LinearBoundsTest extends munit.ScalaCheckSuite {
   }
 
   test("does not read div or mod by a negative constant") {
-    // These hold in SMT-LIB, but not for Bosatsu's div and mod_Int, which the
-    // recursion check lowers to SMT-LIB div and mod: 5.mod_Int(-3) == -1, so
-    // the last goal fails at x = 5, and recursing on it would loop forever.
+    // These hold in SMT-LIB, but not for Bosatsu's div and mod_Int: the
+    // recursion check once lowered those straight to SMT-LIB div and mod, and
+    // 5.mod_Int(-3) == -1, so the last goal fails at x = 5, and recursing on
+    // it would loop forever.
     val n = v("x")
-    def bosatsuMod(k: Int) = Ite(EqInt(c(k), c(0)), n, Mod(n, c(k)))
+    def oldLowering(k: Int) = Ite(EqInt(c(k), c(0)), n, Mod(n, c(k)))
     val cases = List(
       List(Gte(n, c(0))) -> Gte(Mod(n, c(-3)), c(0)),
       List(Gte(n, c(0))) -> Lt(Mod(n, c(-3)), c(3)),
       List(Gt(n, c(0))) -> Lte(Div(n, c(-2)), c(0)),
-      List(Gt(n, c(2))) -> Lt(Sub(Vector(n, bosatsuMod(-3), c(1))), n)
+      List(Gt(n, c(2))) -> Lt(Sub(Vector(n, oldLowering(-3), c(1))), n)
     )
     cases.foreach { case (facts, goal) =>
       assert(!LinearBounds.implies(goal, facts), s"$facts => $goal")
     }
     // the same goal with a positive divisor is proved
-    assert(LinearBounds.implies(Lt(Sub(Vector(n, bosatsuMod(3), c(1))), n), List(Gt(n, c(2)))))
+    assert(LinearBounds.implies(Lt(Sub(Vector(n, oldLowering(3), c(1))), n), List(Gt(n, c(2)))))
+  }
+
+  test("reads Bosatsu's div and mod_Int by a negative constant as the lowering builds them") {
+    val n = v("x")
+    val facts = List(Gt(n, c(2)))
+    // x.mod_Int(-3) is in [-2, 0]: x - m - 1 can be x + 1, while x + m - 1 < x
+    val m = bosatsuMod(n, c(-3))
+    assert(!LinearBounds.implies(Lt(Sub(Vector(n, m, c(1))), n), facts))
+    assertEquals(z3Implies(Lt(Sub(Vector(n, m, c(1))), n), facts), Some(false))
+    val good = List(
+      Lt(Sub(Vector(Add(Vector(n, m)), c(1))), n),
+      Gte(Sub(Vector(Add(Vector(n, m)), c(1))), c(0)),
+      Lte(m, c(0)),
+      Gt(m, c(-3))
+    )
+    good.foreach { goal =>
+      assert(LinearBounds.implies(goal, facts), s"$goal")
+      assertEquals(z3Implies(goal, facts), Some(true), s"$goal")
+    }
+    // x.div(-2) is -ceil(x / 2): at most -1 for x > 0
+    val q = bosatsuDiv(n, c(-2))
+    assert(LinearBounds.implies(Lte(q, c(-1)), List(Gt(n, c(0)))))
+    assertEquals(z3Implies(Lte(q, c(-1)), List(Gt(n, c(0)))), Some(true))
+    assert(!LinearBounds.implies(Lte(q, c(-2)), List(Gt(n, c(0)))))
+    assertEquals(z3Implies(Lte(q, c(-2)), List(Gt(n, c(0)))), Some(false))
   }
 
   test("nested div by 1 takes linear time") {

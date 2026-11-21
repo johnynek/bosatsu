@@ -28,9 +28,11 @@ import SmtExpr.*
   * and in Bosatsu alike. A negative divisor is never used to prove anything,
   * even though SMT-LIB defines it: Bosatsu's `div` and `mod_Int` round toward
   * negative infinity, so for `k < 0` they differ from SMT-LIB's `div` and
-  * `mod`, which the recursion check currently lowers them to. Division by a
-  * variable or by zero, uninterpreted functions and booleans other than the
-  * connectives are never used to prove anything either.
+  * `mod`. `SmtExpr.bosatsuDiv` and `bosatsuMod` never produce a negative
+  * divisor, and leaving it out here means a term built some other way can't
+  * be misread as Bosatsu's. Division by a variable or by zero, uninterpreted
+  * functions and booleans other than the connectives are never used to prove
+  * anything either.
   *
   * Below, an environment `env` gives every integer variable a value, and
   * "`env` in box `b`" means `b.contains(env)`. The laws of each function are

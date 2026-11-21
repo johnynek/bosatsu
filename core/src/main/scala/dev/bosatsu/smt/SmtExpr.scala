@@ -84,6 +84,85 @@ object SmtExpr {
   final case class Implies(left: BoolExpr, right: BoolExpr)
       extends SmtExpr[SmtSort.BoolSort]
 
+  private def negate(e: IntExpr): IntExpr =
+    e match {
+      case IntConst(n) => IntConst(-n)
+      case _           => Sub(Vector(IntConst(BigInt(0)), e))
+    }
+
+  private def bosatsuDivMod(
+      num: IntExpr,
+      den: IntExpr,
+      byZero: IntExpr,
+      pos: (IntExpr, IntExpr) => IntExpr,
+      neg: (IntExpr, IntExpr) => IntExpr
+  ): IntExpr =
+    den match {
+      case IntConst(k) if k == 0 => byZero
+      case IntConst(k) if k > 0  => pos(num, den)
+      case IntConst(k)           => neg(num, IntConst(-k))
+      case _                     =>
+        Ite(
+          EqInt(den, IntConst(BigInt(0))),
+          byZero,
+          Ite(
+            Gt(den, IntConst(BigInt(0))),
+            pos(num, den),
+            neg(num, negate(den))
+          )
+        )
+    }
+
+  /** Bosatsu's `div` on `Int` (`PredefImpl.divBigInteger`) as an SMT-LIB term.
+    *
+    * Bosatsu's `x div d` is `floor(x / d)`, as Python's `//` is, and
+    * `x div 0 == 0`. SMT-LIB's `div` is Euclidean, so its remainder is never
+    * negative: it agrees with Bosatsu for `d > 0`, rounds the other way for
+    * `d < 0` (SMT-LIB `5 div -3 == -1`, Bosatsu `-2`), and leaves `x div 0`
+    * unspecified. Since `floor(x / d) == floor(-x / -d)`, a negative divisor
+    * becomes `(-x) div (-d)`, so SMT-LIB `div` is only ever applied to a
+    * positive divisor and the term never depends on division by zero.
+    *
+    * Laws, for all integers `x` and `d`, under every SMT-LIB interpretation
+    * of division by zero:
+    *   - the term evaluates to `PredefImpl.divBigInteger(x, d)`
+    *   - a constant `d` gives a term with no `ite`, and `Div` only by a
+    *     positive constant
+    */
+  def bosatsuDiv(num: IntExpr, den: IntExpr): IntExpr =
+    bosatsuDivMod(
+      num,
+      den,
+      IntConst(BigInt(0)),
+      Div(_, _),
+      (n, d) => Div(negate(n), d)
+    )
+
+  /** Bosatsu's `mod_Int` (`PredefImpl.modBigInteger`) as an SMT-LIB term.
+    *
+    * Bosatsu's `x mod_Int d` is `x - d * floor(x / d)`, as Python's `%` is,
+    * so it has the sign of `d`: it is in `[0, d - 1]` for `d > 0` and in
+    * `[d + 1, 0]` for `d < 0`. And `x mod_Int 0 == x`. SMT-LIB's `mod` is
+    * always in `[0, |d| - 1]`, so it agrees only for `d > 0`
+    * (SMT-LIB `5 mod -3 == 2`, Bosatsu `-1`). For `d < 0`,
+    * `x mod_Int d == -((-x) mod (-d))`, so SMT-LIB `mod` is only ever
+    * applied to a positive divisor.
+    *
+    * Laws, for all integers `x` and `d`, under every SMT-LIB interpretation
+    * of division by zero:
+    *   - the term evaluates to `PredefImpl.modBigInteger(x, d)`
+    *   - a constant `d` gives a term with no `ite`, and `Mod` only by a
+    *     positive constant
+    */
+  def bosatsuMod(num: IntExpr, den: IntExpr): IntExpr =
+    bosatsuDivMod(
+      num,
+      den,
+      num,
+      Mod(_, _),
+      (n, d) => negate(Mod(negate(n), d))
+    )
+
   private def simplifyBoolExpr(expr: BoolExpr): BoolExpr =
     expr match {
       case BoolConst(_) | EqInt(_, _) | Lt(_, _) |
