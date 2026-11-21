@@ -458,6 +458,8 @@ object SmtExpr {
         }
       case _ =>
         false
-    })
+    }) ||
+    // bounds reasoning, e.g. n > 0 implies (n - 1) div 2 < n
+    LinearBounds.implies(goal1, facts)
   }
 }
