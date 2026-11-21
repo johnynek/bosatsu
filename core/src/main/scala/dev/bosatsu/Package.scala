@@ -971,11 +971,13 @@ object Package {
                     )
                 )
 
+              // one for the package, so its inhabitedness checker is shared
+              val totalityCheck = TotalityCheck(fullTypeEnv)
               val totalityErrors: List[PackageError] =
                 toErrs(
                   typedLets
                     .traverse_ { case (_, _, expr) =>
-                      TotalityCheck(fullTypeEnv).checkExpr(expr)
+                      totalityCheck.checkExpr(expr)
                     }
                     .leftMap(
                       _.map(err => PackageError.TotalityCheckError(p, err): PackageError)
