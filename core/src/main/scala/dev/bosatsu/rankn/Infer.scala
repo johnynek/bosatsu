@@ -59,6 +59,12 @@ sealed abstract class Infer[+A] {
   final def mapError(fn: Error => Error): Infer[A] =
     Infer.Impl.MapError(this, fn)
 
+  /** On an error, discard this computation's state changes, then run fn in the
+    * state it started from. On success, keep its state changes as usual.
+    */
+  final def recoverWithReset[B >: A](fn: Error => Infer[B]): Infer[B] =
+    Infer.Impl.RecoverWithReset(this, fn)
+
   final def runVar(
       v: Map[Infer.Name, Type],
       tpes: Map[(PackageName, Constructor), Infer.Cons],
@@ -569,6 +575,15 @@ object Infer {
         fa.run(env).map {
           case right @ Right(_) => right
           case Left(err)        => Left(fn(err))
+        }
+    }
+
+    case class RecoverWithReset[A, B >: A](fa: Infer[A], fn: Error => Infer[B])
+        extends Infer[B] {
+      def run(env: Env) =
+        fa.run(env).resetOnLeft(identity).flatMap {
+          case Left(err)        => fn(err).run(env)
+          case right @ Right(_) => RefSpace.pure(right)
         }
     }
 
@@ -2829,24 +2844,32 @@ object Infer {
         // If they still contain metas, the guard and body share those same
         // refs, so the body is not re-inferring a fresh environment here.
         branchBindings = bindings ++ guardBindings
-        inferredResType <- extendEnvList(branchBindings)(
-          inferRho(branch.expr).peek.map {
-            case Right((_, inferred)) => Some(inferred: Type)
-            case Left(_)              => None
-          }
-        )
         tres <- extendEnvList(branchBindings)(
           checkRho(branch.expr, resT)
-            .mapError { err =>
-              contextualTypeError(
-                Error.MismatchSite.MatchBranchResult(
-                  expectedResultType = resT,
-                  inferredResultType = inferredResType,
-                  scrutineeRegion = sigma.value._2,
-                  patternRegion = branch.patternRegion,
-                  branchRegion = region(branch.expr)
+            .recoverWithReset { err =>
+              // The inferred type is only used to explain a failed check, so
+              // infer it only then. The failed check's state changes are
+              // discarded first, so this infers from the same state the check
+              // started in. Inferring on every branch would type check each
+              // branch body twice, which is exponential in how deeply matches
+              // nest in branches (an if/elif chain nests one match per elif).
+              inferRho(branch.expr).peek.flatMap { inferResult =>
+                val inferredResType = inferResult match {
+                  case Right((_, inferred)) => Some(inferred: Type)
+                  case Left(_)              => None
+                }
+                fail(
+                  contextualTypeError(
+                    Error.MismatchSite.MatchBranchResult(
+                      expectedResultType = resT,
+                      inferredResultType = inferredResType,
+                      scrutineeRegion = sigma.value._2,
+                      patternRegion = branch.patternRegion,
+                      branchRegion = region(branch.expr)
+                    )
+                  )(err)
                 )
-              )(err)
+              }
             }
         )
       } yield TypedExpr.Branch.fromGuardNode(pattern, tguard, tres)(using
