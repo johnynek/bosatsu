@@ -162,8 +162,8 @@ jobs:
         env:
           BUILDBUDDY_API_KEY: ${{ secrets.BUILDBUDDY_API_KEY }}
         run: |
-          sbt "coreJS/testOnly * -- --log=failure; jsapiJS/testOnly * -- --log=failure"
-          sbt "jsuiJS/testOnly * -- --log=failure"
+          sbt "coreJS/test; jsapiJS/test"
+          sbt "jsuiJS/test"
       - name: "verify jsui browser bundle"
         env:
           BUILDBUDDY_API_KEY: ${{ secrets.BUILDBUDDY_API_KEY }}
