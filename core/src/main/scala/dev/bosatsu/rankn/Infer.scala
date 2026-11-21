@@ -143,25 +143,58 @@ object Infer {
   )
   type Name = (Option[PackageName], Identifier)
 
-  class Env(
+  class Env private (
       val uniq: Ref[Long],
       val vars: Map[Name, Type],
+      /** The entries of `vars` whose types are open: they contain a meta
+        * variable or a free type variable (including skolems).
+        *
+        * Escape checks and generalization only look for metas and free type
+        * variables in the environment, and a closed type can never gain one:
+        * zonking only replaces metas. Most of the environment is closed (the
+        * types of imported values, constructors and inferred top-level
+        * values), so those checks scan this map instead of `vars`, which keeps
+        * them from costing time proportional to everything in scope.
+        */
+      val openVars: Map[Name, Type],
       val typeCons: Map[(PackageName, Constructor), Cons],
       val variances: Map[Type.Const.Defined, Kind],
       val aliases: Map[Type.Const.Defined, TypeAlias[Kind.Arg]]
   ) {
 
-    override def toString() =
-      s"Env($uniq, $vars, $typeCons, $variances, $aliases)"
-
-    def addVars(vt: NonEmptyList[(Name, Type)]): Env =
-      new Env(
+    def this(
+        uniq: Ref[Long],
+        vars: Map[Name, Type],
+        typeCons: Map[(PackageName, Constructor), Cons],
+        variances: Map[Type.Const.Defined, Kind],
+        aliases: Map[Type.Const.Defined, TypeAlias[Kind.Arg]]
+    ) =
+      this(
         uniq,
-        vars = (vars + vt.head) ++ vt.tail,
+        vars,
+        vars.filter { case (_, t) => Env.isOpen(t) },
         typeCons,
         variances,
         aliases
       )
+
+    override def toString() =
+      s"Env($uniq, $vars, $typeCons, $variances, $aliases)"
+
+    def addVars(vt: NonEmptyList[(Name, Type)]): Env = {
+      // later bindings shadow earlier ones, in vt and in vars
+      val open = vt.foldLeft(openVars) { case (acc, nt @ (n, t)) =>
+        if (Env.isOpen(t)) acc + nt else acc - n
+      }
+      new Env(
+        uniq,
+        vars = (vars + vt.head) ++ vt.tail,
+        open,
+        typeCons,
+        variances,
+        aliases
+      )
+    }
 
     @annotation.tailrec
     final def normalizeAliasHead(t: Type): Type =
@@ -250,9 +283,27 @@ object Infer {
         aliases: Map[Type.Const.Defined, TypeAlias[Kind.Arg]]
     ): RefSpace[Env] =
       RefSpace.newRef(0L).map(new Env(_, vars, tpes, kinds, aliases))
+
+    private def hasMeta(t: Type): Boolean =
+      t match {
+        case Type.TyMeta(_)        => true
+        case Type.TyApply(on, arg) => hasMeta(on) || hasMeta(arg)
+        case Type.ForAll(_, in)    => hasMeta(in)
+        case Type.Exists(_, in)    => hasMeta(in)
+        case _                     => false
+      }
+
+    /** True if t has a meta variable or a free type variable (including
+      * skolems), so it can matter to escape checks and generalization.
+      */
+    private[rankn] def isOpen(t: Type): Boolean =
+      hasMeta(t) || Type.freeTyVars(t :: Nil).nonEmpty
   }
 
   def getEnv: Infer[Map[Name, Type]] = GetEnv.map(_.vars)
+
+  /** The variables in scope whose types are open (see Env.openVars). */
+  def getOpenEnv: Infer[Map[Name, Type]] = GetEnv.map(_.openVars)
 
   def lift[A](rs: RefSpace[A]): Infer[A] =
     Lift(rs.map(Right(_)))
@@ -3309,7 +3360,9 @@ object Infer {
 
       def unifySelf(rho: Type.Rho): Infer[Map[Name, Type]] =
         meta match {
-          case None             => getEnv
+          // quantify only looks for metas and free type variables in the
+          // environment, so the closed types can be left out.
+          case None             => getOpenEnv
           case Some((nm, m, r)) =>
             (unifyRho(
               rho,
@@ -3317,7 +3370,7 @@ object Infer {
               recursiveBindingRegion(e),
               r,
               Error.Direction.ExpectRight
-            ) *> getEnv).map { envTys =>
+            ) *> getOpenEnv).map { envTys =>
               // we have to remove the recursive binding from the environment
               envTys - ((None, nm))
             }
@@ -3365,8 +3418,9 @@ object Infer {
         q <- TypedExpr.quantify(e, zrho, readMeta, writeMeta)
       } yield q
 
-    // allocate this once and reuse
-    private val envTypes = getEnv.map(_.values.toList)
+    // allocate this once and reuse. Callers only look for metas and free type
+    // variables in these types, so closed types are left out (see Env.openVars).
+    private val envTypes = getOpenEnv.map(_.values.toList)
 
     def quantifyMetas(
         metas: List[Type.TyMeta]
