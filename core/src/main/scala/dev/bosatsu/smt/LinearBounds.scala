@@ -23,11 +23,14 @@ import SmtExpr.*
   * `Sub(Vector(x))` is `x`, not `-x`), and with no arguments they render as
   * invalid SMT-LIB, so those are never used to prove anything.
   *
-  * `div` and `mod` follow SMT-LIB semantics: for a constant `k > 0`,
-  * `a div k` is `floor(a / k)`, and `a mod k` is in `[0, |k| - 1]` for any
-  * constant `k != 0`. Division by a variable or by zero, uninterpreted
-  * functions and booleans other than the connectives are never used to prove
-  * anything.
+  * `div` and `mod` are only read with a constant divisor `k > 0`: then
+  * `a div k` is `floor(a / k)` and `a mod k` is in `[0, k - 1]`, in SMT-LIB
+  * and in Bosatsu alike. A negative divisor is never used to prove anything,
+  * even though SMT-LIB defines it: Bosatsu's `div` and `mod_Int` round toward
+  * negative infinity, so for `k < 0` they differ from SMT-LIB's `div` and
+  * `mod`, which the recursion check currently lowers them to. Division by a
+  * variable or by zero, uninterpreted functions and booleans other than the
+  * connectives are never used to prove anything either.
   *
   * Below, an environment `env` gives every integer variable a value, and
   * "`env` in box `b`" means `b.contains(env)`. The laws of each function are
@@ -608,8 +611,9 @@ private[smt] object LinearBounds {
         }
       case Div(num, IntConst(k)) if k > 0 =>
         interval(num, b).divFloor(k)
-      case Mod(_, IntConst(k)) if k != 0 =>
-        Interval(Some(BigInt(0)), Some(k.abs - 1))
+      // k > 0 only: see the note on negative divisors at the top
+      case Mod(_, IntConst(k)) if k > 0 =>
+        Interval(Some(BigInt(0)), Some(k - 1))
       case Ite(cond, ifTrue, ifFalse) =>
         constantBool(cond) match {
           case Some(c) => interval(if (c) ifTrue else ifFalse, b)
@@ -716,7 +720,10 @@ private[smt] object LinearBounds {
           case Div(num, IntConst(k)) if k > 0 =>
             val numLo = interval(num, b).lo
             val cb = constBounds(interval(e, b))
-            val numUppers = bounds(num, b).uppers
+            // computed once: calling bounds(num, b) twice would make nested
+            // `div 1` exponential
+            val numBounds = bounds(num, b)
+            val numUppers = numBounds.uppers
             // For num >= 0, num div k <= num; and for num >= 1 and k >= 2,
             // num div k <= num / 2 <= num - 1. These hold pointwise, so they
             // hold for any upper bound of num too.
@@ -729,7 +736,7 @@ private[smt] object LinearBounds {
                   case _                 => Nil
                 }
             val linLowers =
-              if (k == 1) bounds(num, b).lowers else Nil
+              if (k == 1) numBounds.lowers else Nil
             Bounds(
               (linLowers ::: cb.lowers).distinct.take(MaxCandidates),
               (linUppers ::: cb.uppers).distinct.take(MaxCandidates)

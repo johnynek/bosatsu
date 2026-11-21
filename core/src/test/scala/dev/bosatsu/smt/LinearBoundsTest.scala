@@ -270,6 +270,32 @@ class LinearBoundsTest extends munit.ScalaCheckSuite {
     }
   }
 
+  test("does not read div or mod by a negative constant") {
+    // These hold in SMT-LIB, but not for Bosatsu's div and mod_Int, which the
+    // recursion check lowers to SMT-LIB div and mod: 5.mod_Int(-3) == -1, so
+    // the last goal fails at x = 5, and recursing on it would loop forever.
+    val n = v("x")
+    def bosatsuMod(k: Int) = Ite(EqInt(c(k), c(0)), n, Mod(n, c(k)))
+    val cases = List(
+      List(Gte(n, c(0))) -> Gte(Mod(n, c(-3)), c(0)),
+      List(Gte(n, c(0))) -> Lt(Mod(n, c(-3)), c(3)),
+      List(Gt(n, c(0))) -> Lte(Div(n, c(-2)), c(0)),
+      List(Gt(n, c(2))) -> Lt(Sub(Vector(n, bosatsuMod(-3), c(1))), n)
+    )
+    cases.foreach { case (facts, goal) =>
+      assert(!LinearBounds.implies(goal, facts), s"$facts => $goal")
+    }
+    // the same goal with a positive divisor is proved
+    assert(LinearBounds.implies(Lt(Sub(Vector(n, bosatsuMod(3), c(1))), n), List(Gt(n, c(2)))))
+  }
+
+  test("nested div by 1 takes linear time") {
+    // bounds once read the numerator twice for k == 1, so 40 levels took 2^40 steps
+    val n = v("x")
+    val nested = (1 to 40).foldLeft(n: IntExpr)((e, _) => Div(e, c(1)))
+    assert(LinearBounds.implies(Lte(nested, n), List(Gte(n, c(0)))))
+  }
+
   test("does not prove goals that depend on division by zero") {
     // SMT-LIB leaves x div 0 and x mod 0 unspecified. The embedded z3 traps
     // on these, so they are checked here and in the grid property instead.
