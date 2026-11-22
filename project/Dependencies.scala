@@ -23,9 +23,9 @@ object Dependencies {
   lazy val nativeImageSdk =
     Def.setting("org.graalvm.sdk" % "nativeimage" % "24.2.2")
   lazy val jython = Def.setting("org.python" % "jython-standalone" % "2.7.4")
-  lazy val http4sCore = Def.setting("org.http4s" %% "http4s-core" % "0.23.38")
+  lazy val http4sCore = Def.setting("org.http4s" %% "http4s-core" % "0.23.39")
   lazy val http4sEmber =
-    Def.setting("org.http4s" %% "http4s-ember-client" % "0.23.38")
+    Def.setting("org.http4s" %% "http4s-ember-client" % "0.23.39")
   lazy val munit = Def.setting("org.scalameta" %% "munit" % "1.3.6")
   lazy val munitScalaCheck =
     Def.setting("org.scalameta" %% "munit-scalacheck" % "1.3.1")
