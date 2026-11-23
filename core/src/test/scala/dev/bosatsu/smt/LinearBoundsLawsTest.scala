@@ -389,7 +389,7 @@ class LinearBoundsLawsTest extends munit.ScalaCheckSuite {
   property("linear: the Lin it returns has the expression's value") {
     forAll(intExprGen(3, z3Safe = false), smallEnvGen) { (e, env) =>
       LinearBounds.linear(e) match {
-        case Some(l) => Prop(l.eval(env) == evalInt(e, Env(env, byZeroChoices.head)))
+        case Some(l) => Prop(l.eval(env) == evalInt(e, Env(env, Map.empty, byZeroChoices.head)))
         case None    => Prop.undecided
       }
     }
@@ -402,7 +402,7 @@ class LinearBoundsLawsTest extends munit.ScalaCheckSuite {
   property("constantBool: the value it returns holds at every env") {
     forAll(mostlyConstantBoolGen, smallEnvGen) { (p, env) =>
       LinearBounds.constantBool(p) match {
-        case Some(v) => Prop(byZeroChoices.forall(bz => evalBool(p, Env(env, bz)) == v))
+        case Some(v) => Prop(byZeroChoices.forall(bz => evalBool(p, Env(env, Map.empty, bz)) == v))
         case None    => Prop.undecided
       }
     }
@@ -414,7 +414,7 @@ class LinearBoundsLawsTest extends munit.ScalaCheckSuite {
   property("atoms: a fact holds exactly when all its atoms do") {
     forAll(anyBoolGen, smallEnvGen) { (f, env) =>
       byZeroChoices.forall { bz =>
-        val e = Env(env, bz)
+        val e = Env(env, Map.empty, bz)
         evalBool(f, e) == LinearBounds.atoms(f).forall(evalBool(_, e))
       }
     }
@@ -425,7 +425,7 @@ class LinearBoundsLawsTest extends munit.ScalaCheckSuite {
       (a, env) =>
         LinearBounds.linearAtom(a) match {
           case Some((lin, rel)) =>
-            Prop(evalBool(a, Env(env, byZeroChoices.head)) == rel.holds(lin.eval(env)))
+            Prop(evalBool(a, Env(env, Map.empty, byZeroChoices.head)) == rel.holds(lin.eval(env)))
           case None => Prop.undecided
         }
     }
@@ -437,7 +437,7 @@ class LinearBoundsLawsTest extends munit.ScalaCheckSuite {
       y <- (-5 to 5).toList
       z <- (-5 to 5).toList
       bz <- byZeroChoices.take(3)
-    } yield Env(Map("x" -> BigInt(x), "y" -> BigInt(y), "z" -> BigInt(z)), bz)
+    } yield Env(Map("x" -> BigInt(x), "y" -> BigInt(y), "z" -> BigInt(z)), Map.empty, bz)
 
   property("box: contains every env where all the facts hold, None only if none do") {
     forAll(factsGen(z3Safe = false)) { facts =>
@@ -449,7 +449,7 @@ class LinearBoundsLawsTest extends munit.ScalaCheckSuite {
   property("interval: contains the expression's value at every env in the box") {
     forAll(boxEnvGen, intExprGen(3, z3Safe = false)) { case ((b, env), e) =>
       val i = LinearBounds.interval(e, b)
-      byZeroChoices.forall(bz => i.contains(evalInt(e, Env(env, bz))))
+      byZeroChoices.forall(bz => i.contains(evalInt(e, Env(env, Map.empty, bz))))
     }
   }
 
@@ -472,7 +472,7 @@ class LinearBoundsLawsTest extends munit.ScalaCheckSuite {
     forAll(boxEnvGen, intExprGen(3, z3Safe = false)) { case ((b, env), e) =>
       val bs = LinearBounds.bounds(e, b)
       byZeroChoices.forall { bz =>
-        val value = evalInt(e, Env(env, bz))
+        val value = evalInt(e, Env(env, Map.empty, bz))
         bs.lowers.forall(_.eval(env) <= value) && bs.uppers.forall(value <= _.eval(env))
       }
     }
@@ -504,7 +504,7 @@ class LinearBoundsLawsTest extends munit.ScalaCheckSuite {
       case ((b, env), a, c, limit) =>
         LinearBounds.diffAtMost(a, c, BigInt(limit), b) ==>
           byZeroChoices.forall { bz =>
-            val e = Env(env, bz)
+            val e = Env(env, Map.empty, bz)
             evalInt(a, e) - evalInt(c, e) <= limit
           }
     }
@@ -513,7 +513,7 @@ class LinearBoundsLawsTest extends munit.ScalaCheckSuite {
   property("proves: the goal holds at every env in the box") {
     forAll(boxEnvGen, goalGen(z3Safe = false)) { case ((b, env), goal) =>
       LinearBounds.proves(goal, b) ==>
-        byZeroChoices.forall(bz => evalBool(goal, Env(env, bz)))
+        byZeroChoices.forall(bz => evalBool(goal, Env(env, Map.empty, bz)))
     }
   }
 }

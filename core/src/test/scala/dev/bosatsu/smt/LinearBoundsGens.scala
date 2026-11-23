@@ -408,10 +408,6 @@ object LinearBoundsGens {
       boolVars: Map[String, Boolean],
       byZero: BigInt => BigInt
   )
-  object Env {
-    def apply(vars: Map[String, BigInt], byZero: BigInt => BigInt): Env =
-      Env(vars, Map.empty, byZero)
-  }
 
   def evalInt(e: IntExpr, env: Env): BigInt =
     e match {
@@ -462,7 +458,7 @@ object LinearBoundsGens {
       y <- -6 to 6
       z <- -6 to 6
       byZero <- byZeroChoices
-    } yield Env(Map("x" -> BigInt(x), "y" -> BigInt(y), "z" -> BigInt(z)), byZero)).toList
+    } yield Env(Map("x" -> BigInt(x), "y" -> BigInt(y), "z" -> BigInt(z)), Map.empty, byZero)).toList
 
   def gridCounterexample(facts: List[BoolExpr], goal: BoolExpr): Option[Env] =
     grid.find(env => facts.forall(evalBool(_, env)) && !evalBool(goal, env))
