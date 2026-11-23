@@ -500,29 +500,14 @@ object TypedExprNormalization {
     val outerClashes = branch.pattern.names.filter(avoid)
     val branch1 =
       if (outerClashes.isEmpty) branch
-      else {
-        // A guard pattern that binds one of these names hides it in the inner
-        // guard and the body, so those keep reading the guard pattern's name,
-        // and no new name may be one it binds.
-        val guardNames = branch.guardBindings.toSet
-        val argRenames =
+      else
+        TypedExpr.renameBranchPatternNames(
+          branch,
           freshRenames(
             outerClashes,
-            branchAvoid ++ branch.pattern.names.toSet ++ guardNames
+            branchAvoid ++ branch.pattern.names.toSet ++ branch.guardBindings.toSet
           )
-        val resSub = replacementSubstitution(argRenames)
-        val innerSub =
-          if (guardNames.isEmpty) resSub
-          else resSub.filterNot { case (n, _) => guardNames(n) }
-        val expr1 =
-          TypedExpr.substituteAll(innerSub, branch.expr, enterLambda = true).get
-        val guard1 = branch.mapGuardNodeExprScoped(
-          TypedExpr.substituteAll(resSub, _, enterLambda = true).get,
-          TypedExpr.substituteAll(innerSub, _, enterLambda = true).get
         )
-        val pattern1 = branch.pattern.substitute(argRenames)
-        branch.copyNode(pattern1, guard1, expr1)(using branch.patternRegion)
-      }
 
     val outerAvoid = avoid ++ branch1.pattern.names.toSet
     val branch2 =

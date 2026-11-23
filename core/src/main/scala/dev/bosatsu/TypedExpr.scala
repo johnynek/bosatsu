@@ -3730,6 +3730,38 @@ object TypedExpr {
     loop(table, in)
   }
 
+  /** Rename some of a branch pattern's names in the branch.
+    *
+    * A guard pattern that rebinds one of those names hides it in the inner
+    * guard and the body, so those keep reading the guard pattern's name; only
+    * the outer guard (a `BoolGuard`, or a `MatchGuard`'s argument) is renamed
+    * throughout. The caller must pick new names that the guard pattern does
+    * not bind, or the guard pattern would capture them.
+    */
+  private[bosatsu] def renameBranchPatternNames[A](
+      branch: Branch[A],
+      renames: Map[Bindable, Bindable]
+  ): Branch[A] = {
+    val outerSub: Map[Bindable, Local[A] => TypedExpr[A]] =
+      renames.iterator.map { case (oldName, newName) =>
+        oldName -> { (loc: Local[A]) =>
+          (Local(newName, loc.tpe, loc.tag): TypedExpr[A])
+        }
+      }.toMap
+    val guardNames = branch.guardBindings.toSet
+    val innerSub =
+      if (guardNames.isEmpty) outerSub
+      else outerSub.filterNot { case (n, _) => guardNames(n) }
+    val body1 = substituteAll(innerSub, branch.expr, enterLambda = true).get
+    val guard1 = branch.mapGuardNodeExprScoped(
+      substituteAll(outerSub, _, enterLambda = true).get,
+      substituteAll(innerSub, _, enterLambda = true).get
+    )
+    branch.copyNode(branch.pattern.substitute(renames), guard1, body1)(using
+      branch.patternRegion
+    )
+  }
+
   private def unshadowBranch[A](
       outerFreeSet: Set[Bindable],
       innerFreeSet: Set[Bindable],
@@ -3778,31 +3810,14 @@ object TypedExpr {
 
           if (clashes.isEmpty) branch0
           else {
-            // A guard pattern that binds one of these names hides it in the
-            // inner guard and the body, so those keep reading the guard
-            // pattern's name, and no new name may be one it binds.
-            val guardNames = branch0.guardBindings.toSet
             val avoids =
-              outerFreeSet | guardNames |
+              outerFreeSet | branch0.guardBindings.toSet |
                 freeVarsSet(branch0.expr :: branch0.guardExprIterator.toList)
             val newArgs = alloc(args, avoids, clashes)
-            val resSub = args.iterator
-              .zip(newArgs.iterator.map { n1 => (loc: Local[A]) =>
-                Local(n1, loc.tpe, loc.tag)
-              })
-              .toMap
-            val innerSub =
-              if (guardNames.isEmpty) resSub
-              else resSub.filterNot { case (n, _) => guardNames(n) }
-
-            val body1 = substituteAll(innerSub, branch0.expr, enterLambda = true).get
-            val guard1 = branch0.mapGuardNodeExprScoped(
-              substituteAll(resSub, _, enterLambda = true).get,
-              substituteAll(innerSub, _, enterLambda = true).get
+            renameBranchPatternNames(
+              branch0,
+              args.iterator.zip(newArgs.iterator).toMap
             )
-            val pattern1 = branch0.pattern.substitute(args.iterator.zip(newArgs.iterator).toMap)
-
-            branch0.copyNode(pattern1, guard1, body1)(using branch0.patternRegion)
           }
       }
 

@@ -4104,16 +4104,19 @@ object Matchless {
 
   case class PrevNat[A](of: Expr[A]) extends Expr[A]
 
+  // Passes `arg` to `fn` if it is a cheap expression that `keepCheap`
+  // accepts, else binds it to an anonymous local and passes that.
   private inline def maybeMemoWith[F[_]: Monad, A, R](
       arg: Expr[A],
-      tmp: F[Long]
+      tmp: F[Long],
+      inline keepCheap: CheapExpr[A] => Boolean
   )(
       inline fn: CheapExpr[A] => F[R]
   )(
       inline bind: (LocalAnon, Expr[A], R) => R
   ): F[R] =
     arg match {
-      case c: CheapExpr[A] => fn(c)
+      case c: CheapExpr[A] if keepCheap(c) => fn(c)
       case _               =>
         for {
           nm <- tmp
@@ -4124,25 +4127,11 @@ object Matchless {
 
   private inline def maybeMemo[F[_]: Monad, A](
       arg: Expr[A],
-      tmp: F[Long]
+      tmp: F[Long],
+      inline keepCheap: CheapExpr[A] => Boolean
   )(inline fn: CheapExpr[A] => F[Expr[A]]): F[Expr[A]] =
-    maybeMemoWith(arg, tmp)(fn) { (bound, inExpr, inBody) =>
+    maybeMemoWith(arg, tmp, keepCheap)(fn) { (bound, inExpr, inBody) =>
       Let(bound, inExpr, inBody)
-    }
-
-  // true if this cheap expression reads a named local in `names`
-  @annotation.tailrec
-  private def cheapReadsName[A](
-      expr: CheapExpr[A],
-      names: Bindable => Boolean
-  ): Boolean =
-    expr match {
-      case Local(name)                 => names(name)
-      case GetEnumElement(arg, _, _, _) => cheapReadsName(arg, names)
-      case GetStructElement(arg, _, _) => cheapReadsName(arg, names)
-      case Global(_, _, _) | ClosureSlot(_) | LocalAnon(_) | LocalAnonMut(_) |
-          Literal(_) | LitInt64(_) =>
-        false
     }
 
   object StringMatcher {
@@ -5616,8 +5605,8 @@ object Matchless {
     )(
         build: (CheapExpr[B], CheapExpr[B]) => Expr[B]
     ): F[Expr[B]] =
-      maybeMemoWith(left, makeAnon) { leftCheap =>
-        maybeMemoWith(right, makeAnon) { rightCheap =>
+      maybeMemoWith(left, makeAnon, _ => true) { leftCheap =>
+        maybeMemoWith(right, makeAnon, _ => true) { rightCheap =>
           Monad[F].pure(build(leftCheap, rightCheap))
         } { (rightTmp, rightExpr, body) =>
           Let(rightTmp, rightExpr, body)
@@ -7061,7 +7050,7 @@ object Matchless {
     // is the outer y.
     def prepareInlinedStructRoot(
         arg: Expr[B],
-        rebound: Bindable => Boolean
+        rebound: Set[Bindable]
     ): F[Option[(List[(LocalAnon, Expr[B])], InlinedStructRoot)]] =
       arg match {
         case App(MakeStruct(arity), args) if args.length == arity =>
@@ -7070,7 +7059,8 @@ object Matchless {
               (List.empty[(LocalAnon, Expr[B])], List.empty[CheapExpr[B]])
             ) { case ((letsRev, fieldsRev), item) =>
               item match {
-                case ch: CheapExpr[B] if !cheapReadsName(ch, rebound) =>
+                case ch: CheapExpr[B]
+                    if !rebound.exists(Expr.referencesBindable(ch, _)) =>
                   Monad[F].pure((letsRev, ch :: fieldsRev))
                 case expr =>
                   makeAnon.map { nm =>
@@ -9410,17 +9400,12 @@ object Matchless {
             guardToBoolExpr(arg).map(If(_, ifTrue, ifFalse))
           case None =>
             maybeComparisonBranches.getOrElse {
-              arg match {
-                case cheap: CheapExpr[B] if cheapReadsName(cheap, rebound) =>
-                  tmp.flatMap { nm =>
-                    val bound = LocalAnon(nm)
-                    compileWithCheapArg(bound, branches, None)
-                      .map(Let(bound, cheap, _))
-                  }
-                case _ =>
-                  maybeMemo(arg, tmp) { (arg: CheapExpr[B]) =>
-                    compileWithCheapArg(arg, branches, None)
-                  }
+              maybeMemo(
+                arg,
+                tmp,
+                cheap => !rebound.exists(Expr.referencesBindable(cheap, _))
+              ) { (arg: CheapExpr[B]) =>
+                compileWithCheapArg(arg, branches, None)
               }
             }
         }

@@ -4492,6 +4492,29 @@ main = target(7, Some(1))
 """,
       VInt(7)
     )
+    // n and m both name the whole value, and binding m read Link(1, n) after
+    // the pattern's n was bound
+    evalBothPipelines(
+      """
+enum Chain:
+  End
+  Link(v: Int, next: Chain)
+
+def second(c: Chain) -> Int:
+  match c:
+    case Link(_, Link(v, _)): v
+    case _: 0
+
+def target(k: Int) -> Int:
+  n = Link(k, End)
+  match Link(1, n):
+    case (Link(_, _) as m) as n: add(second(m), mul(second(n), 10))
+    case _: 0
+
+main = target(5)
+""",
+      VInt(55)
+    )
   }
 
   test("a known value is not read under a pattern or lambda that rebinds a name it reads") {
@@ -4562,7 +4585,7 @@ main = target(Node(Node(Leaf, Node(Leaf, Leaf)), Leaf), Some(1))
     )
   }
 
-  test("a let or pattern in a lambda that rebinds a captured name hides the capture") {
+  test("a let, def, pattern or guard pattern in a lambda that rebinds a captured name hides the capture") {
     evalBothPipelines(
       """
 def target(x: Int) -> Int:
@@ -4588,6 +4611,42 @@ def target(x: Int) -> Int:
 main = target(1)
 """,
       VInt(11)
+    )
+    evalBothPipelines(
+      """
+def target(x: Int) -> Int:
+  def inner(y: Int) -> Int:
+    z = x
+    match y:
+      case _ if Some(y) matches Some(x): add(z, x)
+      case _: 0
+  inner(10)
+
+main = target(1)
+""",
+      VInt(11)
+    )
+    // the call f([1, 2]) is to the local recursive f, not the captured one
+    evalBothPipelines(
+      """
+def size_hint(xs: List[Int]) -> Int:
+  match xs:
+    case []: 0
+    case _: 100
+
+def target(f: List[Int] -> Int) -> Int:
+  def inner(y: Int) -> Int:
+    z = f([y])
+    def f(xs: List[Int]) -> Int:
+      recur xs:
+        case []: z
+        case [_, *t]: add(f(t), 1)
+    f([1, 2])
+  inner(7)
+
+main = target(size_hint)
+""",
+      VInt(102)
     )
   }
 
