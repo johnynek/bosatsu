@@ -7,6 +7,7 @@ import dev.bosatsu.pattern.NameMap
 import dev.bosatsu.rankn.{ConstructorFn, DefinedType, Type, TypeEnv}
 import dev.bosatsu.scalawasiz3.{Z3Platform, Z3Result}
 import dev.bosatsu.smt.{SExpr, SmtCommand, SmtExpr, SmtLibRender, SmtScript, SmtScriptScope, SmtSort, Z3Api}
+import scala.collection.mutable
 
 import Identifier.Bindable
 
@@ -3438,16 +3439,45 @@ object TypedExprRecursionCheck {
     ): Boolean = {
       val typeEnv = inrec.inRec.totalityCheck.inEnv
 
-      val targetConsts: List[Type.Const] =
-        inrec.target.toList.map { targetItem =>
-          Type.unapplyAll(targetItemType(inrec, targetItem))._1 match {
-            case Type.TyConst(c) => Some(c)
-            case _               => None
-          }
-        }.sequence.getOrElse(Nil)
+      // Typed expressions keep type aliases as written (`type CbA = Cb`), so
+      // every comparison of type constants below must see through them.
+      // Returns a type whose head is not an alias, or None if the alias can't
+      // be expanded (under-applied, or a cycle, which source conversion
+      // already rejects); callers treat None as unsafe.
+      @annotation.tailrec
+      def expandAliasHead(t: Type, expanding: Set[Type.Const]): Option[Type] =
+        Type.unapplyAll(t) match {
+          case (Type.TyConst(c), args) =>
+            typeEnv.getTypeAlias(Type.TyConst(c)) match {
+              case Some(alias) =>
+                if (expanding(c)) None
+                else
+                  alias.expandWith(args) match {
+                    case Some(t1) => expandAliasHead(t1, expanding + c)
+                    case None     => None
+                  }
+              case None => Some(t)
+            }
+          case _ => Some(t)
+        }
 
-      // all type constants whose values may contain values of type `c`
-      // (`c` itself, or any defined type that transitively mentions it)
+      val targetConsts: List[Type.Const] =
+        inrec.target.toList
+          .traverse { targetItem =>
+            expandAliasHead(targetItemType(inrec, targetItem), Set.empty)
+              .map(Type.unapplyAll(_)._1)
+              .collect { case Type.TyConst(c) => c }
+          }
+          .getOrElse(Nil)
+
+      // Can values of type constant `c` contain values of a target type?
+      // True if `c` is a target, or its definition (or alias right-hand side)
+      // transitively mentions one. Constants we can't resolve are assumed to.
+      // Function type constants carry no values of their own: their
+      // arguments are walked separately by `unsafe`. Phantom parameters,
+      // including those declared on external types, are trusted to hold no
+      // values.
+      val mayContainCache = mutable.Map.empty[Type.Const, Boolean]
       def mayContainTarget(c: Type.Const): Boolean = {
         @annotation.tailrec
         def loop(
@@ -3460,14 +3490,24 @@ object TypedExprRecursionCheck {
               if (targetConsts.contains(h)) true
               else if (seen(h)) loop(tail, seen)
               else {
-                val deps = typeEnv
-                  .getType(Type.TyConst(h))
-                  .fold(List.empty[Type.Const])(_.dependsOn.map(_.tpe))
-                loop(deps ::: tail, seen + h)
+                val tc = Type.TyConst(h)
+                val deps: Option[List[Type.TyConst]] =
+                  tc match {
+                    case Type.FnType(_) => Some(Nil)
+                    case _ =>
+                      typeEnv
+                        .getType(tc)
+                        .map(_.dependsOn)
+                        .orElse(typeEnv.getTypeAlias(tc).map(_.dependsOn))
+                  }
+                deps match {
+                  case Some(ds) => loop(ds.map(_.tpe) ::: tail, seen + h)
+                  case None     => true
+                }
               }
           }
 
-        loop(c :: Nil, Set.empty)
+        mayContainCache.getOrElseUpdate(c, loop(c :: Nil, Set.empty))
       }
 
       def isInput(v: Variance): Boolean =
@@ -3483,13 +3523,14 @@ object TypedExprRecursionCheck {
       def unsafe(t: Type, v: Variance): Boolean =
         if (v == Variance.Phantom) false
         else
-          t match {
-            case Type.ForAll(_, in) => unsafe(in, v)
-            case Type.Exists(_, in) => unsafe(in, v)
-            case Type.Fun(args, res) =>
+          expandAliasHead(t, Set.empty) match {
+            case None => true
+            case Some(Type.ForAll(_, in)) => unsafe(in, v)
+            case Some(Type.Exists(_, in)) => unsafe(in, v)
+            case Some(Type.Fun(args, res)) =>
               args.exists(unsafe(_, -v)) || unsafe(res, v)
-            case _ =>
-              Type.unapplyAll(t) match {
+            case Some(t1) =>
+              Type.unapplyAll(t1) match {
                 case (Type.TyConst(c), args) =>
                   (isInput(v) && mayContainTarget(c)) ||
                   args.iterator.zipWithIndex.exists { case (arg, idx) =>
@@ -3553,6 +3594,8 @@ object TypedExprRecursionCheck {
             case None =>
               argsOnDefName(currentPackage, fn, NonEmptyList.one(args)) match {
                 case Some((nm, groups)) =>
+                  // every argument group of a curried call
+                  val allArgs = groups.iterator.flatMap(_.iterator).toList
                   if (nm == irb.defname) {
                     val targetArgsV: Res[NonEmptyList[TypedExpr[Declaration]]] =
                       inrec.target.traverse { targetItem =>
@@ -3562,7 +3605,6 @@ object TypedExprRecursionCheck {
                           .toValidNec(RecursionCheck.NotEnoughRecurArgs(nm, region))
                       }
 
-                    val allArgs = groups.iterator.flatMap(_.iterator).toList
                     toSt(targetArgsV).flatMap { targetArgs =>
                       recurAllowedByLexOrder(
                         irb.defname,
@@ -3584,14 +3626,14 @@ object TypedExprRecursionCheck {
                     smallerNamesFromProofs(proofsPerTarget).contains(nm) &&
                     reachableCallbackRuleApplies(
                       inrec,
-                      groups.toList.flatMap(_.toList.map(_.getType))
+                      allArgs.map(_.getType)
                     )
                   ) {
                     // we are calling a reachable function. Any lambda args are new names
                     // that may only see values the reachable function builds itself
                     // (see reachableCallbackRuleApplies), so they are smaller.
                     // Every argument group of a curried call is checked.
-                    groups.toList.flatMap(_.toList).parTraverse_[St, Unit] {
+                    allArgs.parTraverse_[St, Unit] {
                       case argExpr =>
                         asAnnotatedLambda(argExpr) match {
                           case Some(TypedExpr.AnnotatedLambda(lambdaArgs, body, lambdaTag)) =>
@@ -3627,9 +3669,9 @@ object TypedExprRecursionCheck {
                     // not a recursive call, or a call to a reachable function
                     // whose type could hand its callbacks values chosen by the caller.
                     // Every argument group of a curried call is checked.
-                    setSt(irb.noteCalledName(nm)) *> groups.toList
-                      .flatMap(_.toList)
-                      .parTraverse_(checkExpr(currentPackage, _, wrappers))
+                    setSt(irb.noteCalledName(nm)) *> allArgs.parTraverse_(
+                      checkExpr(currentPackage, _, wrappers)
+                    )
                   }
                 case None =>
                   // this isn't a recursive call
