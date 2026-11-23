@@ -706,6 +706,252 @@ class InhabitednessTest extends munit.ScalaCheckSuite {
     )
   }
 
+  private def sourceTypeEnv(src: String): TypeEnv[Kind.Arg] =
+    predefTypeEnv ++ toKindedTypeEnv(TestUtils.parsedTypeEnvOf(localPackage, src))
+
+  private val captureEnv: TypeEnv[Kind.Arg] =
+    sourceTypeEnv("""#
+enum Never: Never(next: Never)
+enum T[x]: Base(v: x), Step[a](t: T[a])
+enum Box[x]: MkBox[a](h: x, k: a -> Never)
+enum Loop[x]: Loop[a](l: Loop[a])
+enum D[x]: A(v: x), B(w: exists y. D[y])
+enum E[x]: EA(v: x), EB(w: forall y. E[y])
+enum P4[w, x, y, z]: Base4(w: w, x: x, y: y, z: z), Step4[a, b, c, d](p: P4[a, b, c, d])
+enum Loop4[w, x, y, z]: Loop4[a, b, c, d](l: Loop4[a, b, c, d])
+enum Q4[w, x, y, z]: QBase4(w: w, x: x, y: y, z: z), QStep4(q: forall a, b, c, d. Q4[a, b, c, d])
+struct DoubleNeg(f: (DoubleNeg -> Never) -> Never)
+struct Wrap[x](w: x)
+enum Nested[x]: NBase(v: x), NStep(n: Nested[Wrap[x]])
+enum NestedLoop[x]: NLoop(n: NestedLoop[Wrap[x]])
+# Not covariant, so the compiler rejects it; only a hand-built env has it.
+struct Liar(f: Liar -> Never)
+struct Pair[a, b](fst: a, snd: b)
+enum Twice[x]: TBase(v: x), TStep(t: Twice[Pair[x, x]])
+enum TwiceLoop[x]: TLoop(t: TwiceLoop[Pair[x, x]])
+struct Tok
+enum Wrapper[x, y]: W1(v: y), W2(f: x -> Never)
+# Rec occurs covariantly (under two contravariant parameters), so the
+# compiler accepts it, but its component reads Wrapper[Rec, Tok]
+# contravariantly.
+struct Rec(w: Wrapper[Wrapper[Rec, Tok], Rec])
+struct Wrap2[x](w: x)
+enum Branch[x]: BLeft(l: Branch[Wrap[x]]), BRight(r: Branch[Wrap2[x]])
+struct SelfWithFn(s: SelfWithFn, f: Never -> Tok)
+struct Neg[a](f: a -> Never)
+struct DN2(f: Neg[Neg[DN2]])
+enum DNLoop4[w, x, y, z]: DNL4[a, b, c, d](f: Neg[Neg[DNLoop4[a, b, c, d]]])
+""")
+
+  private def quantified(
+      q: (List[(Type.Var.Bound, Kind)], Type) => Type,
+      name: String,
+      tc: Type.TyConst
+  ): Type = {
+    val v = Type.Var.Bound(name)
+    q(List((v, Kind.Type)), Type.apply1(tc, Type.TyVar(v)))
+  }
+
+  test("constructor existentials do not capture an outer variable in a recursive field") {
+    // Type.normalize names the quantified variable `a`, the same name as
+    // Step's existential. Step(Base(1)) has type forall a. T[a].
+    List("a", "b").foreach { name =>
+      assertState(
+        Inhabitedness.check(
+          quantified(Type.forAll(_, _), name, localType("T")),
+          captureEnv
+        ),
+        State.Inhabited
+      )
+    }
+  }
+
+  test("constructor existentials do not capture an outer variable through type arguments") {
+    // MkBox(1, x -> x) has type Box[Int] (with a = Never), so exists a. Box[a]
+    // has a value. Substituting the outer `a` for `x` must not let MkBox's
+    // existential `a` capture it.
+    val existsBox = quantified(Type.exists(_, _), "a", localType("Box"))
+    assertState(Inhabitedness.check(existsBox, captureEnv), State.Inhabited)
+
+    val mkBox = Pattern.PositionalStruct(
+      (localPackage, Constructor("MkBox")),
+      List(Pattern.WildCard, Pattern.WildCard)
+    )
+    assertState(
+      Inhabitedness.checkMatch(existsBox, mkBox, captureEnv),
+      State.Inhabited
+    )
+  }
+
+  test("quantifiers inside field types do not capture an outer variable in a recursive field") {
+    // `forall a. D[a]` and B's field `exists y. D[y]` (normalized to
+    // `exists a. D[a]`) use the same name for different variables.
+    // B(A(1)) has type forall a. D[a].
+    assertState(
+      Inhabitedness.check(
+        quantified(Type.forAll(_, _), "b", localType("D")),
+        captureEnv
+      ),
+      State.Inhabited
+    )
+    // forall b. E[b] has no value: E[Never] would need a Never (EA) or a
+    // forall y. E[y], which is again an E[Never] (EB). The field's E[a] at
+    // a = Uninhabited has the same key as the E[a] being expanded, or the
+    // keys would never end.
+    assertState(
+      Inhabitedness.check(
+        quantified(Type.forAll(_, _), "b", localType("E")),
+        captureEnv
+      ),
+      State.Uninhabited
+    )
+  }
+
+  test("renaming existentials apart keeps recursive expansion finite") {
+    // Loop has no base case. Each expansion opens a fresh existential, so
+    // Loop[a] and Loop[b] (same state) must have the same key.
+    val quantifiers: List[(List[(Type.Var.Bound, Kind)], Type) => Type] =
+      List(Type.forAll(_, _), Type.exists(_, _))
+    quantifiers.foreach { q =>
+      assertState(
+        Inhabitedness.check(quantified(q, "a", localType("Loop")), captureEnv),
+        State.Uninhabited
+      )
+    }
+  }
+
+  test("types that open many variables per expansion are solved exactly") {
+    // Each expansion of these types opens four kind-* variables, so there are
+    // 16 data-type keys, and a search that only stops at keys on its current
+    // path has up to 16! paths. The least fixed point needs 16 equations.
+    def applied4(name: String, args: List[Type]): Type =
+      Type.applyAll(localType(name), args)
+    val ints = List.fill(4)(Type.IntType: Type)
+    val vars = List("a", "b", "c", "d").map(Type.Var.Bound(_))
+    def forall4(name: String): Type =
+      Type.forAll(vars.map((_, Kind.Type)), applied4(name, vars.map(Type.TyVar(_))))
+
+    assertState(Inhabitedness.check(applied4("P4", ints), captureEnv), State.Inhabited)
+    assertState(Inhabitedness.check(applied4("Q4", ints), captureEnv), State.Inhabited)
+    // P4[a, b, c, d] has Step4(Base4(1, 1, 1, 1)) for every a, b, c, d.
+    assertState(Inhabitedness.check(forall4("P4"), captureEnv), State.Inhabited)
+    // Loop4 has no base case.
+    assertState(Inhabitedness.check(forall4("Loop4"), captureEnv), State.Uninhabited)
+    assertState(Inhabitedness.check(applied4("Loop4", ints), captureEnv), State.Uninhabited)
+  }
+
+  test("recursion through two function arguments is covariant and solved") {
+    // DoubleNeg occurs to the left of two arrows in its own definition. Its
+    // least fixed point is empty: DoubleNeg -> Never is then Inhabited, so
+    // (DoubleNeg -> Never) -> Never is Uninhabited.
+    assertState(
+      Inhabitedness.check(localType("DoubleNeg"), captureEnv),
+      State.Uninhabited
+    )
+  }
+
+  test("a data type that reads itself under one function argument is Unknown") {
+    // KindFormula rejects Liar, so only an unchecked env like this one has
+    // it. Liar = Liar -> Never has no least fixed point: assuming Liar empty
+    // makes it inhabited, and assuming it inhabited makes it empty. The
+    // solver answers Unknown rather than rely on KindFormula.
+    assertState(Inhabitedness.check(localType("Liar"), captureEnv), State.Unknown)
+  }
+
+  test("a component read under an even number of function arguments is searched") {
+    // Rec = Wrapper[Wrapper[Rec, Tok], Rec] = Rec or not Wrapper[Rec, Tok],
+    // and Wrapper[Rec, Tok] = Tok or not Rec, which is Inhabited. So Rec is
+    // empty. Iterating all three keys up from Uninhabited would instead read
+    // Wrapper[Rec, Tok] as Uninhabited at first, make Rec Inhabited, and
+    // never come back down. Every cycle passes two function arguments, so
+    // the depth-first search with the cycle rule solves them.
+    val rec = localType("Rec")
+    val inner = Type.applyAll(localType("Wrapper"), List(rec, localType("Tok")))
+    val outer = Type.applyAll(localType("Wrapper"), List(inner, rec))
+    assertState(Inhabitedness.check(rec, captureEnv), State.Uninhabited)
+    assertState(Inhabitedness.check(outer, captureEnv), State.Uninhabited)
+    assertState(Inhabitedness.check(inner, captureEnv), State.Inhabited)
+    // (None, absurd) is a value of the tuple.
+    val tuple = Type.Tuple(
+      List(Type.apply1(Type.OptionType, outer), Type.Fun(rec, neverType))
+    )
+    assertState(Inhabitedness.check(tuple, captureEnv), State.Inhabited)
+
+    // DN2 = Neg[Neg[DN2]] = not not DN2, so it is empty.
+    assertState(Inhabitedness.check(localType("DN2"), captureEnv), State.Uninhabited)
+  }
+
+  test("the search over a component read under function arguments is bounded") {
+    // 16 DNLoop4 keys, each reading all 16 through two Negs: the search
+    // could follow 16! paths, so it stops at its visit and depth limits.
+    val vars = List("a", "b", "c", "d").map(Type.Var.Bound(_))
+    val forallDNLoop4 = Type.forAll(
+      vars.map((_, Kind.Type)),
+      Type.applyAll(localType("DNLoop4"), vars.map(Type.TyVar(_)))
+    )
+    assertState(Inhabitedness.check(forallDNLoop4, captureEnv), State.Unknown)
+  }
+
+  test("polymorphic recursion stops at the data-type key limits") {
+    // Nested[Int] reaches Nested[Wrap[Int]], Nested[Wrap[Wrap[Int]]], ...
+    assertState(
+      Inhabitedness.check(Type.apply1(localType("Nested"), Type.IntType), captureEnv),
+      State.Inhabited
+    )
+    // NestedLoop has no value, but proving that needs every key, so the
+    // check runs out of keys and answers Unknown.
+    assertState(
+      Inhabitedness.check(Type.apply1(localType("NestedLoop"), Type.IntType), captureEnv),
+      State.Unknown
+    )
+    // Twice doubles its argument at each step, so its keys hit the size
+    // limit after a few steps, long before the number of keys matters.
+    assertState(
+      Inhabitedness.check(Type.apply1(localType("Twice"), Type.IntType), captureEnv),
+      State.Inhabited
+    )
+    assertState(
+      Inhabitedness.check(Type.apply1(localType("TwiceLoop"), Type.IntType), captureEnv),
+      State.Unknown
+    )
+    // Branch reaches 2^k keys of size k + 2 at depth k, so it runs out of
+    // keys long before any key is too large.
+    assertState(
+      Inhabitedness.check(Type.apply1(localType("Branch"), Type.IntType), captureEnv),
+      State.Unknown
+    )
+  }
+
+  test("a contravariant read of a key outside the component is fine") {
+    // SelfWithFn reads Never under a function argument, but Never is solved
+    // first, so SelfWithFn's component is still monotone: it is empty.
+    assertState(
+      Inhabitedness.check(localType("SelfWithFn"), captureEnv),
+      State.Uninhabited
+    )
+  }
+
+  test("a variable with no state keeps its name in a data-type key") {
+    // A hand-built field that uses `q` without declaring it.
+    val q = Type.Var.Bound("q")
+    val env = predefTypeEnv ++ TypeEnv.fromDefinitions(
+      mkType(
+        "EdgeFreeVarKey",
+        List(
+          rankn.ConstructorFn[Kind.Arg](
+            name = Constructor("EdgeFreeVarKey"),
+            args = List(mkParam("x", Type.apply1(Type.OptionType, Type.TyVar(q))))
+          )
+        )
+      ) :: Nil
+    )
+    // Option[q] has None whatever q is.
+    assertState(
+      Inhabitedness.check(localType("EdgeFreeVarKey"), env),
+      State.Inhabited
+    )
+  }
+
   private def genInhabited(env: TypeEnv[Kind.Arg]): Gen[Type] = {
     val optionNever = Type.apply1(Type.OptionType, neverType)
     val envSpecific = Vector(

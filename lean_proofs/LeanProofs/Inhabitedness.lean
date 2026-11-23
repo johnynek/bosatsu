@@ -4,8 +4,11 @@ namespace Inhabitedness
 # A model of `Inhabitedness.Analyzer.checkType`
 
 This file models `core/src/main/scala/dev/bosatsu/Inhabitedness.scala`
-(`Analyzer.checkType`) and proves that an `Uninhabited` answer is sound:
-the type has no value.
+(`Analyzer.checkType`) as it was before johnynek/bosatsu#2520: a depth-first
+search with a `seen` cycle rule. It proves that an `Uninhabited` answer is
+sound: the type has no value. The Scala checker now solves the same data-type
+equations as a least fixed point instead, which this proof does not cover yet;
+see "Assumptions".
 
 `TotalityCheck` lets a match leave out the branches the checker calls
 Uninhabited, so a wrong Uninhabited answer would admit a match that fails at
@@ -243,7 +246,7 @@ def check (E : Env) (cap : Nat) : Nat → List (Nat × List Ty) → List St → 
         | some (d, args) =>
             dataState E cap (fun seen' σ' t' => check E cap fuel seen' σ' t') seen σ d args
 
-/-- `Analyzer.checkType(t, Map.empty, Set.empty)` with the Scala cap. -/
+/-- The search-based `Analyzer.checkType(t, Map.empty, Set.empty)` with the Scala cap. -/
 def checkTop (E : Env) (fuel : Nat) (t : Ty) : St :=
   check E maxQuantifierVars fuel [] [] t
 
@@ -918,8 +921,8 @@ theorem example_Q_has_value (Op : Nat → List Prop → Prop) :
 enum T[x]: Base(v: x), Step[a](t: T[a])
 ```
 
-`forall b. T[b]` has the value `Step(Base(1))`. The Scala checker currently
-answers Uninhabited for it: `Type.normalize` renames `b` to `a`, and the
+`forall b. T[b]` has the value `Step(Base(1))`. The Scala checker before
+johnynek/bosatsu#2520 answered Uninhabited for it: `Type.normalize` renames `b` to `a`, and the
 existential `a` of `Step` is then confused with it, both in `varState` and in
 the `seen` set (see "Assumptions"). The model gives each variable its own
 level and answers Inhabited.
@@ -941,7 +944,8 @@ enum D[x]: A(v: x), B(w: exists y. D[y])
 
 `forall b. D[b]` has the value `B(A(1))`. Scala renames `b` to `a`, then the
 field's `exists y. D[y]` to `exists a. D[a]`, which matches the `seen` entry
-`D[a]` for the outer `a`, so Scala answers Uninhabited.
+`D[a]` for the outer `a`, so Scala answered Uninhabited before
+johnynek/bosatsu#2520.
 -/
 
 def captureNestedEnv : Env
@@ -957,7 +961,30 @@ theorem capture_nested_example :
 `uninhabited_sound` is proved from the hypotheses of `Model`. Relating it to
 Bosatsu programs takes the following assumptions about the rest of Bosatsu.
 
-1. **The Scala checker computes `check`.** `Analyzer.checkType` on a
+1. **The Scala checker computes `check`.** This held for the search-based
+   checker before johnynek/bosatsu#2520, which the rest of this item
+   describes. That PR replaced the search:
+   * Each data type is keyed by replacing every variable that has a state
+     with a variable that always has that state, so a key is a closed
+     equation.
+   * Constructor existentials are renamed apart from the type arguments.
+   * The keys are solved as a least fixed point. Tarjan's algorithm finds the
+     strongly connected components, and Kleene iteration from Uninhabited
+     solves each component that reads its own keys only covariantly.
+   * A component that reads one of its own keys under a function argument is
+     solved by the search this file models, restricted to the component,
+     provided every cycle in it passes an even number of function arguments.
+     That makes each key covariant in its own unfolding, as `Model.cov`
+     requires, and `KindFormula` should ensure it for every checked
+     environment. A component with an odd cycle, which only an environment
+     that skipped `KindFormula` can have, is Unknown, and so is any key past
+     a count or size limit.
+
+   Covering that code needs worlds indexed by keys (types up to swapping
+   variables with the same state) instead of syntactic points. It also needs
+   the lemma that the least fixed point of a component read only covariantly,
+   with the keys outside it fixed, is what `Model.W` gives. For the old
+   checker, `Analyzer.checkType` on a
    well-kinded type gives the same answer as `check` on its translation. The
    translation is taken after `Type.normalize` (which drops unused binders and
    merges adjacent ones): constants with a definition are `con`, built-in
@@ -975,19 +1002,18 @@ Bosatsu programs takes the following assumptions about the rest of Bosatsu.
      TotalityCheck as matches that omit a constructor which has values:
      `capture_example` (an existential named like the normalized outer
      variable) and `capture_nested_example` (a field's `exists y` renamed to
-     the outer variable's name). The proof covers the Scala code only once every
-     variable it opens (quantifier binders, including those inside field
-     types after substitution, and constructor existentials) gets a name
-     distinct from every name in `varState` and in `seen`.
+     the outer variable's name). Both are fixed by johnynek/bosatsu#2520:
+     its keys never name a variable that has a state, and it renames
+     existentials apart from the type arguments.
    * *Renormalization.* Scala normalizes again after substituting type
      arguments into a field; the model does not. This can regroup or drop
      quantifiers, which changes which ones exceed the cap, and can make two
      types syntactically equal for the `seen` check in Scala and not in the
      model (or the reverse).
    * *Termination.* The model has fuel and answers Unknown when it runs out.
-     Scala has none: if a type whose expansion never repeats (polymorphic
-     recursion such as `T[a] = C(T[List[a]])`) is accepted, `checkType`
-     would not terminate on it. Where Scala is capture-free and terminates,
+     The old Scala search had none: if a type whose expansion never repeats
+     (polymorphic recursion such as `T[a] = C(T[List[a]])`) is accepted, it
+     would not terminate on it. The solver bounds this with its key limits. Where Scala is capture-free and terminates,
      its answer is the model's at enough fuel, and soundness holds at every
      fuel. (Capture can also make Scala terminate where the model never
      does: with `B(w: forall y. D[y])` in `capture_nested_example`, Scala
@@ -1008,9 +1034,11 @@ Bosatsu programs takes the following assumptions about the rest of Bosatsu.
    every occurrence of a type inside its own definition to be in a covariant
    position (`Constraint.RecursiveView`), and Bosatsu has no mutually
    recursive types. Without this the cycle rule means nothing: for
-   `struct E(f: E -> Never)` the checker calls `E` Inhabited because
+   `struct E(f: E -> Never)` the old checker called `E` Inhabited because
    `E -> Never` is Inhabited when `E` is assumed empty, yet `E` would have a
-   value exactly when it has none.
+   value exactly when it has none. `KindFormula` rejects `E`. The solver
+   does not rely on that: given an environment that skipped the check, it
+   answers Unknown for `E`, which reads itself under one function argument.
 4. **Typed values denote proofs of `sem`.** A closed, well-typed, total
    Bosatsu value of type `t` gives a proof of `sem Op (M.W []) [] t` for the
    semantics `M` of its environment: functions are total, `forall` values can

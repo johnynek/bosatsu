@@ -40,9 +40,12 @@ in `Inhabitedness`:
   through the cycle rule and function arguments, and `exampleModel` shows the
   `Model` hypotheses hold for that environment
 - the "Assumptions" section at the end of the file lists what the proof
-  assumes about the rest of Bosatsu, and a known gap: the Scala checker can
-  confuse a constructor's existential with an outer variable of the same name
-  (`capture_example`)
+  assumes about the rest of Bosatsu. The model is of the search-based
+  checker from before johnynek/bosatsu#2520, which could confuse a
+  constructor's existential with an outer variable of the same name
+  (`capture_example`). The Scala checker now solves data types as a least
+  fixed point over keys that name no stated variable, which the proof does
+  not cover yet
 
 Run locally:
 
