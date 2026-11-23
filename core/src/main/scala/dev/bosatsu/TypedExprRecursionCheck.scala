@@ -3860,10 +3860,15 @@ object TypedExprRecursionCheck {
                       unitSt
                   }
 
+                // The guard pattern's names shadow outer names in the inner
+                // guard and the body. As for a branch pattern, drop the
+                // shadowed names' facts and derive new ones from the guard's
+                // scrutinee. addPatternFactsAndBindings rebinds them for SMT.
                 checkExpr(currentPackage, argExpr, wrappers) *>
                   checkForIllegalBindsSt(pattern.names, guard.patternRegion) *>
-                  innerGuardCheck *>
-                  bodyWithGuardFacts
+                  withTemporaryPatternProofs(argExpr, pattern)(
+                    innerGuardCheck *> bodyWithGuardFacts
+                  )
               case None                                      =>
                 bodyCheck
             }

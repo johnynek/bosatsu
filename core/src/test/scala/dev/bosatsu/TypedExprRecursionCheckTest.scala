@@ -2271,6 +2271,71 @@ main = bad(A(k -> k(5)), 1)
 """)
   }
 
+  test("match-guard pattern names drop facts about shadowed names") {
+    // the guard rebinds y to the whole list, so y is no longer smaller
+    disallowed("""#
+def bad(xs: List[Int]) -> Int:
+  recur xs:
+    case [_, *y] if (y, xs) matches (_, y): bad(y).add(1)
+    case _: 0
+
+main = bad([1])
+""")
+
+    disallowed("""#
+def bad(xs: List[Int]) -> Int:
+  recur xs:
+    case [x, *y] if [x, *y] matches y: bad(y).add(1)
+    case _: 0
+
+main = bad([1])
+""")
+
+    // the recursive call is in the inner guard, where y is also rebound
+    disallowed("""#
+def bad(xs: List[Int]) -> Int:
+  recur xs:
+    case [x, *y] if [x, *y] matches y if bad(y) matches 0: 1
+    case _: 0
+
+main = bad([1])
+""")
+
+    // a guard in a nested, non-recur match
+    disallowed("""#
+def bad(xs: List[Int]) -> Int:
+  recur xs:
+    case [x, *y]:
+      match x:
+        case _ if [x, *y] matches y: bad(y).add(1)
+    case _: 0
+
+main = bad([1])
+""")
+
+    // with several targets the rebound y must not keep its Smaller fact
+    disallowed("""#
+def bad(xs: List[Int], n: Int) -> Int:
+  recur (xs, n):
+    case ([x, *y], _) if ([0, x, *y], n) matches (y, _): bad(y, n).add(1)
+    case _: 0
+
+main = bad([1], 0)
+""")
+  }
+
+  test("match-guard pattern names get facts from the guard scrutinee") {
+    allowed("""#
+def good(xs: List[Int]) -> Int:
+  recur xs:
+    case [_, *y] if y matches [_, *z]: good(z).add(1)
+    case [_, *y]: good(y)
+    case _: 0
+
+main = good([1, 2, 3])
+""")
+  }
+
   test("reachable callback binders may not shadow the def") {
     disallowedWithMessage("""#
 enum Cont:
