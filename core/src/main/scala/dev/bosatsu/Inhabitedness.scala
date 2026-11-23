@@ -412,13 +412,19 @@ object Inhabitedness {
       * definition (under two contravariant parameters). Yet D,
       * `E[E[D, Y], D]` and `E[D, Y]` read each other contravariantly.
       *
-      * Such a component may pass an even number of function arguments
-      * around every cycle (`parityConsistent`). Then each key occurs
-      * covariantly in its own unfolding, which is the condition (`Model.cov`)
-      * under which `lean_proofs/LeanProofs/Inhabitedness.lean` proves the
-      * older depth-first search sound. So the component is solved by that
-      * search (`searchComponent`). Otherwise, as for
-      * `struct Liar(f: Liar -> Never)`, the component is Unknown.
+      * When every cycle in such a component passes an even number of
+      * function arguments (`parityConsistent`), each key occurs covariantly
+      * in its own unfolding. That is the condition (`Model.cov`) under which
+      * `lean_proofs/LeanProofs/Inhabitedness.lean` proves the older
+      * depth-first search sound, so the component is solved by that search
+      * (`searchComponent`).
+      *
+      * `KindFormula` requires every occurrence of a type in its own
+      * definition to be covariant (`Constraint.RecursiveView`), so every
+      * cycle of a checked environment should be even. An odd cycle, as in
+      * `struct Liar(f: Liar -> Never)`, which `KindFormula` rejects, means the
+      * environment skipped that check (a hand-built `TypeEnv`). The solver
+      * answers Unknown for it instead of relying on `KindFormula`.
       *
       * Keys reached after `MaxDataTypeKeys` are Unknown.
       *
@@ -608,7 +614,8 @@ object Inhabitedness {
       // Whether the component's keys can be labelled 0 or 1 so that a
       // covariant read keeps the label and a contravariant read flips it,
       // that is, whether every cycle in it passes an even number of function
-      // arguments.
+      // arguments. Expected to hold whenever `KindFormula` checked the
+      // environment (see `Solver`), but checked here rather than assumed.
       private def parityConsistent(
           component: NonEmptyList[Node],
           member: Type => Option[Node]

@@ -975,8 +975,10 @@ Bosatsu programs takes the following assumptions about the rest of Bosatsu.
      solved by the search this file models, restricted to the component,
      provided every cycle in it passes an even number of function arguments.
      That makes each key covariant in its own unfolding, as `Model.cov`
-     requires. Other such components, and any key past a count or size
-     limit, are Unknown.
+     requires, and `KindFormula` should ensure it for every checked
+     environment. A component with an odd cycle, which only an environment
+     that skipped `KindFormula` can have, is Unknown, and so is any key past
+     a count or size limit.
 
    Covering that code needs worlds indexed by keys (types up to swapping
    variables with the same state) instead of syntactic points. It also needs
@@ -1034,8 +1036,9 @@ Bosatsu programs takes the following assumptions about the rest of Bosatsu.
    recursive types. Without this the cycle rule means nothing: for
    `struct E(f: E -> Never)` the old checker called `E` Inhabited because
    `E -> Never` is Inhabited when `E` is assumed empty, yet `E` would have a
-   value exactly when it has none. (The solver answers Unknown for `E`,
-   because `E` reads itself under a function argument.)
+   value exactly when it has none. `KindFormula` rejects `E`. The solver
+   does not rely on that: given an environment that skipped the check, it
+   answers Unknown for `E`, which reads itself under one function argument.
 4. **Typed values denote proofs of `sem`.** A closed, well-typed, total
    Bosatsu value of type `t` gives a proof of `sem Op (M.W []) [] t` for the
    semantics `M` of its environment: functions are total, `forall` values can

@@ -851,8 +851,10 @@ enum DNLoop4[w, x, y, z]: DNL4[a, b, c, d](f: Neg[Neg[DNLoop4[a, b, c, d]]])
   }
 
   test("a data type that reads itself under one function argument is Unknown") {
-    // Liar = Liar -> Never has no least fixed point: assuming Liar empty makes
-    // it inhabited, and assuming it inhabited makes it empty.
+    // KindFormula rejects Liar, so only an unchecked env like this one has
+    // it. Liar = Liar -> Never has no least fixed point: assuming Liar empty
+    // makes it inhabited, and assuming it inhabited makes it empty. The
+    // solver answers Unknown rather than rely on KindFormula.
     assertState(Inhabitedness.check(localType("Liar"), captureEnv), State.Unknown)
   }
 
