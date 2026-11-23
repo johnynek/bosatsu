@@ -280,7 +280,32 @@ def target(x: Int, y: Int, z: Int, p: Bool, q: Comparison) -> Int:
     closed = true
   )
 
-  // Found by the property once it generated opaque calls and tuple matches.
+  // Helpers: a value alias and a forwarding def are Predef aliases, a def
+  // that swaps its arguments or does more is inlined. The property covers
+  // these too, but needs the right helper to be generated and called.
+  regression(
+    "helpers lower to what they compute",
+    """
+helper0 = sub
+
+def helper1(a: Int, b: Int) -> Int:
+  sub(a, b)
+
+def helper2(a: Int, b: Int) -> Int:
+  sub(b, a)
+
+def helper3(a: Int, b: Int) -> Int:
+  add(mul(a, 2), b)
+
+def target(x: Int, y: Int, z: Int, p: Bool, q: Comparison) -> Int:
+  add(add(helper0(x, y), mul(helper1(y, z), 10)), add(mul(helper2(x, z), 100), mul(helper3(x, y), 1000)))
+""",
+    closed = true
+  )
+
+  // The property reaches these only through its rarer opaque calls and tuple
+  // matches, so not on every run. Each lowered to a closed term, over the
+  // outer binding the name shadows.
 
   // the let's x kept the argument x
   regression(
@@ -802,10 +827,10 @@ object TypedExprRecursionLoweringTest {
 
   type Scope = Map[String, Sort]
 
-  // fallbacks: use opaque calls and tuple matches, which lower to terms over
-  // fresh symbols, or not at all
-  // recent: the names bound most recently, newest first, which uses favor,
-  // so that shadowing matters
+  // recent: the names bound most recently, newest first. Uses favor them, so
+  // that shadowing matters.
+  // fallbacks: also use opaque calls and tuple matches, which lower to terms
+  // over fresh symbols, or not at all.
   final case class Ctx(
       scope: Scope,
       recent: List[String],
