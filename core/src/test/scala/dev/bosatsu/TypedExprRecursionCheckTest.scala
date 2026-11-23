@@ -1878,6 +1878,318 @@ main: Int = loop(Item(1))
 """)
   }
 
+  test("reachable continuation callbacks are smaller for monomorphic fields") {
+    allowed("""#
+enum Cont:
+  Item(a: Int)
+  Next(use: (Cont -> Int) -> Int)
+
+def loop(box: Cont) -> Int:
+  recur box:
+    case Item(a): a
+    case Next(cont_fn): cont_fn(cont -> loop(cont))
+
+main = loop(Next(k -> k(Next(k2 -> k2(Item(41)).add(1)))))
+""")
+
+    // a curried reachable function still gets the callback rule in every group
+    allowed("""#
+enum Cont:
+  Item(a: Int)
+  Next(use: (Cont -> Int) -> Int -> Int)
+
+def loop(box: Cont) -> Int:
+  recur box:
+    case Item(a): a
+    case Next(cont_fn): cont_fn(cont -> loop(cont))(0)
+
+main = loop(Item(1))
+""")
+
+    // the callback param type does not depend on the caller's choice of r
+    allowed("""#
+enum Cont:
+  Item(a: Int)
+  Next(use: forall r. (Cont -> r) -> r)
+
+def loop(box: Cont) -> Int:
+  recur box:
+    case Item(a): a
+    case Next(cont_fn): cont_fn(cont -> loop(cont))
+
+main = loop(Next(k -> k(Item(1))))
+""")
+  }
+
+  test("callbacks of rank-n reachable functions are not smaller") {
+    // the caller picks a := Cb and the field function hands c straight back
+    disallowed("""#
+struct Cb(f: forall a. (a, a -> Int) -> Int)
+
+def bad(c: Cb) -> Int:
+  recur c:
+    case Cb(f): f(c, x -> bad(x))
+
+main = bad(Cb((a, k) -> k(a)))
+""")
+
+    disallowed("""#
+struct Cb(f: forall a. (a, a -> Int) -> Int)
+
+def bad(c: Cb) -> Int:
+  recur c:
+    case Cb(f): f(c, bad)
+
+main = bad(Cb((a, k) -> k(a)))
+""")
+
+    // Church numerals: fold(s, z) applies s to z
+    disallowed("""#
+struct Nat(fold: forall r. (r -> r, r) -> r)
+
+one = Nat((s, z) -> s(z))
+
+def bad(n: Nat) -> Nat:
+  recur n:
+    case Nat(fold): fold(x -> bad(x), n)
+
+main = bad(one)
+""")
+
+    // instantiating the field through an annotated let does not hide it
+    disallowed("""#
+struct Cb(f: forall a. (a, a -> Int) -> Int)
+
+def bad(c: Cb) -> Int:
+  recur c:
+    case Cb(f):
+      h: (Cb, Cb -> Int) -> Int = f
+      h(c, x -> bad(x))
+
+main = bad(Cb((a, k) -> k(a)))
+""")
+
+    // nor does wrapping the target in another type
+    disallowed("""#
+struct Cb(f: forall a. (a, a -> Int) -> Int)
+
+def bad(c: Cb) -> Int:
+  recur c:
+    case Cb(f):
+      h: ((Cb, Int), ((Cb, Int)) -> Int) -> Int = f
+      h((c, 0), ((x, _)) -> bad(x))
+
+main = bad(Cb((a, k) -> k(a)))
+""")
+
+    // or in a type defined later that contains it
+    disallowed("""#
+struct Cb(f: forall a. (a, a -> Int) -> Int)
+struct Wrap(c: Cb)
+
+def bad(c: Cb) -> Int:
+  recur c:
+    case Cb(f):
+      h: (Wrap, Wrap -> Int) -> Int = f
+      h(Wrap(c), Wrap(x) -> bad(x))
+
+main = bad(Cb((a, k) -> k(a)))
+""")
+  }
+
+  test("type aliases do not hide the target from the callback rule") {
+    // alias on the recur target's type
+    disallowed("""#
+struct Cb(f: forall a. (a, a -> Int) -> Int)
+type CbA = Cb
+
+def bad(c: CbA) -> Int:
+  recur c:
+    case Cb(f):
+      c1: Cb = c
+      f(c1, x -> bad(x))
+
+main = bad(Cb((a, k) -> k(a)))
+""")
+
+    // alias on the argument passed in
+    disallowed("""#
+struct Cb(f: forall a. (a, a -> Int) -> Int)
+type CbA = Cb
+
+def bad(c: Cb) -> Int:
+  recur c:
+    case Cb(f):
+      c1: CbA = c
+      f(c1, x -> bad(x))
+
+main = bad(Cb((a, k) -> k(a)))
+""")
+
+    // alias inside the field of a type that wraps the target
+    disallowed("""#
+struct Cb(f: forall a. (a, a -> Int) -> Int)
+type CbA = Cb
+struct Wrap(c: CbA)
+
+def bad(c: Cb) -> Int:
+  recur c:
+    case Cb(f):
+      h: (Wrap, Wrap -> Int) -> Int = f
+      h(Wrap(c), Wrap(x) -> bad(x))
+
+main = bad(Cb((a, k) -> k(a)))
+""")
+
+    // alias hiding a function type that returns the target
+    disallowed("""#
+struct Cb(f: forall a. (a, a -> Int) -> Int)
+type Th = Unit -> Cb
+
+def bad(c: Cb) -> Int:
+  recur c:
+    case Cb(f):
+      t: Th = _ -> c
+      h: (Th, Th -> Int) -> Int = f
+      h(t, th -> bad(th(())))
+
+main = bad(Cb((a, k) -> k(a)))
+""")
+  }
+
+  test("existentially encoded continuations keep the callback rule") {
+    // the field function picks b, and is parametric in res
+    allowed("""#
+enum Box[a: +*]:
+  Item(a: a)
+  Next(fn: forall res. (forall b. (Box[b], b -> a) -> res) -> res)
+
+def loop[a](box: Box[a]) -> a:
+  recur box:
+    case Item(a): a
+    case Next(cont): cont((bx, fn) -> fn(loop(bx)))
+
+main = loop(Item(1))
+""")
+  }
+
+  test("curried calls check every argument group") {
+    disallowed("""#
+def konst(a: Int) -> Int -> Int: _ -> a
+
+def bad(n: List[Int]) -> Int:
+  recur n:
+    case []: 0
+    case [_, *_]: konst(bad(n))(0)
+
+main = bad([1])
+""")
+
+    disallowed("""#
+struct Box(f: Int -> Int -> Int)
+
+def bad(b: Box) -> Int:
+  recur b:
+    case Box(f): f(bad(b))(0)
+
+main = bad(Box(x -> _ -> x))
+""")
+  }
+
+  test("reachable callback binders drop facts about shadowed names") {
+    // with several targets the callback binder y gets no facts, so it must
+    // not inherit `y` from the pattern
+    disallowed("""#
+def len(xs: List[Int]) -> Int:
+  recur xs:
+    case []: 0
+    case [_, *t]: len(t).add(1)
+
+struct A(f: (List[Int] -> Int) -> Int)
+
+def bad(a: A, b: List[Int]) -> Int:
+  recur (a, b):
+    case (_, []): 0
+    case (A(f), [_, *y]): f(y -> bad(a, y)).add(len(y))
+
+main = bad(A(k -> k([1, 2])), [0])
+""")
+
+    // nor may a pattern-lambda binder
+    disallowed("""#
+def len(xs: List[Int]) -> Int:
+  recur xs:
+    case []: 0
+    case [_, *t]: len(t).add(1)
+
+struct Box(xs: List[Int])
+struct A(f: (Box -> Int) -> Int)
+
+def bad(a: A, b: List[Int]) -> Int:
+  recur (a, b):
+    case (_, []): 0
+    case (A(f), [_, *y]): f(Box(y) -> bad(a, y)).add(len(y))
+
+main = bad(A(k -> k(Box([1, 2]))), [0])
+""")
+
+    // nor may it inherit SMT facts about the let-bound n. The callback
+    // returns Bool, so the callback rule applies here.
+    disallowed("""#
+struct A(f: (Int -> Bool) -> Int)
+
+def bad(a: A, i: Int) -> Int:
+  recur (a, i):
+    case (A(f), i):
+      if i.cmp_Int(0) matches GT:
+        n = i.sub(1)
+        f(n -> bad(a, n).eq_Int(0)).add(n)
+      else:
+        0
+
+main = bad(A(k -> 1 if k(5) else 0), 1)
+""")
+
+    // here the callback returns Int, one of the targets, so the rule does not
+    // apply and the binder is checked like any other lambda binder
+    disallowed("""#
+struct A(f: (Int -> Int) -> Int)
+
+def bad(a: A, i: Int) -> Int:
+  recur (a, i):
+    case (A(f), i):
+      if i.cmp_Int(0) matches GT:
+        n = i.sub(1)
+        f(n -> bad(a, n)).add(n)
+      else:
+        0
+
+main = bad(A(k -> k(5)), 1)
+""")
+  }
+
+  test("reachable callback binders may not shadow the def") {
+    disallowedWithMessage("""#
+enum Cont:
+  Item(a: Int)
+  Next(use: (Cont -> Int) -> Int)
+
+def get(c: Cont) -> Int:
+  match c:
+    case Item(a): a
+    case Next(_): 0
+
+def loop(box: Cont) -> Int:
+  recur box:
+    case Item(a): a
+    case Next(cont_fn): cont_fn(loop -> get(loop))
+
+main = loop(Item(1))
+""") { msg =>
+      assert(clue(msg).contains("illegal shadowing on: loop"))
+    }
+  }
+
   test("def loop remains a legal function name") {
     allowed("""#
 def loop(x): x
