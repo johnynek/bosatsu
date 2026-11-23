@@ -715,6 +715,8 @@ enum Never: Never(next: Never)
 enum T[x]: Base(v: x), Step[a](t: T[a])
 enum Box[x]: MkBox[a](h: x, k: a -> Never)
 enum Loop[x]: Loop[a](l: Loop[a])
+enum D[x]: A(v: x), B(w: exists y. D[y])
+enum E[x]: EA(v: x), EB(w: forall y. E[y])
 """)
 
   private def quantified(
@@ -754,6 +756,30 @@ enum Loop[x]: Loop[a](l: Loop[a])
     assertState(
       Inhabitedness.checkMatch(existsBox, mkBox, captureEnv),
       State.Inhabited
+    )
+  }
+
+  test("quantifiers inside field types do not capture an outer variable through seen") {
+    // `forall a. D[a]` and B's field `exists y. D[y]` (normalized to
+    // `exists a. D[a]`) use the same name for different variables.
+    // B(A(1)) has type forall a. D[a].
+    assertState(
+      Inhabitedness.check(
+        quantified(Type.forAll(_, _), "b", localType("D")),
+        captureEnv
+      ),
+      State.Inhabited
+    )
+    // forall b. E[b] has no value: E[Never] would need a Never (EA) or a
+    // forall y. E[y], which is again an E[Never] (EB). The cycle check has to
+    // see the field's E[a] at a = Uninhabited as the E[a] being expanded,
+    // or the expansion would not end.
+    assertState(
+      Inhabitedness.check(
+        quantified(Type.forAll(_, _), "b", localType("E")),
+        captureEnv
+      ),
+      State.Uninhabited
     )
   }
 

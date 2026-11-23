@@ -321,6 +321,22 @@ def f(q: Q) -> Int:
     )
   }
 
+  test("nested field quantifier named like the scrutinee variable is not captured") {
+    // Both `forall b. D[b]` and B's field `exists y. D[y]` normalize their
+    // binder to `a`. B(A(1)) has type D[b] for every b, so HasD is reachable.
+    assertNonTotal(
+      """#
+enum D[x]: A(v: x), B(w: exists y. D[y])
+enum Q: HasD(d: forall b. D[b]), Other
+
+def f(q: Q) -> Int:
+  match q:
+    case Other: 0
+""",
+      "f"
+    )
+  }
+
   test("deep non-match nesting is stack safe") {
     checkEnvExpr("""#
 enum Value: V
