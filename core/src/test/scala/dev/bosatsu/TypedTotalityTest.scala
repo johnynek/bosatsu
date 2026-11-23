@@ -305,6 +305,22 @@ def is_good(res: forall e. Result[e, r]) -> r:
     )
   }
 
+  test("constructor existential named like the scrutinee variable is not captured") {
+    // Type.normalize renames `forall b` to `forall a`, the name of Step's
+    // existential. Step(Base(1)) has type forall b. T[b], so HasT is reachable.
+    assertNonTotal(
+      """#
+enum T[x]: Base(v: x), Step[a](t: T[a])
+enum Q: HasT(t: forall b. T[b]), Other
+
+def f(q: Q) -> Int:
+  match q:
+    case Other: 0
+""",
+      "f"
+    )
+  }
+
   test("deep non-match nesting is stack safe") {
     checkEnvExpr("""#
 enum Value: V

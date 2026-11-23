@@ -706,6 +706,70 @@ class InhabitednessTest extends munit.ScalaCheckSuite {
     )
   }
 
+  private def sourceTypeEnv(src: String): TypeEnv[Kind.Arg] =
+    predefTypeEnv ++ toKindedTypeEnv(TestUtils.parsedTypeEnvOf(localPackage, src))
+
+  private val captureEnv: TypeEnv[Kind.Arg] =
+    sourceTypeEnv("""#
+enum Never: Never(next: Never)
+enum T[x]: Base(v: x), Step[a](t: T[a])
+enum Box[x]: MkBox[a](h: x, k: a -> Never)
+enum Loop[x]: Loop[a](l: Loop[a])
+""")
+
+  private def quantified(
+      q: (List[(Type.Var.Bound, Kind)], Type) => Type,
+      name: String,
+      tc: Type.TyConst
+  ): Type = {
+    val v = Type.Var.Bound(name)
+    q(List((v, Kind.Type)), Type.apply1(tc, Type.TyVar(v)))
+  }
+
+  test("constructor existentials do not capture an outer variable through seen") {
+    // Type.normalize names the quantified variable `a`, the same name as
+    // Step's existential. Step(Base(1)) has type forall a. T[a].
+    List("a", "b").foreach { name =>
+      assertState(
+        Inhabitedness.check(
+          quantified(Type.forAll(_, _), name, localType("T")),
+          captureEnv
+        ),
+        State.Inhabited
+      )
+    }
+  }
+
+  test("constructor existentials do not capture an outer variable through type arguments") {
+    // MkBox(1, x -> x) has type Box[Int] (with a = Never), so exists a. Box[a]
+    // has a value. Substituting the outer `a` for `x` must not let MkBox's
+    // existential `a` capture it.
+    val existsBox = quantified(Type.exists(_, _), "a", localType("Box"))
+    assertState(Inhabitedness.check(existsBox, captureEnv), State.Inhabited)
+
+    val mkBox = Pattern.PositionalStruct(
+      (localPackage, Constructor("MkBox")),
+      List(Pattern.WildCard, Pattern.WildCard)
+    )
+    assertState(
+      Inhabitedness.checkMatch(existsBox, mkBox, captureEnv),
+      State.Inhabited
+    )
+  }
+
+  test("renaming existentials apart keeps recursive expansion finite") {
+    // Loop has no base case. Each expansion opens a fresh existential, so the
+    // cycle check must see Loop[a] and Loop[b] (same state) as the same type.
+    val quantifiers: List[(List[(Type.Var.Bound, Kind)], Type) => Type] =
+      List(Type.forAll(_, _), Type.exists(_, _))
+    quantifiers.foreach { q =>
+      assertState(
+        Inhabitedness.check(quantified(q, "a", localType("Loop")), captureEnv),
+        State.Uninhabited
+      )
+    }
+  }
+
   private def genInhabited(env: TypeEnv[Kind.Arg]): Gen[Type] = {
     val optionNever = Type.apply1(Type.OptionType, neverType)
     val envSpecific = Vector(

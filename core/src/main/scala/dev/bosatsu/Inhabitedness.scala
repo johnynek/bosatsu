@@ -200,6 +200,94 @@ object Inhabitedness {
       }
     }
 
+    // Cycle detection compares types by what they mean, not by variable
+    // names: a variable assigned Inhabited (or Uninhabited) means the same
+    // thing wherever it appears, so the key replaces it with a marker for its
+    // state. Names that are not valid Bosatsu type variables can't clash with
+    // real ones. This keeps an outer variable from being confused with a
+    // constructor existential of the same name, and keeps the expansion
+    // finite when existentials are renamed apart (otherwise
+    // `Step[a](t: T[a])` would expand T[a], T[b], T[c], ... forever).
+    private val inhabitedMarker: Type =
+      Type.TyVar(Type.Var.Bound("$inhabited"))
+    private val uninhabitedMarker: Type =
+      Type.TyVar(Type.Var.Bound("$uninhabited"))
+
+    private def cycleKey(
+        t: Type,
+        varState: Map[Type.Var.Bound, State]
+    ): Type = {
+      val sub: Map[Type.Var, Type] =
+        Type
+          .freeBoundTyVars(t :: Nil)
+          .iterator
+          .flatMap { b =>
+            varState.get(b) match {
+              case Some(Inhabited)   => Some((b: Type.Var) -> inhabitedMarker)
+              case Some(Uninhabited) => Some((b: Type.Var) -> uninhabitedMarker)
+              case Some(Unknown) | None => None
+            }
+          }
+          .toMap
+
+      if (sub.isEmpty) t
+      else Type.substituteVar(t, sub).normalize
+    }
+
+    /** The existentials and field types of `cfn` applied to the type
+      * arguments in `paramSub`. Existentials whose names are in `avoid` are
+      * renamed apart first, so evaluating them with `varState ++ assignment`
+      * can't capture an outer variable of the same name (one substituted into
+      * a field through `paramSub`, or one a pattern annotation refers to).
+      */
+    private def openConstructor(
+        cfn: rankn.ConstructorFn[Kind.Arg],
+        paramSub: Map[Type.Var, Type],
+        avoid: => Set[Type.Var.Bound]
+    ): (List[(Type.Var.Bound, Kind)], List[Type]) = {
+      val rename: Map[Type.Var.Bound, Type.Var.Bound] =
+        if (cfn.exists.isEmpty) Map.empty
+        else {
+          val avoidSet = avoid
+          val (clashing, kept) = cfn.exists.map(_._1).partition(avoidSet)
+          if (clashing.isEmpty) Map.empty
+          else {
+            val keptSet = kept.toSet
+            Type
+              .alignBinders(clashing, b => avoidSet(b) || keptSet(b))
+              .toMap
+          }
+        }
+
+      val sub: Map[Type.Var, Type] =
+        paramSub ++ rename.iterator.map { case (b, b1) =>
+          (b: Type.Var) -> (Type.TyVar(b1): Type)
+        }
+      val exists = cfn.exists.map { case (b, ka) =>
+        (rename.getOrElse(b, b), ka.kind)
+      }
+      (exists, cfn.args.map(arg => Type.substituteVar(arg.tpe, sub)))
+    }
+
+    private def patternTypes(
+        p: Pattern[(PackageName, Constructor), Type]
+    ): List[Type] =
+      p match {
+        case Pattern.WildCard | Pattern.Var(_) | Pattern.Literal(_) |
+            Pattern.StrPat(_) =>
+          Nil
+        case Pattern.Named(_, pat)      => patternTypes(pat)
+        case Pattern.Annotation(pat, t) => t :: patternTypes(pat)
+        case Pattern.ListPat(items)     =>
+          items.flatMap {
+            case Pattern.ListPart.Item(item) => patternTypes(item)
+            case _                           => Nil
+          }
+        case Pattern.PositionalStruct(_, params) => params.flatMap(patternTypes)
+        case Pattern.Union(head, rest) =>
+          (head :: rest.toList).flatMap(patternTypes)
+      }
+
     def checkType(
         t: Type,
         varState: Map[Type.Var.Bound, State],
@@ -244,9 +332,7 @@ object Inhabitedness {
                 env.getType(tc) match {
                   case None => Unknown
                   case Some(dt) =>
-                    // `norm` is already the fully-applied normalized type for this branch;
-                    // use it as the cycle-detection key directly.
-                    val root = norm
+                    val root = cycleKey(norm, varState)
                     if (seen(root)) Uninhabited
                     else {
                       val params = dt.typeParams
@@ -259,12 +345,15 @@ object Inhabitedness {
                             .toMap
 
                         val seen1 = seen + root
+                        lazy val avoid: Set[Type.Var.Bound] =
+                          varState.keySet ++
+                            Type.freeBoundTyVars(args ::: seen1.toList)
                         val constructorStates =
                           dt.constructors.map { cfn =>
-                            val argTypes =
-                              cfn.args.map(arg => Type.substituteVar(arg.tpe, paramSub))
+                            val (exists, argTypes) =
+                              openConstructor(cfn, paramSub, avoid)
                             evaluateQuantifier(
-                              cfn.exists.map { case (b, ka) => (b, ka.kind) },
+                              exists,
                               vs => {
                                 State.andStates(
                                   argTypes.map(tpe => checkType(tpe, vs, seen1))
@@ -417,10 +506,17 @@ object Inhabitedness {
                             .map { case (v, arg) => (v: Type.Var) -> arg }
                             .toMap
 
-                        val fieldTypes =
-                          cfn.args.map(arg => Type.substituteVar(arg.tpe, paramSub))
+                        val (exists, fieldTypes) =
+                          openConstructor(
+                            cfn,
+                            paramSub,
+                            varState.keySet ++
+                              Type.freeBoundTyVars(
+                                scrArgs ::: seen.toList ::: params.flatMap(patternTypes)
+                              )
+                          )
                         evaluateQuantifier(
-                          cfn.exists.map { case (b, ka) => (b, ka.kind) },
+                          exists,
                           vs => {
                             State.andStates(
                               fieldTypes.iterator
