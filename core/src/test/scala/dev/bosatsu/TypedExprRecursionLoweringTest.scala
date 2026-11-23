@@ -29,7 +29,7 @@ class TypedExprRecursionLoweringTest extends munit.ScalaCheckSuite with ParTest 
 
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters
-      .withMinSuccessfulTests(if (Platform.isJvm) 300 else 30)
+      .withMinSuccessfulTests(if (Platform.isJvm) 500 else 30)
       .withMaxDiscardRatio(10)
 
   private val pack = PackageName.parts("LoweringProp")
@@ -804,9 +804,16 @@ object TypedExprRecursionLoweringTest {
 
   // fallbacks: use opaque calls and tuple matches, which lower to terms over
   // fresh symbols, or not at all
-  final case class Ctx(scope: Scope, helpers: List[Helper], fallbacks: Boolean) {
+  // recent: the names bound most recently, newest first, which uses favor,
+  // so that shadowing matters
+  final case class Ctx(
+      scope: Scope,
+      recent: List[String],
+      helpers: List[Helper],
+      fallbacks: Boolean
+  ) {
     def bind(names: List[String], sort: Sort): Ctx =
-      copy(scope = scope ++ names.map(_ -> sort))
+      copy(scope = scope ++ names.map(_ -> sort), recent = (names ::: recent).take(3))
     def namesOf(sort: Sort): List[String] =
       scope.iterator.collect { case (n, s) if s == sort => n }.toList.sorted
   }
@@ -821,7 +828,13 @@ object TypedExprRecursionLoweringTest {
   def leafGen(sort: Sort, ctx: Ctx): Gen[Ex] =
     ctx.namesOf(sort) match {
       case Nil   => litGen(sort)
-      case names => Gen.frequency(1 -> litGen(sort), 3 -> Gen.oneOf(names).map(Ref(_)))
+      case names =>
+        val recent = ctx.recent.filter(names.contains)
+        val recentGen =
+          if (recent.isEmpty) Nil else List(3 -> Gen.oneOf(recent).map(Ref(_)))
+        Gen.frequency(
+          (1 -> litGen(sort)) :: (3 -> Gen.oneOf(names).map(Ref(_))) :: recentGen*
+        )
     }
 
   val sortGen: Gen[Sort] = Gen.frequency(5 -> IntS, 3 -> BoolS, 2 -> CmpS)
@@ -844,12 +857,15 @@ object TypedExprRecursionLoweringTest {
     )
 
   def callGen(sort: Sort, ctx: Ctx, depth: Int): Gen[Ex] = {
-    val fns =
-      predefFns.filter(_._3 == sort) :::
-        ctx.helpers.collect {
-          case h if h.result == sort => (h.name, h.params.map(_._2), h.result)
-        }
-    Gen.oneOf(fns).flatMap { case (fn, argSorts, _) =>
+    val predef = predefFns.filter(_._3 == sort)
+    val helpers = ctx.helpers.collect {
+      case h if h.result == sort => (h.name, h.params.map(_._2), h.result)
+    }
+    // helpers are few, so call them more often than any one Predef function
+    val fnGen =
+      if (helpers.isEmpty) Gen.oneOf(predef)
+      else Gen.frequency(2 -> Gen.oneOf(predef), 1 -> Gen.oneOf(helpers))
+    fnGen.flatMap { case (fn, argSorts, _) =>
       val divLike = (fn == "div") || (fn == "mod_Int")
       val argGens = argSorts.zipWithIndex.map { case (s, idx) =>
         if (divLike && (idx == 1))
@@ -870,16 +886,18 @@ object TypedExprRecursionLoweringTest {
       case CmpS  => Gen.oneOf(-1, 0, 1).map(Pat.CmpP(_))
     }
 
-  val binderGen: Gen[String] = Gen.oneOf(binderNames)
+  // usually a name already in scope, so the binding shadows it
+  def binderGen(ctx: Ctx): Gen[String] =
+    Gen.frequency(2 -> Gen.oneOf(ctx.scope.keys.toList.sorted), 1 -> Gen.oneOf(binderNames))
 
   // a pattern that may not match
-  def refutablePatGen(sort: Sort): Gen[Pat] = {
+  def refutablePatGen(sort: Sort, ctx: Ctx): Gen[Pat] = {
     val lit = literalPatGen(sort)
     val union = Gen.listOfN(2, lit).map(Pat.Union(_))
     Gen.frequency(
       5 -> lit,
       2 -> union,
-      2 -> Gen.zip(Gen.oneOf(lit, union), binderGen).map { case (p, n) => Pat.Named(p, n) }
+      2 -> Gen.zip(Gen.oneOf(lit, union), binderGen(ctx)).map { case (p, n) => Pat.Named(p, n) }
     )
   }
 
@@ -893,11 +911,11 @@ object TypedExprRecursionLoweringTest {
     }
 
   // a pattern that always matches
-  val catchAllGen: Gen[Pat] =
+  def catchAllGen(ctx: Ctx): Gen[Pat] =
     Gen.frequency(
       3 -> Gen.const(Pat.Wild),
-      3 -> binderGen.map(Pat.Bind(_)),
-      1 -> binderGen.map(Pat.Named(Pat.Wild, _))
+      3 -> binderGen(ctx).map(Pat.Bind(_)),
+      1 -> binderGen(ctx).map(Pat.Named(Pat.Wild, _))
     )
 
   // Bosatsu drops a literal `if True` guard, which would make some
@@ -916,14 +934,40 @@ object TypedExprRecursionLoweringTest {
       case other                => other
     }
 
-  def guardGen(ctx: Ctx, depth: Int): Gen[Option[Guard]] =
+  // a test of a name, such as one a pattern just bound
+  def nameTestGen(name: String, sort: Sort): Gen[Ex] = {
+    val k = Gen.chooseNum(-3, 3).map(i => IntLit(BigInt(i)))
+    val c = Gen.oneOf(-1, 0, 1).map(Pat.CmpP(_))
+    sort match {
+      case IntS =>
+        Gen.oneOf(
+          k.map(k => Call("eq_Int", List(Ref(name), k))),
+          Gen.zip(k, c).map { case (k, c) =>
+            plainCond(Matches(Call("cmp_Int", List(Ref(name), k)), c, None))
+          }
+        )
+      case BoolS => Gen.oneOf(Ref(name), Call("not", List(Ref(name))))
+      case CmpS  => c.map(c => plainCond(Matches(Ref(name), c, None)))
+    }
+  }
+
+  def guardGen(ctx: Ctx, depth: Int): Gen[Option[Guard]] = {
+    // usually about the names the branch's pattern binds
+    val nameTests = ctx.recent.flatMap { n =>
+      ctx.scope.get(n).map(s => 2 -> nameTestGen(n, s).map(c => Some(Guard.BoolG(c))))
+    }
     Gen.frequency(
-      3 -> Gen.const(None),
+      (3 -> Gen.const(None)) :: (3 -> guardExprGen(ctx, depth)) :: nameTests.take(1)*
+    )
+  }
+
+  def guardExprGen(ctx: Ctx, depth: Int): Gen[Option[Guard]] =
+    Gen.frequency(
       3 -> condGen(ctx, depth - 1).map(c => Some(Guard.BoolG(plainCond(c)))),
       2 -> (for {
         s <- sortGen
         arg <- exGen(s, ctx, depth - 1)
-        pat <- Gen.frequency(3 -> refutablePatGen(s), 1 -> catchAllGen)
+        pat <- Gen.frequency(3 -> refutablePatGen(s, ctx), 1 -> catchAllGen(ctx))
         inner <- Gen.option(condGen(ctx.bind(pat.names, s), depth - 1))
       } yield Some(Guard.MatchG(arg, s, pat, inner)))
     )
@@ -942,7 +986,7 @@ object TypedExprRecursionLoweringTest {
       init <- Gen.listOfN(
         n,
         for {
-          pat <- Gen.frequency(4 -> refutablePatGen(s), 1 -> catchAllGen)
+          pat <- Gen.frequency(4 -> refutablePatGen(s, ctx), 1 -> catchAllGen(ctx))
           guard <- guardGen(ctx.bind(pat.names, s), depth)
           body <- exGen(sort, guardNames(guard)(ctx.bind(pat.names, s)), depth - 1)
         } yield Branch(pat, guard, body)
@@ -954,7 +998,7 @@ object TypedExprRecursionLoweringTest {
   def lastBranchesGen(s: Sort, sort: Sort, ctx: Ctx, depth: Int): Gen[List[Branch]] = {
     val catchAll =
       for {
-        pat <- catchAllGen
+        pat <- catchAllGen(ctx)
         body <- exGen(sort, ctx.bind(pat.names, s), depth - 1)
       } yield List(Branch(pat, None, body))
     val pats: List[Pat] =
@@ -973,8 +1017,11 @@ object TypedExprRecursionLoweringTest {
   def letGen(sort: Sort, ctx: Ctx, depth: Int): Gen[Ex] =
     for {
       s <- sortGen
-      name <- binderGen
-      value <- exGen(s, ctx, depth - 1)
+      name <- binderGen(ctx)
+      value <-
+        if (ctx.fallbacks && (s == IntS))
+          Gen.frequency(2 -> exGen(s, ctx, depth - 1), 1 -> opaqueGen(ctx, depth - 1))
+        else exGen(s, ctx, depth - 1)
       body <- exGen(sort, ctx.bind(name :: Nil, s), depth - 1)
     } yield Let(name, value, body)
 
@@ -990,7 +1037,7 @@ object TypedExprRecursionLoweringTest {
     for {
       s <- sortGen
       arg <- exGen(s, ctx, depth - 1)
-      pat <- refutablePatGen(s).map(notTotal)
+      pat <- refutablePatGen(s, ctx).map(notTotal)
       ctx1 = ctx.bind(pat.names, s)
       guard <- Gen.option(condGen(ctx1, depth - 1))
       t <- exGen(sort, ctx1, depth - 1)
@@ -1006,7 +1053,7 @@ object TypedExprRecursionLoweringTest {
       res <-
         if (guarded)
           for {
-            pat <- Gen.oneOf(refutablePatGen(s), catchAllGen)
+            pat <- Gen.oneOf(refutablePatGen(s, ctx), catchAllGen(ctx))
             g <- condGen(ctx.bind(pat.names, s), depth - 1)
           } yield Matches(arg, pat, Some(g))
         else
@@ -1024,8 +1071,8 @@ object TypedExprRecursionLoweringTest {
       s2 <- sortGen
       a <- exGen(s1, ctx, depth - 1)
       b <- exGen(s2, ctx, depth - 1)
-      p1 <- catchAllGen
-      p2 <- catchAllGen.map { p =>
+      p1 <- catchAllGen(ctx)
+      p2 <- catchAllGen(ctx).map { p =>
         if (p.names.exists(p1.names.contains)) Pat.Wild else p
       }
       body <- exGen(sort, ctx.bind(p1.names, s1).bind(p2.names, s2), depth - 1)
@@ -1085,7 +1132,7 @@ object TypedExprRecursionLoweringTest {
         sorts <- Gen.listOfN(nparams, sortGen)
         res <- sortGen
         params = sorts.zip(List("a", "b")).map { case (s, n) => (n, s) }
-        body <- exGen(res, Ctx(params.toMap, earlier, fallbacks = false), 2)
+        body <- exGen(res, Ctx(params.toMap, Nil, earlier, fallbacks = false), 2)
       } yield Helper(name, params, res, HelperBody.Body(body))
     Gen.frequency(1 -> forwarding, 2 -> general)
   }
@@ -1103,6 +1150,6 @@ object TypedExprRecursionLoweringTest {
       res <- sortGen
       depth <- Gen.chooseNum(1, 4)
       fallbacks <- Gen.frequency(3 -> false, 1 -> true)
-      body <- exGen(res, Ctx(argScope, helpers, fallbacks), depth)
+      body <- exGen(res, Ctx(argScope, Nil, helpers, fallbacks), depth)
     } yield Program(helpers, res, body)
 }
