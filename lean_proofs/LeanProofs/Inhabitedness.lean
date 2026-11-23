@@ -815,7 +815,13 @@ Bosatsu programs takes the following assumptions about the rest of Bosatsu.
    `Model.fix`). Bosatsu's recursion check rejects general recursion, so a
    closed value of a data type is built by finitely many constructor
    applications; `def p -> P: p()` style definitions that would inhabit `P`
-   are rejected.
+   are rejected. This assumes the recursion check itself is sound. Its
+   callback rule was not: `struct Cb(f: forall a. (a, a -> Int) -> Int)` with
+   `def bad(c: Cb) -> Int: recur c: case Cb(f): f(c, x -> bad(x))` was
+   accepted and loops. The proof assumes the restricted rule of
+   johnynek/bosatsu#2517 (`reachableCallbackRuleApplies`: callback binders
+   count as smaller only when no argument type at the call can carry a value
+   of the target type at an input position).
 3. **Recursive types are covariant** (`Model.cov`). `KindFormula` requires
    every occurrence of a type inside its own definition to be in a covariant
    position (`Constraint.RecursiveView`), and Bosatsu has no mutually
