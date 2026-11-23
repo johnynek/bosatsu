@@ -720,6 +720,21 @@ enum E[x]: EA(v: x), EB(w: forall y. E[y])
 enum P4[w, x, y, z]: Base4(w: w, x: x, y: y, z: z), Step4[a, b, c, d](p: P4[a, b, c, d])
 enum Loop4[w, x, y, z]: Loop4[a, b, c, d](l: Loop4[a, b, c, d])
 enum Q4[w, x, y, z]: QBase4(w: w, x: x, y: y, z: z), QStep4(q: forall a, b, c, d. Q4[a, b, c, d])
+struct DoubleNeg(f: (DoubleNeg -> Never) -> Never)
+struct Wrap[x](w: x)
+enum Nested[x]: NBase(v: x), NStep(n: Nested[Wrap[x]])
+enum NestedLoop[x]: NLoop(n: NestedLoop[Wrap[x]])
+# Not covariant, so the compiler rejects it; only a hand-built env has it.
+struct Liar(f: Liar -> Never)
+struct Pair[a, b](fst: a, snd: b)
+enum Twice[x]: TBase(v: x), TStep(t: Twice[Pair[x, x]])
+enum TwiceLoop[x]: TLoop(t: TwiceLoop[Pair[x, x]])
+struct Tok
+enum Wrapper[x, y]: W1(v: y), W2(f: x -> Never)
+# Rec occurs covariantly (under two contravariant parameters), so the
+# compiler accepts it, but its component reads Wrapper[Rec, Tok]
+# contravariantly.
+struct Rec(w: Wrapper[Wrapper[Rec, Tok], Rec])
 """)
 
   private def quantified(
@@ -731,7 +746,7 @@ enum Q4[w, x, y, z]: QBase4(w: w, x: x, y: y, z: z), QStep4(q: forall a, b, c, d
     q(List((v, Kind.Type)), Type.apply1(tc, Type.TyVar(v)))
   }
 
-  test("constructor existentials do not capture an outer variable through seen") {
+  test("constructor existentials do not capture an outer variable in a recursive field") {
     // Type.normalize names the quantified variable `a`, the same name as
     // Step's existential. Step(Base(1)) has type forall a. T[a].
     List("a", "b").foreach { name =>
@@ -762,7 +777,7 @@ enum Q4[w, x, y, z]: QBase4(w: w, x: x, y: y, z: z), QStep4(q: forall a, b, c, d
     )
   }
 
-  test("quantifiers inside field types do not capture an outer variable through seen") {
+  test("quantifiers inside field types do not capture an outer variable in a recursive field") {
     // `forall a. D[a]` and B's field `exists y. D[y]` (normalized to
     // `exists a. D[a]`) use the same name for different variables.
     // B(A(1)) has type forall a. D[a].
@@ -774,9 +789,9 @@ enum Q4[w, x, y, z]: QBase4(w: w, x: x, y: y, z: z), QStep4(q: forall a, b, c, d
       State.Inhabited
     )
     // forall b. E[b] has no value: E[Never] would need a Never (EA) or a
-    // forall y. E[y], which is again an E[Never] (EB). The cycle check has to
-    // see the field's E[a] at a = Uninhabited as the E[a] being expanded,
-    // or the expansion would not end.
+    // forall y. E[y], which is again an E[Never] (EB). The field's E[a] at
+    // a = Uninhabited has the same key as the E[a] being expanded, or the
+    // keys would never end.
     assertState(
       Inhabitedness.check(
         quantified(Type.forAll(_, _), "b", localType("E")),
@@ -787,8 +802,8 @@ enum Q4[w, x, y, z]: QBase4(w: w, x: x, y: y, z: z), QStep4(q: forall a, b, c, d
   }
 
   test("renaming existentials apart keeps recursive expansion finite") {
-    // Loop has no base case. Each expansion opens a fresh existential, so the
-    // cycle check must see Loop[a] and Loop[b] (same state) as the same type.
+    // Loop has no base case. Each expansion opens a fresh existential, so
+    // Loop[a] and Loop[b] (same state) must have the same key.
     val quantifiers: List[(List[(Type.Var.Bound, Kind)], Type) => Type] =
       List(Type.forAll(_, _), Type.exists(_, _))
     quantifiers.foreach { q =>
@@ -799,27 +814,82 @@ enum Q4[w, x, y, z]: QBase4(w: w, x: x, y: y, z: z), QStep4(q: forall a, b, c, d
     }
   }
 
-  test("the data-type visit budget bounds expansions that open many variables") {
+  test("types that open many variables per expansion are solved exactly") {
     // Each expansion of these types opens four kind-* variables, so there are
-    // 16 cycle keys and up to 16! paths through them. Without the budget
-    // none of these checks would finish.
+    // 16 data-type keys, and a search that only stops at keys on its current
+    // path has up to 16! paths. The least fixed point needs 16 equations.
     def applied4(name: String, args: List[Type]): Type =
       Type.applyAll(localType(name), args)
     val ints = List.fill(4)(Type.IntType: Type)
+    val vars = List("a", "b", "c", "d").map(Type.Var.Bound(_))
+    def forall4(name: String): Type =
+      Type.forAll(vars.map((_, Kind.Type)), applied4(name, vars.map(Type.TyVar(_))))
 
-    // The base constructor answers these before the budget matters.
     assertState(Inhabitedness.check(applied4("P4", ints), captureEnv), State.Inhabited)
     assertState(Inhabitedness.check(applied4("Q4", ints), captureEnv), State.Inhabited)
+    // P4[a, b, c, d] has Step4(Base4(1, 1, 1, 1)) for every a, b, c, d.
+    assertState(Inhabitedness.check(forall4("P4"), captureEnv), State.Inhabited)
+    // Loop4 has no base case.
+    assertState(Inhabitedness.check(forall4("Loop4"), captureEnv), State.Uninhabited)
+    assertState(Inhabitedness.check(applied4("Loop4", ints), captureEnv), State.Uninhabited)
+  }
 
-    // Loop4 has no value. Proving that needs every path, so the budget runs
-    // out and the answer is Unknown, which is safe. A least-fixed-point
-    // solver over the 16 keys would answer Uninhabited.
-    val vars = List("a", "b", "c", "d").map(Type.Var.Bound(_))
-    val forallLoop4 = Type.forAll(
-      vars.map((_, Kind.Type)),
-      applied4("Loop4", vars.map(Type.TyVar(_)))
+  test("recursion through two function arguments is covariant and solved") {
+    // DoubleNeg occurs to the left of two arrows in its own definition. Its
+    // least fixed point is empty: DoubleNeg -> Never is then Inhabited, so
+    // (DoubleNeg -> Never) -> Never is Uninhabited.
+    assertState(
+      Inhabitedness.check(localType("DoubleNeg"), captureEnv),
+      State.Uninhabited
     )
-    assertState(Inhabitedness.check(forallLoop4, captureEnv), State.Unknown)
+  }
+
+  test("a data type that reads itself contravariantly is Unknown") {
+    // Liar = Liar -> Never has no least fixed point: assuming Liar empty makes
+    // it inhabited, and assuming it inhabited makes it empty.
+    assertState(Inhabitedness.check(localType("Liar"), captureEnv), State.Unknown)
+  }
+
+  test("a component with a contravariant read is Unknown even if the compiler accepts it") {
+    // Rec = Wrapper[Wrapper[Rec, Tok], Rec] = Rec or not Wrapper[Rec, Tok],
+    // and Wrapper[Rec, Tok] = Tok or not Rec, which is Inhabited. So Rec is
+    // empty. Iterating all three keys up from Uninhabited instead reads
+    // Wrapper[Rec, Tok] as Uninhabited at first, makes Rec Inhabited, and
+    // never comes back down.
+    val rec = localType("Rec")
+    val inner = Type.applyAll(localType("Wrapper"), List(rec, localType("Tok")))
+    val outer = Type.applyAll(localType("Wrapper"), List(inner, rec))
+    assertState(Inhabitedness.check(rec, captureEnv), State.Unknown)
+    assertState(Inhabitedness.check(outer, captureEnv), State.Unknown)
+    // The tuple has a value (None, absurd); it must not be Uninhabited.
+    val tuple = Type.Tuple(
+      List(Type.apply1(Type.OptionType, outer), Type.Fun(rec, neverType))
+    )
+    assertState(Inhabitedness.check(tuple, captureEnv), State.Unknown)
+  }
+
+  test("polymorphic recursion stops at the data-type key limits") {
+    // Nested[Int] reaches Nested[Wrap[Int]], Nested[Wrap[Wrap[Int]]], ...
+    assertState(
+      Inhabitedness.check(Type.apply1(localType("Nested"), Type.IntType), captureEnv),
+      State.Inhabited
+    )
+    // NestedLoop has no value, but proving that needs every key, so the
+    // check runs out of keys and answers Unknown.
+    assertState(
+      Inhabitedness.check(Type.apply1(localType("NestedLoop"), Type.IntType), captureEnv),
+      State.Unknown
+    )
+    // Twice doubles its argument at each step, so its keys hit the size
+    // limit after a few steps, long before the number of keys matters.
+    assertState(
+      Inhabitedness.check(Type.apply1(localType("Twice"), Type.IntType), captureEnv),
+      State.Inhabited
+    )
+    assertState(
+      Inhabitedness.check(Type.apply1(localType("TwiceLoop"), Type.IntType), captureEnv),
+      State.Unknown
+    )
   }
 
   private def genInhabited(env: TypeEnv[Kind.Arg]): Gen[Type] = {

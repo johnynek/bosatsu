@@ -357,8 +357,9 @@ def f(q: Q) -> Int:
   }
 
   test("totality check finishes on a type whose expansion opens many variables") {
-    // Every expansion of P opens four existentials, giving 16 cycle keys and
-    // up to 16! paths through them; the data-type visit budget bounds that.
+    // Every expansion of P opens four existentials, giving 16 data-type keys and
+    // up to 16! paths for a search that only stops at keys on its current
+    // path. The least-fixed-point solver needs 16 equations.
     assertTotal(
       """#
 enum P[w, x, y, z]: Base(w: w, x: x, y: y, z: z), Step[a, b, c, d](p: P[a, b, c, d])
@@ -369,6 +370,42 @@ def f(p: P[Int, Int, Int, Int]) -> Int:
     case Step(_): 1
 """,
       "f"
+    )
+  }
+
+  test("a branch reachable through a contravariant wrapper is not pruned") {
+    // Rec occurs covariantly in its own definition (under two contravariant
+    // parameters), so it compiles, and it is empty. But
+    // absurd(D(W1(r))) = absurd(r), absurd(D(W2(f))) = f(W1(1)) is a value of
+    // Rec -> Never, so (None, Some(absurd)) reaches the missing branch.
+    assertNonTotal(
+      """#
+enum Never: Never(next: Never)
+enum Wrapper[x, y]: W1(v: y), W2(f: x -> Never)
+struct Rec(w: Wrapper[Wrapper[Rec, Int], Rec])
+
+def g(s: (Option[Wrapper[Wrapper[Rec, Int], Rec]], Option[Rec -> Never])) -> Int:
+  match s:
+    case (_, None): 0
+""",
+      "g"
+    )
+  }
+
+  test("recursion under two function arguments is solved through the compiler") {
+    // DoubleNeg occurs to the left of two arrows in its own definition, which
+    // the compiler accepts. It has no value, so HasP can be left out.
+    assertTotal(
+      """#
+enum Never: Never(next: Never)
+struct DoubleNeg(f: (DoubleNeg -> Never) -> Never)
+enum Q: HasP(p: DoubleNeg), HasInt(i: Int)
+
+def h(q: Q) -> Int:
+  match q:
+    case HasInt(i): i
+""",
+      "h"
     )
   }
 
