@@ -1900,6 +1900,153 @@ def walk(idx: Int, stack: List[Node]) -> Int:
 """)
   }
 
+  // A let, pattern or guard may rebind a loop target's name. The target's
+  // value is still its value at loop entry, and an earlier guard that reads
+  // an outer name is about that outer name.
+
+  test("an Int obligation compares with the target at entry, not a let that rebinds it") {
+    // bad(1) -> bad(10) -> bad(19) -> ...: the obligation took the target
+    // to be the rebound i, i + 10, so sub(i, 1) looked smaller
+    disallowed("""#
+def bad(i: Int) -> Int:
+  loop i:
+    case _ if cmp_Int(i, 0) matches GT:
+      i = add(i, 10)
+      bad(sub(i, 1))
+    case _: i
+""")
+  }
+
+  test("an Int obligation compares with the target at entry, not a pattern that rebinds it") {
+    // bad(1) -> bad(10) -> bad(19) -> ...: the nested pattern rebinds i to
+    // i + 10
+    disallowed("""#
+def bad(i: Int) -> Int:
+  loop i:
+    case _ if cmp_Int(i, 0) matches GT:
+      match add(i, 10):
+        case i if cmp_Int(i, 0) matches GT: bad(sub(i, 1))
+        case _: 0
+    case _: i
+""")
+  }
+
+  test("a rebound target name is not an equal lexicographic Int argument") {
+    // bad(1, 1) -> bad(11, 0) -> bad(10, 1) -> bad(20, 0) -> ...: passing the
+    // rebound i as the first argument was taken as passing the target
+    // unchanged, so the smaller j made the call decrease
+    disallowed("""#
+def bad(i: Int, j: Int) -> Int:
+  loop (i, j):
+    case _ if cmp_Int(i, 0) matches GT:
+      match cmp_Int(j, 0):
+        case GT:
+          i = add(i, 10)
+          bad(i, sub(j, 1))
+        case _: bad(sub(i, 1), 1)
+    case _: i
+""")
+  }
+
+  test("tuple loop aliases that swap the target names bind the entry values") {
+    // bad(1, 1) -> bad(0, 6) -> bad(5, 5) -> bad(4, 10) -> bad(9, 9) -> ...:
+    // binding j to the first target and then i to the second, read by name,
+    // made both names the same fresh value
+    disallowed("""#
+def bad(i: Int, j: Int) -> Int:
+  loop (i, j):
+    case (j, i) if cmp_Int(i, 0) matches GT: bad(sub(i, 1), add(j, 5))
+    case _: 0
+""")
+  }
+
+  test("tuple loop aliases that swap the target names still prove decreasing calls") {
+    allowed("""#
+def count(i: Int, j: Int) -> Int:
+  loop (i, j):
+    case (j, i) if cmp_Int(j, 0) matches GT: count(sub(j, 1), i)
+    case _: 0
+""")
+  }
+
+  test("a loop pattern that rebinds the target name to the target keeps Int proofs") {
+    allowed("""#
+def count(i: Int) -> Int:
+  loop i:
+    case i if cmp_Int(i, 0) matches GT: count(sub(i, 1))
+    case _: 0
+""")
+  }
+
+  test("a structural target name rebound by a loop pattern is not the target") {
+    // bad(Zero, 1) -> bad(1, 0) -> bad(0, 2) -> bad(2, 1) -> bad(1, 3) ->
+    // bad(0, 5) -> bad(5, 4) -> ...: in the second branch n is the second
+    // argument, but was taken as the first, unchanged
+    disallowed("""#
+enum Nat: Zero, Succ(prev: Nat)
+
+def bad(n: Nat, m: Nat) -> Nat:
+  loop (n, m):
+    case (Succ(a), m): bad(a, Succ(Succ(m)))
+    case (Zero, n):
+      match n:
+        case Succ(p): bad(n, p)
+        case Zero: Zero
+""")
+  }
+
+  test("a structural target name rebound by a guard pattern is not the target") {
+    // bad(Zero, 1) -> bad(1, 0) -> bad(0, 2) -> bad(2, 1) -> ...: the guard
+    // binds n to the second argument, which was taken as the first, unchanged
+    disallowed("""#
+enum Nat: Zero, Succ(prev: Nat)
+
+def bad(n: Nat, m: Nat) -> Nat:
+  loop (n, m):
+    case (Succ(a), m): bad(a, Succ(Succ(m)))
+    case (Zero, Succ(p)) if Succ(Succ(p)) matches Succ(n): bad(n, p)
+    case _: Zero
+""")
+  }
+
+  test("a structural target matched into a pattern that rebinds its name stays smaller") {
+    allowed("""#
+enum Nat: Zero, Succ(prev: Nat)
+
+def count(n: Nat) -> Int:
+  loop n:
+    case Zero: 0
+    case Succ(_):
+      match n:
+        case Succ(n): count(n)
+        case Zero: 0
+""")
+  }
+
+  test("subsumed guard facts skip a guard about an outer name the pattern rebinds") {
+    // bad(0, 5) -> bad(-1, 5) -> ...: the first guard is about the argument
+    // m, but was read as the second pattern's m, i, giving i >= 1
+    disallowed("""#
+def bad(i: Int, m: Int) -> Int:
+  loop i:
+    case _:
+      mm = m
+      match i:
+        case _ if cmp_Int(m, 1) matches LT: 0
+        case m: bad(sub(i, 1), add(mm, mul(m, 0)))
+""")
+  }
+
+  test("subsumed loop guard facts skip a guard about an outer name the pattern rebinds") {
+    // bad(0, 5) -> bad(-1, 5) -> ...: as above, in the loop match itself
+    disallowed("""#
+def bad(i: Int, m: Int) -> Int:
+  loop i:
+    case _ if cmp_Int(m, 1) matches LT: 0
+    case m: bad(sub(i, 1), add(5, mul(m, 0)))
+""")
+  }
+
   test("recur target must be argument name or tuple of names") {
     disallowed("""#
 def invalid_target(x, y):
