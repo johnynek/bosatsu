@@ -1037,6 +1037,66 @@ foo = _ -> 1
     }
   }
 
+  test("substituteAll renames a branch pattern name but not a guard pattern's rebinding of it") {
+    // substituting y := p into
+    //   match 0: case p if (p matches p if eq_Int(p, 7)): add(y, p)
+    // renames the branch's p so it does not capture the new p. The inner guard
+    // and the body's second p read the guard pattern's p, not the branch's.
+    val pName = Identifier.Name("p")
+    val yName = Identifier.Name("y")
+    val pLocal = TypedExpr.Local(pName, intTpe, ())
+    val yLocal = TypedExpr.Local(yName, intTpe, ())
+    val branch = TypedExpr.Branch.fromGuardNode(
+      Pattern.Var(pName): Pattern[(PackageName, Constructor), Type],
+      Some(
+        TypedExpr.MatchGuard(
+          pLocal,
+          Pattern.Var(pName): Pattern[(PackageName, Constructor), Type],
+          Some(
+            TypedExpr.App(
+              PredefEqInt,
+              NonEmptyList.of(pLocal, int(7)),
+              boolTpe,
+              ()
+            )
+          )
+        )(using Region.empty)
+      ),
+      TypedExpr.App(PredefAdd, NonEmptyList.of(yLocal, pLocal), intTpe, ())
+    )(using Region.empty)
+    val expr = TypedExpr.Match(int(0), NonEmptyList.one(branch), ())
+
+    val substituted = TypedExpr.substituteAll(
+      Map(yName -> { (_: TypedExpr.Local[Unit]) => pLocal }),
+      expr,
+      enterLambda = true
+    ).get
+
+    substituted match {
+      case TypedExpr.Match(_, NonEmptyList(branch1, Nil), _) =>
+        (branch1.pattern, branch1.guardNode, branch1.expr) match {
+          case (
+                Pattern.Var(outer1),
+                Some(
+                  TypedExpr.MatchGuard(argExpr, Pattern.Var(inner1), Some(innerGuard))
+                ),
+                TypedExpr.App(_, NonEmptyList(first, second :: Nil), _, _)
+              ) =>
+            assert(outer1 != pName)
+            assert(inner1 != pName)
+            assert(inner1 != outer1)
+            assertEquals(argExpr, TypedExpr.Local(outer1, intTpe, ()))
+            assertEquals(TypedExpr.freeVarsSet(innerGuard :: Nil).toSet, Set(inner1))
+            assertEquals(first, pLocal)
+            assertEquals(second, TypedExpr.Local(inner1, intTpe, ()))
+          case other =>
+            fail(s"expected renamed branch and MatchGuard, got: $other")
+        }
+      case other =>
+        fail(s"expected single-branch match after substitution, got: $other")
+    }
+  }
+
   test("mapGuardNodeExprScoped preserves and rebuilds MatchGuard nodes correctly") {
     val region = Region(1, 2)
     val argExpr = TypedExpr.Local(Identifier.Name("x"), intTpe, ())

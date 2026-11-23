@@ -131,9 +131,12 @@ object TestUtils {
 
   val testPackage: PackageName = PackageName.parts("Test")
 
-  def checkLast[A](
-      statement: String
-  )(fn: TypedExpr[Declaration] => A): A = {
+  // Type check one package of statements against Predef, as Package.inferBody
+  // does before loop lowering and normalization, failing on any error.
+  private def inferUnoptimized(statement: String): (
+      TypeEnv[Kind.Arg],
+      Program[TypeEnv[Kind.Arg], TypedExpr[Declaration], List[Statement]]
+  ) = {
     val stmts = Parser.unsafeParse(Statement.parser, statement)
     Package
       .inferBodyUnopt(testPackage, predefResolvedImport :: Nil, Nil, stmts)
@@ -147,12 +150,19 @@ object TestUtils {
           }
           .mkString("", "\n==========\n", "\n")
         sys.error("inference failure: " + msg)
-      case Validated.Valid((fullTypeEnv, program)) =>
-        val normalized =
-          normalizeWithRewriteValidation(testPackage, fullTypeEnv, program)
-        normalized.lets.foreach { case (_, _, te) => assertValid(te) }
-        fn(normalized.lets.last._3)
+      case Validated.Valid(result) =>
+        result
     }
+  }
+
+  def checkLast[A](
+      statement: String
+  )(fn: TypedExpr[Declaration] => A): A = {
+    val (fullTypeEnv, program) = inferUnoptimized(statement)
+    val normalized =
+      normalizeWithRewriteValidation(testPackage, fullTypeEnv, program)
+    normalized.lets.foreach { case (_, _, te) => assertValid(te) }
+    fn(normalized.lets.last._3)
   }
 
   def checkEnvExpr[A](
@@ -226,30 +236,16 @@ object TestUtils {
   )(
       fn: PackageMap.Typed[Declaration] => A
   ): A = {
-    val stmts = Parser.unsafeParse(Statement.parser, statement)
-    Package
-      .inferBodyUnopt(testPackage, predefResolvedImport :: Nil, Nil, stmts)
-      .strictToValidated match {
-      case Validated.Invalid(errs) =>
-        val lm = LocationMap(statement)
-        val packMap = Map((testPackage, (lm, statement)))
-        val msg = errs.toList
-          .map { err =>
-            err.message(packMap, LocationMap.Colorize.None)
-          }
-          .mkString("", "\n==========\n", "\n")
-        sys.error("inference failure: " + msg)
-      case Validated.Valid((fullTypeEnv, program)) =>
-        val normalized =
-          normalizeWithRewriteValidation(testPackage, fullTypeEnv, program)
-        normalized.lets.foreach { case (_, _, te) => assertValid(te) }
-        val pack: Package.Typed[Declaration] =
-          Package(testPackage, Nil, Nil, (normalized, ImportMap.empty))
-        val pm: PackageMap.Typed[Declaration] =
-          PackageMap.empty + pack + PackageMap.predefInferred
-        assertPackageMapTypeConnections(pm, "optimized")
-        fn(pm)
-    }
+    val (fullTypeEnv, program) = inferUnoptimized(statement)
+    val normalized =
+      normalizeWithRewriteValidation(testPackage, fullTypeEnv, program)
+    normalized.lets.foreach { case (_, _, te) => assertValid(te) }
+    val pack: Package.Typed[Declaration] =
+      Package(testPackage, Nil, Nil, (normalized, ImportMap.empty))
+    val pm: PackageMap.Typed[Declaration] =
+      PackageMap.empty + pack + PackageMap.predefInferred
+    assertPackageMapTypeConnections(pm, "optimized")
+    fn(pm)
   }
 
   def checkMatchless[A](
@@ -397,6 +393,22 @@ object TestUtils {
           case None      => fail(s"got an exception: $err")
         }
     }
+  }
+
+  /** Evaluate `main` in a single package (no package line) from its lets as
+    * type checking leaves them, without loop lowering or normalization. This
+    * is the program the recursion check reasons about.
+    */
+  def evalUnnormalizedMain(source: String): Value = {
+    val (_, program) = inferUnoptimized(source)
+    val typed: Package.Typed[Declaration] =
+      Package(testPackage, Nil, Nil, (program, ImportMap.empty))
+    val pm = PackageMap.empty + typed + PackageMap.predefInferred
+    Evaluation(pm, Predef.jvmExternals)
+      .evaluateName(testPackage, Identifier.Name("main"))
+      .getOrElse(fail("no main in the package"))
+      ._1
+      .value
   }
 
   def evalTestJson(

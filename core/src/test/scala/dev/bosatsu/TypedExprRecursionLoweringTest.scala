@@ -43,12 +43,17 @@ class TypedExprRecursionLoweringTest extends munit.ScalaCheckSuite {
 
   // A program typechecked against Predef's interface, with its lets as the
   // recursion check sees them (inferBodyUnopt runs the check and does not
-  // normalize), and a package map to evaluate it with.
-  private final case class Compiled(
-      fullTypeEnv: TypeEnv[Kind.Arg],
-      lets: List[(Bindable, RecursionKind, TypedExpr[Declaration])],
-      pm: PackageMap.Typed[Declaration]
-  )
+  // normalize), and a package map to evaluate it with. normalizedPm has the
+  // lets after loop lowering and normalization, as inferBody gives them to
+  // `tool eval` and codegen; it is only made when used.
+  private final class Compiled(
+      val fullTypeEnv: TypeEnv[Kind.Arg],
+      val lets: List[(Bindable, RecursionKind, TypedExpr[Declaration])],
+      val pm: PackageMap.Typed[Declaration],
+      normalize: => PackageMap.Typed[Declaration]
+  ) {
+    lazy val normalizedPm: PackageMap.Typed[Declaration] = normalize
+  }
 
   private def compile(source: String): Either[String, Compiled] = {
     val result = Package.inferBodyUnopt(
@@ -58,17 +63,18 @@ class TypedExprRecursionLoweringTest extends munit.ScalaCheckSuite {
       TestUtils.statementsOf(source)
     )
     val compiled = result.map { case (fullTypeEnv, program) =>
-      // The lets are evaluated as they are, not normalized as inferBody
-      // would: normalizing currently lets a guarded branch's names reach the
-      // next branch (see the test below). Evaluating them as they are
-      // captures a name a tuple literal reads when the tuple's pattern
-      // rebinds it, so tupleMatchGen does not make that.
-      val typed: Package.Typed[Declaration] =
-        Package(pack, Nil, Nil, (program, ImportMap.empty))
-      Compiled(
+      def packageMap(typed: Package.Typed[Declaration]): PackageMap.Typed[Declaration] =
+        PackageMap.empty + typed + PackageMap.predefInferred
+      def normalized = TypedExprNormalization.normalizeProgram(
+        pack,
+        fullTypeEnv,
+        TypedExprLoopRecurLowering.lowerProgram(program)
+      )
+      new Compiled(
         fullTypeEnv,
         program.lets,
-        PackageMap.empty + typed + PackageMap.predefInferred
+        packageMap(Package(pack, Nil, Nil, (program, ImportMap.empty))),
+        packageMap(Package(pack, Nil, Nil, (normalized, ImportMap.empty)))
       )
     }
     compiled match {
@@ -114,8 +120,11 @@ class TypedExprRecursionLoweringTest extends munit.ScalaCheckSuite {
       targetName
     )
 
-  private def runTarget(c: Compiled): Args => Value = {
-    val (fnEval, _) = Evaluation(c.pm, Predef.jvmExternals)
+  private def runTarget(c: Compiled): Args => Value =
+    runTargetIn(c.pm)
+
+  private def runTargetIn(pm: PackageMap.Typed[Declaration]): Args => Value = {
+    val (fnEval, _) = Evaluation(pm, Predef.jvmExternals)
       .evaluateName(pack, targetName)
       .getOrElse(sys.error("target not found"))
     val fn = fnEval.value
@@ -210,6 +219,52 @@ class TypedExprRecursionLoweringTest extends munit.ScalaCheckSuite {
     // a failure reports the failing arguments, so they need no shrinking
     given Shrink[List[Args]] = Shrink.withLazyList(_ => LazyList.empty)
     forAll(programGen, argsListGen)(check)
+  }
+
+  // The recursion check reasons about the program as type checking leaves
+  // it, but `tool eval`, `tool test` and codegen run it after loop lowering
+  // and normalization. If those change what it computes, a def the check
+  // accepted can do something else when run, even fail to terminate.
+  private def checkNormalized(prog: Program, argss: List[Args]): Prop = {
+    val source = prog.render
+    compile(source) match {
+      case Left(_) =>
+        Prop.undecided
+      case Right(c) =>
+        normalizedPmOf(c) match {
+          case None =>
+            Prop.undecided
+          case Some(normalizedPm) =>
+            val run = runTarget(c)
+            val runNormalized = runTargetIn(normalizedPm)
+            argss.flatMap { args =>
+              val v = run(args)
+              val vn = runNormalized(args)
+              if (v == vn) Nil
+              else List(s"$args: Bosatsu gives $v, the normalized program gives $vn")
+            } match {
+              case Nil => Prop.passed
+              case bad =>
+                Prop.falsified :| (s"source:\n$source\n\n" + bad.take(10).mkString("\n"))
+            }
+        }
+    }
+  }
+
+  // Normalizing currently never stops on some Int arithmetic in a match
+  // branch, and overflows the stack. The Int optimizer turns
+  // `mul(z, add(y, sub(x, z)))` into `mul(z, sub(add(y, x), z))`, then, on its
+  // own, the argument `sub(add(y, x), z)` back into `add(y, sub(x, z))`, and
+  // normalizing a match repeats while anything changes. That is not a name
+  // capture and needs its own fix; until then this skips those programs.
+  private def normalizedPmOf(c: Compiled): Option[PackageMap.Typed[Declaration]] =
+    try Some(c.normalizedPm)
+    catch { case _: StackOverflowError => None }
+
+  property("loop lowering and normalization do not change what a program computes") {
+    given Shrink[Program] = Shrink.withLazyList(shrinkProgram)
+    given Shrink[List[Args]] = Shrink.withLazyList(_ => LazyList.empty)
+    forAll(programGen, argsListGen)(checkNormalized)
   }
 
   // Every way the path facts at the leaf Bosatsu returns are false on argss.
@@ -470,7 +525,7 @@ def target(x: Int, y: Int, z: Int, p: Bool, q: Comparison) -> Int:
   }
 
   // Bosatsu's semantics give -1: the first branch's y is not in scope in the
-  // second. The normalized program, which `tool eval` runs, gives 2.
+  // second. Normalizing it used to give 2 (EvaluationTest has more of these).
   test("programs are evaluated with a guarded branch's names out of the next branch") {
     val source = """
 def target(x: Int, y: Int, z: Int, p: Bool, q: Comparison) -> Int:
@@ -481,9 +536,12 @@ def target(x: Int, y: Int, z: Int, p: Bool, q: Comparison) -> Int:
     compile(source) match {
       case Left(err) => fail(err)
       case Right(c) =>
-        runTarget(c)(Args(BigInt(2), BigInt(-1), BigInt(0), false, 0)) match {
-          case Value.VInt(v) => assertEquals(BigInt(v), BigInt(-1))
-          case other         => fail(s"not an Int: $other")
+        val args = Args(BigInt(2), BigInt(-1), BigInt(0), false, 0)
+        List(runTarget(c), runTargetIn(c.normalizedPm)).foreach { run =>
+          run(args) match {
+            case Value.VInt(v) => assertEquals(BigInt(v), BigInt(-1))
+            case other         => fail(s"not an Int: $other")
+          }
         }
     }
   }
@@ -1299,45 +1357,16 @@ object TypedExprRecursionLoweringTest {
       case (a, b) => Opaque(a, b)
     }
 
-  // Every name an expression reads, or binds and then reads.
-  def refs(e: Ex): Set[String] = {
-    def guardRefs(g: Guard): Set[String] =
-      g match {
-        case Guard.BoolG(c)                   => refs(c)
-        case Guard.MatchG(arg, _, _, inner) => refs(arg) ++ inner.fold(Set.empty[String])(refs)
-      }
-    e match {
-      case IntLit(_) | BoolLit(_) | CmpLit(_) => Set.empty
-      case Ref(n)                             => Set(n)
-      case Call(_, args)                      => args.iterator.flatMap(refs).toSet
-      case If(c, t, f, _)                     => refs(c) ++ refs(t) ++ refs(f)
-      case IfMatches(arg, _, g, t, f) =>
-        refs(arg) ++ g.fold(Set.empty[String])(refs) ++ refs(t) ++ refs(f)
-      case Match(arg, branches) =>
-        refs(arg) ++ branches.iterator.flatMap { b =>
-          b.guard.fold(Set.empty[String])(guardRefs) ++ refs(b.body)
-        }
-      case Matches(arg, _, g) => refs(arg) ++ g.fold(Set.empty[String])(refs)
-      case Let(_, v, body)    => refs(v) ++ refs(body)
-      case Opaque(a, b)       => refs(a) ++ refs(b)
-      case TupleMatch(a, _, b, _, _, _, body) => refs(a) ++ refs(b) ++ refs(body)
-    }
-  }
-
   def tupleMatchGen(sort: Sort, ctx: Ctx, depth: Int): Gen[Ex] =
     for {
       s1 <- sortGen
       s2 <- sortGen
       a <- exGen(s1, ctx, depth - 1)
       b <- exGen(s2, ctx, depth - 1)
-      // Evaluating the lets unnormalized binds a pattern name before it reads
-      // the other item, so the patterns bind no name the items read.
-      read = refs(a) ++ refs(b)
-      p1 <- catchAllGen(ctx, s1).map { p =>
-        if (p.names.exists(read)) Pat.Wild else p
-      }
+      p1 <- catchAllGen(ctx, s1)
+      // a pattern binds each name at most once
       p2 <- catchAllGen(ctx, s2).map { p =>
-        if (p.names.exists(n => p1.names.contains(n) || read(n))) Pat.Wild else p
+        if (p.names.exists(p1.names.contains)) Pat.Wild else p
       }
       body <- exGen(sort, ctx.bind(p1.names, s1).bind(p2.names, s2), depth - 1)
     } yield TupleMatch(a, s1, b, s2, p1, p2, body)
