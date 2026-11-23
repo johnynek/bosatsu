@@ -52,7 +52,7 @@ class BosatsuDivModTest extends munit.ScalaCheckSuite {
     for {
       (num, den) <- shapes(xv, dv)
       bz <- byZeroChoices
-      env = Env(env0, bz)
+      env = Env(env0, Map.empty, bz)
       (name, term, expected) <- List(
         ("div", bosatsuDiv(num, den), predefDiv(xv, dv)),
         ("mod_Int", bosatsuMod(num, den), predefMod(xv, dv))

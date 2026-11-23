@@ -82,7 +82,7 @@ object TestUtils {
     Import(pack, NonEmptyList.fromListUnsafe(items))
   }
 
-  private val predefResolvedImport
+  val predefResolvedImport
       : Import[Package.Interface, NonEmptyList[Referant[Kind.Arg]]] =
     importAllPredef(predefInterface)
 
