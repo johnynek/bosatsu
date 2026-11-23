@@ -1299,6 +1299,109 @@ def good(i: Int) -> Int:
 """)
   }
 
+  // Each def below does not terminate, and each was accepted while the
+  // lowering got the meaning of a match or a binding wrong.
+
+  // bad(6) calls bad(6): the first branch is taken. Lowering the second
+  // branch's condition as "the first branch misses" made the first branch
+  // unreachable, so next looked like i - 1.
+  test("Int recursion lowers overlapping match branches in order") {
+    disallowed("""#
+def bad(i: Int) -> Int:
+  loop i:
+    case _ if cmp_Int(i, 0) matches GT:
+      next = match i:
+        case _ if cmp_Int(i, 5) matches GT: i
+        case _ if cmp_Int(i, 0) matches GT: i.sub(1)
+        case _: 0
+      bad(next)
+    case _:
+      i
+""")
+    allowed("""#
+def good(i: Int) -> Int:
+  loop i:
+    case _ if cmp_Int(i, 0) matches GT:
+      next = match i:
+        case _ if cmp_Int(i, 5) matches GT: i.sub(5)
+        case _ if cmp_Int(i, 0) matches GT: i.sub(1)
+        case _: 0
+      good(next)
+    case _:
+      i
+""")
+  }
+
+  // bad(1, 0) calls bad(1, 0): the guard's y is i + 10, which is not less
+  // than 5. The guard was lowered before the pattern bound y, so it read
+  // the argument y, which is.
+  test("Int recursion lowers a guard with the names its pattern binds") {
+    disallowed("""#
+def bad(i: Int, y: Int) -> Int:
+  loop i:
+    case _ if and((cmp_Int(i, 0) matches GT), (cmp_Int(y, 5) matches LT)):
+      next = match i.add(10):
+        case y if cmp_Int(y, 5) matches LT: i.sub(1)
+        case _: i
+      bad(next, y)
+    case _:
+      i
+""")
+  }
+
+  // bad(5, 100) calls bad(100, 5), which calls bad(5, 100). The j bound
+  // inside the argument of add leaked out, so bad's first argument looked
+  // like i - 1.
+  test("Int recursion keeps a let's binding inside the let") {
+    disallowed("""#
+def bad(i: Int, j: Int) -> Int:
+  loop i:
+    case _ if cmp_Int(i, 0) matches GT:
+      k = add((
+          j = i.sub(1)
+          j
+        ), 0)
+      bad(j, i.add(k.mul(0)))
+    case _:
+      i
+""")
+  }
+
+  // bad(5, 100) calls bad(99, 100) forever: the i in the branch is j. The
+  // tuple pattern's i got no binding, so it read the argument i.
+  test("Int recursion does not read a name bound inside a struct pattern as the outer name") {
+    disallowed("""#
+def bad(i: Int, j: Int) -> Int:
+  loop i:
+    case _ if cmp_Int(i, 0) matches GT:
+      next = match (j, 0):
+        case (i, _): i.sub(1)
+      bad(next, j)
+    case _:
+      i
+""")
+  }
+
+  // bad(1, 0) calls bad(10, 11), then bad(20, 21), and so on: j = bump(j) is
+  // 10 more than i. The second j does not lower, and it kept the first j's
+  // value, i.
+  test("Int recursion gives a binding that does not lower a fresh symbol") {
+    disallowed("""#
+def bump(i: Int) -> Int:
+  f = x -> x.add(10)
+  f(i)
+
+def bad(i: Int, j: Int) -> Int:
+  loop i:
+    case _ if cmp_Int(i, 0) matches GT:
+      j = i
+      j = bump(j)
+      bad(j.sub(1), j)
+    case _:
+      i
+""")
+  }
+
   test("Int recursion allows divide-and-conquer recursion on integer splits") {
     allowed("""#
 def split_sum(i: Int) -> Int:

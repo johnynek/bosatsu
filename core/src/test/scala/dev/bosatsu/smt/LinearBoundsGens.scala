@@ -403,7 +403,15 @@ object LinearBoundsGens {
   val byZeroChoices: List[BigInt => BigInt] =
     List(_ => BigInt(0), _ => BigInt(1), _ => BigInt(-1), _ => BigInt(7), _ => BigInt(-7), n => n, n => -n)
 
-  final case class Env(vars: Map[String, BigInt], byZero: BigInt => BigInt)
+  final case class Env(
+      vars: Map[String, BigInt],
+      boolVars: Map[String, Boolean],
+      byZero: BigInt => BigInt
+  )
+  object Env {
+    def apply(vars: Map[String, BigInt], byZero: BigInt => BigInt): Env =
+      Env(vars, Map.empty, byZero)
+  }
 
   def evalInt(e: IntExpr, env: Env): BigInt =
     e match {
@@ -431,6 +439,7 @@ object LinearBoundsGens {
   def evalBool(e: BoolExpr, env: Env): Boolean =
     e match {
       case BoolConst(b)  => b
+      case Var(name)     => env.boolVars(name)
       case Lt(a, b)      => evalInt(a, env) < evalInt(b, env)
       case Lte(a, b)     => evalInt(a, env) <= evalInt(b, env)
       case Gt(a, b)      => evalInt(a, env) > evalInt(b, env)
@@ -439,6 +448,10 @@ object LinearBoundsGens {
       case Not(a)        => !evalBool(a, env)
       case And(args)     => args.forall(evalBool(_, env))
       case Or(args)      => args.exists(evalBool(_, env))
+      case EqBool(a, b)  => evalBool(a, env) == evalBool(b, env)
+      case Xor(a, b)     => evalBool(a, env) != evalBool(b, env)
+      case Implies(a, b) => !evalBool(a, env) || evalBool(b, env)
+      case Ite(p, a, b)  => if (evalBool(p, env)) evalBool(a, env) else evalBool(b, env)
       case other         => sys.error(s"unexpected bool expression: $other")
     }
 

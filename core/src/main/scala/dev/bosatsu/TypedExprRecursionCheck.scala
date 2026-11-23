@@ -67,6 +67,40 @@ object TypedExprRecursionCheck {
   ): List[RecursionCheck.Lint] =
     Impl.replayLints(pack, lets)
 
+  /** The SMT term for an Int, Bool or Comparison expression. A Comparison is
+    * an Int: -1 for LT, 0 for EQ and 1 for GT.
+    */
+  private[bosatsu] enum LoweredTerm derives CanEqual {
+    case IntTerm(expr: SmtExpr.IntExpr)
+    case BoolTerm(expr: SmtExpr.BoolExpr)
+    case ComparisonTerm(expr: SmtExpr.IntExpr)
+  }
+
+  /** A def body lowered to SMT. The arguments are bound to the SMT terms in
+    * `intArgs`, `boolArgs` and `comparisonArgs`, and lowering added
+    * `pathFacts`.
+    */
+  private[bosatsu] final case class LoweredDefBody(
+      intArgs: Map[Bindable, SmtExpr.IntExpr],
+      boolArgs: Map[Bindable, SmtExpr.BoolExpr],
+      comparisonArgs: Map[Bindable, SmtExpr.IntExpr],
+      term: Option[LoweredTerm],
+      pathFacts: Vector[SmtExpr.BoolExpr]
+  )
+
+  /** Test hook: lower the body of the top level def `name` in `lets` the way
+    * the recursion check lowers an expression in a recur branch of that def,
+    * starting from one SMT symbol per argument. `term` is None when the body
+    * is not an Int, Bool or Comparison or does not lower.
+    */
+  private[bosatsu] def lowerDefBodyForTest(
+      pack: PackageName,
+      fullTypeEnv: TypeEnv[Kind.Arg],
+      lets: List[(Bindable, RecursionKind, TypedExpr[Declaration])],
+      name: Bindable
+  ): Option[LoweredDefBody] =
+    Impl.lowerDefBodyForTest(pack, fullTypeEnv, lets, name)
+
   private object Impl {
     import RecursionCheck.ArgLexOrder
     import RecursionCheck.ArgLexOrder.*
@@ -209,6 +243,29 @@ object TypedExprRecursionCheck {
             boolBindings = boolBindings -- removeSet,
             comparisonBindings = comparisonBindings -- removeSet
           )
+      }
+
+      // `names` go out of scope: they get back the bindings they have in
+      // `outer`. Symbols declared and facts added since stay.
+      def restoreBindings(
+          names: Iterable[Bindable],
+          outer: SmtBranchState
+      ): SmtBranchState = {
+        def restore[V](
+            inner: Map[Bindable, V],
+            before: Map[Bindable, V]
+        ): Map[Bindable, V] =
+          names.foldLeft(inner) { (acc, name) =>
+            before.get(name) match {
+              case Some(v) => acc.updated(name, v)
+              case None    => acc - name
+            }
+          }
+        copy(
+          intBindings = restore(intBindings, outer.intBindings),
+          boolBindings = restore(boolBindings, outer.boolBindings),
+          comparisonBindings = restore(comparisonBindings, outer.comparisonBindings)
+        )
       }
     }
     object SmtBranchState {
@@ -1513,11 +1570,22 @@ object TypedExprRecursionCheck {
             SmtBranchState
         ) => (Option[A], SmtBranchState)
     ): (Option[A], SmtBranchState) = {
-      val state0 = state.removeBindings(name :: Nil)
       val state1 =
-        if (rec.isRecursive) bindSymbolForType(name, valueExpr.getType, state0)
-        else state0
-      lower(inExpr, bindLetName(name, valueExpr, state1))
+        if (rec.isRecursive) {
+          // the value is in the scope of name
+          val state0 = state.removeBindings(name :: Nil)
+          bindLetName(
+            name,
+            valueExpr,
+            bindSymbolForType(name, valueExpr.getType, state0)
+          )
+        } else {
+          // the value is outside the scope of name
+          bindLetName(name, valueExpr, state)
+        }
+      val (res, state2) = lower(inExpr, state1)
+      // the rest of the enclosing expression is outside the scope of name
+      (res, state2.restoreBindings(name :: Nil, state))
     }
 
     private def lowerCmpIntArgs(
@@ -1574,27 +1642,11 @@ object TypedExprRecursionCheck {
         case TypedExpr.Let(name, valueExpr, inExpr, rec, _) =>
           lowerWithLetBinding(name, valueExpr, inExpr, rec, state)(lowerComparisonExpr)
         case TypedExpr.Match(arg, branches, _) if isLowerableMatchScrutinee(arg.getType) =>
-          lowerComparisonFromMatches(arg, branches, state)
+          lowerFromMatches(arg, branches, state)(lowerComparisonExpr)
         case other =>
           val lit = comparisonLiteralValue(other).map(SmtExpr.IntConst(_))
           (lit, state)
       }
-
-    private def lowerMatchBranchCondition(
-        argExpr: TypedExpr[Declaration],
-        branch: TypedExpr.Branch[Declaration],
-        state: SmtBranchState
-    ): (Option[SmtExpr.BoolExpr], SmtBranchState) = {
-      val (patOpt, state1) = lowerPatternCondition(argExpr, branch.pattern, state)
-      val (guardOpt, state2) =
-        lowerBranchGuardCondition(branch.guardNode, state1)
-      (
-        (patOpt, guardOpt).mapN((pat, guard) =>
-          simplifyBoolExpr(mkAnd(Vector(pat, guard)))
-        ),
-        state2
-      )
-    }
 
     private def canUseFinalBranchAsFallback(
         branch: TypedExpr.Branch[Declaration],
@@ -1630,52 +1682,47 @@ object TypedExprRecursionCheck {
           (None, state)
       }
 
-    private def lowerIntFromMatches(
+    // Lower a match to an ite chain over the branch hit conditions. Nested ites
+    // already give first-match order, so a branch's condition is its own hit
+    // condition. Totality makes the final branch the default arm.
+    private def lowerFromMatches[S <: SmtSort](
         argExpr: TypedExpr[Declaration],
         branches: NonEmptyList[TypedExpr.Branch[Declaration]],
         state: SmtBranchState
-    ): (Option[SmtExpr.IntExpr], SmtBranchState) =
-      branches.reverse.toList match {
-        case last :: revInit =>
-          val (lastCondOpt, state1) = lowerMatchBranchCondition(argExpr, last, state)
-          val stateForLastExpr = bindPatternNames(argExpr, last.pattern, state1)
-          val (lastExprOpt, state2) = lowerIntExpr(last.expr, stateForLastExpr)
-          (lastExprOpt, canUseFinalBranchAsFallback(last, lastCondOpt)) match {
-            // Totality checking guarantees match exhaustiveness, so once every
-            // earlier branch condition/result lowers we can use the final
-            // branch as the default arm in the ite chain.
-            // We lower branch expressions with bindPatternNames so aliases such
-            // as `case 12 as twelve:` are available while building SMT terms.
-            case (Some(lastExpr), true) =>
-              val initState = (
-                lastExpr,
-                SmtExpr.BoolConst.True: SmtExpr.BoolExpr,
-                state2,
-                true
-              )
-              val (lowered, _, stateN, ok) =
-                revInit.foldLeft(initState) {
-                  case ((elseExpr, priorMiss, st, allOk), branch) =>
-                    val (condOpt, st1) = lowerMatchBranchCondition(argExpr, branch, st)
-                    val stForExpr = bindPatternNames(argExpr, branch.pattern, st1)
-                    val (exprOpt, st2) = lowerIntExpr(branch.expr, stForExpr)
-                    (condOpt, exprOpt) match {
-                      case (Some(cond), Some(value)) =>
-                        val hit = mkAnd(Vector(priorMiss, cond))
-                        val nextElse = SmtExpr.Ite(hit, value, elseExpr)
-                        val nextMiss = mkAnd(Vector(priorMiss, SmtExpr.Not(cond)))
-                        (nextElse, nextMiss, st2, allOk)
-                      case _ =>
-                        (elseExpr, priorMiss, st2, false)
-                    }
-                }
-              if (ok) (Some(lowered), stateN) else (None, stateN)
-            case _ =>
-              (None, state2)
-          }
-        case _ =>
-          (None, state)
-      }
+    )(
+        lowerBody: (
+            TypedExpr[Declaration],
+            SmtBranchState
+        ) => (Option[SmtExpr[S]], SmtBranchState)
+    ): (Option[SmtExpr[S]], SmtBranchState) = {
+      val reversed = branches.reverse
+      val last = reversed.head
+      val (lastCondOpt, lastOpt, state1) =
+        lowerBranch(argExpr, last, state)(lowerBody)
+      if (canUseFinalBranchAsFallback(last, lastCondOpt))
+        reversed.tail.foldLeft((lastOpt, state1)) { case ((elseOpt, st), branch) =>
+          val (condOpt, valueOpt, st1) = lowerBranch(argExpr, branch, st)(lowerBody)
+          ((condOpt, valueOpt, elseOpt).mapN(SmtExpr.Ite(_, _, _)), st1)
+        }
+      else (None, state1)
+    }
+
+    // The hit condition and the lowered body of one branch.
+    private def lowerBranch[A](
+        argExpr: TypedExpr[Declaration],
+        branch: TypedExpr.Branch[Declaration],
+        state: SmtBranchState
+    )(
+        lowerBody: (
+            TypedExpr[Declaration],
+            SmtBranchState
+        ) => (Option[A], SmtBranchState)
+    ): (Option[SmtExpr.BoolExpr], Option[A], SmtBranchState) = {
+      val (condOpt, state1) = lowerBranchHitCondition(argExpr, branch, state)
+      val (bodyOpt, state2) = lowerBody(branch.expr, state1)
+      // the other branches are outside the scope of this branch's names
+      (condOpt, bodyOpt, state2.restoreBindings(branch.allBindings, state))
+    }
 
     private def lowerIntExpr(
         expr: TypedExpr[Declaration],
@@ -1718,53 +1765,11 @@ object TypedExprRecursionCheck {
         case TypedExpr.Match(arg, branches, _) if isBoolType(arg.getType) =>
           val loweredIf @ (ifOpt, state1) = lowerIntIfExpr(arg, branches, state)
           if (ifOpt.nonEmpty) loweredIf
-          else lowerIntFromMatches(arg, branches, state1)
+          else lowerFromMatches(arg, branches, state1)(lowerIntExpr)
         case TypedExpr.Match(arg, branches, _) =>
-          lowerIntFromMatches(arg, branches, state)
+          lowerFromMatches(arg, branches, state)(lowerIntExpr)
         case TypedExpr.Let(name, valueExpr, inExpr, rec, _) =>
           lowerWithLetBinding(name, valueExpr, inExpr, rec, state)(lowerIntExpr)
-        case _ =>
-          (None, state)
-      }
-
-    private def lowerComparisonFromMatches(
-        argExpr: TypedExpr[Declaration],
-        branches: NonEmptyList[TypedExpr.Branch[Declaration]],
-        state: SmtBranchState
-    ): (Option[SmtExpr.IntExpr], SmtBranchState) =
-      branches.reverse.toList match {
-        case last :: revInit =>
-          val (lastCondOpt, state1) = lowerMatchBranchCondition(argExpr, last, state)
-          val stateForLastExpr = bindPatternNames(argExpr, last.pattern, state1)
-          val (lastExprOpt, state2) = lowerComparisonExpr(last.expr, stateForLastExpr)
-          (lastExprOpt, canUseFinalBranchAsFallback(last, lastCondOpt)) match {
-            case (Some(lastExpr), true) =>
-              val initState = (
-                lastExpr,
-                SmtExpr.BoolConst.True: SmtExpr.BoolExpr,
-                state2,
-                true
-              )
-              val (lowered, _, stateN, ok) =
-                revInit.foldLeft(initState) {
-                  case ((elseExpr, priorMiss, st, allOk), branch) =>
-                    val (condOpt, st1) = lowerMatchBranchCondition(argExpr, branch, st)
-                    val stForExpr = bindPatternNames(argExpr, branch.pattern, st1)
-                    val (exprOpt, st2) = lowerComparisonExpr(branch.expr, stForExpr)
-                    (condOpt, exprOpt) match {
-                      case (Some(cond), Some(value)) =>
-                        val hit = mkAnd(Vector(priorMiss, cond))
-                        val nextElse = SmtExpr.Ite(hit, value, elseExpr)
-                        val nextMiss = mkAnd(Vector(priorMiss, SmtExpr.Not(cond)))
-                        (nextElse, nextMiss, st2, allOk)
-                      case _ =>
-                        (elseExpr, priorMiss, st2, false)
-                    }
-                }
-              if (ok) (Some(lowered), stateN) else (None, stateN)
-            case _ =>
-              (None, state2)
-          }
         case _ =>
           (None, state)
       }
@@ -1870,48 +1875,6 @@ object TypedExprRecursionCheck {
           (None, state)
       }
 
-    private def lowerBoolFromMatches(
-        argExpr: TypedExpr[Declaration],
-        branches: NonEmptyList[TypedExpr.Branch[Declaration]],
-        state: SmtBranchState
-    ): (Option[SmtExpr.BoolExpr], SmtBranchState) =
-      branches.reverse.toList match {
-        case last :: revInit =>
-          val (lastCondOpt, state1) = lowerMatchBranchCondition(argExpr, last, state)
-          val stateForLastExpr = bindPatternNames(argExpr, last.pattern, state1)
-          val (lastExprOpt, state2) = lowerBoolExpr(last.expr, stateForLastExpr)
-          (lastExprOpt, canUseFinalBranchAsFallback(last, lastCondOpt)) match {
-            case (Some(lastExpr), true) =>
-              val initState = (
-                lastExpr,
-                SmtExpr.BoolConst.True: SmtExpr.BoolExpr,
-                state2,
-                true
-              )
-              val (lowered, _, stateN, ok) =
-                revInit.foldLeft(initState) {
-                  case ((elseExpr, priorMiss, st, allOk), branch) =>
-                    val (condOpt, st1) = lowerMatchBranchCondition(argExpr, branch, st)
-                    val stForExpr = bindPatternNames(argExpr, branch.pattern, st1)
-                    val (exprOpt, st2) = lowerBoolExpr(branch.expr, stForExpr)
-                    (condOpt, exprOpt) match {
-                      case (Some(cond), Some(value)) =>
-                        val hit = mkAnd(Vector(priorMiss, cond))
-                        val nextElse = SmtExpr.Ite(hit, value, elseExpr)
-                        val nextMiss = mkAnd(Vector(priorMiss, SmtExpr.Not(cond)))
-                        (nextElse, nextMiss, st2, allOk)
-                      case _ =>
-                        (elseExpr, priorMiss, st2, false)
-                    }
-                }
-              if (ok) (Some(lowered), stateN) else (None, stateN)
-            case _ =>
-              (None, state2)
-          }
-        case _ =>
-          (None, state)
-      }
-
     private def lowerBoolExpr(
         expr: TypedExpr[Declaration],
         state: SmtBranchState
@@ -1958,7 +1921,7 @@ object TypedExprRecursionCheck {
               }
           }
         case TypedExpr.Match(arg, branches, _) =>
-          lowerBoolFromMatches(arg, branches, state)
+          lowerFromMatches(arg, branches, state)(lowerBoolExpr)
         case TypedExpr.Let(name, valueExpr, inExpr, rec, _) =>
           lowerWithLetBinding(name, valueExpr, inExpr, rec, state)(lowerBoolExpr)
         case other =>
@@ -1970,48 +1933,22 @@ object TypedExprRecursionCheck {
         pattern: Pattern[(PackageName, Identifier.Constructor), Type],
         state: SmtBranchState
     ): SmtBranchState = {
-      def bindOne(
-          name: Bindable,
-          tpe: Type,
-          st: SmtBranchState
-      ): SmtBranchState =
-        if (isIntType(tpe)) {
-          val (intExprOpt, st1) = lowerIntExpr(argExpr, st)
-          intExprOpt match {
-            case Some(intExpr) => st1.withIntBinding(name, intExpr)
-            case None          =>
-              val (fresh, st2) = ensureIntLocal(name, st1)
-              st2.withIntBinding(name, fresh)
-          }
-        } else if (isBoolType(tpe)) {
-          val (boolExprOpt, st1) = lowerBoolExpr(argExpr, st)
-          boolExprOpt match {
-            case Some(boolExpr) => st1.withBoolBinding(name, boolExpr)
-            case None           =>
-              val (fresh, st2) = ensureBoolLocal(name, st1)
-              st2.withBoolBinding(name, fresh)
-          }
-        } else if (isComparisonType(tpe)) {
-          val (cmpExprOpt, st1) = lowerComparisonExpr(argExpr, st)
-          cmpExprOpt match {
-            case Some(cmpExpr) => st1.withComparisonBinding(name, cmpExpr)
-            case None          =>
-              val (fresh, st2) = ensureComparisonLocal(name, st1)
-              st2.withComparisonBinding(name, fresh)
-          }
-        } else st
+      // Var and Named bind the whole scrutinee. Names inside a struct or a
+      // union get no binding, so a use of one gets a fresh symbol, not the
+      // outer binding it shadows.
+      @annotation.tailrec
+      def wholeNames(
+          pat: Pattern[(PackageName, Identifier.Constructor), Type],
+          acc: List[Bindable]
+      ): List[Bindable] =
+        pat match {
+          case Pattern.Var(name)            => name :: acc
+          case Pattern.Named(name, inner)   => wholeNames(inner, name :: acc)
+          case Pattern.Annotation(inner, _) => wholeNames(inner, acc)
+          case _                            => acc
+        }
 
-      pattern match {
-        case Pattern.Var(name) =>
-          bindOne(name, argExpr.getType, state)
-        case Pattern.Named(name, inner) =>
-          val bound = bindOne(name, argExpr.getType, state)
-          bindPatternNames(argExpr, inner, bound)
-        case Pattern.Annotation(inner, _) =>
-          bindPatternNames(argExpr, inner, state)
-        case _ =>
-          state
-      }
+      bindNamesTo(wholeNames(pattern, Nil), pattern.names, argExpr, state)
     }
 
     private def addPatternFactsAndBindings(
@@ -2049,8 +1986,9 @@ object TypedExprRecursionCheck {
         case Some(TypedExpr.BoolGuard(guardExpr)) =>
           lowerBoolExpr(guardExpr, state)
         case Some(TypedExpr.MatchGuard(argExpr, pattern, guardOpt)) =>
-          val state0 = state.removeBindings(pattern.names)
-          val (patCondOpt, state1) = lowerPatternCondition(argExpr, pattern, state0)
+          // as for a branch, the pattern matches argExpr outside the scope of
+          // the names it binds
+          val (patCondOpt, state1) = lowerPatternCondition(argExpr, pattern, state)
           val state2 = bindPatternNames(argExpr, pattern, state1)
           val (innerGuardOpt, state3) =
             guardOpt match {
@@ -2098,9 +2036,17 @@ object TypedExprRecursionCheck {
         branch: TypedExpr.Branch[Declaration],
         state: SmtBranchState
     ): (Option[SmtExpr.BoolExpr], SmtBranchState) = {
-      val state0 = state.removeBindings(branch.pattern.names)
-      val state1 = bindPatternNames(argExpr, branch.pattern, state0)
-      lowerMatchBranchCondition(argExpr, branch, state1)
+      // The pattern matches the scrutinee in the scope outside the branch,
+      // and the guard sees the names the pattern binds.
+      val (patOpt, state1) = lowerPatternCondition(argExpr, branch.pattern, state)
+      val state2 = bindPatternNames(argExpr, branch.pattern, state1)
+      val (guardOpt, state3) = lowerBranchGuardCondition(branch.guardNode, state2)
+      (
+        (patOpt, guardOpt).mapN((pat, guard) =>
+          simplifyBoolExpr(mkAnd(Vector(pat, guard)))
+        ),
+        state3
+      )
     }
 
     private case class FallthroughFacts(
@@ -2359,46 +2305,114 @@ object TypedExprRecursionCheck {
       } else state
 
     private def initBranchSmtState(inrec: InDefRecurred): SmtBranchState =
-      inrec.inRec.typedArgs.iterator.flatMap(_.iterator).foldLeft(
-        SmtBranchState.empty(inrec.inRec.totalityCheck).copy(
-          topLevelLowerableAliases = inrec.inRec.topLevelLowerableAliases,
-          topLevelPredefAliases = inrec.inRec.topLevelPredefAliases
+      initSmtState(
+        inrec.inRec.typedArgs,
+        inrec.inRec.totalityCheck,
+        inrec.inRec.topLevelLowerableAliases,
+        inrec.inRec.topLevelPredefAliases
+      )
+
+    // One SMT symbol for each Int, Bool or Comparison argument of a def.
+    private def initSmtState(
+        typedArgs: NonEmptyList[NonEmptyList[(Bindable, Type)]],
+        totalityCheck: TotalityCheck,
+        topLevelLowerableAliases: TopLevelLowerableAliases,
+        topLevelPredefAliases: TopLevelPredefAliases
+    ): SmtBranchState =
+      typedArgs.iterator.flatMap(_.iterator).foldLeft(
+        SmtBranchState.empty(totalityCheck).copy(
+          topLevelLowerableAliases = topLevelLowerableAliases,
+          topLevelPredefAliases = topLevelPredefAliases
         )
       ) { case (state, (name, tpe)) =>
         bindSymbolForType(name, tpe, state)
       }
 
+    def lowerDefBodyForTest(
+        currentPackage: PackageName,
+        fullTypeEnv: TypeEnv[Kind.Arg],
+        lets: List[(Bindable, RecursionKind, TypedExpr[Declaration])],
+        name: Bindable
+    ): Option[LoweredDefBody] =
+      lets.reverseIterator
+        .collectFirst { case (n, _, expr) if n == name => expr }
+        .flatMap(collectArgGroupsAndBody)
+        .map { case (typedArgs, body) =>
+          val state0 = initSmtState(
+            typedArgs,
+            TotalityCheck(fullTypeEnv),
+            topLevelLowerableAliases(currentPackage, lets),
+            topLevelPredefAliases(currentPackage, lets)
+          )
+          val tpe = body.getType
+          val (term, state1) =
+            if (isIntType(tpe)) {
+              val (t, s) = lowerIntExpr(body, state0)
+              (t.map(LoweredTerm.IntTerm(_)), s)
+            } else if (isBoolType(tpe)) {
+              val (t, s) = lowerBoolExpr(body, state0)
+              (t.map(LoweredTerm.BoolTerm(_)), s)
+            } else if (isComparisonType(tpe)) {
+              val (t, s) = lowerComparisonExpr(body, state0)
+              (t.map(LoweredTerm.ComparisonTerm(_)), s)
+            } else (None, state0)
+
+          LoweredDefBody(
+            state0.intBindings,
+            state0.boolBindings,
+            state0.comparisonBindings,
+            term,
+            state1.pathFacts
+          )
+        }
+
     private def bindLetName(
         name: Bindable,
         expr: TypedExpr[Declaration],
         state: SmtBranchState
+    ): SmtBranchState =
+      bindNamesTo(name :: Nil, name :: Nil, expr, state)
+
+    // Bind `names` to the value of `expr`, which is lowered in `state`, so
+    // outside the scope of the names in `shadowed` (which has every name in
+    // `names`). The names in `shadowed` lose any outer binding. If `expr` does
+    // not lower, `names` get one fresh symbol.
+    private def bindNamesTo(
+        names: List[Bindable],
+        shadowed: List[Bindable],
+        expr: TypedExpr[Declaration],
+        state: SmtBranchState
     ): SmtBranchState = {
       val tpe = expr.getType
-      if (isIntType(tpe)) {
-        val (intExprOpt, state1) = lowerIntExpr(expr, state)
-        intExprOpt match {
-          case Some(intExpr) => state1.withIntBinding(name, intExpr)
-          case None          =>
-            val (fresh, state2) = ensureIntLocal(name, state1)
-            state2.withIntBinding(name, fresh)
-        }
-      } else if (isBoolType(tpe)) {
-        val (boolExprOpt, state1) = lowerBoolExpr(expr, state)
-        boolExprOpt match {
-          case Some(boolExpr) => state1.withBoolBinding(name, boolExpr)
-          case None           =>
-            val (fresh, state2) = ensureBoolLocal(name, state1)
-            state2.withBoolBinding(name, fresh)
-        }
-      } else if (isComparisonType(tpe)) {
-        val (cmpExprOpt, state1) = lowerComparisonExpr(expr, state)
-        cmpExprOpt match {
-          case Some(cmpExpr) => state1.withComparisonBinding(name, cmpExpr)
-          case None          =>
-            val (fresh, state2) = ensureComparisonLocal(name, state1)
-            state2.withComparisonBinding(name, fresh)
-        }
-      } else state
+      names match {
+        case Nil => state.removeBindings(shadowed)
+        case first :: _ =>
+          if (isIntType(tpe)) {
+            val (intExprOpt, state1) = lowerIntExpr(expr, state)
+            val state2 = state1.removeBindings(shadowed)
+            val (value, state3) = intExprOpt match {
+              case Some(intExpr) => (intExpr, state2)
+              case None          => ensureIntLocal(first, state2)
+            }
+            names.foldLeft(state3)(_.withIntBinding(_, value))
+          } else if (isBoolType(tpe)) {
+            val (boolExprOpt, state1) = lowerBoolExpr(expr, state)
+            val state2 = state1.removeBindings(shadowed)
+            val (value, state3) = boolExprOpt match {
+              case Some(boolExpr) => (boolExpr, state2)
+              case None           => ensureBoolLocal(first, state2)
+            }
+            names.foldLeft(state3)(_.withBoolBinding(_, value))
+          } else if (isComparisonType(tpe)) {
+            val (cmpExprOpt, state1) = lowerComparisonExpr(expr, state)
+            val state2 = state1.removeBindings(shadowed)
+            val (value, state3) = cmpExprOpt match {
+              case Some(cmpExpr) => (cmpExpr, state2)
+              case None          => ensureComparisonLocal(first, state2)
+            }
+            names.foldLeft(state3)(_.withComparisonBinding(_, value))
+          } else state.removeBindings(shadowed)
+      }
     }
 
     @annotation.tailrec
