@@ -78,8 +78,9 @@ object TypedExprRecursionCheck {
   }
 
   /** A def body lowered to SMT. The arguments are bound to the SMT terms in
-    * `intArgs`, `boolArgs` and `comparisonArgs`, and lowering added
-    * `pathFacts`.
+    * `intArgs`, `boolArgs` and `comparisonArgs`. `pathFacts` are the facts
+    * about the symbols: the -1, 0, 1 domain of each Comparison symbol,
+    * including the arguments'.
     */
   private[bosatsu] final case class LoweredDefBody(
       intArgs: Map[Bindable, SmtExpr.IntExpr],
@@ -275,7 +276,9 @@ object TypedExprRecursionCheck {
       }
 
       // `names` go out of scope: they get back the bindings they have in
-      // `outer`. Symbols declared and facts added since stay.
+      // `outer`. Symbols declared and facts added since stay. That is sound
+      // because the only facts lowering adds are the domains of fresh
+      // Comparison symbols, which hold in any scope.
       def restoreBindings(
           names: Iterable[Bindable],
           outer: SmtBranchState
@@ -1709,7 +1712,8 @@ object TypedExprRecursionCheck {
     ): Boolean =
       // Totality makes the final branch the default fallback arm. If we
       // cannot lower its condition, only use that fallback when the pattern
-      // itself contributes no bound names that would need SMT bindings.
+      // binds no names. This is only conservative: names a pattern binds that
+      // do not lower get fresh symbols.
       condOpt.nonEmpty || branch.allBindings.isEmpty
 
     private def lowerIntIfExpr(
@@ -1750,16 +1754,37 @@ object TypedExprRecursionCheck {
             SmtBranchState
         ) => (Option[SmtExpr[S]], SmtBranchState)
     ): (Option[SmtExpr[S]], SmtBranchState) = {
+      // Wrap the ite chain built so far in the remaining branches, from the
+      // last one back, stopping at the first branch that does not lower.
+      @annotation.tailrec
+      def loop(
+          rest: List[TypedExpr.Branch[Declaration]],
+          elseExpr: SmtExpr[S],
+          st: SmtBranchState
+      ): (Option[SmtExpr[S]], SmtBranchState) =
+        rest match {
+          case Nil            => (Some(elseExpr), st)
+          case branch :: tail =>
+            val (condOpt, valueOpt, st1) =
+              lowerBranch(argExpr, branch, st)(lowerBody)
+            (condOpt, valueOpt) match {
+              case (Some(cond), Some(value)) =>
+                loop(tail, SmtExpr.Ite(cond, value, elseExpr), st1)
+              case _ =>
+                (None, st1)
+            }
+        }
+
       val reversed = branches.reverse
       val last = reversed.head
       val (lastCondOpt, lastOpt, state1) =
         lowerBranch(argExpr, last, state)(lowerBody)
-      if (canUseFinalBranchAsFallback(last, lastCondOpt))
-        reversed.tail.foldLeft((lastOpt, state1)) { case ((elseOpt, st), branch) =>
-          val (condOpt, valueOpt, st1) = lowerBranch(argExpr, branch, st)(lowerBody)
-          ((condOpt, valueOpt, elseOpt).mapN(SmtExpr.Ite(_, _, _)), st1)
-        }
-      else (None, state1)
+      lastOpt match {
+        case Some(lastExpr) if canUseFinalBranchAsFallback(last, lastCondOpt) =>
+          loop(reversed.tail, lastExpr, state1)
+        case _ =>
+          (None, state1)
+      }
     }
 
     // The hit condition and the lowered body of one branch.
@@ -2654,9 +2679,9 @@ object TypedExprRecursionCheck {
       bindNamesTo(name :: Nil, name :: Nil, expr, state)
 
     // Bind `names` to the value of `expr`, which is lowered in `state`, so
-    // outside the scope of the names in `shadowed` (which has every name in
-    // `names`). The names in `shadowed` lose any outer binding. If `expr` does
-    // not lower, `names` get one fresh symbol.
+    // outside the scope of `names` and `shadowed`. Those names lose any outer
+    // binding first, so if `expr` does not lower, `names` get one fresh
+    // symbol rather than an outer binding they shadow.
     private def bindNamesTo(
         names: List[Bindable],
         shadowed: List[Bindable],
@@ -2664,12 +2689,13 @@ object TypedExprRecursionCheck {
         state: SmtBranchState
     ): SmtBranchState = {
       val tpe = expr.getType
+      val removed = names ::: shadowed
       names match {
-        case Nil => state.removeBindings(shadowed)
+        case Nil => state.removeBindings(removed)
         case first :: _ =>
           if (isIntType(tpe)) {
             val (intExprOpt, state1) = lowerIntExpr(expr, state)
-            val state2 = state1.removeBindings(shadowed)
+            val state2 = state1.removeBindings(removed)
             val (value, state3) = intExprOpt match {
               case Some(intExpr) => (intExpr, state2)
               case None          => ensureIntLocal(first, state2)
@@ -2677,7 +2703,7 @@ object TypedExprRecursionCheck {
             names.foldLeft(state3)(_.withIntBinding(_, value))
           } else if (isBoolType(tpe)) {
             val (boolExprOpt, state1) = lowerBoolExpr(expr, state)
-            val state2 = state1.removeBindings(shadowed)
+            val state2 = state1.removeBindings(removed)
             val (value, state3) = boolExprOpt match {
               case Some(boolExpr) => (boolExpr, state2)
               case None           => ensureBoolLocal(first, state2)
@@ -2685,13 +2711,13 @@ object TypedExprRecursionCheck {
             names.foldLeft(state3)(_.withBoolBinding(_, value))
           } else if (isComparisonType(tpe)) {
             val (cmpExprOpt, state1) = lowerComparisonExpr(expr, state)
-            val state2 = state1.removeBindings(shadowed)
+            val state2 = state1.removeBindings(removed)
             val (value, state3) = cmpExprOpt match {
               case Some(cmpExpr) => (cmpExpr, state2)
               case None          => ensureComparisonLocal(first, state2)
             }
             names.foldLeft(state3)(_.withComparisonBinding(_, value))
-          } else state.removeBindings(shadowed)
+          } else state.removeBindings(removed)
       }
     }
 

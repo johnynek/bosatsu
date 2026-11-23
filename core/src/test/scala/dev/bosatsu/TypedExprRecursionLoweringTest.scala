@@ -1,7 +1,7 @@
 package dev.bosatsu
 
-import cats.Show
 import cats.data.{Ior, NonEmptyList}
+import dev.bosatsu.rankn.TypeEnv
 import dev.bosatsu.smt.{LinearBoundsGens, SmtExpr, SmtSort}
 import org.scalacheck.{Gen, Prop, Shrink}
 import org.scalacheck.Prop.forAll
@@ -28,7 +28,7 @@ import TypedExprRecursionCheck.{LeafPathFacts, LoweredDefBody, LoweredTerm}
   * If one of those is false when Bosatsu takes the branch, the check can
   * accept a def that does not terminate, so a property checks those too.
   */
-class TypedExprRecursionLoweringTest extends munit.ScalaCheckSuite with ParTest {
+class TypedExprRecursionLoweringTest extends munit.ScalaCheckSuite {
   import TypedExprRecursionLoweringTest.*
 
   override val munitTimeout = 10.minutes
@@ -41,21 +41,37 @@ class TypedExprRecursionLoweringTest extends munit.ScalaCheckSuite with ParTest 
   private val pack = PackageName.parts("LoweringProp")
   private val targetName: Bindable = Identifier.Name("target")
 
-  private def compile(source: String): Either[String, PackageMap.Inferred] = {
-    val parsed = Package.fromStatements(pack, TestUtils.statementsOf(source))
-    given Show[String] = Show.fromToString
-    // NoOptimize keeps the lets as the recursion check sees them
-    TestUtils.typeCheckParsedInferred(
-      NonEmptyList.one((("<generated>", LocationMap(source)), parsed)),
+  // A program typechecked against Predef's interface, with its lets as the
+  // recursion check sees them (inferBodyUnopt runs the check and does not
+  // normalize), and a package map to evaluate it with.
+  private final case class Compiled(
+      fullTypeEnv: TypeEnv[Kind.Arg],
+      lets: List[(Bindable, RecursionKind, TypedExpr[Declaration])],
+      pm: PackageMap.Typed[Declaration]
+  )
+
+  private def compile(source: String): Either[String, Compiled] = {
+    val result = Package.inferBodyUnopt(
+      pack,
+      TestUtils.predefResolvedImport :: Nil,
       Nil,
-      "<predef>",
-      CompileOptions.NoOptimize
-    ) match {
+      TestUtils.statementsOf(source)
+    )
+    val compiled = result.map { case (fullTypeEnv, program) =>
+      val typed: Package.Typed[Declaration] =
+        Package(pack, Nil, Nil, (program, ImportMap.empty))
+      Compiled(
+        fullTypeEnv,
+        program.lets,
+        PackageMap.empty + typed + PackageMap.predefInferred
+      )
+    }
+    compiled match {
       // postponable errors, such as unused or shadowed bindings and
       // unreachable branches, still give a program to run
-      case Ior.Right(pm) => Right(pm)
-      case Ior.Both(errs, pm) if errs.forall(PackageError.isPostponable) =>
-        Right(pm)
+      case Ior.Right(c) => Right(c)
+      case Ior.Both(errs, c) if errs.forall(PackageError.isPostponable) =>
+        Right(c)
       case Ior.Both(errs, _) => Left(messages(source, errs))
       case Ior.Left(errs)    => Left(messages(source, errs))
     }
@@ -68,32 +84,24 @@ class TypedExprRecursionLoweringTest extends munit.ScalaCheckSuite with ParTest 
       .mkString("\n-----\n")
   }
 
-  private def lowerTarget(pm: PackageMap.Inferred): Option[LoweredDefBody] = {
-    val packMap = pm.toMap
-    val typed = packMap(pack)
-    val fullTypeEnv = packMap(PackageName.PredefName).types ++ typed.types
+  private def lowerTarget(c: Compiled): Option[LoweredDefBody] =
     TypedExprRecursionCheck.lowerDefBodyForTest(
       pack,
-      fullTypeEnv,
-      typed.lets,
+      c.fullTypeEnv,
+      c.lets,
       targetName
     )
-  }
 
-  private def leafPathFacts(pm: PackageMap.Inferred): Option[LeafPathFacts] = {
-    val packMap = pm.toMap
-    val typed = packMap(pack)
-    val fullTypeEnv = packMap(PackageName.PredefName).types ++ typed.types
+  private def leafPathFacts(c: Compiled): Option[LeafPathFacts] =
     TypedExprRecursionCheck.leafPathFactsForTest(
       pack,
-      fullTypeEnv,
-      typed.lets,
+      c.fullTypeEnv,
+      c.lets,
       targetName
     )
-  }
 
-  private def runTarget(pm: PackageMap.Inferred): Args => Value = {
-    val (fnEval, _) = Evaluation(pm, Predef.jvmExternals)
+  private def runTarget(c: Compiled): Args => Value = {
+    val (fnEval, _) = Evaluation(c.pm, Predef.jvmExternals)
       .evaluateName(pack, targetName)
       .getOrElse(sys.error("target not found"))
     val fn = fnEval.value
@@ -158,9 +166,9 @@ class TypedExprRecursionLoweringTest extends munit.ScalaCheckSuite with ParTest 
         // the generator only makes programs that compile (the coverage test
         // below checks), but shrinking can break one
         Prop.undecided
-      case Right(pm) =>
-        val run = runTarget(pm)
-        lowerTarget(pm) match {
+      case Right(c) =>
+        val run = runTarget(c)
+        lowerTarget(c) match {
           case None =>
             Prop.falsified :| s"no target def:\n$source"
           case Some(lowered) =>
@@ -225,12 +233,12 @@ class TypedExprRecursionLoweringTest extends munit.ScalaCheckSuite with ParTest 
     compile(source) match {
       case Left(_) =>
         Prop.undecided
-      case Right(pm) =>
-        leafPathFacts(pm) match {
+      case Right(c) =>
+        leafPathFacts(c) match {
           case None =>
             Prop.falsified :| s"no target def:\n$source"
           case Some(facts) =>
-            falsePathFacts(facts, runTarget(pm), argss) match {
+            falsePathFacts(facts, runTarget(c), argss) match {
               case Nil => Prop.passed
               case bad =>
                 Prop.falsified :| (
@@ -271,10 +279,10 @@ class TypedExprRecursionLoweringTest extends munit.ScalaCheckSuite with ParTest 
     test(name) {
       compile(source) match {
         case Left(err) => fail(err)
-        case Right(pm) =>
-          val lowered = lowerTarget(pm).getOrElse(fail("no target def"))
+        case Right(c) =>
+          val lowered = lowerTarget(c).getOrElse(fail("no target def"))
           assert(lowered.term.nonEmpty, "expected a term")
-          mismatches(lowered, runTarget(pm), gridArgs) match {
+          mismatches(lowered, runTarget(c), gridArgs) match {
             case Left(open) =>
               assert(!closed, s"expected a term over the arguments, got an $open")
             case Right(bad) =>
@@ -366,6 +374,20 @@ def target(x: Int, y: Int, z: Int, p: Bool, q: Comparison) -> Int:
     closed = true
   )
 
+  // A `matches` guard's pattern matches its argument in the branch's scope,
+  // and its names are bound for the inner guard and the body. This was an
+  // open term, over a fresh symbol for x, before.
+  regression(
+    "a matches guard binds its names to its argument",
+    """
+def target(x: Int, y: Int, z: Int, p: Bool, q: Comparison) -> Int:
+  match y:
+    case _ if (add(x, 1) matches x if eq_Int(x, 0)): x
+    case _: 5
+""",
+    closed = true
+  )
+
   // The property reaches these only through its rarer opaque calls and tuple
   // matches, so not on every run. Each lowered to a closed term, over the
   // outer binding the name shadows.
@@ -404,9 +426,9 @@ def target(x: Int, y: Int, z: Int, p: Bool, q: Comparison) -> Int:
 """
     compile(source) match {
       case Left(err) => fail(err)
-      case Right(pm) =>
-        val facts = leafPathFacts(pm).getOrElse(fail("no target def"))
-        assertEquals(falsePathFacts(facts, runTarget(pm), gridArgs), Nil)
+      case Right(c) =>
+        val facts = leafPathFacts(c).getOrElse(fail("no target def"))
+        assertEquals(falsePathFacts(facts, runTarget(c), gridArgs), Nil)
     }
   }
 
@@ -421,8 +443,8 @@ def target(x: Int, y: Int, z: Int, p: Bool, q: Comparison) -> Int:
       val source = prog.render
       compile(source) match {
         case Left(err) => fail(s"generated program does not compile:\n$source\n$err")
-        case Right(pm) =>
-          val facts = leafPathFacts(pm).getOrElse(fail("no target def"))
+        case Right(c) =>
+          val facts = leafPathFacts(c).getOrElse(fail("no target def"))
           val syms = ArgSymbols(facts.intArgs, facts.boolArgs, facts.comparisonArgs)
           facts.leaves.valuesIterator.exists(_.exists(vars(_).subsetOf(syms.all)))
       }
@@ -444,19 +466,18 @@ def target(x: Int, y: Int, z: Int, p: Bool, q: Comparison) -> Int:
       val source = prog.render
       compile(source) match {
         case Left(err) => fail(s"generated program does not compile:\n$source\n$err")
-        case Right(pm) =>
-          lowerTarget(pm).flatMap(_.term) match {
-            case None    => "none"
-            case Some(_) =>
-              mismatches(lowerTarget(pm).get, runTarget(pm), Nil) match {
+        case Right(c) =>
+          lowerTarget(c) match {
+            case Some(lowered) if lowered.term.nonEmpty =>
+              mismatches(lowered, runTarget(c), Nil) match {
                 case Left(_)  => "open"
                 case Right(_) => "closed"
               }
+            case _ => "none"
           }
       }
     }
     val closed = outcomes.count(_ == "closed")
-    println(s"lowering outcomes: ${outcomes.groupBy(identity).view.mapValues(_.size).toMap}")
     assert(
       closed * 10 >= outcomes.size * 6,
       s"only $closed of ${outcomes.size} lowered to closed terms: ${outcomes.groupBy(identity).view.mapValues(_.size).toMap}"
