@@ -3239,22 +3239,36 @@ object TypedExprRecursionCheck {
           onMissing(notRecur)
       }
 
-    private def unionNames[A](newNames: Iterable[Bindable])(in: St[A]): St[A] =
-      withTemporaryRecurBranchProofs(
-        in,
-        notRecur => sys.error(s"called setNames on $notRecur with names: $newNames")
-      ) { proofs =>
-        // Single-target recursion keeps the old behavior where lambda args
-        // from reachable substructures are also considered recursive args.
-        proofs.tail match {
-          case Nil    =>
-            NonEmptyList.one(
-              proofs.head.withFacts(newNames, ProvenRel.Smaller)
-            )
-          case _ :: _ =>
-            proofs
-        }
+    // Single-target recursion keeps the old behavior where lambda args
+    // from reachable substructures are also considered recursive args.
+    // With several targets we do not know which target the reachable
+    // function came from, so the new binders get no facts at all.
+    private def smallerIfSingleTarget(
+        proofs: NonEmptyList[TargetProof],
+        newNames: Iterable[Bindable]
+    ): NonEmptyList[TargetProof] =
+      proofs.tail match {
+        case Nil    =>
+          NonEmptyList.one(proofs.head.withFacts(newNames, ProvenRel.Smaller))
+        case _ :: _ =>
+          proofs
       }
+
+    // The new names are fresh binders: any facts about shadowed names with the
+    // same spelling (structural or SMT) must be dropped before adding new ones.
+    private def unionNames[A](newNames: Iterable[Bindable])(in: St[A]): St[A] = {
+      val withProofs =
+        withTemporaryRecurBranchProofs(
+          in,
+          notRecur => sys.error(s"called setNames on $notRecur with names: $newNames")
+        ) { proofs =>
+          smallerIfSingleTarget(proofs.map(_.without(newNames)), newNames)
+        }
+
+      withTemporaryRecurBranchSmtState(withProofs, _ => withProofs)(
+        _.removeBindings(newNames)
+      )
+    }
 
     private def filterNames[A](newNames: Iterable[Bindable])(in: St[A]): St[A] =
       withTemporaryRecurBranchProofs(in, _ => in) { proofs =>
@@ -3309,9 +3323,22 @@ object TypedExprRecursionCheck {
         region: Region
     )(
         updateProofs: NonEmptyList[TargetProof] => NonEmptyList[TargetProof]
+    ): St[Unit] =
+      checkForIllegalBindsSt(args.toList.map(_._1), region) *>
+        withLambdaBinders(args, checkExpr(currentPackage, body, wrappers))(
+          updateProofs
+        )
+
+    // Check a lambda body with its binders in scope: facts about any shadowed
+    // names are dropped from the proofs and the SMT state, then updateProofs
+    // may add facts about the new binders.
+    private def withLambdaBinders(
+        args: NonEmptyList[(Bindable, Type)],
+        bareBodyCheck: St[Unit]
+    )(
+        updateProofs: NonEmptyList[TargetProof] => NonEmptyList[TargetProof]
     ): St[Unit] = {
       val newBinds = args.toList.map(_._1)
-      val bareBodyCheck = checkExpr(currentPackage, body, wrappers)
       val bodyCheck =
         withTemporaryRecurBranchProofs(
           bareBodyCheck,
@@ -3320,16 +3347,15 @@ object TypedExprRecursionCheck {
           updateProofs(proofs.map(_.without(newBinds)))
         }
 
-      checkForIllegalBindsSt(newBinds, region) *>
-        withTemporaryRecurBranchSmtState(
-          bodyCheck,
-          _ => bodyCheck
-        ) { smtState =>
-          args.foldLeft(smtState.removeBindings(newBinds)) {
-            case (st, (name, tpe)) =>
-              bindSymbolForType(name, tpe, st)
-          }
+      withTemporaryRecurBranchSmtState(
+        bodyCheck,
+        _ => bodyCheck
+      ) { smtState =>
+        args.foldLeft(smtState.removeBindings(newBinds)) {
+          case (st, (name, tpe)) =>
+            bindSymbolForType(name, tpe, st)
         }
+      }
     }
 
     private def checkReachableLambdaBody(
@@ -3377,6 +3403,111 @@ object TypedExprRecursionCheck {
         case _ =>
           None
       }
+
+    /*
+     * The callback rule treats the binders of lambdas passed to a reachable
+     * function f as smaller than the recur target. That is sound only when
+     * every value f can hand to those binders was built by f itself (from its
+     * closure, which predates the target). Recursive types are covariant, so a
+     * field type never takes values of the target type as input; but once f
+     * is used at a type with a quantifier, or at an instantiation (possibly
+     * laundered through a let annotation) that accepts values which may
+     * contain target values, the caller can pass the target itself in and f
+     * can pass it straight back, e.g. f: forall a. (a, a -> Int) -> Int.
+     *
+     * Everything the caller can pass into f is one of the call's arguments
+     * (in any group of a curried call), including whatever the callbacks
+     * return. So we look at the types of the arguments at this call, which
+     * already reflect how the caller instantiated f's quantifiers, and
+     * require that no type which may contain values of a target type is
+     * something the caller hands to f (an input position of the argument
+     * types). For example `forall r. (T -> r) -> r` is accepted at r := Int.
+     * At r := (T, Int) it is rejected: a callback could return the target to
+     * f, and the argument types alone don't show that f is parametric in r.
+     *
+     * Quantifiers left in the argument types are looked through. A forall in
+     * an input position is instantiated by f (as in the existential encoding
+     * `forall res. (forall b. (Box[b], b -> a) -> res) -> res`), and one in
+     * an output position is instantiated by a callback, at a later call that
+     * gets its own check. Values whose type is a type variable can never be
+     * used where a target type is required, so variables are harmless.
+     */
+    private def reachableCallbackRuleApplies(
+        inrec: InDefRecurred,
+        argTypes: List[Type]
+    ): Boolean = {
+      val typeEnv = inrec.inRec.totalityCheck.inEnv
+
+      val targetConsts: List[Type.Const] =
+        inrec.target.toList.map { targetItem =>
+          Type.unapplyAll(targetItemType(inrec, targetItem))._1 match {
+            case Type.TyConst(c) => Some(c)
+            case _               => None
+          }
+        }.sequence.getOrElse(Nil)
+
+      // all type constants whose values may contain values of type `c`
+      // (`c` itself, or any defined type that transitively mentions it)
+      def mayContainTarget(c: Type.Const): Boolean = {
+        @annotation.tailrec
+        def loop(
+            todo: List[Type.Const],
+            seen: Set[Type.Const]
+        ): Boolean =
+          todo match {
+            case Nil => false
+            case h :: tail =>
+              if (targetConsts.contains(h)) true
+              else if (seen(h)) loop(tail, seen)
+              else {
+                val deps = typeEnv
+                  .getType(Type.TyConst(h))
+                  .fold(List.empty[Type.Const])(_.dependsOn.map(_.tpe))
+                loop(deps ::: tail, seen + h)
+              }
+          }
+
+        loop(c :: Nil, Set.empty)
+      }
+
+      def isInput(v: Variance): Boolean =
+        (v == Variance.Contravariant) || (v == Variance.Invariant)
+
+      def paramVariance(c: Type.Const, idx: Int): Variance =
+        typeEnv
+          .getType(Type.TyConst(c))
+          .flatMap(_.annotatedTypeParams.lift(idx))
+          .fold(Variance.in)(_._2.variance)
+
+      // true if the type (at polarity v) is unsafe for the callback rule
+      def unsafe(t: Type, v: Variance): Boolean =
+        if (v == Variance.Phantom) false
+        else
+          t match {
+            case Type.ForAll(_, in) => unsafe(in, v)
+            case Type.Exists(_, in) => unsafe(in, v)
+            case Type.Fun(args, res) =>
+              args.exists(unsafe(_, -v)) || unsafe(res, v)
+            case _ =>
+              Type.unapplyAll(t) match {
+                case (Type.TyConst(c), args) =>
+                  (isInput(v) && mayContainTarget(c)) ||
+                  args.iterator.zipWithIndex.exists { case (arg, idx) =>
+                    unsafe(arg, v * paramVariance(c, idx))
+                  }
+                case (Type.TyVar(_), args) =>
+                  args.exists(unsafe(_, Variance.in))
+                // $COVERAGE-OFF$ typechecked expressions have no metas left
+                case _ =>
+                  // be conservative about anything unexpected
+                  true
+                // $COVERAGE-ON$
+              }
+          }
+
+      targetConsts.nonEmpty &&
+      !argTypes.exists(unsafe(_, Variance.contra))
+    }
 
     private def checkApply(
         currentPackage: PackageName,
@@ -3449,21 +3580,32 @@ object TypedExprRecursionCheck {
                       )
                   } else if (irb.defNamesContain(nm)) {
                     failSt(RecursionCheck.InvalidRecursion(nm, region))
-                  } else if (smallerNamesFromProofs(proofsPerTarget).contains(nm)) {
-                    // we are calling a reachable function. Any lambda args are new names:
-                    args.parTraverse_[St, Unit] {
+                  } else if (
+                    smallerNamesFromProofs(proofsPerTarget).contains(nm) &&
+                    reachableCallbackRuleApplies(
+                      inrec,
+                      groups.toList.flatMap(_.toList.map(_.getType))
+                    )
+                  ) {
+                    // we are calling a reachable function. Any lambda args are new names
+                    // that may only see values the reachable function builds itself
+                    // (see reachableCallbackRuleApplies), so they are smaller.
+                    // Every argument group of a curried call is checked.
+                    groups.toList.flatMap(_.toList).parTraverse_[St, Unit] {
                       case argExpr =>
                         asAnnotatedLambda(argExpr) match {
                           case Some(TypedExpr.AnnotatedLambda(lambdaArgs, body, lambdaTag)) =>
                             val names1 = lambdaArgs.toList.map(_._1)
-                            unionNames(names1)(
-                              checkReachableLambdaBody(
-                                currentPackage,
-                                body,
-                                wrappers,
-                                lambdaTag
-                              )
-                            )
+                            checkForIllegalBindsSt(names1, lambdaTag.region) *>
+                              withLambdaBinders(
+                                lambdaArgs,
+                                checkReachableLambdaBody(
+                                  currentPackage,
+                                  body,
+                                  wrappers,
+                                  lambdaTag
+                                )
+                              )(smallerIfSingleTarget(_, names1))
                           case None =>
                             localOrLocalPackageGlobalNameOf(
                               currentPackage,
@@ -3472,19 +3614,22 @@ object TypedExprRecursionCheck {
                               case Some(fnname) if irb.defname == fnname =>
                                 val asLambda = irb.inDef.asLambda(argExpr.tag.region)
                                 val names1 = asLambda.args.toList.map(_._1)
-                                unionNames(names1)(
+                                withLambdaBinders(
+                                  asLambda.args,
                                   checkExpr(currentPackage, asLambda.expr, wrappers)
-                                )
+                                )(smallerIfSingleTarget(_, names1))
                               case _ =>
                                 checkExpr(currentPackage, argExpr, wrappers)
                             }
                         }
                     }
                   } else {
-                    // not a recursive call
-                    setSt(irb.noteCalledName(nm)) *> args.parTraverse_(
-                      checkExpr(currentPackage, _, wrappers)
-                    )
+                    // not a recursive call, or a call to a reachable function
+                    // whose type could hand its callbacks values chosen by the caller.
+                    // Every argument group of a curried call is checked.
+                    setSt(irb.noteCalledName(nm)) *> groups.toList
+                      .flatMap(_.toList)
+                      .parTraverse_(checkExpr(currentPackage, _, wrappers))
                   }
                 case None =>
                   // this isn't a recursive call
