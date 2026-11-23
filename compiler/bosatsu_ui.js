@@ -403520,9 +403520,9 @@ function $c_Ldev_bosatsu_BuildInfo$() {
   this.agT = null;
   this.bvw = null;
   $n_Ldev_bosatsu_BuildInfo$ = this;
-  this.Q8 = "0.0.0+1-b1095103-SNAPSHOT";
+  this.Q8 = "0.0.0+1-aa070e78-SNAPSHOT";
   this.aTc = "3.8.2";
-  this.XO = new $c_s_Some("b1095103501a83de5e433dae2bbaaa133aa6b806");
+  this.XO = new $c_s_Some("aa070e78f6c1d2a9b51787f967f3aca7bd7394bf");
   this.agT = "";
   this.bvw = ((((((("version: " + this.Q8) + ", scalaVersion: ") + this.aTc) + ", gitHeadCommit: ") + this.XO) + ", cRuntimeArchiveHash: ") + this.agT);
 }
