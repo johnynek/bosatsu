@@ -5,6 +5,7 @@ import cats.data.{Ior, NonEmptyList}
 import dev.bosatsu.smt.{LinearBoundsGens, SmtExpr, SmtSort}
 import org.scalacheck.{Gen, Prop, Shrink}
 import org.scalacheck.Prop.forAll
+import org.scalacheck.rng.Seed
 import scala.concurrent.duration.DurationInt
 
 import Identifier.Bindable
@@ -411,7 +412,7 @@ def target(x: Int, y: Int, z: Int, p: Bool, q: Comparison) -> Int:
 
   test("the generated path programs usually check some facts") {
     val params = Gen.Parameters.default.withSize(100)
-    val seed = org.scalacheck.rng.Seed(7L)
+    val seed = Seed(7L)
     val progs =
       (0 until (if (Platform.isJvm) 60 else 10)).toList.flatMap { i =>
         pathProgramGen(params, seed.reseed(i.toLong))
@@ -434,7 +435,7 @@ def target(x: Int, y: Int, z: Int, p: Bool, q: Comparison) -> Int:
 
   test("the generated programs usually lower to closed terms") {
     val params = Gen.Parameters.default.withSize(100)
-    val seed = org.scalacheck.rng.Seed(42L)
+    val seed = Seed(42L)
     val progs =
       (0 until (if (Platform.isJvm) 60 else 10)).toList.flatMap { i =>
         programGen(params, seed.reseed(i.toLong))

@@ -1671,7 +1671,9 @@ def walk(stack: List[Either]) -> Int:
 """)
   }
 
-  test("loop uses disjunctive union-derived guard facts for Int recursion proofs") {
+  // A union binds s by its first arm that matches, Pair(s, _), so falling
+  // through says idx >= x, and nothing about y.
+  test("loop uses the union arm that binds the names for Int recursion proofs") {
     allowed("""#
 enum Duo:
   Pair(left: Int, right: Int)
@@ -1682,10 +1684,37 @@ def walk(idx: Int, node: Duo) -> Int:
       idx
     case (_, (Pair(s, _) | Pair(_, s))) if cmp_Int(idx, s) matches LT:
       idx
-    case (_, Pair(x, y)) if cmp_Int(x.add(y), 1) matches GT | EQ:
+    case (_, Pair(x, y)) if cmp_Int(x, 1) matches GT | EQ:
       walk(idx.sub(1), Pair(x, y))
     case _:
       idx
+""")
+  }
+
+  test("a union's later arms give no subsumed guard fact") {
+    // bad(3, Pair(1, 0)) -> bad(3, Pair(1, 0)) -> ...: the first arm always
+    // binds s to x, but the guard being false was also read as y >= 1
+    disallowed("""#
+enum Duo:
+  Pair(left: Int, right: Int)
+
+def bad(idx: Int, node: Duo) -> Int:
+  loop (idx, node):
+    case (_, (Pair(s, _) | Pair(_, s))) if cmp_Int(s, 1) matches LT: idx
+    case (_, Pair(x, y)) if cmp_Int(idx, y) matches GT | EQ:
+      bad(idx.sub(y), Pair(x, y))
+    case _: idx
+""")
+  }
+
+  test("a union arm that can match but does not align gives no subsumed guard fact") {
+    // bad(0, 5) -> bad(0, 5) -> ...: the arm (0, a) binds a to i, but only
+    // the arm (a, _) aligned, so the guard being false was read as j >= 1
+    disallowed("""#
+def bad(j: Int, i: Int) -> Int:
+  loop (j, i):
+    case (0, a) | (a, _) if cmp_Int(a, 1) matches LT: 0
+    case (b, _): bad(mul(b, 0), i)
 """)
   }
 
@@ -2034,6 +2063,52 @@ def bad(i: Int, m: Int) -> Int:
       match i:
         case _ if cmp_Int(m, 1) matches LT: 0
         case m: bad(sub(i, 1), add(mm, mul(m, 0)))
+""")
+  }
+
+  test("an earlier guard about a name the pattern rebinds to the same value gives a fact") {
+    allowed("""#
+def count(m: Int, i: Int) -> Int:
+  loop (m, i):
+    case (_, 0) if cmp_Int(m, 1) matches LT: 0
+    case (m, 0): count(sub(m, 1), 0)
+    case _: 0
+""")
+  }
+
+  test("a guard name bound by a list search gives no subsumed guard fact") {
+    // bad(3, [(5, 1), (0, 0)]) -> bad(3, ...) -> ...: x is the first pair's
+    // first item, 5, and y the first item of the first pair ending in 0, 0,
+    // but the guard being false was read as y >= 1
+    disallowed("""#
+def bad(idx: Int, xs: List[(Int, Int)]) -> Int:
+  loop idx:
+    case _:
+      match xs:
+        case [*_, (x, _), *_] if cmp_Int(x, 1) matches LT: 0
+        case [*_, (y, 0), *_] if cmp_Int(idx, y) matches GT | EQ:
+          bad(sub(idx, y), xs)
+        case _: 0
+""")
+  }
+
+  test("a nested def drops the facts of the name it shadows") {
+    // g(Node(_ -> Node(_ -> Leaf))) -> g(t) -> ...: the inner next returns t,
+    // but kept the outer next's fact that it is smaller than t
+    disallowed("""#
+enum T: Leaf, Node(next: Unit -> T)
+
+def g(t: T) -> Int:
+  loop t:
+    case Leaf: 0
+    case Node(next):
+      match next(()):
+        case Leaf: 0
+        case _:
+          def next(u: Unit) -> T:
+            match u:
+              case (): t
+          g(next(()))
 """)
   }
 

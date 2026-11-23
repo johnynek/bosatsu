@@ -2219,22 +2219,169 @@ object TypedExprRecursionCheck {
         state.comparisonBindings.keySet ++
         currentPattern.names
 
-    // A prior guard that reads an outer name the current pattern rebinds
-    // would be lowered about the wrong value: the guard is lowered in the
-    // current branch's scope, where only the prior pattern's own names are
-    // renamed to the current pattern's names.
-    private def guardReadsNameRebound(
+    // An arm count past which subsumed-guard facts are not worth the
+    // cartesian product of nested unions.
+    private val maxUnionArms = 16
+
+    // The union-free patterns `pattern` is a union of, in the order Bosatsu
+    // tries them. A union binds names by its first arm that matches, and so
+    // does a union nested in a struct or list item, so the arms of a product
+    // come in order with the first part varying slowest. None when there
+    // would be more than maxUnionArms, or when a list search (two or more
+    // globs) would try positions before arms, which no such order describes.
+    private def unionArms(pattern: TypedPattern): Option[List[TypedPattern]] = {
+      def capped[A](arms: List[A]): Option[List[A]] =
+        if (arms.lengthCompare(maxUnionArms) <= 0) Some(arms) else None
+
+      // every choice of one arm per part, the first part varying slowest
+      def product[A](parts: List[List[A]]): Option[List[List[A]]] =
+        parts.foldRight(Option(List(List.empty[A]))) { (part, accOpt) =>
+          accOpt.flatMap(acc => capped(part.flatMap(a => acc.map(a :: _))))
+        }
+
+      pattern match {
+        case Pattern.Union(head, rest) =>
+          (head :: rest.toList).traverse(unionArms).flatMap(arms => capped(arms.flatten))
+        case Pattern.Named(name, inner) =>
+          unionArms(inner).map(_.map(Pattern.Named(name, _)))
+        case Pattern.Annotation(inner, tpe) =>
+          unionArms(inner).map(_.map(Pattern.Annotation(_, tpe)))
+        case Pattern.PositionalStruct(cons, params) =>
+          params
+            .traverse(unionArms)
+            .flatMap(product)
+            .map(_.map(Pattern.PositionalStruct(cons, _)))
+        case Pattern.ListPat(parts) =>
+          val globs = parts.count {
+            case _: Pattern.ListPart.Glob => true
+            case Pattern.ListPart.Item(_) => false
+          }
+          parts
+            .traverse {
+              case Pattern.ListPart.Item(item) =>
+                unionArms(item).map(_.map(Pattern.ListPart.Item(_)))
+              case glob: Pattern.ListPart.Glob =>
+                Some(List(glob))
+            }
+            .flatMap { partArms =>
+              if ((globs > 1) && partArms.exists(_.lengthCompare(1) > 0)) None
+              else product(partArms).map(_.map(Pattern.ListPat(_)))
+            }
+        case Pattern.WildCard | Pattern.Literal(_) | Pattern.Var(_) |
+            Pattern.StrPat(_) =>
+          Some(pattern :: Nil)
+      }
+    }
+
+    // The arms of `priorPattern` that can bind a value `currentPattern`
+    // matches: each arm that overlaps it, up to the first arm that covers
+    // it, since a value that arm matches never reaches a later one. Leaving
+    // an arm out is sound only because the pattern algebra is exact here:
+    // intersection is empty only for disjoint patterns, and difference only
+    // when the arm covers the pattern, as patternSubsumes already assumes.
+    private def candidateArms(
+        priorPattern: TypedPattern,
+        currentPattern: TypedPattern,
+        state: SmtBranchState
+    ): Option[NonEmptyList[TypedPattern]] =
+      unionArms(priorPattern).flatMap { arms =>
+        val (beforeCover, fromCover) =
+          arms.span(arm => !patternSubsumes(arm, currentPattern, state))
+        NonEmptyList.fromList(
+          (beforeCover ::: fromCover.take(1)).filter(arm =>
+            state.totalityCheck.intersection(arm, currentPattern).nonEmpty
+          )
+        )
+      }
+
+    // `name` has the same SMT binding in both states.
+    private def sameBinding(
+        name: Bindable,
+        a: SmtBranchState,
+        b: SmtBranchState
+    ): Boolean =
+      a.intBindings.get(name).exists(e => b.intBindings.get(name).contains(e)) ||
+        a.boolBindings.get(name).exists(e => b.boolBindings.get(name).contains(e)) ||
+        a.comparisonBindings
+          .get(name)
+          .exists(e => b.comparisonBindings.get(name).contains(e))
+
+    // That the guard held, if `arm` bound its pattern's names: the guard with
+    // those names renamed to the current pattern's names that bind the same
+    // values, lowered in `state`. Whole-value aliases give several renames
+    // that are all true at once, so any that lowers will do. None when none
+    // lowers.
+    private def subsumedArmGuardHeld(
+        guardExpr: TypedExpr[Declaration],
+        arm: TypedPattern,
+        currentPattern: TypedPattern,
+        state: SmtBranchState
+    ): Option[(SmtExpr.BoolExpr, SmtBranchState)] = {
+      // a name bound by a list search may be a different element in each
+      // pattern, so it does not rename
+      val searchBound = currentPattern.ambiguousBindings
+      val (heldRev, state1) =
+        alignSubsumedGuardExprAlternatives(guardExpr, arm, currentPattern)
+          .foldLeft((List.empty[SmtExpr.BoolExpr], state)) {
+            case ((held, st0), alignedGuardExpr) =>
+              val guardFree = alignedGuardExpr.freeVarsDup.toSet
+              if (
+                guardFree.subsetOf(availableBranchNames(currentPattern, st0)) &&
+                !guardFree.exists(searchBound)
+              ) {
+                val (guardOpt, stNext) = lowerBoolExpr(alignedGuardExpr, st0)
+                (guardOpt.fold(held)(simplifyBoolExpr(_) :: held), stNext)
+              } else (held, st0)
+          }
+      NonEmptyList
+        .fromList(heldRev.reverse.distinct)
+        .map(held => (mkOr(held.toList.toVector), state1))
+    }
+
+    // The fact that an earlier branch's guard was false, when that branch's
+    // pattern covers the current pattern. `outer` is the state before the
+    // current pattern bound its names, where the earlier guard's outer names
+    // have the values the guard read.
+    // - A union binds names by the arm that matched first, so the fact is
+    //   that the guard was false for one of the arms that can match here. If
+    //   one of them gives no fact, there is none.
+    // - A name the earlier arm binds by a list search does not rename.
+    // - An outer name the guard reads must have its outer value here: the
+    //   current pattern may rebind it only to the same value.
+    private def subsumedGuardFact(
         guardExpr: TypedExpr[Declaration],
         priorPattern: TypedPattern,
-        currentPattern: TypedPattern
-    ): Boolean = {
-      val outerNames = guardExpr.freeVarsDup.toSet -- priorPattern.names
-      currentPattern.names.exists(outerNames)
+        currentPattern: TypedPattern,
+        outer: SmtBranchState,
+        state: SmtBranchState
+    ): Option[(SmtExpr.BoolExpr, SmtBranchState)] = {
+      val guardNames = guardExpr.freeVarsDup.toSet
+      val outerNames = guardNames -- priorPattern.names
+      val outerKept =
+        currentPattern.names.forall(n => !outerNames(n) || sameBinding(n, outer, state))
+      val readsSearchBound = guardNames.exists(priorPattern.ambiguousBindings)
+      if (!outerKept || readsSearchBound) None
+      else
+        candidateArms(priorPattern, currentPattern, state).flatMap { arms =>
+          arms.toList
+            .foldLeft(Option((List.empty[SmtExpr.BoolExpr], state))) {
+              case (acc, arm) =>
+                acc.flatMap { case (heldRev, st) =>
+                  subsumedArmGuardHeld(guardExpr, arm, currentPattern, st).map {
+                    case (held, st1) => (held :: heldRev, st1)
+                  }
+                }
+            }
+            .map { case (heldRev, st1) =>
+              (SmtExpr.Not(mkAnd(heldRev.reverse.toVector)), st1)
+            }
+        }
     }
 
     private def addSubsumedGuardFallthroughFacts(
         priorBranches: List[TypedExpr.Branch[Declaration]],
         currentPattern: TypedPattern,
+        outer: SmtBranchState,
         state: SmtBranchState
     ): SmtBranchState =
       // If a previous branch pattern fully covers the current pattern, falling
@@ -2242,40 +2389,14 @@ object TypedExprRecursionCheck {
       priorBranches.foldLeft(state) { (st, priorBranch) =>
         priorBranch.guard match {
           case Some(guardExpr)
-              if patternSubsumes(priorBranch.pattern, currentPattern, st) &&
-                !guardReadsNameRebound(
-                  guardExpr,
-                  priorBranch.pattern,
-                  currentPattern
-                ) =>
-            val alignedGuards =
-              alignSubsumedGuardExprAlternatives(
-                guardExpr,
-                priorBranch.pattern,
-                currentPattern
-              )
-
-            val (condsRev, st1) =
-              alignedGuards.foldLeft((List.empty[SmtExpr.BoolExpr], st)) {
-                case ((conds, st0), alignedGuardExpr) =>
-                  val guardFree = alignedGuardExpr.freeVarsDup.toSet
-                  if (guardFree.subsetOf(availableBranchNames(currentPattern, st0))) {
-                    val (guardOpt, stNext) = lowerBoolExpr(alignedGuardExpr, st0)
-                    guardOpt match {
-                      case Some(guardCond) =>
-                        (simplifyBoolExpr(guardCond) :: conds, stNext)
-                      case None =>
-                        (conds, stNext)
-                    }
-                  } else (conds, st0)
-              }
-
-            if (condsRev.isEmpty) st1
-            else
-              addPathFactIfNonTrivial(
-                SmtExpr.Not(mkOr(condsRev.reverse.distinct.toVector)),
-                st1
-              )
+              if patternSubsumes(priorBranch.pattern, currentPattern, st) =>
+            subsumedGuardFact(
+              guardExpr,
+              priorBranch.pattern,
+              currentPattern,
+              outer,
+              st
+            ).fold(st) { case (fact, st1) => addPathFactIfNonTrivial(fact, st1) }
           case _ =>
             st
         }
@@ -2294,8 +2415,8 @@ object TypedExprRecursionCheck {
     ): NonEmptyList[SmtBranchState] = {
       val analyzed = matchFallthroughFacts(argExpr, branches, state)
       val start = mergeSymbolState(analyzed.symbolState, state)
-      val facts = analyzed.facts.toList
-      NonEmptyList.fromListUnsafe(facts.zipWithIndex.map {
+      val priorBranches = analyzed.facts.toList.map(_._1)
+      analyzed.facts.zipWithIndex.map {
         case ((branch, fallthroughFact), idx) =>
           val withPattern =
             bindAliases(
@@ -2304,12 +2425,13 @@ object TypedExprRecursionCheck {
             )
           val withSubsumed =
             addSubsumedGuardFallthroughFacts(
-              facts.take(idx).map(_._1),
+              priorBranches.take(idx),
               branch.pattern,
+              start,
               withPattern
             )
           addPathFactIfNonTrivial(fallthroughFact, withSubsumed)
-      })
+      }
     }
 
     private def buildPathCondition(state: SmtBranchState): SmtExpr.BoolExpr =
@@ -2487,33 +2609,40 @@ object TypedExprRecursionCheck {
             topLevelPredefAliases(currentPackage, lets)
           )
 
-          // mirrors how checkExpr threads the SMT state into a let's body and
-          // a match branch's body
+          // Mirrors how checkExpr threads the SMT state into a let's body and
+          // a match branch's body. A work list keeps deep bodies off the stack.
+          @annotation.tailrec
           def walk(
-              expr: TypedExpr[Declaration],
-              state: SmtBranchState
-          ): List[(BigInt, Vector[SmtExpr.BoolExpr])] =
-            stripExprWrappers(expr) match {
-              case TypedExpr.Literal(Lit.Integer(leaf), _, _) =>
-                (BigInt(leaf), state.pathFacts) :: Nil
-              case TypedExpr.Let(n, value, in, rec, _) if !rec.isRecursive =>
-                walk(in, bindLetName(n, value, state))
-              case TypedExpr.Match(arg, branches, _) =>
-                val entryStates =
-                  matchBranchEntryStates(arg, branches, state)((_, st) => st)
-                branches.toList.zip(entryStates.toList).flatMap {
-                  case (branch, entry) =>
-                    walk(branch.expr, addBranchGuardFacts(branch.guardNode, entry))
+              todo: List[(TypedExpr[Declaration], SmtBranchState)],
+              leaves: Map[BigInt, Vector[SmtExpr.BoolExpr]]
+          ): Map[BigInt, Vector[SmtExpr.BoolExpr]] =
+            todo match {
+              case Nil                   => leaves
+              case (expr, state) :: rest =>
+                stripExprWrappers(expr) match {
+                  case TypedExpr.Literal(Lit.Integer(leaf), _, _) =>
+                    walk(rest, leaves.updated(BigInt(leaf), state.pathFacts))
+                  case TypedExpr.Let(n, value, in, rec, _) if !rec.isRecursive =>
+                    walk((in, bindLetName(n, value, state)) :: rest, leaves)
+                  case TypedExpr.Match(arg, branches, _) =>
+                    val entryStates =
+                      matchBranchEntryStates(arg, branches, state)((_, st) => st)
+                    val bodies =
+                      branches.toList.zip(entryStates.toList).map {
+                        case (branch, entry) =>
+                          (branch.expr, addBranchGuardFacts(branch.guardNode, entry))
+                      }
+                    walk(bodies ::: rest, leaves)
+                  case _ =>
+                    walk(rest, leaves)
                 }
-              case _ =>
-                Nil
             }
 
           LeafPathFacts(
             state0.intBindings,
             state0.boolBindings,
             state0.comparisonBindings,
-            walk(body, state0).toMap
+            walk((body, state0) :: Nil, Map.empty)
           )
         }
 
@@ -3459,6 +3588,16 @@ object TypedExprRecursionCheck {
         proofs.map(_.without(newNames))
       }
 
+    // Check `in` with `newNames` bound to values nothing is known about: the
+    // proofs and the SMT state drop what they knew about the outer names
+    // with the same spelling.
+    private def withShadowingNames[A](newNames: List[Bindable])(in: St[A]): St[A] = {
+      val withProofs = filterNames(newNames)(in)
+      withTemporaryRecurBranchSmtState(withProofs, _ => withProofs)(
+        _.removeBindings(newNames)
+      )
+    }
+
     private def withTemporaryExprBindingProofs[A](
         name: Bindable,
         expr: TypedExpr[Declaration]
@@ -3918,13 +4057,16 @@ object TypedExprRecursionCheck {
                   Some(normalizedDefArgs(defstmt.args))
                 case _                          => None
               }
+            // in `in`, arg is the new def, so drop facts about the name
+            // it shadows
+            val inCheck = withShadowingNames(arg :: Nil)(
+              checkExpr(currentPackage, in, wrappers)
+            )
             getSt.flatMap { state =>
               val checkedDef =
                 checkDef(currentPackage, state, arg, ex, fromSource)
               val checkedIn =
-                Validated.fromEither(
-                  checkExpr(currentPackage, in, wrappers).run(state).value
-                ).map(_._1)
+                Validated.fromEither(inCheck.run(state).value).map(_._1)
 
               (checkedDef *> checkedIn) match {
                 case Validated.Valid(nextState) =>
@@ -4058,7 +4200,7 @@ object TypedExprRecursionCheck {
                 case ir @ InDef(_, defname, typedArgs, sourceArgs, _, _, _, _, locals) =>
                   toSt(getRecurTarget(defname, sourceArgs, typedArgs, recur, locals)).flatMap {
                     target =>
-                      val sourcePatterns = recur.cases.get.map(_.pattern).toList
+                      val sourcePatterns = recur.cases.get.map(_.pattern).toList.toVector
                       val inrec = ir.setRecur(target, recur)
                       // Same order and length as `branches`. The source
                       // patterns' whole-value aliases of the targets are bound
@@ -4066,7 +4208,9 @@ object TypedExprRecursionCheck {
                       val entryStates =
                         matchBranchEntryStates(arg, branches, inrec.entrySmtState) {
                           (idx, st) =>
-                            bindSourcePatternAliases(inrec, sourcePatterns(idx), st)
+                            sourcePatterns
+                              .lift(idx)
+                              .fold(st)(bindSourcePatternAliases(inrec, _, st))
                         }
 
                       // on all these branches, use the same parent state
