@@ -11,6 +11,14 @@ the type has no value.
 Uninhabited, so a wrong Uninhabited answer would admit a match that fails at
 runtime. Inhabited and Unknown answers never let a match omit a branch.
 
+Only `checkType` is modelled. `TotalityCheck` reaches it through
+`checkPattern`, whose own Uninhabited rules (`definitelyDisjoint` annotations,
+literal and string patterns against other types, a constructor of a different
+type, prefix-glob list patterns) are not covered here. A wildcard or variable
+pattern is exactly `checkType`, and a constructor pattern whose sub-patterns
+are wildcards is the constructor's existential quantifier over the `andStates`
+of `checkType` on its fields.
+
 ## Syntax
 
 Types are locally nameless:
@@ -124,9 +132,10 @@ theorem size_openAt (lvl n : Nat) (t : Ty) : size (openAt lvl n t) = size t := b
 /--
 A constructor. Its field types are under a binder of
 `nex` existential variables (indices `0 .. nex-1`) followed by the type
-parameters (indices `nex .. nex+nparams-1`). A constructor whose existential
-has a non-`*` kind is modelled with an `opaque` field, which the checker also
-answers Unknown for.
+parameters (indices `nex .. nex+nparams-1`). A constructor with an existential
+of a non-`*` kind, which `evaluateQuantifier` answers Unknown for without
+looking at its fields, is modelled as a constructor with no existentials and
+the single field `opaque`, which gives the same answer.
 -/
 structure Ctor where
   nex : Nat
@@ -307,6 +316,34 @@ def Body (E : Env) (Ext : Interp) (Op : Nat → List Prop → Prop) (J : Interp)
 
 abbrev Point := Nat × List Ty × List Prop
 
+/-! ### Scoping
+
+`WF k j t`: `t` mentions only levels below `k`, and only indices below `j`
+when it sits under `j` binders. The semantics of a data type only makes sense
+for arguments that are well scoped in its environment: opening more variables
+must not change what the arguments mean.
+-/
+
+def WF (k : Nat) : Nat → Ty → Prop
+  | j, .bvar i => i < j
+  | _, .fvar l => l < k
+  | _, .prim _ => True
+  | _, .opaque _ => True
+  | j, .arr a b => WF k j a ∧ WF k j b
+  | j, .all n b => WF k (j + n) b
+  | j, .ex n b => WF k (j + n) b
+  | _, .con _ => True
+  | j, .app f a => WF k j f ∧ WF k j a
+
+/-- The arguments of `D[args]` are well scoped in `ρ`. -/
+def Scoped (ρ : List Prop) (args : List Ty) : Prop :=
+  ∀ a ∈ args, WF ρ.length 0 a
+
+/-- Field types mention only their constructor's existentials and the type
+parameters, as in a Bosatsu `DefinedType`. -/
+def EnvWF (E : Env) : Prop :=
+  ∀ d dt, E d = some dt → ∀ c ∈ dt.ctors, ∀ f ∈ c.fields, WF 0 (c.nex + dt.nparams) f
+
 /-- `D[args]` at `ρ` is assumed to have no value by `X` if `X` holds it at a
 prefix of `ρ` (an assumption made before more variables were opened). -/
 def Forced (X : List Point) (d : Nat) (args : List Ty) (ρ : List Prop) : Prop :=
@@ -318,13 +355,13 @@ to have no values, `W X` says which data types have values.
 
 `W []` is the semantics proper. The other worlds exist because the cycle rule
 reasons under assumptions: "if `D[args]` has no value, then neither do these
-fields".
+fields". Each hypothesis is only about well-scoped `D[args]`.
 
 * `fix`: values of `D[args]` are constructor applications, except that the
   types in `X` have none.
 * `discharge`: if `D[args]` cannot be built when it is itself assumed empty,
-  then assuming it empty changes nothing. This is what "values are *finite*
-  constructor trees" (a least fixed point) gives, and it fails for
+  then it is empty. This is induction on values, which holds because values
+  are *finite* constructor trees (a least fixed point); it fails for
   non-terminating values. Bosatsu's recursion check, which rejects general
   recursion, is what makes values finite.
 * `cov`: assuming fewer types empty never makes `D[args]` harder to build.
@@ -333,17 +370,104 @@ fields".
 -/
 structure Model (E : Env) (Ext : Interp) (Op : Nat → List Prop → Prop) where
   W : List Point → Interp
-  fix : ∀ X d args ρ,
-    W X d args ρ ↔ (¬Forced X d args ρ ∧ Body E Ext Op (W X) d args ρ)
-  discharge : ∀ X d args ρ, ¬Forced X d args ρ →
-    ¬Body E Ext Op (W ((d, args, ρ) :: X)) d args ρ →
-    ∀ e a r, W ((d, args, ρ) :: X) e a r ↔ W X e a r
-  cov : ∀ X d args ρ, ¬Forced X d args ρ →
+  fix : ∀ X d args ρ, Scoped ρ args →
+    (W X d args ρ ↔ (¬Forced X d args ρ ∧ Body E Ext Op (W X) d args ρ))
+  discharge : ∀ X d args ρ, Scoped ρ args → ¬Forced X d args ρ →
+    ¬Body E Ext Op (W ((d, args, ρ) :: X)) d args ρ → ¬W X d args ρ
+  cov : ∀ X d args ρ, Scoped ρ args → ¬Forced X d args ρ →
     Body E Ext Op (W ((d, args, ρ) :: X)) d args ρ → Body E Ext Op (W X) d args ρ
 
 /-- The closed type `t` has a value. -/
 def Model.HasValue {E Ext Op} (M : Model E Ext Op) (t : Ty) : Prop :=
   sem Op (M.W []) [] t
+
+/-! ### Scoping lemmas -/
+
+theorem WF.mono {k k' : Nat} (hk : k ≤ k') :
+    ∀ {j j' : Nat} (t : Ty), j ≤ j' → WF k j t → WF k' j' t
+  | _, _, .bvar _, hj, h => by simp only [WF] at h ⊢; omega
+  | _, _, .fvar _, _, h => by simp only [WF] at h ⊢; omega
+  | _, _, .prim _, _, _ => trivial
+  | _, _, .opaque _, _, _ => trivial
+  | _, _, .arr a b, hj, h => ⟨WF.mono hk a hj h.1, WF.mono hk b hj h.2⟩
+  | _, _, .all n b, hj, h => WF.mono hk b (by omega) h
+  | _, _, .ex n b, hj, h => WF.mono hk b (by omega) h
+  | _, _, .con _, _, _ => trivial
+  | _, _, .app f a, hj, h => ⟨WF.mono hk f hj h.1, WF.mono hk a hj h.2⟩
+
+theorem WF.inst {k k' : Nat} {vs : List Ty} (hk : k ≤ k') (hvs : ∀ v ∈ vs, WF k' 0 v) :
+    ∀ (j : Nat) (t : Ty), WF k (j + vs.length) t → WF k' j (Inhabitedness.inst j vs t)
+  | j, .bvar i, h => by
+      simp only [WF] at h
+      simp only [Inhabitedness.inst]
+      split
+      · simp only [WF]; assumption
+      · rename_i hij
+        have hlt : i - j < vs.length := by omega
+        rw [List.getElem?_eq_getElem hlt]
+        exact WF.mono (Nat.le_refl _) _ (Nat.zero_le _) (hvs _ (List.getElem_mem hlt))
+  | _, .fvar _, h => by simp only [WF, Inhabitedness.inst] at h ⊢; omega
+  | _, .prim _, _ => trivial
+  | _, .opaque _, _ => trivial
+  | j, .arr a b, h => ⟨WF.inst hk hvs j a h.1, WF.inst hk hvs j b h.2⟩
+  | j, .all n b, h => by
+      simp only [WF, Inhabitedness.inst] at h ⊢
+      exact WF.inst hk hvs (j + n) b (by rwa [Nat.add_right_comm])
+  | j, .ex n b, h => by
+      simp only [WF, Inhabitedness.inst] at h ⊢
+      exact WF.inst hk hvs (j + n) b (by rwa [Nat.add_right_comm])
+  | _, .con _, _ => trivial
+  | j, .app f a, h => ⟨WF.inst hk hvs j f h.1, WF.inst hk hvs j a h.2⟩
+
+theorem WF.openAt {k n : Nat} {b : Ty} (h : WF k n b) : WF (k + n) 0 (openAt k n b) := by
+  apply WF.inst (Nat.le_add_right k n)
+  · intro v hv
+    simp only [levels, List.mem_map, List.mem_range] at hv
+    obtain ⟨i, hi, rfl⟩ := hv
+    simp only [WF]
+    omega
+  · simpa [levels] using h
+
+theorem WF.spine {k : Nat} :
+    ∀ (t : Ty) (acc : List Ty) {d : Nat} {args : List Ty},
+      spine t acc = some (d, args) → WF k 0 t → (∀ a ∈ acc, WF k 0 a) →
+      ∀ a ∈ args, WF k 0 a
+  | .con _, acc, _, _, h, _, hacc => by
+      cases h
+      exact hacc
+  | .app f a, acc, _, _, h, ht, hacc => by
+      refine WF.spine f (a :: acc) h ht.1 ?_
+      intro x hx
+      simp only [List.mem_cons] at hx
+      rcases hx with rfl | hx
+      · exact ht.2
+      · exact hacc x hx
+  | .bvar _, _, _, _, h, _, _ => by cases h
+  | .fvar _, _, _, _, h, _, _ => by cases h
+  | .prim _, _, _, _, h, _, _ => by cases h
+  | .opaque _, _, _, _, h, _, _ => by cases h
+  | .arr _ _, _, _, _, h, _, _ => by cases h
+  | .all _ _, _, _, _, h, _, _ => by cases h
+  | .ex _ _, _, _, _, h, _, _ => by cases h
+
+theorem WF.asData {ρ : List Prop} {t : Ty} {d : Nat} {args : List Ty}
+    (h : asData t = some (d, args)) (ht : WF ρ.length 0 t) : Scoped ρ args :=
+  WF.spine t [] h ht (by simp)
+
+theorem WF.field {E : Env} (hE : EnvWF E) {d : Nat} {dt : DataDef} (hd : E d = some dt)
+    {c : Ctor} (hc : c ∈ dt.ctors) {f : Ty} (hf : f ∈ c.fields) {ρ : List Prop}
+    {args : List Ty} (hlen : dt.nparams = args.length) (hargs : Scoped ρ args)
+    (ws : List Prop) (hws : ws.length = c.nex) :
+    WF (ρ ++ ws).length 0 (Inhabitedness.inst 0 (levels ρ.length c.nex ++ args) f) := by
+  apply WF.inst (Nat.zero_le _)
+  · intro v hv
+    simp only [List.mem_append, levels, List.mem_map, List.mem_range] at hv
+    rcases hv with ⟨i, hi, rfl⟩ | hv
+    · simp only [WF, List.length_append]
+      omega
+    · exact WF.mono (by simp) _ (Nat.le_refl _) (hargs v hv)
+  · have := hE d dt hd c hc f hf
+    simpa [levels, hlen] using this
 
 /-! ## Lemmas about the checker's pieces -/
 
@@ -500,14 +624,15 @@ needs an Inhabited argument.
 /-- What the soundness proof needs of a recursive checker. -/
 def Sound {E Ext Op} (M : Model E Ext Op)
     (rec : List (Nat × List Ty) → List St → Ty → St) : Prop :=
-  ∀ seen σ t X ρ, Compat σ ρ → SeenInv seen X ρ →
+  ∀ seen σ t X ρ, Compat σ ρ → SeenInv seen X ρ → WF ρ.length 0 t →
     (rec seen σ t = .un → ¬sem Op (M.W X) ρ t) ∧
     (rec seen σ t = .inh → sem Op (M.W X) ρ t)
 
 /-- The data-type case, including the cycle rule. -/
-theorem sound_dataState {E Ext Op} (M : Model E Ext Op) (cap : Nat)
+theorem sound_dataState {E Ext Op} (M : Model E Ext Op) (hEnv : EnvWF E) (cap : Nat)
     {rec : List (Nat × List Ty) → List St → Ty → St} (IH : Sound M rec)
-    {seen σ X ρ} (d : Nat) (args : List Ty) (hc : Compat σ ρ) (hs : SeenInv seen X ρ) :
+    {seen σ X ρ} (d : Nat) (args : List Ty) (hc : Compat σ ρ) (hs : SeenInv seen X ρ)
+    (hargs : Scoped ρ args) :
     (dataState E cap rec seen σ d args = .un → ¬M.W X d args ρ) ∧
     (dataState E cap rec seen σ d args = .inh → M.W X d args ρ) := by
   unfold dataState
@@ -518,7 +643,7 @@ theorem sound_dataState {E Ext Op} (M : Model E Ext Op) (cap : Nat)
     by_cases hseen : (d, args) ∈ seen
     · -- cycle rule: `D[args]` is assumed empty, and `fix` says so
       simp only [hseen, ite_true]
-      refine ⟨fun _ hW => ((M.fix X d args ρ).1 hW).1 (hs.1 d args hseen), fun h => by cases h⟩
+      refine ⟨fun _ hW => ((M.fix X d args ρ hargs).1 hW).1 (hs.1 d args hseen), fun h => by cases h⟩
     · simp only [hseen, ite_false]
       by_cases hp : dt.nparams ≠ args.length
       · simp [hp]
@@ -537,6 +662,7 @@ theorem sound_dataState {E Ext Op} (M : Model E Ext Op) (cap : Nat)
             · rename_i h
               exact absurd ⟨Classical.not_not.1 hp, hne⟩ h
           have hlen : σ.length = ρ.length := hc.length
+          have hnp : dt.nparams = args.length := Classical.not_not.1 hp
           constructor
           · -- every constructor is Uninhabited assuming `D[args]` is empty
             intro hun hW
@@ -552,14 +678,12 @@ theorem sound_dataState {E Ext Op} (M : Model E Ext Op) (cap : Nat)
                 rw [hws] at has
                 obtain ⟨s, hsmem, hsun⟩ := andS_un (orS_un hcs _ (List.mem_map_of_mem has))
                 obtain ⟨f, hfmem, rfl⟩ := List.mem_map.1 hsmem
-                have h := (IH _ _ _ ((d, args, ρ) :: X) (ρ ++ ws) (hc.append hcomp)
-                  (hs.push d args ws)).1 hsun
-                rw [hlen] at h
-                exact h (hf f hfmem)
-            -- so assuming it empty changed nothing, and it is empty
-            have hW' : M.W ((d, args, ρ) :: X) d args ρ :=
-              (M.discharge X d args ρ hnf hnb d args ρ).2 hW
-            exact ((M.fix _ d args ρ).1 hW').1 ⟨ρ, [], List.mem_cons_self, by simp⟩
+                rw [hlen] at hsun
+                exact (IH _ _ _ ((d, args, ρ) :: X) (ρ ++ ws) (hc.append hcomp)
+                  (hs.push d args ws) (WF.field hEnv hE hcmem hfmem hnp hargs ws hws)).1 hsun
+                  (hf f hfmem)
+            -- so it cannot be built at all (induction on finite values)
+            exact M.discharge X d args ρ hargs hnf hnb hW
           · -- some constructor is Inhabited even assuming `D[args]` is empty
             intro hinh
             obtain ⟨s, hsmem, hsinh⟩ := orS_inh hinh
@@ -574,18 +698,20 @@ theorem sound_dataState {E Ext Op} (M : Model E Ext Op) (cap : Nat)
               have hbody : Body E Ext Op (M.W ((d, args, ρ) :: X)) d args ρ := by
                 rw [hBody]
                 refine ⟨c, hcmem, as.map stProp, by simp [haslen], fun f hf => ?_⟩
-                have h := (IH _ _ _ ((d, args, ρ) :: X) (ρ ++ as.map stProp) (hc.append hcomp)
-                  (hs.push d args _)).2 (hall _ (List.mem_map_of_mem hf))
-                rwa [hlen] at h
-              exact (M.fix X d args ρ).2 ⟨hnf, M.cov X d args ρ hnf hbody⟩
+                have hfi := hall _ (List.mem_map_of_mem hf)
+                rw [hlen] at hfi
+                exact (IH _ _ _ ((d, args, ρ) :: X) (ρ ++ as.map stProp) (hc.append hcomp)
+                  (hs.push d args _)
+                  (WF.field hEnv hE hcmem hf hnp hargs _ (by simp [haslen]))).2 hfi
+              exact (M.fix X d args ρ hargs).2 ⟨hnf, M.cov X d args ρ hargs hnf hbody⟩
 
 /-- Soundness of the checker at every fuel, `seen` set and `varState`. -/
-theorem sound {E Ext Op} (M : Model E Ext Op) (cap : Nat) :
+theorem sound {E Ext Op} (M : Model E Ext Op) (hEnv : EnvWF E) (cap : Nat) :
     ∀ fuel, Sound M (check E cap fuel)
-  | 0 => by intro seen σ t X ρ _ _; simp [check]
+  | 0 => by intro seen σ t X ρ _ _ _; simp [check]
   | fuel + 1 => by
-    intro seen σ t X ρ hc hs
-    have IH := sound M cap fuel
+    intro seen σ t X ρ hc hs ht
+    have IH := sound M hEnv cap fuel
     have hlen : σ.length = ρ.length := hc.length
     cases t with
     | bvar _ => simp [check]
@@ -595,8 +721,8 @@ theorem sound {E Ext Op} (M : Model E Ext Op) (cap : Nat) :
     | prim _ => simp [check, sem]
     | «opaque» _ => simp [check]
     | arr a b =>
-        have ha := IH seen σ a X ρ hc hs
-        have hb := IH seen σ b X ρ hc hs
+        have ha := IH seen σ a X ρ hc hs ht.1
+        have hb := IH seen σ b X ρ hc hs ht.2
         simp only [check, sem]
         constructor
         · intro h hf
@@ -616,13 +742,16 @@ theorem sound {E Ext Op} (M : Model E Ext Op) (cap : Nat) :
             obtain ⟨s, hsmem, hsun⟩ := andS_un h
             obtain ⟨as, has, rfl⟩ := List.mem_map.1 hsmem
             obtain ⟨haslen, hcomp⟩ := assigns_compat has
-            have h' := (IH seen _ _ X _ (hc.append hcomp) (hs.extend _)).1 hsun
+            have h' := (IH seen _ _ X _ (hc.append hcomp) (hs.extend _)
+              (by rw [List.length_append, List.length_map, haslen, ← hlen]
+                  rw [hlen]; exact WF.openAt (by simpa [WF] using ht))).1 hsun
             rw [hlen] at h'
             exact h' (hall _ (by simp [haslen]))
           · intro h xs hxs
             obtain ⟨as, has, hcomp⟩ := exists_assign xs
             rw [hxs] at has
-            have h' := (IH seen _ _ X _ (hc.append hcomp) (hs.extend _)).2
+            have h' := (IH seen _ _ X _ (hc.append hcomp) (hs.extend _)
+              (by rw [List.length_append, hxs, hlen]; exact WF.openAt (by simpa [WF] using ht))).2
               (andS_inh h _ (List.mem_map_of_mem has))
             rwa [hlen] at h'
     | ex n b =>
@@ -634,7 +763,8 @@ theorem sound {E Ext Op} (M : Model E Ext Op) (cap : Nat) :
           · rintro h ⟨xs, hxs, hv⟩
             obtain ⟨as, has, hcomp⟩ := exists_assign xs
             rw [hxs] at has
-            have h' := (IH seen _ _ X _ (hc.append hcomp) (hs.extend _)).1
+            have h' := (IH seen _ _ X _ (hc.append hcomp) (hs.extend _)
+              (by rw [List.length_append, hxs, hlen]; exact WF.openAt (by simpa [WF] using ht))).1
               (orS_un h _ (List.mem_map_of_mem has))
             rw [hlen] at h'
             exact h' hv
@@ -642,13 +772,15 @@ theorem sound {E Ext Op} (M : Model E Ext Op) (cap : Nat) :
             obtain ⟨s, hsmem, hsinh⟩ := orS_inh h
             obtain ⟨as, has, rfl⟩ := List.mem_map.1 hsmem
             obtain ⟨haslen, hcomp⟩ := assigns_compat has
-            have h' := (IH seen _ _ X _ (hc.append hcomp) (hs.extend _)).2 hsinh
+            have h' := (IH seen _ _ X _ (hc.append hcomp) (hs.extend _)
+              (by rw [List.length_append, List.length_map, haslen, hlen]
+                  exact WF.openAt (by simpa [WF] using ht))).2 hsinh
             rw [hlen] at h'
             exact ⟨_, by simp [haslen], h'⟩
     | con d =>
         rw [sem_data (.inl ⟨d, rfl⟩)]
         simp only [check, asData, spine, semData]
-        exact sound_dataState M cap IH d [] hc hs
+        exact sound_dataState M hEnv cap IH d [] hc hs (by simp [Scoped])
     | app f a =>
         rw [sem_data (.inr ⟨f, a, rfl⟩)]
         cases hd : asData (.app f a) with
@@ -656,21 +788,25 @@ theorem sound {E Ext Op} (M : Model E Ext Op) (cap : Nat) :
         | some p =>
             obtain ⟨d, args⟩ := p
             simp only [check, semData, hd]
-            exact sound_dataState M cap IH d args hc hs
+            exact sound_dataState M hEnv cap IH d args hc hs (WF.asData hd ht)
 
 /--
 **Soundness.** If the checker says a closed type is Uninhabited, the type has
-no value, in every semantics `M` of the environment, for every cap and fuel.
+no value, in every semantics `M` of a well-formed environment, for every cap
+and fuel. (`TotalityCheck` closes a scrutinee's free type variables with
+`exists` before checking it, so its types are closed.)
 -/
-theorem uninhabited_sound {E Ext Op} (M : Model E Ext Op) (cap fuel : Nat) (t : Ty)
+theorem uninhabited_sound {E Ext Op} (M : Model E Ext Op) (hEnv : EnvWF E)
+    (cap fuel : Nat) (t : Ty) (ht : WF 0 0 t)
     (h : check E cap fuel [] [] t = .un) : ¬M.HasValue t :=
-  (sound M cap fuel [] [] t [] [] .nil ⟨by simp, by simp⟩).1 h
+  (sound M hEnv cap fuel [] [] t [] [] .nil ⟨by simp, by simp⟩ ht).1 h
 
 /-- Inhabited answers are also sound for this semantics. (TotalityCheck does
 not rely on them; see "Assumptions".) -/
-theorem inhabited_sound {E Ext Op} (M : Model E Ext Op) (cap fuel : Nat) (t : Ty)
+theorem inhabited_sound {E Ext Op} (M : Model E Ext Op) (hEnv : EnvWF E)
+    (cap fuel : Nat) (t : Ty) (ht : WF 0 0 t)
     (h : check E cap fuel [] [] t = .inh) : M.HasValue t :=
-  (sound M cap fuel [] [] t [] [] .nil ⟨by simp, by simp⟩).2 h
+  (sound M hEnv cap fuel [] [] t [] [] .nil ⟨by simp, by simp⟩ ht).2 h
 
 /-! ## Example: `P` is uninhabited through the cycle rule and function arguments
 
@@ -697,7 +833,21 @@ def exampleEnv : Env
   | 0 => some ⟨0, [⟨0, [.con 0]⟩]⟩
   | 1 => some ⟨0, [⟨0, [.arr (.arr (.con 1) (.con 0)) (.con 0)]⟩]⟩
   | 2 => some ⟨0, [⟨0, [.con 1]⟩, ⟨0, [.prim 0]⟩]⟩
+  -- `enum Opt[a]: None, Some(v: a)`, to have a type with a parameter
+  | 3 => some ⟨1, [⟨0, []⟩, ⟨0, [.bvar 0]⟩]⟩
   | _ => none
+
+theorem exampleEnv_wf : EnvWF exampleEnv := by
+  intro d dt hd c hc f hf
+  match d, hd with
+  | 0, hd | 1, hd | 2, hd | 3, hd =>
+      simp only [exampleEnv, Option.some.injEq] at hd
+      subst hd
+      simp only [List.mem_cons, List.mem_nil_iff, or_false] at hc
+      rcases hc with rfl | rfl <;>
+        simp only [List.mem_cons, List.mem_nil_iff, or_false] at hf <;>
+        subst hf <;> simp [WF]
+  | n + 4, hd => simp [exampleEnv] at hd
 
 theorem example_check_P : checkTop exampleEnv 10 (.con 1) = .un := by decide
 
@@ -705,14 +855,18 @@ theorem example_check_Never : checkTop exampleEnv 10 (.con 0) = .un := by decide
 
 theorem example_check_Q : checkTop exampleEnv 10 (.con 2) = .inh := by decide
 
+/-- `forall a. Opt[a]` is Inhabited (by `None`). -/
+theorem example_check_Opt :
+    checkTop exampleEnv 10 (.all 1 (.app (.con 3) (.bvar 0))) = .inh := by decide
+
 /-- In every semantics of the environment, `P` (so `HasP`) has no value. -/
 theorem example_P_has_no_value {Ext Op} (M : Model exampleEnv Ext Op) :
     ¬M.HasValue (.con 1) :=
-  uninhabited_sound M maxQuantifierVars 10 (.con 1) example_check_P
+  uninhabited_sound M exampleEnv_wf maxQuantifierVars 10 (.con 1) trivial example_check_P
 
 /-! A semantics of this environment exists, so the hypotheses of `Model` are
-not vacuous here: `Never` and `P` have no values, `Q` has values, and the
-checker cannot see into anything else (taken as inhabited). -/
+not vacuous here: `Never` and `P` have no values, `Q` and every `Opt[a]` have
+values, and the checker cannot see into anything else (taken as inhabited). -/
 
 def exampleV (d : Nat) (args : List Ty) : Prop :=
   ¬((d = 0 ∨ d = 1) ∧ args = [])
@@ -730,34 +884,27 @@ theorem example_body (Op : Nat → List Prop → Prop) (Y : List Point) (d : Nat
       simp [Body, exampleEnv, exampleV, exampleW, sem, semData, asData, spine, inst, levels]
   | 2, [] =>
       simp [Body, exampleEnv, exampleV, exampleW, sem, semData, asData, spine, inst, levels]
+  | 3, [_] => simp [Body, exampleEnv, exampleV]
   | 0, _ :: _ => simp [Body, exampleEnv, exampleV]
   | 1, _ :: _ => simp [Body, exampleEnv, exampleV]
   | 2, _ :: _ => simp [Body, exampleEnv, exampleV]
-  | n + 3, _ => simp [Body, exampleEnv, exampleV]
+  | 3, [] => simp [Body, exampleEnv, exampleV]
+  | 3, _ :: _ :: _ => simp [Body, exampleEnv, exampleV]
+  | n + 4, _ => simp [Body, exampleEnv, exampleV]
 
 def exampleModel (Op : Nat → List Prop → Prop) :
     Model exampleEnv (fun _ _ _ => True) Op where
   W := exampleW
   fix := by
-    intro X d args ρ
+    intro X d args ρ _
     rw [example_body]
     rfl
   discharge := by
-    intro X d args ρ _ hnb e a r
+    intro X d args ρ _ _ hnb hW
     rw [example_body] at hnb
-    simp only [exampleW]
-    constructor
-    · rintro ⟨hf, hv⟩
-      refine ⟨fun ⟨ρ0, xs, hm, hr⟩ => hf ⟨ρ0, xs, List.mem_cons_of_mem _ hm, hr⟩, hv⟩
-    · rintro ⟨hf, hv⟩
-      refine ⟨fun ⟨ρ0, xs, hm, hr⟩ => ?_, hv⟩
-      simp only [List.mem_cons] at hm
-      rcases hm with heq | hm
-      · cases heq
-        exact hnb hv
-      · exact hf ⟨ρ0, xs, hm, hr⟩
+    exact hnb hW.2
   cov := by
-    intro X d args ρ _ h
+    intro X d args ρ _ _ h
     rw [example_body] at h ⊢
     exact h
 
@@ -786,31 +933,66 @@ theorem capture_example :
     checkTop captureEnv 10 (.all 1 (.app (.con 0) (.bvar 0))) = .inh := by decide
 
 /-!
+The same happens through `normalize` renaming a quantifier inside a field:
+
+```
+enum D[x]: A(v: x), B(w: exists y. D[y])
+```
+
+`forall b. D[b]` has the value `B(A(1))`. Scala renames `b` to `a`, then the
+field's `exists y. D[y]` to `exists a. D[a]`, which matches the `seen` entry
+`D[a]` for the outer `a`, so Scala answers Uninhabited.
+-/
+
+def captureNestedEnv : Env
+  | 0 => some ⟨1, [⟨0, [.bvar 0]⟩, ⟨0, [.ex 1 (.app (.con 0) (.bvar 0))]⟩]⟩
+  | _ => none
+
+theorem capture_nested_example :
+    checkTop captureNestedEnv 10 (.all 1 (.app (.con 0) (.bvar 0))) = .inh := by decide
+
+/-!
 ## Assumptions
 
 `uninhabited_sound` is proved from the hypotheses of `Model`. Relating it to
 Bosatsu programs takes the following assumptions about the rest of Bosatsu.
 
 1. **The Scala checker computes `check`.** `Analyzer.checkType` on a
-   well-kinded type gives the same answer as `check` on its translation
-   (constants with a definition are `con`, built-in always-inhabited types are
-   `prim`, quantified variables of kind `*` are `fvar`/`bvar`, and everything
-   the checker answers Unknown for without looking inside is `opaque`). Two
-   known gaps:
+   well-kinded type gives the same answer as `check` on its translation. The
+   translation is taken after `Type.normalize` (which drops unused binders and
+   merges adjacent ones): constants with a definition are `con`, built-in
+   always-inhabited types are `prim`, quantified variables of kind `*` are
+   `fvar`/`bvar`, and everything the checker answers Unknown for without
+   looking inside is `opaque`. Known gaps:
    * *Name capture.* Scala names variables; the model gives every opened
-     variable a fresh level. The Scala code reuses a constructor's declared
-     existential names (`varState ++ assignment`, and `seen` holds types that
-     mention those names), so an existential can capture an outer variable of
-     the same name. `capture_example` is a type where this changes the answer
-     to an unsound Uninhabited, and it is reachable from source: a match on
-     `enum Q: HasT(t: forall b. T[b]), Other` that omits `HasT` is accepted.
-     The proof covers the Scala code only once existentials are renamed apart
-     from the free variables of the type being checked and of `seen`.
+     variable a fresh level. The Scala code does not keep names apart:
+     `normalize` renames every quantifier binder to the first free names
+     (`a`, `b`, ...), avoiding only the body's own free variables, and a
+     constructor's existentials keep their declared names
+     (`varState ++ assignment`). Either can reuse the name of a variable that
+     is already in `varState` or in a `seen` entry, and then the cycle rule
+     fires for a different type. Two reachable cases, both accepted by
+     TotalityCheck as matches that omit a constructor which has values:
+     `capture_example` (an existential named like the normalized outer
+     variable) and `capture_nested_example` (a field's `exists y` renamed to
+     the outer variable's name). The proof covers the Scala code only once every
+     variable it opens (quantifier binders, including those inside field
+     types after substitution, and constructor existentials) gets a name
+     distinct from every name in `varState` and in `seen`.
+   * *Renormalization.* Scala normalizes again after substituting type
+     arguments into a field; the model does not. This can regroup or drop
+     quantifiers, which changes which ones exceed the cap, and can make two
+     types syntactically equal for the `seen` check in Scala and not in the
+     model (or the reverse).
    * *Termination.* The model has fuel and answers Unknown when it runs out.
      Scala has none: if a type whose expansion never repeats (polymorphic
      recursion such as `T[a] = C(T[List[a]])`) is accepted, `checkType`
-     would not terminate on it. Soundness holds at every fuel, so it covers
-     every answer the Scala code returns.
+     would not terminate on it. Where Scala is capture-free and terminates,
+     its answer is the model's at enough fuel, and soundness holds at every
+     fuel. (Capture can also make Scala terminate where the model never
+     does: with `B(w: forall y. D[y])` in `capture_nested_example`, Scala
+     answers Uninhabited, which is right there, and the model answers
+     Unknown at every fuel.)
 2. **Values are finite constructor trees** (`Model.discharge`, together with
    `Model.fix`). Bosatsu's recursion check rejects general recursion, so a
    closed value of a data type is built by finitely many constructor
@@ -844,8 +1026,13 @@ semantics, so no value in Bosatsu). It is not for Inhabited answers:
 value has that type. `inhabited_sound` is only about this semantics, and
 TotalityCheck does not use Inhabited answers to accept a match.
 
-What is *not* assumed: anything about how the checker treats functions,
-quantifiers, existentials, the cap or the `seen` set. Those are proved.
+Division of labour: the induction principle behind the cycle rule is
+`Model.discharge` and `Model.cov`, which are assumed. That the checker's use
+of `seen` respects them (assumptions made under binders, inside constructor
+fields, and across nested expansions), and everything about functions,
+quantifiers, existentials and the cap, is proved. A `Model` is constructed
+only for `exampleEnv`; constructing one for every well-formed covariant
+environment is not done here.
 -/
 
 end Inhabitedness
