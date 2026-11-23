@@ -13,60 +13,72 @@ import java.math.BigInteger
 object TypedExprNormalization {
   import TypedExpr._
 
-  /** A name bound by a lambda, a pattern, a loop or a recursive let has no
-    * value the scope knows, but it still hides the outer binding of that name.
-    * Each such binding gets a fresh token, compared by reference, so two
-    * names in different scopes are the same binding only when they share the
-    * token. Removing the name instead would make a lambda argument `y` and a
-    * pattern's `y` look the same (both absent), and `evaluate` could then move
-    * an expression that reads one under the other.
+  /** What a scope knows about a name: a value with the scope it was defined
+    * in, or, for a name a lambda, a pattern, a loop or a recursive let binds,
+    * only which binding it is. Such a name still hides the outer binding of
+    * the same name; removing it instead would make a lambda argument `y` and a
+    * pattern's `y` look the same (both absent), and `evaluate` could then read
+    * an expression that uses one under the other.
+    *
+    * An opaque binding is identified by `opaqueCount` at the point it was
+    * made. Every scope is built from the scope around it, and each `shadow`
+    * increases the count, so ids differ along any chain of nested scopes.
+    * `scopeMatches` only compares a scope with one nested in it (a value's
+    * defining scope with a scope where the value is used), so equal ids there
+    * mean the same binding.
     */
-  final class ShadowedBinding
+  type ScopeBinding[A, S] = Either[Long, (RecursionKind, TypedExpr[A], S)]
 
-  type ScopeBinding[A, S] =
-    Either[ShadowedBinding, (RecursionKind, TypedExpr[A], S)]
-  type ScopeT[A, S] =
-    Map[(Option[PackageName], Bindable), ScopeBinding[A, S]]
+  final case class ScopeT[A, S](
+      bindings: Map[(Option[PackageName], Bindable), ScopeBinding[A, S]],
+      opaqueCount: Long
+  )
   type ScopeTF[A] = [S] =>> ScopeT[A, S]
   type Scope[A] = FixType.Fix[ScopeTF[A]]
 
   def emptyScope[A]: Scope[A] =
-    FixType.fix[ScopeTF[A]](Map.empty)
+    FixType.fix[ScopeTF[A]](ScopeT(Map.empty, 0L))
 
   implicit final class ScopeOps[A](private val scope: Scope[A]) extends AnyVal {
+    private def bind(
+        key: (Option[PackageName], Bindable),
+        value: ScopeBinding[A, Scope[A]]
+    ): Scope[A] = {
+      val st = FixType.unfix[ScopeTF[A]](scope)
+      FixType.fix[ScopeTF[A]](st.copy(bindings = st.bindings.updated(key, value)))
+    }
+
     def updated(
         key: Bindable,
         value: (RecursionKind, TypedExpr[A], Scope[A])
     ): Scope[A] =
-      FixType.fix[ScopeTF[A]](
-        FixType.unfix[ScopeTF[A]](scope).updated((None, key), Right(value))
-      )
+      bind((None, key), Right(value))
 
     def updatedGlobal(
         pack: PackageName,
         key: Bindable,
         value: (RecursionKind, TypedExpr[A], Scope[A])
     ): Scope[A] =
-      FixType.fix[ScopeTF[A]](
-        FixType.unfix[ScopeTF[A]](scope).updated((Some(pack), key), Right(value))
-      )
+      bind((Some(pack), key), Right(value))
 
     // bind these names to values the scope does not know
     def shadow(keys: Iterable[Bindable]): Scope[A] = {
       val iter = keys.iterator
       if (!iter.hasNext) scope
       else {
-        val token: ScopeBinding[A, Scope[A]] = Left(new ShadowedBinding)
+        val st = FixType.unfix[ScopeTF[A]](scope)
+        val id: ScopeBinding[A, Scope[A]] = Left(st.opaqueCount)
         FixType.fix[ScopeTF[A]](
-          iter.foldLeft(FixType.unfix[ScopeTF[A]](scope)) { (m, key) =>
-            m.updated((None, key), token)
-          }
+          ScopeT(
+            iter.foldLeft(st.bindings)((m, key) => m.updated((None, key), id)),
+            st.opaqueCount + 1L
+          )
         )
       }
     }
 
     def getLocalBinding(key: Bindable): Option[ScopeBinding[A, Scope[A]]] =
-      FixType.unfix[ScopeTF[A]](scope).get((None, key))
+      FixType.unfix[ScopeTF[A]](scope).bindings.get((None, key))
 
     def getLocal(
         key: Bindable
@@ -77,7 +89,11 @@ object TypedExprNormalization {
         pack: PackageName,
         n: Bindable
     ): Option[(RecursionKind, TypedExpr[A], Scope[A])] =
-      FixType.unfix[ScopeTF[A]](scope).get((Some(pack), n)).flatMap(_.toOption)
+      FixType
+        .unfix[ScopeTF[A]](scope)
+        .bindings
+        .get((Some(pack), n))
+        .flatMap(_.toOption)
   }
 
   private def nameScope[A](
@@ -421,7 +437,8 @@ object TypedExprNormalization {
             )
               RecursionKind.NonRecursive
             else r
-          val scope1 = scope.updatedGlobal(pack, b, (rec1, normTE, s0))
+          // built from s0 so opaque ids keep increasing (see ScopeBinding)
+          val scope1 = s0.updatedGlobal(pack, b, (rec1, normTE, s0))
           loop(scope1, tail, (b, rec1, normTE) :: acc)
       }
 
@@ -484,13 +501,24 @@ object TypedExprNormalization {
     val branch1 =
       if (outerClashes.isEmpty) branch
       else {
+        // A guard pattern that binds one of these names hides it in the inner
+        // guard and the body, so those keep reading the guard pattern's name,
+        // and no new name may be one it binds.
+        val guardNames = branch.guardBindings.toSet
         val argRenames =
-          freshRenames(outerClashes, branchAvoid ++ branch.pattern.names.toSet)
+          freshRenames(
+            outerClashes,
+            branchAvoid ++ branch.pattern.names.toSet ++ guardNames
+          )
         val resSub = replacementSubstitution(argRenames)
+        val innerSub =
+          if (guardNames.isEmpty) resSub
+          else resSub.filterNot { case (n, _) => guardNames(n) }
         val expr1 =
-          TypedExpr.substituteAll(resSub, branch.expr, enterLambda = true).get
-        val guard1 = branch.mapGuardNodeExpr(
-          TypedExpr.substituteAll(resSub, _, enterLambda = true).get
+          TypedExpr.substituteAll(innerSub, branch.expr, enterLambda = true).get
+        val guard1 = branch.mapGuardNodeExprScoped(
+          TypedExpr.substituteAll(resSub, _, enterLambda = true).get,
+          TypedExpr.substituteAll(innerSub, _, enterLambda = true).get
         )
         val pattern1 = branch.pattern.substitute(argRenames)
         branch.copyNode(pattern1, guard1, expr1)(using branch.patternRegion)
@@ -710,13 +738,24 @@ object TypedExprNormalization {
 
     (stripTypeWrappers(arg), asBoolSelector(branches)) match {
       case (inner @ Match(innerArg, innerBranches, _), Some((ifTrue, ifFalse))) =>
+        // ifTrue and ifFalse move under each inner branch's pattern and guard
+        // pattern, so none of their names may be free in the one that moves
+        // there: in `match (match a: case x: False): ...` an outer x would
+        // read the pattern's x.
+        lazy val trueFree = ifTrue.freeVarsDup.toSet
+        lazy val falseFree = ifFalse.freeVarsDup.toSet
         innerBranches.traverse { inner =>
-          boolConst(inner.expr).map { cond =>
+          boolConst(inner.expr).flatMap { cond =>
             val selected = if (cond) ifTrue else ifFalse
-            if (selected eq inner.expr) inner
-            else inner.copyNode(inner.pattern, inner.guardNode, selected)(using
-              inner.patternRegion
-            )
+            if (selected eq inner.expr) Some(inner)
+            else {
+              val selectedFree = if (cond) trueFree else falseFree
+              if (inner.allBindings.exists(selectedFree)) None
+              else
+                Some(inner.copyNode(inner.pattern, inner.guardNode, selected)(using
+                  inner.patternRegion
+                ))
+            }
           }
         }.map { mapped =>
           Match(inner.matchKind, innerArg, mapped, tag)
@@ -2233,17 +2272,13 @@ object TypedExprNormalization {
       names.forall { b =>
         (scope.getLocalBinding(b), scope1.getLocalBinding(b)) match {
           case (None, None)                             => true
-          case (Some(Left(tok1)), Some(Left(tok2)))     =>
-            // the same lambda, pattern or loop binding
-            tok1 eq tok2
-          case (Some(Right(e1)), Some(Right(e2))) =>
-            (e1 eq e2) || {
-              val (r1, t1, s1) = e1
-              val (r2, t2, s2) = e2
-              (r1 == r2) &&
-              (t1.void === t2.void) &&
-              scopeMatches(t1.freeVarsDup.toSet, s1, s2)
-            }
+          case (Some(Left(id1)), Some(Left(id2)))       =>
+            // the same lambda, pattern or loop binding (see ScopeBinding)
+            id1 == id2
+          case (Some(Right((r1, t1, s1))), Some(Right((r2, t2, s2)))) =>
+            (r1 == r2) &&
+            (t1.void === t2.void) &&
+            scopeMatches(t1.freeVarsDup.toSet, s1, s2)
           case _ => false
         }
       }

@@ -4122,9 +4122,17 @@ object Matchless {
         } yield bind(bound, arg, res)
     }
 
+  private inline def maybeMemo[F[_]: Monad, A](
+      arg: Expr[A],
+      tmp: F[Long]
+  )(inline fn: CheapExpr[A] => F[Expr[A]]): F[Expr[A]] =
+    maybeMemoWith(arg, tmp)(fn) { (bound, inExpr, inBody) =>
+      Let(bound, inExpr, inBody)
+    }
+
   // true if this cheap expression reads a named local in `names`
   @annotation.tailrec
-  private[bosatsu] def cheapReadsName[A](
+  private def cheapReadsName[A](
       expr: CheapExpr[A],
       names: Bindable => Boolean
   ): Boolean =
@@ -9186,7 +9194,7 @@ object Matchless {
       // Pattern bindings are made in sequence and read the scrutinee, so the
       // scrutinee must not read a name a pattern binds (`match t: case
       // Node(t, r)`): such a scrutinee is bound to an anonymous local first.
-      val rebound: Set[Bindable] =
+      lazy val rebound: Set[Bindable] =
         branches.toList.iterator.flatMap { branch =>
           branch.pattern.names.iterator ++ (branch.guard match {
             case Some(ScopedMatchBranchGuard(_, guardPat, _)) =>
@@ -9195,18 +9203,6 @@ object Matchless {
               Iterator.empty
           })
         }.toSet
-
-      def withCheapArg(
-          arg: Expr[B]
-      )(fn: CheapExpr[B] => F[Expr[B]]): F[Expr[B]] =
-        arg match {
-          case c: CheapExpr[B] if !cheapReadsName(c, rebound) => fn(c)
-          case _                                              =>
-            tmp.flatMap { nm =>
-              val bound = LocalAnon(nm)
-              fn(bound).map(Let(bound, arg, _))
-            }
-        }
 
       def bindsWholeRoot(
           p: Pattern[(PackageName, Constructor), Type]
@@ -9414,8 +9410,17 @@ object Matchless {
             guardToBoolExpr(arg).map(If(_, ifTrue, ifFalse))
           case None =>
             maybeComparisonBranches.getOrElse {
-              withCheapArg(arg) { (arg: CheapExpr[B]) =>
-                compileWithCheapArg(arg, branches, None)
+              arg match {
+                case cheap: CheapExpr[B] if cheapReadsName(cheap, rebound) =>
+                  tmp.flatMap { nm =>
+                    val bound = LocalAnon(nm)
+                    compileWithCheapArg(bound, branches, None)
+                      .map(Let(bound, cheap, _))
+                  }
+                case _ =>
+                  maybeMemo(arg, tmp) { (arg: CheapExpr[B]) =>
+                    compileWithCheapArg(arg, branches, None)
+                  }
               }
             }
         }

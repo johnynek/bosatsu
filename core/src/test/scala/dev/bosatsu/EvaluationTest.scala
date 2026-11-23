@@ -4590,4 +4590,55 @@ main = target(1)
       VInt(11)
     )
   }
+
+  test("renaming a branch's pattern names leaves the names its guard pattern rebinds") {
+    // renaming the branch's p, which clashes with the argument p, also
+    // renamed the guard pattern's p in the inner guard and the body
+    evalBothPipelines(
+      """
+def target(p: Bool) -> Bool:
+  match p:
+    case _ as p if (xor(p, True) matches _ as p if p): False
+    case p: p
+
+main = target(True)
+""",
+      True
+    )
+    evalBothPipelines(
+      """
+def target(p: Int) -> Int:
+  match p:
+    case _ as p if (Some(add(p, 1)) matches Some(p) if eq_Int(p, 6)): p
+    case _: 0
+
+main = target(5)
+""",
+      VInt(6)
+    )
+  }
+
+  test("an if on a match is not pushed under the match's pattern names") {
+    // `if (match 0: case ... as x: False ...): 0 else: x` was rewritten to
+    // `match 0: case ... as x: x ...`, which read the pattern's x
+    evalBothPipelines(
+      """
+def target(x: Int) -> Int:
+  match (
+      if (
+        match 0:
+          case (0 | 1) as x if eq_Int(x, 0): False
+          case _: False
+      ):
+        0
+      else:
+        x
+  ):
+    case z: z
+
+main = target(4)
+""",
+      VInt(4)
+    )
+  }
 }

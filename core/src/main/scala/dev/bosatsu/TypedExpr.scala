@@ -3778,18 +3778,27 @@ object TypedExpr {
 
           if (clashes.isEmpty) branch0
           else {
+            // A guard pattern that binds one of these names hides it in the
+            // inner guard and the body, so those keep reading the guard
+            // pattern's name, and no new name may be one it binds.
+            val guardNames = branch0.guardBindings.toSet
             val avoids =
-              outerFreeSet | freeVarsSet(branch0.expr :: branch0.guardExprIterator.toList)
+              outerFreeSet | guardNames |
+                freeVarsSet(branch0.expr :: branch0.guardExprIterator.toList)
             val newArgs = alloc(args, avoids, clashes)
             val resSub = args.iterator
               .zip(newArgs.iterator.map { n1 => (loc: Local[A]) =>
                 Local(n1, loc.tpe, loc.tag)
               })
               .toMap
+            val innerSub =
+              if (guardNames.isEmpty) resSub
+              else resSub.filterNot { case (n, _) => guardNames(n) }
 
-            val body1 = substituteAll(resSub, branch0.expr, enterLambda = true).get
-            val guard1 = branch0.mapGuardNodeExpr(
-              substituteAll(resSub, _, enterLambda = true).get
+            val body1 = substituteAll(innerSub, branch0.expr, enterLambda = true).get
+            val guard1 = branch0.mapGuardNodeExprScoped(
+              substituteAll(resSub, _, enterLambda = true).get,
+              substituteAll(innerSub, _, enterLambda = true).get
             )
             val pattern1 = branch0.pattern.substitute(args.iterator.zip(newArgs.iterator).toMap)
 
