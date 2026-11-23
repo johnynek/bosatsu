@@ -4122,12 +4122,19 @@ object Matchless {
         } yield bind(bound, arg, res)
     }
 
-  private inline def maybeMemo[F[_]: Monad, A](
-      arg: Expr[A],
-      tmp: F[Long]
-  )(inline fn: CheapExpr[A] => F[Expr[A]]): F[Expr[A]] =
-    maybeMemoWith(arg, tmp)(fn) { (bound, inExpr, inBody) =>
-      Let(bound, inExpr, inBody)
+  // true if this cheap expression reads a named local in `names`
+  @annotation.tailrec
+  private[bosatsu] def cheapReadsName[A](
+      expr: CheapExpr[A],
+      names: Bindable => Boolean
+  ): Boolean =
+    expr match {
+      case Local(name)                 => names(name)
+      case GetEnumElement(arg, _, _, _) => cheapReadsName(arg, names)
+      case GetStructElement(arg, _, _) => cheapReadsName(arg, names)
+      case Global(_, _, _) | ClosureSlot(_) | LocalAnon(_) | LocalAnonMut(_) |
+          Literal(_) | LitInt64(_) =>
+        false
     }
 
   object StringMatcher {
@@ -5714,6 +5721,17 @@ object Matchless {
 
       def unname: LambdaState = LambdaState(None, slots)
 
+      // A let, loop, pattern or guard inside the lambda that rebinds a
+      // captured name hides the capture: below it the name is that binding,
+      // not the closure slot.
+      def shadow(bound: Iterable[Bindable]): LambdaState =
+        if (slots.isEmpty) this
+        else {
+          val slots1 = bound.iterator.foldLeft(slots)(_ - _)
+          if (slots1.size == slots.size) this
+          else copy(slots = slots1)
+        }
+
       def apply(b: Bindable): Expr[B] =
         slots.get(b) match {
           case Some(expr) => expr
@@ -6315,24 +6333,30 @@ object Matchless {
           val body1 =
             recurToSelfCall(loopName, loopType, body, inNestedLoop = false)
           (
-            loop(body1, slots),
+            loop(body1, slots.shadow(args.iterator.map(_._1).toList)),
             args.traverse { case (_, init) => loop(init, slots) }
           ).flatMapN { (bodyExpr, initVals) =>
             buildLoop(loopName, loopArgs.map(_._1), initVals, bodyExpr)
           }
         case TypedExpr.Let(a, e, in, RecursionKind.Recursive, _) =>
+          val slotsIn = slots.shadow(a :: Nil)
           (
-            loopLetVal(a, e, RecursionKind.Recursive, slots.unname),
-            loop(in, slots)
+            loopLetVal(a, e, RecursionKind.Recursive, slotsIn.unname),
+            loop(in, slotsIn)
           )
             .mapN(Let(a, _, _))
         case let @ TypedExpr.Let(_, _, _, RecursionKind.NonRecursive, _) =>
           val (lets, tail) = TypedExpr.flattenLets(let)
-          val bindsF = lets.traverse { case (arg, rhs, _) =>
-            loopLetVal(arg, rhs, RecursionKind.NonRecursive, slots.unname)
+          // each right-hand side is in the scope of the lets before it
+          val slotsAt =
+            lets.scanLeft(slots) { case (slotsHere, (arg, _, _)) =>
+              slotsHere.shadow(arg :: Nil)
+            }
+          val bindsF = lets.zip(slotsAt).traverse { case ((arg, rhs, _), slotsHere) =>
+            loopLetVal(arg, rhs, RecursionKind.NonRecursive, slotsHere.unname)
               .map(v => (arg, v))
           }
-          (bindsF, loop(tail, slots)).flatMapN { (binds, tailExpr) =>
+          (bindsF, loop(tail, slotsAt.last)).flatMapN { (binds, tailExpr) =>
             binds.reverse.foldLeftM(tailExpr) { case (acc, (arg, value)) =>
               maybeLowerComparisonObservationLet(Right(arg), value, acc)
                 .getOrElse(Monad[F].pure(Let(arg, value, acc)))
@@ -6348,18 +6372,22 @@ object Matchless {
           (
             loop(arg, slots.unname),
             branches.traverse { branch =>
+              // the guard is in the scope of the branch pattern, and an inner
+              // guard and the body also in the scope of a guard pattern
+              val slotsPat = slots.shadow(branch.pattern.names).unname
+              val slotsBody = slots.shadow(branch.allBindings).unname
               val loweredGuardF =
                 branch.guardNode match {
                   case None =>
                     Monad[F].pure(None)
                   case Some(TypedExpr.BoolGuard(guardExpr)) =>
-                    loop(guardExpr, slots.unname).map(guard =>
+                    loop(guardExpr, slotsPat).map(guard =>
                       Some(BoolMatchBranchGuard(guard))
                     )
                   case Some(TypedExpr.MatchGuard(argExpr, pattern, guardOpt)) =>
                     (
-                      loop(argExpr, slots.unname),
-                      guardOpt.traverse(loop(_, slots.unname))
+                      loop(argExpr, slotsPat),
+                      guardOpt.traverse(loop(_, slotsBody))
                     ).flatMapN { (argExpr1, guardOpt1) =>
                       if (pattern.names.isEmpty)
                         bindingFreeMatchGuardExpr(argExpr1, pattern, guardOpt1)
@@ -6378,7 +6406,7 @@ object Matchless {
                     }
                 }
 
-              (loweredGuardF, loop(branch.expr, slots.unname)).mapN {
+              (loweredGuardF, loop(branch.expr, slotsBody)).mapN {
                 (guard, te) =>
                   MatchBranch(branch.pattern, guard, te)
               }
@@ -7019,8 +7047,13 @@ object Matchless {
       }
     }
 
+    // `rebound` holds the names the match's patterns bind. A field that reads
+    // one is bound to an anonymous local first, so the bindings, which are
+    // made in sequence, cannot capture it: in `match (0, y): case (y, b)`, b
+    // is the outer y.
     def prepareInlinedStructRoot(
-        arg: Expr[B]
+        arg: Expr[B],
+        rebound: Bindable => Boolean
     ): F[Option[(List[(LocalAnon, Expr[B])], InlinedStructRoot)]] =
       arg match {
         case App(MakeStruct(arity), args) if args.length == arity =>
@@ -7029,7 +7062,7 @@ object Matchless {
               (List.empty[(LocalAnon, Expr[B])], List.empty[CheapExpr[B]])
             ) { case ((letsRev, fieldsRev), item) =>
               item match {
-                case ch: CheapExpr[B] =>
+                case ch: CheapExpr[B] if !cheapReadsName(ch, rebound) =>
                   Monad[F].pure((letsRev, ch :: fieldsRev))
                 case expr =>
                   makeAnon.map { nm =>
@@ -9150,6 +9183,31 @@ object Matchless {
         tmp: F[Long],
         branches: NonEmptyList[MatchBranch]
     ): F[Expr[B]] = {
+      // Pattern bindings are made in sequence and read the scrutinee, so the
+      // scrutinee must not read a name a pattern binds (`match t: case
+      // Node(t, r)`): such a scrutinee is bound to an anonymous local first.
+      val rebound: Set[Bindable] =
+        branches.toList.iterator.flatMap { branch =>
+          branch.pattern.names.iterator ++ (branch.guard match {
+            case Some(ScopedMatchBranchGuard(_, guardPat, _)) =>
+              guardPat.names.iterator
+            case _ =>
+              Iterator.empty
+          })
+        }.toSet
+
+      def withCheapArg(
+          arg: Expr[B]
+      )(fn: CheapExpr[B] => F[Expr[B]]): F[Expr[B]] =
+        arg match {
+          case c: CheapExpr[B] if !cheapReadsName(c, rebound) => fn(c)
+          case _                                              =>
+            tmp.flatMap { nm =>
+              val bound = LocalAnon(nm)
+              fn(bound).map(Let(bound, arg, _))
+            }
+        }
+
       def bindsWholeRoot(
           p: Pattern[(PackageName, Constructor), Type]
       ): Boolean =
@@ -9356,7 +9414,7 @@ object Matchless {
             guardToBoolExpr(arg).map(If(_, ifTrue, ifFalse))
           case None =>
             maybeComparisonBranches.getOrElse {
-              maybeMemo(arg, tmp) { (arg: CheapExpr[B]) =>
+              withCheapArg(arg) { (arg: CheapExpr[B]) =>
                 compileWithCheapArg(arg, branches, None)
               }
             }
@@ -9366,7 +9424,7 @@ object Matchless {
       if (wholeRootBindBranches > 1 || maybeBoolBranches.nonEmpty || maybeComparisonBranches.nonEmpty)
         compileWithoutInlining
       else {
-        prepareInlinedStructRoot(arg).flatMap {
+        prepareInlinedStructRoot(arg, rebound).flatMap {
           case Some((argLets, inlinedRoot)) =>
             makeAnon
               .map(LocalAnon(_))

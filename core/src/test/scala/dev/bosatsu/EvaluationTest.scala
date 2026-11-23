@@ -4372,4 +4372,222 @@ main = match (Step { name: Some("x") }, Step { with: Some(1) }):
     )
   }
 
+  // Name capture. Bosatsu's scoping is lexical: a branch's pattern names are
+  // not in scope in later branches or in its own scrutinee, and a name that a
+  // pattern, guard, let or lambda binds hides the outer one only below it.
+  // Each program is evaluated as `tool eval` runs it (loop lowering and
+  // normalization) and as type checking leaves it, which is the program the
+  // recursion check reasons about.
+  private def evalBothPipelines(source: String, expected: Value): Unit = {
+    evalTest(List(source), "Package0", expected)
+    assertEquals(evalUnnormalizedMain(source), expected, "unnormalized")
+  }
+
+  test("a guarded branch's pattern names do not reach the next branch") {
+    // normalizing `case y if g: 0; case _: y` into `case y: if g: 0 else: y`
+    // read the pattern's y in the fallthrough
+    evalBothPipelines(
+      """
+def target(x: Int, y: Int) -> Int:
+  match x:
+    case y if eq_Int(0, y): 0
+    case _: y
+
+main = target(2, -1)
+""",
+      VInt(-1)
+    )
+  }
+
+  test("a let sunk into match branches is not captured by a branch pattern") {
+    // after the guarded branch takes the fallthrough, sinking `q` into it put
+    // `cmp_Int(0, x)` under `as x`
+    evalBothPipelines(
+      """
+def target(x: Int, y: Int) -> Int:
+  q = cmp_Int(0, x)
+  match mod_Int(4, 1):
+    case 3: 0
+    case (-3 | 0) as x if (cmp_Int(0, 0) matches LT):
+      match x:
+        case 0: 1
+        case _: 2
+    case _:
+      match cmp_Int(y, 0):
+        case GT if (q matches LT): 3
+        case _: 4
+
+main = target(1, 784)
+""",
+      VInt(3)
+    )
+  }
+
+  test("a let sunk into a branch is not captured by its guard pattern") {
+    evalBothPipelines(
+      """
+def target(x: Int, y: Option[Int]) -> Int:
+  z = x
+  match y:
+    case Some(w) if Some(add(w, 10)) matches Some(x): add(z, add(x, mul(w, 0)))
+    case _: 0
+
+main = target(1, Some(10))
+""",
+      VInt(21)
+    )
+    evalBothPipelines(
+      """
+def target(x: Int) -> Int:
+  def inner(y: Option[Int]) -> Int:
+    z = x
+    match y:
+      case Some(w) if Some(add(w, 10)) matches Some(x): add(z, add(x, mul(w, 0)))
+      case _: 0
+  inner(Some(10))
+
+main = target(1)
+""",
+      VInt(21)
+    )
+  }
+
+  test("matching a constructor call binds its items without capturing a later item") {
+    // the items were bound in order, so the second item's `n` (or `y`) read
+    // the name the first item's pattern had just bound
+    evalBothPipelines(
+      """
+struct P2(a: Option[Int], b: Option[Int])
+
+def target(y: Int) -> Int:
+  n = Some(y)
+  match P2(Some(0), n):
+    case P2(n, b):
+      match (n, b):
+        case (Some(i), Some(j)): add(i, mul(j, 10))
+        case _: 99
+
+main = target(7)
+""",
+      VInt(70)
+    )
+    evalBothPipelines(
+      """
+def target(y: Int) -> Int:
+  match (0, y):
+    case (y, b): add(b, mul(y, 0))
+
+main = target(7)
+""",
+      VInt(7)
+    )
+    evalBothPipelines(
+      """
+def target(y: Int, o: Option[Int]) -> Int:
+  match (0, y):
+    case (y, b) if o matches Some(v): add(b, mul(add(y, v), 0))
+    case _: 99
+
+main = target(7, Some(1))
+""",
+      VInt(7)
+    )
+  }
+
+  test("a known value is not read under a pattern or lambda that rebinds a name it reads") {
+    // `n` is known to be P2(Some(0), Some(y)) for the argument y; reading it
+    // as that under a binder that rebinds y read the wrong y
+    evalBothPipelines(
+      """
+struct P2(a: Option[Int], b: Option[Int])
+
+def target(y: Int, z: Int) -> Int:
+  n = P2(Some(0), Some(y))
+  match z:
+    case y if eq_Int(y, 8):
+      match n:
+        case P2(_, b):
+          match b:
+            case Some(k): add(k, mul(y, 100))
+            case None: 99
+    case _: 0
+
+main = target(7, 8)
+""",
+      VInt(807)
+    )
+    evalBothPipelines(
+      """
+struct P2(a: Option[Int], b: Option[Int])
+struct Box(f: Int -> Int)
+
+def target(y: Int) -> Int:
+  n = P2(Some(0), Some(y))
+  bx = Box(y -> (
+      match n:
+        case P2(_, b):
+          match b:
+            case Some(k): add(k, mul(y, 100))
+            case None: 99
+    ))
+  Box(f) = bx
+  f(8)
+
+main = target(7)
+""",
+      VInt(807)
+    )
+  }
+
+  test("a pattern that rebinds the scrutinee's name reads the scrutinee before binding") {
+    evalBothPipelines(
+      """
+enum T: Leaf, Node(left: T, right: T)
+
+def size(t: T) -> Int:
+  match t:
+    case Leaf: 0
+    case Node(Leaf, _): 1
+    case Node(_, _): 2
+
+def target(t: T, o: Option[Int]) -> Int:
+  match t:
+    case Leaf: 0
+    case Node(t, r) if o matches Some(v): add(size(t), mul(add(size(r), v), 10))
+    case _: 5
+
+main = target(Node(Node(Leaf, Node(Leaf, Leaf)), Leaf), Some(1))
+""",
+      VInt(11)
+    )
+  }
+
+  test("a let or pattern in a lambda that rebinds a captured name hides the capture") {
+    evalBothPipelines(
+      """
+def target(x: Int) -> Int:
+  def inner(y: Int) -> Int:
+    z = x
+    x = y
+    add(z, x)
+  inner(10)
+
+main = target(1)
+""",
+      VInt(11)
+    )
+    evalBothPipelines(
+      """
+def target(x: Int) -> Int:
+  def inner(y: Int) -> Int:
+    z = x
+    match y:
+      case x: add(z, x)
+  inner(10)
+
+main = target(1)
+""",
+      VInt(11)
+    )
+  }
 }

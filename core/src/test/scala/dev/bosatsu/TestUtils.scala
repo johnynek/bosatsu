@@ -399,6 +399,35 @@ object TestUtils {
     }
   }
 
+  /** Evaluate `main` in a single package (no package line) from its lets as
+    * type checking leaves them, without loop lowering or normalization. This
+    * is the program the recursion check reasons about.
+    */
+  def evalUnnormalizedMain(source: String): Value = {
+    val stmts = statementsOf(source)
+    Package
+      .inferBodyUnopt(testPackage, predefResolvedImport :: Nil, Nil, stmts)
+      .strictToValidated match {
+      case Validated.Invalid(errs) =>
+        val lm = LocationMap(source)
+        val packMap = Map((testPackage, (lm, source)))
+        fail(
+          errs.toList
+            .map(_.message(packMap, LocationMap.Colorize.None))
+            .mkString("inference failure:\n", "\n==========\n", "\n")
+        )
+      case Validated.Valid((_, program)) =>
+        val typed: Package.Typed[Declaration] =
+          Package(testPackage, Nil, Nil, (program, ImportMap.empty))
+        val pm = PackageMap.empty + typed + PackageMap.predefInferred
+        Evaluation(pm, Predef.jvmExternals)
+          .evaluateName(testPackage, Identifier.Name("main"))
+          .getOrElse(fail("no main in the package"))
+          ._1
+          .value
+    }
+  }
+
   def evalTestJson(
       packages: List[String],
       mainPackS: String,

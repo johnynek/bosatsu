@@ -13,8 +13,20 @@ import java.math.BigInteger
 object TypedExprNormalization {
   import TypedExpr._
 
+  /** A name bound by a lambda, a pattern, a loop or a recursive let has no
+    * value the scope knows, but it still hides the outer binding of that name.
+    * Each such binding gets a fresh token, compared by reference, so two
+    * names in different scopes are the same binding only when they share the
+    * token. Removing the name instead would make a lambda argument `y` and a
+    * pattern's `y` look the same (both absent), and `evaluate` could then move
+    * an expression that reads one under the other.
+    */
+  final class ShadowedBinding
+
+  type ScopeBinding[A, S] =
+    Either[ShadowedBinding, (RecursionKind, TypedExpr[A], S)]
   type ScopeT[A, S] =
-    Map[(Option[PackageName], Bindable), (RecursionKind, TypedExpr[A], S)]
+    Map[(Option[PackageName], Bindable), ScopeBinding[A, S]]
   type ScopeTF[A] = [S] =>> ScopeT[A, S]
   type Scope[A] = FixType.Fix[ScopeTF[A]]
 
@@ -27,7 +39,7 @@ object TypedExprNormalization {
         value: (RecursionKind, TypedExpr[A], Scope[A])
     ): Scope[A] =
       FixType.fix[ScopeTF[A]](
-        FixType.unfix[ScopeTF[A]](scope).updated((None, key), value)
+        FixType.unfix[ScopeTF[A]](scope).updated((None, key), Right(value))
       )
 
     def updatedGlobal(
@@ -36,27 +48,36 @@ object TypedExprNormalization {
         value: (RecursionKind, TypedExpr[A], Scope[A])
     ): Scope[A] =
       FixType.fix[ScopeTF[A]](
-        FixType.unfix[ScopeTF[A]](scope).updated((Some(pack), key), value)
+        FixType.unfix[ScopeTF[A]](scope).updated((Some(pack), key), Right(value))
       )
 
-    def -(key: Bindable): Scope[A] =
-      FixType.fix[ScopeTF[A]](
-        FixType.unfix[ScopeTF[A]](scope) - (None -> key)
-      )
+    // bind these names to values the scope does not know
+    def shadow(keys: Iterable[Bindable]): Scope[A] = {
+      val iter = keys.iterator
+      if (!iter.hasNext) scope
+      else {
+        val token: ScopeBinding[A, Scope[A]] = Left(new ShadowedBinding)
+        FixType.fix[ScopeTF[A]](
+          iter.foldLeft(FixType.unfix[ScopeTF[A]](scope)) { (m, key) =>
+            m.updated((None, key), token)
+          }
+        )
+      }
+    }
 
-    def --(keys: Iterable[Bindable]): Scope[A] =
-      keys.foldLeft(scope)(_ - _)
+    def getLocalBinding(key: Bindable): Option[ScopeBinding[A, Scope[A]]] =
+      FixType.unfix[ScopeTF[A]](scope).get((None, key))
 
     def getLocal(
         key: Bindable
     ): Option[(RecursionKind, TypedExpr[A], Scope[A])] =
-      FixType.unfix[ScopeTF[A]](scope).get((None, key))
+      getLocalBinding(key).flatMap(_.toOption)
 
     def getGlobal(
         pack: PackageName,
         n: Bindable
     ): Option[(RecursionKind, TypedExpr[A], Scope[A])] =
-      FixType.unfix[ScopeTF[A]](scope).get((Some(pack), n))
+      FixType.unfix[ScopeTF[A]](scope).get((Some(pack), n)).flatMap(_.toOption)
   }
 
   private def nameScope[A](
@@ -64,7 +85,7 @@ object TypedExprNormalization {
       r: RecursionKind,
       scope: Scope[A]
   ): (Option[Bindable], Scope[A]) =
-    if (r.isRecursive) (Some(b), scope - b)
+    if (r.isRecursive) (Some(b), scope.shadow(b :: Nil))
     else (None, scope)
 
   private def isSuspensionLambdaArgs(
@@ -1486,18 +1507,36 @@ object TypedExprNormalization {
           // when z is not free in x, and at least one branch is not free in x.
           // We recurse through type wrappers so annotations/generics do not
           // block the branch-sinking rewrite after inlining.
-          val b1 = branches.map { branch =>
+          //
+          // The let moves under the branch's pattern (and, for an inner guard
+          // or the body, its guard pattern), so none of those names may be
+          // free in y: in `case x: ... ww` the sunk `y` would read the
+          // pattern's x. We do not sink when one would be captured.
+          lazy val exprFree = expr.freeVarsDup.toSet
+          def captures(bound: Iterable[Bindable]): Boolean =
+            bound.iterator.exists(exprFree)
+
+          val b1 = branches.traverse { branch =>
             val p = branch.pattern
             val r = branch.expr
             val outerShadowed = p.names.contains(arg)
             val bodyShadowed = branch.allBindings.contains(arg)
-            if (
-              outerShadowed || (branch.foldGuardExprScoped(true)(
-                (acc, guardExpr) => acc && guardExpr.notFree(arg),
-                (acc, guardExpr) => acc && (bodyShadowed || guardExpr.notFree(arg))
-              ) && (bodyShadowed || r.notFree(arg)))
+            // does the outer guard (in the pattern's scope) read x, and do the
+            // inner guard or the body (also in the guard pattern's scope)?
+            val outerUses = !outerShadowed && branch.foldGuardExprScoped(false)(
+              (acc, guardExpr) => acc || !guardExpr.notFree(arg),
+              (acc, _) => acc
             )
-              branch
+            val innerUses = !bodyShadowed && (!r.notFree(arg) ||
+              branch.foldGuardExprScoped(false)(
+                (acc, _) => acc,
+                (acc, guardExpr) => acc || !guardExpr.notFree(arg)
+              ))
+            if (!outerUses && !innerUses) Some(branch)
+            else if (
+              (outerUses && captures(p.names)) ||
+              (innerUses && captures(branch.allBindings))
+            ) None
             else {
               val guard1 = branch.mapGuardNodeExprScoped(
                 g =>
@@ -1510,10 +1549,14 @@ object TypedExprNormalization {
               val r1 =
                 if (bodyShadowed || r.notFree(arg)) r
                 else Let(arg, expr, r, rec, tag)
-              branch.copyNode(branch.pattern, guard1, r1)(using branch.patternRegion)
+              Some(
+                branch.copyNode(branch.pattern, guard1, r1)(using
+                  branch.patternRegion
+                )
+              )
             }
           }
-          Some(Match(m.matchKind, marg, b1, mtag))
+          b1.map(Match(m.matchKind, marg, _, mtag))
         case _ =>
           None
       }
@@ -1576,7 +1619,7 @@ object TypedExprNormalization {
         lazy val anons: Iterator[Bindable] =
           Identifier.Bindable.freshSyntheticIterator(expr.freeVarsDup.toSet)
 
-        val bodyScope = scope -- lamArgs0.toList.map(_._1)
+        val bodyScope = scope.shadow(lamArgs0.toList.map(_._1))
         val e1 = normalize1(None, expr, bodyScope, typeEnv).get
 
         var changed = false
@@ -1883,7 +1926,7 @@ object TypedExprNormalization {
         val args1 = ListUtil.mapConserveNel(args) { case (n, expr) =>
           (n, normalize1(None, expr, scope, typeEnv).get)
         }
-        val bodyScope = scope -- args1.toList.map(_._1)
+        val bodyScope = scope.shadow(args1.toList.map(_._1))
         val body1 = normalize1(None, body, bodyScope, typeEnv).get
 
         if (!hasOuterRecur(body1, inNestedLoop = false)) {
@@ -1984,7 +2027,7 @@ object TypedExprNormalization {
             e: TypedExpr[A]
         ): (Int, TypedExpr[A]) =
           // the final result of the branch is what is assigned to the name
-          normalizeLetOpt(None, e, scope -- shadows, typeEnv) match {
+          normalizeLetOpt(None, e, scope.shadow(shadows), typeEnv) match {
             case None    => (0, e)
             case Some(e) => (1, e)
           }
@@ -1998,11 +2041,11 @@ object TypedExprNormalization {
             val p = branch.pattern
             val outerShadowed = p.names.toSet
             val innerShadowed = branch.guardBindings.toSet
-            val branchScope = scope -- outerShadowed
+            val branchScope = scope.shadow(outerShadowed)
 
             val guardNorm0 = branch.mapGuardNodeExprScoped(
               normalize1(None, _, branchScope, typeEnv).get,
-              normalize1(None, _, branchScope -- innerShadowed, typeEnv).get
+              normalize1(None, _, branchScope.shadow(innerShadowed), typeEnv).get
             )
             val (guardChanged, guard1, dropped) =
               guardNorm0 match {
@@ -2105,10 +2148,16 @@ object TypedExprNormalization {
               val p2 = tailBranch.pattern
               val e2 = tailBranch.expr
               head.guard match {
+                // The rewrite moves e2 under the head pattern's binders, so a
+                // name the head binds must not be free in e2: in
+                // `case y if g: e1; case _: y` the second y is the outer one.
                 case Some(g)
                     if head.pattern.ambiguousBindings
                       .intersect(g.freeVarsDup.toSet)
-                      .isEmpty =>
+                      .isEmpty && {
+                        val e2Free = e2.freeVarsDup.toSet
+                        !head.pattern.names.exists(e2Free)
+                      } =>
                   val rewrittenHead =
                     Branch(head.pattern, None, ifThenElse(g, head.expr, e2))(using
                       head.patternRegion
@@ -2182,12 +2231,19 @@ object TypedExprNormalization {
         scope1: Scope[A]
     ): Boolean =
       names.forall { b =>
-        (scope.getLocal(b), scope1.getLocal(b)) match {
+        (scope.getLocalBinding(b), scope1.getLocalBinding(b)) match {
           case (None, None)                             => true
-          case (Some((r1, t1, s1)), Some((r2, t2, s2))) =>
-            (r1 == r2) &&
-            (t1.void === t2.void) &&
-            scopeMatches(t1.freeVarsDup.toSet, s1, s2)
+          case (Some(Left(tok1)), Some(Left(tok2)))     =>
+            // the same lambda, pattern or loop binding
+            tok1 eq tok2
+          case (Some(Right(e1)), Some(Right(e2))) =>
+            (e1 eq e2) || {
+              val (r1, t1, s1) = e1
+              val (r2, t2, s2) = e2
+              (r1 == r2) &&
+              (t1.void === t2.void) &&
+              scopeMatches(t1.freeVarsDup.toSet, s1, s2)
+            }
           case _ => false
         }
       }
@@ -2818,6 +2874,24 @@ object TypedExprNormalization {
           }
       }
 
+    // The constructor arguments of a result are expressions in the scope it
+    // was evaluated in. Callers use them in `to`, so the names they read must
+    // mean the same there.
+    private def resultIn[A](
+        result: EvalResult[A],
+        from: Scope[A],
+        to: Scope[A]
+    ): Option[EvalResult[A]] =
+      result match {
+        case EvalResult.Cons(_, _, args)
+            if !scopeMatches(TypedExpr.freeVarsSet(args).toSet, from, to) =>
+          None
+        case _ => Some(result)
+      }
+
+    /** Evaluate te to a constructor or literal. The arguments of a
+      * constructor are expressions in `scope`.
+      */
     def evaluate[A: Eq](
         te: TypedExpr[A],
         scope: Scope[A],
@@ -2831,7 +2905,7 @@ object TypedExprNormalization {
               // local values may have free values defined in
               // their scope. we could handle these with let bindings
               if (scopeMatches(t.freeVarsDup.toSet, s, scope))
-                evaluate(t, s, totalityCheck)
+                evaluate(t, s, totalityCheck).flatMap(resultIn(_, s, scope))
               else None
             case _ => None
           }
@@ -2840,7 +2914,8 @@ object TypedExprNormalization {
           val scope1 = lets.foldLeft(scope) { case (accScope, (arg, expr, _)) =>
             accScope.updated(arg, (RecursionKind.NonRecursive, expr, accScope))
           }
-          evaluate(tail, scope1, totalityCheck)
+          // the result can read the let-bound names, which are not in scope
+          evaluate(tail, scope1, totalityCheck).flatMap(resultIn(_, scope1, scope))
         case FnArgs(fn, args, resultTpe0) =>
           val resultTpe = Type.normalize(resultTpe0)
           evaluate(fn, scope, totalityCheck).map {
@@ -3047,12 +3122,39 @@ object TypedExprNormalization {
                       }
                   }
 
-                val res = matchAll(args.zip(pats), in)
-                Some(
-                  binds.foldRight(res)(
-                    Let(_, m.arg, _, RecursionKind.NonRecursive, m.tag)
+                // The result binds the root names, then each item's names in
+                // order, and reads each item (and the root, for every root
+                // name after the first) under the names bound before it. Bail
+                // if one of those reads would see a name the pattern just
+                // bound: in `match (0, y): case (y, b)`, b is the outer y.
+                val argPats = args.zip(pats)
+                val rootReadOk =
+                  binds.lengthCompare(1) <= 0 || {
+                    val rootFree = m.arg.freeVarsDup.toSet
+                    !binds.init.exists(rootFree)
+                  }
+                val itemReadsOk =
+                  argPats
+                    .foldLeft(Option(binds.toSet)) {
+                      case (None, _) => None
+                      case (Some(bound), (a, p)) =>
+                        p match {
+                          case Pattern.WildCard => Some(bound)
+                          case _ =>
+                            if (a.freeVarsDup.exists(bound)) None
+                            else Some(bound ++ p.names)
+                        }
+                    }
+                    .nonEmpty
+
+                if (rootReadOk && itemReadsOk) {
+                  val res = matchAll(argPats, in)
+                  Some(
+                    binds.foldRight(res)(
+                      Let(_, m.arg, _, RecursionKind.NonRecursive, m.tag)
+                    )
                   )
-                )
+                } else None
               case _ =>
                 None
             }
