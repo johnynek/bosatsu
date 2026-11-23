@@ -56,6 +56,39 @@ object Inhabitedness {
   // Keep quantifier expansion finite and fast in adversarial inputs.
   private val MaxQuantifierVars = 10
 
+  // The cycle rule only prunes data types on the current path, so a type
+  // whose expansion opens k kind-* variables at each step (constructor
+  // existentials, or a quantifier in a field) can have 2^k `cycleKey`s and
+  // up to (2^k)! paths through them: k = 4 would never finish. One check
+  // visits at most this many data types, then answers Unknown for the rest.
+  // That is always safe: no rule needs a sub-answer to be Unknown in order
+  // to answer Inhabited or Uninhabited, so turning a sub-answer into Unknown
+  // can only turn other answers into Unknown.
+  private val MaxDataTypeVisits = 10000
+
+  /** The cycle rule's assumptions while checking one type: the `cycleKey`s
+    * of the data types being expanded on the current path. It also carries
+    * the data-type visit budget of the whole check, shared by every path.
+    */
+  private final class Seen private (keys: Set[Type], budget: Seen.Budget) {
+    def contains(key: Type): Boolean = keys(key)
+    def push(key: Type): Seen = new Seen(keys + key, budget)
+    def spendVisit(): Boolean = budget.spend()
+  }
+
+  private object Seen {
+    // Mutable so that sibling paths share one budget; each check makes its own.
+    final class Budget(private var remaining: Int) {
+      def spend(): Boolean =
+        if (remaining > 0) {
+          remaining -= 1
+          true
+        } else false
+    }
+
+    def start(): Seen = new Seen(Set.empty, new Budget(MaxDataTypeVisits))
+  }
+
   /** Checks against one TypeEnv. Creating one computes the env's kind map,
     * which sorts every defined type, so reuse it for all the checks against
     * the same env (TotalityCheck makes one per package).
@@ -64,7 +97,7 @@ object Inhabitedness {
     private val an = Analyzer(env)
 
     def check(t: Type): Result[State] =
-      an.validateType(t).andThen(_ => an.checkType(t, Map.empty, Set.empty).validNec)
+      an.validateType(t).andThen(_ => an.checkType(t, Map.empty, Seen.start()).validNec)
 
     def checkMatch(
         scrutinee: Type,
@@ -72,7 +105,7 @@ object Inhabitedness {
     ): Result[State] =
       an.validateType(scrutinee) *>
         an.validatePattern(pattern).as(
-          an.checkPattern(scrutinee, pattern, Map.empty, Set.empty)
+          an.checkPattern(scrutinee, pattern, Map.empty, Seen.start())
         )
   }
 
@@ -215,8 +248,9 @@ object Inhabitedness {
     // `normalize` names them apart from their body's free variables, so the
     // outer variable they shadow in `varState` can't occur in the body, and
     // the only other place names matter is `seen`. Keying by state also
-    // keeps the expansion finite: with `Step[a](t: T[a])`, renamed
+    // keeps the set of keys finite: with `Step[a](t: T[a])`, renamed
     // existentials would otherwise give T[a], T[b], T[c], ... forever.
+    // Finite is not small, so `MaxDataTypeVisits` bounds the search.
     //
     // A variable without a state keeps its name. Only constructor fields
     // with an undeclared variable produce one: `validateType` rejects free
@@ -231,64 +265,62 @@ object Inhabitedness {
     private def cycleKey(
         t: Type,
         varState: Map[Type.Var.Bound, State]
-    ): Type = {
-      val sub: Map[Type.Var, Type] =
-        Type
-          .freeBoundTyVars(t :: Nil)
-          .iterator
-          .flatMap { b =>
-            varState.get(b) match {
-              case Some(Inhabited)   => Some((b: Type.Var) -> inhabitedMarker)
-              case Some(Uninhabited) => Some((b: Type.Var) -> uninhabitedMarker)
-              case Some(Unknown) | None => None
+    ): Type =
+      if (varState.isEmpty) t
+      else {
+        val sub: Map[Type.Var, Type] =
+          Type
+            .freeBoundTyVars(t :: Nil)
+            .iterator
+            .flatMap { b =>
+              varState.get(b) match {
+                case Some(Inhabited)   => Some((b: Type.Var) -> inhabitedMarker)
+                case Some(Uninhabited) => Some((b: Type.Var) -> uninhabitedMarker)
+                case Some(Unknown) | None => None
+              }
             }
-          }
-          .toMap
+            .toMap
 
-      if (sub.isEmpty) t
-      else Type.substituteVar(t, sub).normalize
-    }
+        if (sub.isEmpty) t
+        else Type.substituteVar(t, sub).normalize
+      }
 
-    /** The existentials and field types of `cfn` applied to the type
-      * arguments in `paramSub`. Existentials whose names are in `avoid` are
-      * renamed apart first, so evaluating them with `varState ++ assignment`
-      * can't capture an outer variable of the same name that `paramSub`
-      * substitutes into a field. Unlike a quantifier inside a type, an
-      * existential is not named apart from the arguments by `normalize`.
+    /** The existentials and field types of `cfn` applied to `args`, the type
+      * arguments that `paramSub` maps its type parameters to.
+      *
+      * Unlike a quantifier inside a type, an existential is not named apart
+      * from the arguments by `normalize`. So existentials that share a name
+      * with a free variable of `args` (or with a variable a field uses
+      * without declaring it) are renamed first. Otherwise evaluating them
+      * with `varState ++ assignment` would capture that outer variable. Other
+      * names need no avoiding: `seen` keys never name a variable that has a
+      * state, and an outer variable that occurs in no field can't be
+      * captured.
       */
     private def openConstructor(
         cfn: rankn.ConstructorFn[Kind.Arg],
         paramSub: Map[Type.Var, Type],
-        avoid: => Set[Type.Var.Bound]
+        args: List[Type]
     ): (List[(Type.Var.Bound, Kind)], List[Type]) = {
-      val rename: Map[Type.Var.Bound, Type.Var.Bound] =
-        if (cfn.exists.isEmpty) Map.empty
-        else {
-          val avoidSet = avoid
-          val (clashing, kept) = cfn.exists.map(_._1).partition(avoidSet)
-          if (clashing.isEmpty) Map.empty
-          else {
-            val keptSet = kept.toSet
-            Type
-              .alignBinders(clashing, b => avoidSet(b) || keptSet(b))
-              .toMap
-          }
-        }
-
-      val sub: Map[Type.Var, Type] =
-        paramSub ++ rename.iterator.map { case (b, b1) =>
-          (b: Type.Var) -> (Type.TyVar(b1): Type)
-        }
-      val exists = cfn.exists.map { case (b, ka) =>
-        (rename.getOrElse(b, b), ka.kind)
+      val fields = cfn.args.map(_.tpe)
+      NonEmptyList.fromList(cfn.exists.map { case (b, ka) => (b, ka.kind) }) match {
+        case None =>
+          (Nil, fields.map(Type.substituteVar(_, paramSub)))
+        case Some(exists) =>
+          val existNames = exists.iterator.map(_._1).toSet
+          val avoid =
+            Type.freeBoundTyVars(args).toSet ++
+              Type.freeBoundTyVars(fields).filterNot(existNames)
+          val (rename, exists1) = Type.unshadow(exists, avoid)
+          val sub = paramSub ++ rename
+          (exists1.toList, fields.map(Type.substituteVar(_, sub)))
       }
-      (exists, cfn.args.map(arg => Type.substituteVar(arg.tpe, sub)))
     }
 
     def checkType(
         t: Type,
         varState: Map[Type.Var.Bound, State],
-        seen: Set[Type]
+        seen: Seen
     ): State = {
       val norm = t.normalize
 
@@ -330,7 +362,8 @@ object Inhabitedness {
                   case None => Unknown
                   case Some(dt) =>
                     val root = cycleKey(norm, varState)
-                    if (seen(root)) Uninhabited
+                    if (!seen.spendVisit()) Unknown
+                    else if (seen.contains(root)) Uninhabited
                     else {
                       val params = dt.typeParams
                       if (params.lengthCompare(args.length) != 0) Unknown
@@ -341,14 +374,11 @@ object Inhabitedness {
                             .map { case (v, arg) => (v: Type.Var) -> arg }
                             .toMap
 
-                        val seen1 = seen + root
-                        lazy val avoid: Set[Type.Var.Bound] =
-                          varState.keySet ++
-                            Type.freeBoundTyVars(args ::: seen1.toList)
+                        val seen1 = seen.push(root)
                         val constructorStates =
                           dt.constructors.map { cfn =>
                             val (exists, argTypes) =
-                              openConstructor(cfn, paramSub, avoid)
+                              openConstructor(cfn, paramSub, args)
                             evaluateQuantifier(
                               exists,
                               vs => {
@@ -406,7 +436,7 @@ object Inhabitedness {
         scrutinee: Type,
         pattern: Pattern[(PackageName, Constructor), Type],
         varState: Map[Type.Var.Bound, State],
-        seen: Set[Type]
+        seen: Seen
     ): State = {
       val scrutineeNorm = scrutinee.normalize
 
@@ -507,12 +537,7 @@ object Inhabitedness {
                         // `validatePattern` rejects free variables in them,
                         // so they can't refer to an outer variable.
                         val (exists, fieldTypes) =
-                          openConstructor(
-                            cfn,
-                            paramSub,
-                            varState.keySet ++
-                              Type.freeBoundTyVars(scrArgs ::: seen.toList)
-                          )
+                          openConstructor(cfn, paramSub, scrArgs)
                         evaluateQuantifier(
                           exists,
                           vs => {

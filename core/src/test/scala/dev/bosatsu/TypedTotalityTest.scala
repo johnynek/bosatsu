@@ -337,6 +337,41 @@ def f(q: Q) -> Int:
     )
   }
 
+  test("constructor existential named like an outer variable in a type argument is not captured") {
+    // `exists b. Box[b]` normalizes to `exists a. Box[a]`, and the outer `a`
+    // is substituted for MkBox's `x` next to its existential `a`.
+    // HasBox(MkBox(1, x -> x)) is a value (with a = Never), so HasBox is
+    // reachable.
+    assertNonTotal(
+      """#
+enum Never: Never(next: Never)
+enum Box[x]: MkBox[a](h: x, k: a -> Never)
+enum Q: HasBox(b: exists b. Box[b]), Other
+
+def f(q: Q) -> Int:
+  match q:
+    case Other: 0
+""",
+      "f"
+    )
+  }
+
+  test("totality check finishes on a type whose expansion opens many variables") {
+    // Every expansion of P opens four existentials, giving 16 cycle keys and
+    // up to 16! paths through them; the data-type visit budget bounds that.
+    assertTotal(
+      """#
+enum P[w, x, y, z]: Base(w: w, x: x, y: y, z: z), Step[a, b, c, d](p: P[a, b, c, d])
+
+def f(p: P[Int, Int, Int, Int]) -> Int:
+  match p:
+    case Base(_, _, _, _): 0
+    case Step(_): 1
+""",
+      "f"
+    )
+  }
+
   test("deep non-match nesting is stack safe") {
     checkEnvExpr("""#
 enum Value: V

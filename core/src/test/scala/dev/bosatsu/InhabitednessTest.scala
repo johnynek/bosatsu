@@ -717,6 +717,9 @@ enum Box[x]: MkBox[a](h: x, k: a -> Never)
 enum Loop[x]: Loop[a](l: Loop[a])
 enum D[x]: A(v: x), B(w: exists y. D[y])
 enum E[x]: EA(v: x), EB(w: forall y. E[y])
+enum P4[w, x, y, z]: Base4(w: w, x: x, y: y, z: z), Step4[a, b, c, d](p: P4[a, b, c, d])
+enum Loop4[w, x, y, z]: Loop4[a, b, c, d](l: Loop4[a, b, c, d])
+enum Q4[w, x, y, z]: QBase4(w: w, x: x, y: y, z: z), QStep4(q: forall a, b, c, d. Q4[a, b, c, d])
 """)
 
   private def quantified(
@@ -794,6 +797,29 @@ enum E[x]: EA(v: x), EB(w: forall y. E[y])
         State.Uninhabited
       )
     }
+  }
+
+  test("the data-type visit budget bounds expansions that open many variables") {
+    // Each expansion of these types opens four kind-* variables, so there are
+    // 16 cycle keys and up to 16! paths through them. Without the budget
+    // none of these checks would finish.
+    def applied4(name: String, args: List[Type]): Type =
+      Type.applyAll(localType(name), args)
+    val ints = List.fill(4)(Type.IntType: Type)
+
+    // The base constructor answers these before the budget matters.
+    assertState(Inhabitedness.check(applied4("P4", ints), captureEnv), State.Inhabited)
+    assertState(Inhabitedness.check(applied4("Q4", ints), captureEnv), State.Inhabited)
+
+    // Loop4 has no value. Proving that needs every path, so the budget runs
+    // out and the answer is Unknown, which is safe. A least-fixed-point
+    // solver over the 16 keys would answer Uninhabited.
+    val vars = List("a", "b", "c", "d").map(Type.Var.Bound(_))
+    val forallLoop4 = Type.forAll(
+      vars.map((_, Kind.Type)),
+      applied4("Loop4", vars.map(Type.TyVar(_)))
+    )
+    assertState(Inhabitedness.check(forallLoop4, captureEnv), State.Unknown)
   }
 
   private def genInhabited(env: TypeEnv[Kind.Arg]): Gen[Type] = {
