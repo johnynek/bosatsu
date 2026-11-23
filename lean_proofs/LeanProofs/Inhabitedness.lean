@@ -971,8 +971,12 @@ Bosatsu programs takes the following assumptions about the rest of Bosatsu.
    * The keys are solved as a least fixed point. Tarjan's algorithm finds the
      strongly connected components, and Kleene iteration from Uninhabited
      solves each component that reads its own keys only covariantly.
-   * A component that reads one of its own keys under a function argument,
-     and any key past a count or size limit, is Unknown.
+   * A component that reads one of its own keys under a function argument is
+     solved by the search this file models, restricted to the component,
+     provided every cycle in it passes an even number of function arguments.
+     That makes each key covariant in its own unfolding, as `Model.cov`
+     requires. Other such components, and any key past a count or size
+     limit, are Unknown.
 
    Covering that code needs worlds indexed by keys (types up to swapping
    variables with the same state) instead of syntactic points. It also needs

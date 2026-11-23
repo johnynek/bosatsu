@@ -69,6 +69,15 @@ object Inhabitedness {
   private val MaxDataTypeKeys = 1000
   private val MaxDataTypeKeySize = 256
 
+  // A component whose keys read each other under function arguments is
+  // solved by a depth-first search instead (see `Solver`). That search can
+  // follow up to (keys)! paths, so it expands at most `MaxSearchVisits` keys
+  // per component and follows paths of at most `MaxSearchDepth` keys,
+  // answering Unknown past either. Within the search, an Unknown sub-answer
+  // can only turn other answers into Unknown.
+  private val MaxSearchVisits = 10000
+  private val MaxSearchDepth = 32
+
   /** How `checkType` reads the answer for a data type's `dataKey`. Under a
     * function argument it reads through `contravariant`, so a reader can
     * tell which keys are read where a larger answer gives a smaller result.
@@ -395,14 +404,21 @@ object Inhabitedness {
       * gives the same least fixed point as solving them one at a time
       * (Bekic's lemma).
       *
-      * A component that reads one of its own keys contravariantly answers
-      * Unknown. Iterating it from the bottom can settle on a fixed point that
-      * is not the least one, and Bosatsu accepts such components. With
+      * A component that reads one of its own keys contravariantly can't be
+      * iterated from the bottom: that can settle on a fixed point that is not
+      * the least one. Bosatsu accepts such components. With
       * `enum E[x, y]: C1(v: y), C2(f: x -> Never)` and
       * `struct D(w: E[E[D, Y], D])`, D occurs covariantly in its own
       * definition (under two contravariant parameters). Yet D,
-      * `E[E[D, Y], D]` and `E[D, Y]` form one component with contravariant
-      * reads.
+      * `E[E[D, Y], D]` and `E[D, Y]` read each other contravariantly.
+      *
+      * Such a component may pass an even number of function arguments
+      * around every cycle (`parityConsistent`). Then each key occurs
+      * covariantly in its own unfolding, which is the condition (`Model.cov`)
+      * under which `lean_proofs/LeanProofs/Inhabitedness.lean` proves the
+      * older depth-first search sound. So the component is solved by that
+      * search (`searchComponent`). Otherwise, as for
+      * `struct Liar(f: Liar -> Never)`, the component is Unknown.
       *
       * Keys reached after `MaxDataTypeKeys` are Unknown.
       *
@@ -425,15 +441,16 @@ object Inhabitedness {
       // Solved answers are final, so where a key is read doesn't matter.
       def contravariant: DataStates = this
 
-      // One key being solved by `solveFrom`. `succ` are the keys `expand` reads
-      // and `contra` the ones it reads contravariantly. `discovered` is what
-      // `expand` answered while finding them, which is exact when `succ` is
-      // empty.
+      // One key being solved by `solveFrom`. `succ` are the keys `expand` reads,
+      // `co` the ones it reads covariantly and `contra` the ones it reads
+      // contravariantly (a key can be in both). `discovered` is what `expand`
+      // answered while finding them, which is exact when `succ` is empty.
       private final class Node(
           val key: Type,
           val index: Int,
           val stackPos: Int,
           val succ: List[Type],
+          val co: Set[Type],
           val contra: Set[Type],
           val discovered: State
       ) {
@@ -445,6 +462,8 @@ object Inhabitedness {
         var state: State = Uninhabited
         var readers: List[Node] = Nil
         var queued: Boolean = false
+        // 0 or 1 once `parityConsistent` has labelled it, else -1.
+        var parity: Int = -1
       }
 
       private def solveFrom(root: Type): Unit = {
@@ -462,11 +481,13 @@ object Inhabitedness {
             keysLeft -= 1
             val found = mutable.HashSet.empty[Type]
             val succ = List.newBuilder[Type]
+            val co = mutable.HashSet.empty[Type]
             val contra = mutable.HashSet.empty[Type]
             final class Reads(covariant: Boolean) extends DataStates {
               def stateOf(k: Type): State = {
                 if (found.add(k)) (succ += k): Unit
-                if (!covariant) (contra += k): Unit
+                if (covariant) (co += k): Unit
+                else (contra += k): Unit
                 Uninhabited
               }
               lazy val contravariant: DataStates = new Reads(!covariant)
@@ -479,6 +500,7 @@ object Inhabitedness {
               nodes.size,
               stack.length,
               succ.result(),
+              co.toSet,
               contra.toSet,
               discovered
             )
@@ -509,9 +531,12 @@ object Inhabitedness {
               if (node.lowLink == node.index) {
                 // `node` is the first node of its component that was visited,
                 // and the component is `node` and everything above it.
-                val component = stack.iterator.drop(node.stackPos).toList
+                val component = NonEmptyList(
+                  node,
+                  stack.iterator.drop(node.stackPos + 1).toList
+                )
                 stack.dropRightInPlace(stack.length - node.stackPos): Unit
-                component.foreach(_.onStack = false)
+                component.toList.foreach(_.onStack = false)
                 solveComponent(component, nodes)
               }
           }
@@ -519,64 +544,131 @@ object Inhabitedness {
       }
 
       private def solveComponent(
-          component: List[Node],
+          component: NonEmptyList[Node],
           nodes: mutable.HashMap[Type, Node]
       ): Unit = {
-        component.foreach(_.inComponent = true)
+        component.toList.foreach(_.inComponent = true)
         def member(k: Type): Option[Node] =
           nodes.get(k).filter(_.inComponent)
 
-        component match {
-          case only :: Nil if only.succ.isEmpty =>
-            only.state = only.discovered
-          case _ if component.exists(_.contra.exists(member(_).nonEmpty)) =>
-            component.foreach(_.state = Unknown)
-          case _ =>
-            component.foreach { n =>
-              n.succ.foreach { k =>
-                member(k).foreach(m => m.readers = n :: m.readers)
+        if (component.tail.isEmpty && component.head.succ.isEmpty)
+          component.head.state = component.head.discovered
+        else if (component.exists(_.contra.exists(member(_).nonEmpty))) {
+          if (parityConsistent(component, member))
+            searchComponent(component, member, nodes)
+          else component.toList.foreach(_.state = Unknown)
+        } else {
+          component.toList.foreach { n =>
+            n.succ.foreach { k =>
+              member(k).foreach(m => m.readers = n :: m.readers)
+            }
+          }
+          // Nodes outside the component are finished, so their state is
+          // their answer. Tarjan's order finished every key the component
+          // reads from outside it.
+          val read: DataStates = new DataStates {
+            def stateOf(k: Type): State =
+              nodes.get(k) match {
+                case Some(n) => n.state
+                case None    => solved.getOrElse(k, Unknown)
               }
-            }
-            // Nodes outside the component are finished, so their state is
-            // their answer. Tarjan's order finished every key the component
-            // reads from outside it.
-            val read: DataStates = new DataStates {
-              def stateOf(k: Type): State =
-                nodes.get(k) match {
-                  case Some(n) => n.state
-                  case None    => solved.getOrElse(k, Unknown)
-                }
-              def contravariant: DataStates = this
-            }
+            def contravariant: DataStates = this
+          }
 
-            val queue = mutable.ArrayDeque.from(component)
-            component.foreach(_.queued = true)
-            while (queue.nonEmpty) {
-              val n = queue.removeHead()
-              n.queued = false
-              val next = expand(n.key, read)
-              // Values only rise, because the component is monotone; taking
-              // rises alone also bounds the loop by construction.
-              val rises =
-                (next != n.state) &&
-                  ((n.state == Uninhabited) || (next == Inhabited))
-              if (rises) {
-                n.state = next
-                n.readers.foreach { r =>
-                  // The equations only rise, so an Inhabited key is done.
-                  if (!r.queued && (r.state != Inhabited)) {
-                    r.queued = true
-                    (queue += r): Unit
-                  }
+          val queue = mutable.ArrayDeque.from(component.toList)
+          component.toList.foreach(_.queued = true)
+          while (queue.nonEmpty) {
+            val n = queue.removeHead()
+            n.queued = false
+            val next = expand(n.key, read)
+            // Values only rise, because the component is monotone; taking
+            // rises alone also bounds the loop by construction.
+            val rises =
+              (next != n.state) &&
+                ((n.state == Uninhabited) || (next == Inhabited))
+            if (rises) {
+              n.state = next
+              n.readers.foreach { r =>
+                // The equations only rise, so an Inhabited key is done.
+                if (!r.queued && (r.state != Inhabited)) {
+                  r.queued = true
+                  (queue += r): Unit
                 }
               }
             }
+          }
         }
 
-        component.foreach { n =>
+        component.toList.foreach { n =>
           n.inComponent = false
           solved(n.key) = n.state
         }
+      }
+
+      // Whether the component's keys can be labelled 0 or 1 so that a
+      // covariant read keeps the label and a contravariant read flips it,
+      // that is, whether every cycle in it passes an even number of function
+      // arguments.
+      private def parityConsistent(
+          component: NonEmptyList[Node],
+          member: Type => Option[Node]
+      ): Boolean = {
+        // The component is strongly connected, so this reaches all of it.
+        val start = component.head
+        start.parity = 0
+        val todo = mutable.ArrayBuffer(start)
+        var consistent = true
+        while (consistent && todo.nonEmpty) {
+          val n = todo.remove(todo.length - 1)
+          def label(k: Type, flip: Int): Unit =
+            member(k).foreach { m =>
+              val want = n.parity ^ flip
+              if (m.parity < 0) {
+                m.parity = want
+                (todo += m): Unit
+              } else if (m.parity != want) consistent = false
+            }
+          n.co.foreach(label(_, 0))
+          n.contra.foreach(label(_, 1))
+        }
+        consistent
+      }
+
+      // The search that `lean_proofs/LeanProofs/Inhabitedness.lean` models as
+      // `check` and proves sound: expand a key with the keys on the current
+      // path assumed empty, so a key met again on the path is Uninhabited.
+      // Each key of the component is its own root. Keys outside the
+      // component are finished and don't depend on it, so their answers are
+      // the same under any assumption about its keys.
+      private def searchComponent(
+          component: NonEmptyList[Node],
+          member: Type => Option[Node],
+          nodes: mutable.HashMap[Type, Node]
+      ): Unit = {
+        var visitsLeft = MaxSearchVisits
+
+        def search(key: Type, path: Set[Type]): State =
+          if (path(key)) Uninhabited
+          else if ((visitsLeft <= 0) || (path.size >= MaxSearchDepth)) Unknown
+          else {
+            visitsLeft -= 1
+            val path1 = path + key
+            val read: DataStates = new DataStates {
+              def stateOf(k: Type): State =
+                member(k) match {
+                  case Some(_) => search(k, path1)
+                  case None =>
+                    nodes.get(k) match {
+                      case Some(n) => n.state
+                      case None    => solved.getOrElse(k, Unknown)
+                    }
+                }
+              def contravariant: DataStates = this
+            }
+            expand(key, read)
+          }
+
+        component.toList.foreach(n => n.state = search(n.key, Set.empty))
       }
     }
 

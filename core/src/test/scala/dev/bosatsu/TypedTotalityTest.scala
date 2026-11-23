@@ -409,6 +409,25 @@ def h(q: Q) -> Int:
     )
   }
 
+  test("double negation through a data-type wrapper can be left out of a match") {
+    // DN2 = Neg[Neg[DN2]] occurs covariantly and has no value, so HasDN can be
+    // left out. Its keys read each other under function arguments, so the
+    // solver uses the depth-first search for them.
+    assertTotal(
+      """#
+enum Never: Never(next: Never)
+struct Neg[a](f: a -> Never)
+struct DN2(f: Neg[Neg[DN2]])
+enum Q: HasDN(d: DN2), HasInt(i: Int)
+
+def h(q: Q) -> Int:
+  match q:
+    case HasInt(i): i
+""",
+      "h"
+    )
+  }
+
   test("deep non-match nesting is stack safe") {
     checkEnvExpr("""#
 enum Value: V

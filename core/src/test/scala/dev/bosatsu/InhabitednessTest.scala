@@ -738,6 +738,9 @@ struct Rec(w: Wrapper[Wrapper[Rec, Tok], Rec])
 struct Wrap2[x](w: x)
 enum Branch[x]: BLeft(l: Branch[Wrap[x]]), BRight(r: Branch[Wrap2[x]])
 struct SelfWithFn(s: SelfWithFn, f: Never -> Tok)
+struct Neg[a](f: a -> Never)
+struct DN2(f: Neg[Neg[DN2]])
+enum DNLoop4[w, x, y, z]: DNL4[a, b, c, d](f: Neg[Neg[DNLoop4[a, b, c, d]]])
 """)
 
   private def quantified(
@@ -847,28 +850,44 @@ struct SelfWithFn(s: SelfWithFn, f: Never -> Tok)
     )
   }
 
-  test("a data type that reads itself contravariantly is Unknown") {
+  test("a data type that reads itself under one function argument is Unknown") {
     // Liar = Liar -> Never has no least fixed point: assuming Liar empty makes
     // it inhabited, and assuming it inhabited makes it empty.
     assertState(Inhabitedness.check(localType("Liar"), captureEnv), State.Unknown)
   }
 
-  test("a component with a contravariant read is Unknown even if the compiler accepts it") {
+  test("a component read under an even number of function arguments is searched") {
     // Rec = Wrapper[Wrapper[Rec, Tok], Rec] = Rec or not Wrapper[Rec, Tok],
     // and Wrapper[Rec, Tok] = Tok or not Rec, which is Inhabited. So Rec is
-    // empty. Iterating all three keys up from Uninhabited instead reads
-    // Wrapper[Rec, Tok] as Uninhabited at first, makes Rec Inhabited, and
-    // never comes back down.
+    // empty. Iterating all three keys up from Uninhabited would instead read
+    // Wrapper[Rec, Tok] as Uninhabited at first, make Rec Inhabited, and
+    // never come back down. Every cycle passes two function arguments, so
+    // the depth-first search with the cycle rule solves them.
     val rec = localType("Rec")
     val inner = Type.applyAll(localType("Wrapper"), List(rec, localType("Tok")))
     val outer = Type.applyAll(localType("Wrapper"), List(inner, rec))
-    assertState(Inhabitedness.check(rec, captureEnv), State.Unknown)
-    assertState(Inhabitedness.check(outer, captureEnv), State.Unknown)
-    // The tuple has a value (None, absurd); it must not be Uninhabited.
+    assertState(Inhabitedness.check(rec, captureEnv), State.Uninhabited)
+    assertState(Inhabitedness.check(outer, captureEnv), State.Uninhabited)
+    assertState(Inhabitedness.check(inner, captureEnv), State.Inhabited)
+    // (None, absurd) is a value of the tuple.
     val tuple = Type.Tuple(
       List(Type.apply1(Type.OptionType, outer), Type.Fun(rec, neverType))
     )
-    assertState(Inhabitedness.check(tuple, captureEnv), State.Unknown)
+    assertState(Inhabitedness.check(tuple, captureEnv), State.Inhabited)
+
+    // DN2 = Neg[Neg[DN2]] = not not DN2, so it is empty.
+    assertState(Inhabitedness.check(localType("DN2"), captureEnv), State.Uninhabited)
+  }
+
+  test("the search over a component read under function arguments is bounded") {
+    // 16 DNLoop4 keys, each reading all 16 through two Negs: the search
+    // could follow 16! paths, so it stops at its visit and depth limits.
+    val vars = List("a", "b", "c", "d").map(Type.Var.Bound(_))
+    val forallDNLoop4 = Type.forAll(
+      vars.map((_, Kind.Type)),
+      Type.applyAll(localType("DNLoop4"), vars.map(Type.TyVar(_)))
+    )
+    assertState(Inhabitedness.check(forallDNLoop4, captureEnv), State.Unknown)
   }
 
   test("polymorphic recursion stops at the data-type key limits") {
