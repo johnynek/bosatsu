@@ -4700,4 +4700,39 @@ main = target(4)
       VInt(4)
     )
   }
+
+  test("normalizing Int arithmetic in a match branch terminates") {
+    // the Int optimizer kept mul(z, sub(add(y, x), z)) as it was, but rewrote
+    // its argument on its own into add(y, sub(x, z)) and the whole product
+    // back, and normalizing the match repeated while the branch changed, so
+    // normalization overflowed the stack
+    evalBothPipelines(
+      """
+def target(x: Int, y: Int, z: Int) -> Int:
+  match 0:
+    case 0: mul(z, add(sub(y, z), x))
+    case _: 0
+
+main = target(1, 2, 3)
+""",
+      VInt(0)
+    )
+  }
+
+  test("normalizing Int arithmetic that RingOpt alternates on terminates") {
+    // RingOpt rewrites this branch into a form A, then A into B and B back
+    // into A, so normalizing A again must report no change: a match
+    // re-normalizes its branches while any reports one
+    evalBothPipelines(
+      """
+def target(w: Int, x: Int, y: Int, z: Int) -> Int:
+  match w:
+    case 0: sub(add(mul(sub(x, z), sub(z, 1)), add(sub(y, y), mul(x, x))), z)
+    case _: 0
+
+main = target(0, 3, -2, 5)
+""",
+      VInt(-4)
+    )
+  }
 }

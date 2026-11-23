@@ -231,35 +231,20 @@ class TypedExprRecursionLoweringTest extends munit.ScalaCheckSuite {
       case Left(_) =>
         Prop.undecided
       case Right(c) =>
-        normalizedPmOf(c) match {
-          case None =>
-            Prop.undecided
-          case Some(normalizedPm) =>
-            val run = runTarget(c)
-            val runNormalized = runTargetIn(normalizedPm)
-            argss.flatMap { args =>
-              val v = run(args)
-              val vn = runNormalized(args)
-              if (v == vn) Nil
-              else List(s"$args: Bosatsu gives $v, the normalized program gives $vn")
-            } match {
-              case Nil => Prop.passed
-              case bad =>
-                Prop.falsified :| (s"source:\n$source\n\n" + bad.take(10).mkString("\n"))
-            }
+        val run = runTarget(c)
+        val runNormalized = runTargetIn(c.normalizedPm)
+        argss.flatMap { args =>
+          val v = run(args)
+          val vn = runNormalized(args)
+          if (v == vn) Nil
+          else List(s"$args: Bosatsu gives $v, the normalized program gives $vn")
+        } match {
+          case Nil => Prop.passed
+          case bad =>
+            Prop.falsified :| (s"source:\n$source\n\n" + bad.take(10).mkString("\n"))
         }
     }
   }
-
-  // Normalizing currently never stops on some Int arithmetic in a match
-  // branch, and overflows the stack. The Int optimizer turns
-  // `mul(z, add(y, sub(x, z)))` into `mul(z, sub(add(y, x), z))`, then, on its
-  // own, the argument `sub(add(y, x), z)` back into `add(y, sub(x, z))`, and
-  // normalizing a match repeats while anything changes. That is not a name
-  // capture and needs its own fix; until then this skips those programs.
-  private def normalizedPmOf(c: Compiled): Option[PackageMap.Typed[Declaration]] =
-    try Some(c.normalizedPm)
-    catch { case _: StackOverflowError => None }
 
   property("loop lowering and normalization do not change what a program computes") {
     given Shrink[Program] = Shrink.withLazyList(shrinkProgram)

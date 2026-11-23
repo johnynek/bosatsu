@@ -1777,8 +1777,26 @@ object TypedExprNormalization {
         val tpe = Type.normalize(tpe0)
         if (tpe == tpe0) None
         else Some(Local(n, tpe, tag))
-      case Impl.IntAlgebraic.Optimized(optTE) =>
-        Some(optTE)
+      case Impl.IntAlgebraic(ia) =>
+        // Int arithmetic (add, sub and mul of literals and other Int
+        // expressions) is normalized one whole tree at a time: normalize only
+        // the leaves that are not arithmetic, then let RingOpt rewrite the
+        // whole tree. Never normalize an arithmetic subterm on its own:
+        // RingOpt can rewrite a subterm alone into a form of the same cost
+        // other than the one it picks inside the whole tree, and the
+        // whole-tree rewrite then turns it back, forever. For instance, it
+        // keeps mul(z, sub(add(y, x), z)) as it is, but turns the argument
+        // sub(add(y, x), z) alone into add(y, sub(x, z)), and turns
+        // mul(z, add(y, sub(x, z))) back into mul(z, sub(add(y, x), z)).
+        Impl.IntAlgebraic.mapOpaque(ia)(
+          normalizeLetOpt(None, _, scope, typeEnv)
+        ) match {
+          case None =>
+            Impl.IntAlgebraic.optimize(ia, te)
+          case Some(ia1) =>
+            val te1 = ia1.toTypedExpr
+            Impl.IntAlgebraic.optimize(ia1, te1).orElse(Some(te1))
+        }
       // TODO: we could implement much of the predef at compile time
       case App(fn, args, tpe0, tag) =>
         val tpe = Type.normalize(tpe0)
@@ -3396,7 +3414,8 @@ object TypedExprNormalization {
         case class Table(
             invert: Vector[TypedExpr[Unit]],
             toMap: Map[TypedExpr[Unit], (Int, NonEmptyList[TypedExpr[A]])],
-            litTags: Map[BigInteger, A]
+            litTags: Map[BigInteger, A],
+            rootTag: A
         ) {
 
           def idOf(te: TypedExpr[A]): (Table, Int) = {
@@ -3410,7 +3429,7 @@ object TypedExprNormalization {
                 val invert1 = invert :+ teVoid
                 val idx = invert.length
                 val toMap1 = toMap.updated(teVoid, (idx, NonEmptyList(te, Nil)))
-                (Table(invert1, toMap1, litTags), idx)
+                (copy(invert = invert1, toMap = toMap1), idx)
             }
           }
           def typeExpr(idx: Int): TypedExpr[A] =
@@ -3428,21 +3447,21 @@ object TypedExprNormalization {
           def tagForBi(bi: BigInteger): A =
             litTags.get(bi) match {
               case Some(a) => a
-              case None    => te.tag
+              case None    => rootTag
             }
           def tagFromUntagged(teu: TypedExpr[Unit]): A =
             toMap.get(teu) match {
               case Some((_, nel)) => nel.last.tag
               case None           =>
                 // just use the root tag
-                te.tag
+                rootTag
             }
         }
 
-        val EmptyTable: Table = {
-          val t0 = Table(Vector.empty, Map.empty, Map.empty)
+        def emptyTable(root: TypedExpr[A]): Table = {
+          val t0 = Table(Vector.empty, Map.empty, Map.empty, root.tag)
           // insert the root TypedExpr into the table
-          val (t1, _) = t0.idOf(te)
+          val (t1, _) = t0.idOf(root)
           t1
         }
 
@@ -3653,38 +3672,119 @@ object TypedExprNormalization {
           }
         }
 
-        val (table, expr) = toExpr(root, EmptyTable)
-        val w = RingOpt.Weights(mult = 3, add = 1, neg = 1)
-        val norm = RingOpt.normalize(expr, w)
+        // One RingOpt pass over `cur`, whose TypedExpr is `curTE` and whose
+        // erased TypedExpr is `curVoid` (only needed when RingOpt changes
+        // something). None when the pass leaves the TypedExpr as it is;
+        // otherwise the new tree and its erased TypedExpr.
+        def rewriteOnce(
+            cur: IntAlgebraic[A],
+            curTE: TypedExpr[A],
+            curVoid: => TypedExpr[Unit]
+        ): Option[(IntAlgebraic[A], TypedExpr[Unit])] = {
+          val (table, expr) = toExpr(cur, emptyTable(curTE))
+          val norm = RingOpt.normalize(expr, RingWeights)
 
-        if (cats.Hash[RingOpt.Expr[Int]].eqv(norm, expr)) {
-          // the expression is exactly the same
-          None
-        } else {
-          val ia1 = toAlg(norm, table)
-          val te1 = ia1.toTypedExpr
-          if (te1.void === root.toTypedExpr.void) {
-            // since the AST of RingOpt isn't the same as TypedExpr
-            // we can improve the RingOpt AST but the resulting TypedExpr
-            // AST may be exactly the same. Unfortunately, this check
-            // is safer to do.
-            // for instance: 0 - x can be optimized to -x in RingOpt
-            // but currently, the predef doesn't have negate, and just
-            // uses sub to do this (which at codegen time we can always)
-            // optimize into a negate at the top level as needed.
+          if (cats.Hash[RingOpt.Expr[Int]].eqv(norm, expr)) {
+            // the expression is exactly the same
             None
           } else {
-            Some(dedupOpaque(ia1))
+            val ia1 = toAlg(norm, table)
+            val void1 = ia1.toTypedExpr.void
+            if (void1 === curVoid) {
+              // since the AST of RingOpt isn't the same as TypedExpr
+              // we can improve the RingOpt AST but the resulting TypedExpr
+              // AST may be exactly the same. Unfortunately, this check
+              // is safer to do.
+              // for instance: 0 - x can be optimized to -x in RingOpt
+              // but currently, the predef doesn't have negate, and just
+              // uses sub to do this (which at codegen time we can always)
+              // optimize into a negate at the top level as needed.
+              None
+            } else {
+              Some((ia1, void1))
+            }
           }
         }
+
+        lazy val rootVoid = te.void
+
+        // One pass is not enough: normalization runs again on what we return
+        // (a match re-normalizes while any branch changes), and a second
+        // RingOpt pass need not leave our output alone. RingOpt numbers the
+        // opaque leaves in the order they first appear and breaks cost ties
+        // by that order, so on a rearranged tree it can pick another form of
+        // the same cost, and two forms can alternate forever. So repeat the
+        // pass until it changes nothing, or until it gives a tree seen
+        // before, and stop at that repeated tree: repeating from it goes
+        // round the same cycle back to it, so optimizing our output again
+        // returns None. `cur` came from rewriting `root` at least once,
+        // `seen` holds the trees so far, newest first, ending with `root`,
+        // and `passes` is how many more passes we may run. If the tree has
+        // not settled after MaxRewrites passes, we keep `root` as it is,
+        // which is also stable.
+        @annotation.tailrec
+        def loop(
+            cur: IntAlgebraic[A],
+            curVoid: TypedExpr[Unit],
+            seen: List[TypedExpr[Unit]],
+            passes: Int
+        ): Option[IntAlgebraic[A]] =
+          cur match {
+            case LiteralInt(_, _) | OpaqueInt(_) =>
+              // a leaf: there is nothing left to rewrite
+              Some(cur)
+            case _ if passes <= 0 =>
+              None
+            case _ =>
+              rewriteOnce(cur, cur.toTypedExpr, curVoid) match {
+                case None                   => Some(cur)
+                case Some((next, nextVoid)) =>
+                  if (seen.exists(_ === nextVoid)) {
+                    // back at `root` means no change
+                    if (nextVoid === rootVoid) None else Some(next)
+                  } else loop(next, nextVoid, nextVoid :: seen, passes - 1)
+              }
+          }
+
+        rewriteOnce(root, te, rootVoid)
+          .flatMap { case (ia1, void1) =>
+            loop(ia1, void1, void1 :: rootVoid :: Nil, MaxRewrites - 1)
+          }
+          .map(dedupOpaque)
       }
 
-      object Optimized {
-        def unapply[A](te: TypedExpr[A]): Option[TypedExpr[A]] =
-          Impl.IntAlgebraic.unapply(te) match {
-            case Some(ia) => optimize(ia, te)
-            case None     => None
+      private val RingWeights = RingOpt.Weights(mult = 3, add = 1, neg = 1)
+      // the most RingOpt passes one optimize call runs
+      private val MaxRewrites = 16
+
+      /** Rewrite each opaque leaf of `ia` with `fn`, which returns None for a
+        * leaf it leaves as it is. A leaf that `fn` turns into Int arithmetic
+        * joins the tree. None when `fn` changes no leaf.
+        */
+      def mapOpaque[A](
+          ia: IntAlgebraic[A]
+      )(fn: TypedExpr[A] => Option[TypedExpr[A]]): Option[IntAlgebraic[A]] = {
+        def both(
+            l: IntAlgebraic[A],
+            r: IntAlgebraic[A]
+        ): Option[(IntAlgebraic[A], IntAlgebraic[A])] =
+          (mapOpaque(l)(fn), mapOpaque(r)(fn)) match {
+            case (None, None) => None
+            case (l1, r1)     => Some((l1.getOrElse(l), r1.getOrElse(r)))
           }
+
+        ia match {
+          case Add(l, r, addFn, tag) =>
+            both(l, r).map { case (l1, r1) => Add(l1, r1, addFn, tag) }
+          case Times(l, r, timesFn, tag) =>
+            both(l, r).map { case (l1, r1) => Times(l1, r1, timesFn, tag) }
+          case Sub(l, r, subFn, tag) =>
+            both(l, r).map { case (l1, r1) => Sub(l1, r1, subFn, tag) }
+          case LiteralInt(_, _) =>
+            None
+          case OpaqueInt(intValue) =>
+            fn(intValue).map(v1 => unapply(v1).getOrElse(OpaqueInt(v1)))
+        }
       }
 
       def unapply[A](te: TypedExpr[A]): Option[IntAlgebraic[A]] =
