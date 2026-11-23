@@ -200,14 +200,29 @@ object Inhabitedness {
       }
     }
 
-    // Cycle detection compares types by what they mean, not by variable
-    // names: a variable assigned Inhabited (or Uninhabited) means the same
-    // thing wherever it appears, so the key replaces it with a marker for its
-    // state. Names that are not valid Bosatsu type variables can't clash with
-    // real ones. This keeps an outer variable from being confused with a
-    // constructor existential of the same name, and keeps the expansion
-    // finite when existentials are renamed apart (otherwise
-    // `Step[a](t: T[a])` would expand T[a], T[b], T[c], ... forever).
+    // The `seen` key of a data type replaces each free variable that has an
+    // Inhabited (Uninhabited) state with the marker `$inhabited`
+    // (`$uninhabited`). Invariant: two types with the same key are inhabited
+    // or not together, under every assignment of types to variables that
+    // agrees with the states. Variables are only ever read through their
+    // state, so swapping one variable for another with the same state
+    // changes nothing. The cycle rule (a type met again while expanding it
+    // is Uninhabited) is therefore sound for any type with the same key.
+    //
+    // Keys never mention a variable that has a state by name, so a binder
+    // opened later can't match an older key by reusing that name. That is
+    // why the binders of quantifiers inside field types need no renaming:
+    // `normalize` names them apart from their body's free variables, so the
+    // outer variable they shadow in `varState` can't occur in the body, and
+    // the only other place names matter is `seen`. Keying by state also
+    // keeps the expansion finite: with `Step[a](t: T[a])`, renamed
+    // existentials would otherwise give T[a], T[b], T[c], ... forever.
+    //
+    // A variable without a state keeps its name. Only constructor fields
+    // with an undeclared variable produce one: `validateType` rejects free
+    // variables in the checked type and in pattern annotations. Names parsed
+    // from source or made by `alignBinders` can't start with `$`, so they
+    // never match a marker.
     private val inhabitedMarker: Type =
       Type.TyVar(Type.Var.Bound("$inhabited"))
     private val uninhabitedMarker: Type =
@@ -237,8 +252,9 @@ object Inhabitedness {
     /** The existentials and field types of `cfn` applied to the type
       * arguments in `paramSub`. Existentials whose names are in `avoid` are
       * renamed apart first, so evaluating them with `varState ++ assignment`
-      * can't capture an outer variable of the same name (one substituted into
-      * a field through `paramSub`, or one a pattern annotation refers to).
+      * can't capture an outer variable of the same name that `paramSub`
+      * substitutes into a field. Unlike a quantifier inside a type, an
+      * existential is not named apart from the arguments by `normalize`.
       */
     private def openConstructor(
         cfn: rankn.ConstructorFn[Kind.Arg],
@@ -268,25 +284,6 @@ object Inhabitedness {
       }
       (exists, cfn.args.map(arg => Type.substituteVar(arg.tpe, sub)))
     }
-
-    private def patternTypes(
-        p: Pattern[(PackageName, Constructor), Type]
-    ): List[Type] =
-      p match {
-        case Pattern.WildCard | Pattern.Var(_) | Pattern.Literal(_) |
-            Pattern.StrPat(_) =>
-          Nil
-        case Pattern.Named(_, pat)      => patternTypes(pat)
-        case Pattern.Annotation(pat, t) => t :: patternTypes(pat)
-        case Pattern.ListPat(items)     =>
-          items.flatMap {
-            case Pattern.ListPart.Item(item) => patternTypes(item)
-            case _                           => Nil
-          }
-        case Pattern.PositionalStruct(_, params) => params.flatMap(patternTypes)
-        case Pattern.Union(head, rest) =>
-          (head :: rest.toList).flatMap(patternTypes)
-      }
 
     def checkType(
         t: Type,
@@ -506,14 +503,15 @@ object Inhabitedness {
                             .map { case (v, arg) => (v: Type.Var) -> arg }
                             .toMap
 
+                        // Annotation types in `params` need no avoiding:
+                        // `validatePattern` rejects free variables in them,
+                        // so they can't refer to an outer variable.
                         val (exists, fieldTypes) =
                           openConstructor(
                             cfn,
                             paramSub,
                             varState.keySet ++
-                              Type.freeBoundTyVars(
-                                scrArgs ::: seen.toList ::: params.flatMap(patternTypes)
-                              )
+                              Type.freeBoundTyVars(scrArgs ::: seen.toList)
                           )
                         evaluateQuantifier(
                           exists,
