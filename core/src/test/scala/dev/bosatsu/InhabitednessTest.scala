@@ -735,6 +735,9 @@ enum Wrapper[x, y]: W1(v: y), W2(f: x -> Never)
 # compiler accepts it, but its component reads Wrapper[Rec, Tok]
 # contravariantly.
 struct Rec(w: Wrapper[Wrapper[Rec, Tok], Rec])
+struct Wrap2[x](w: x)
+enum Branch[x]: BLeft(l: Branch[Wrap[x]]), BRight(r: Branch[Wrap2[x]])
+struct SelfWithFn(s: SelfWithFn, f: Never -> Tok)
 """)
 
   private def quantified(
@@ -889,6 +892,42 @@ struct Rec(w: Wrapper[Wrapper[Rec, Tok], Rec])
     assertState(
       Inhabitedness.check(Type.apply1(localType("TwiceLoop"), Type.IntType), captureEnv),
       State.Unknown
+    )
+    // Branch reaches 2^k keys of size k + 2 at depth k, so it runs out of
+    // keys long before any key is too large.
+    assertState(
+      Inhabitedness.check(Type.apply1(localType("Branch"), Type.IntType), captureEnv),
+      State.Unknown
+    )
+  }
+
+  test("a contravariant read of a key outside the component is fine") {
+    // SelfWithFn reads Never under a function argument, but Never is solved
+    // first, so SelfWithFn's component is still monotone: it is empty.
+    assertState(
+      Inhabitedness.check(localType("SelfWithFn"), captureEnv),
+      State.Uninhabited
+    )
+  }
+
+  test("a variable with no state keeps its name in a data-type key") {
+    // A hand-built field that uses `q` without declaring it.
+    val q = Type.Var.Bound("q")
+    val env = predefTypeEnv ++ TypeEnv.fromDefinitions(
+      mkType(
+        "EdgeFreeVarKey",
+        List(
+          rankn.ConstructorFn[Kind.Arg](
+            name = Constructor("EdgeFreeVarKey"),
+            args = List(mkParam("x", Type.apply1(Type.OptionType, Type.TyVar(q))))
+          )
+        )
+      ) :: Nil
+    )
+    // Option[q] has None whatever q is.
+    assertState(
+      Inhabitedness.check(localType("EdgeFreeVarKey"), env),
+      State.Inhabited
     )
   }
 

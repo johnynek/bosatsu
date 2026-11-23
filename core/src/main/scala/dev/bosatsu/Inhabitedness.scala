@@ -3,8 +3,7 @@ package dev.bosatsu
 import cats.{Eq}
 import cats.data.{NonEmptyList, ValidatedNec}
 import cats.syntax.all._
-import dev.bosatsu.rankn.Type
-import dev.bosatsu.rankn.TypeEnv
+import dev.bosatsu.rankn.{ConstructorFn, Type, TypeEnv}
 import scala.collection.mutable
 import Identifier.Constructor
 
@@ -61,10 +60,12 @@ object Inhabitedness {
   // recursion such as `T[a] = C(T[List[a]])` reaches new ones forever, and
   // `T[a] = C(T[(a, a)])` doubles the key's size at each step. One check
   // solves at most `MaxDataTypeKeys` keys, each of at most
-  // `MaxDataTypeKeySize` nodes counted as a tree, and answers Unknown for the
-  // rest. That is always safe: no rule needs a sub-answer to be Unknown in
-  // order to answer Inhabited or Uninhabited, so turning a sub-answer into
-  // Unknown can only turn other answers into Unknown.
+  // `MaxDataTypeKeySize` nodes counted as a tree, and the others are Unknown.
+  // That is safe because a key past a limit drops out of the equations and
+  // is read as Unknown, that is, as either answer. Every rule gives a lower
+  // and an upper bound that hold whatever value such a read has (Unknown
+  // under a function argument bounds the other way round), so a definite
+  // answer computed from it is right.
   private val MaxDataTypeKeys = 1000
   private val MaxDataTypeKeySize = 256
 
@@ -295,7 +296,7 @@ object Inhabitedness {
       * and an outer variable that occurs in no field can't be captured.
       */
     private def openConstructor(
-        cfn: rankn.ConstructorFn[Kind.Arg],
+        cfn: ConstructorFn[Kind.Arg],
         paramSub: Map[Type.Var, Type],
         args: List[Type]
     ): (List[(Type.Var.Bound, Kind)], List[Type]) = {
@@ -386,6 +387,14 @@ object Inhabitedness {
       * Kleene iteration from Uninhabited (no values yet) then reaches the
       * least fixed point, and each key changes at most twice.
       *
+      * That least fixed point, with the keys outside the component fixed,
+      * is what the data types mean. Each key stands for every type that
+      * agrees with it on variable states (see `dataKey`), and data types are
+      * least fixed points of their unfoldings, which is what `expand`
+      * computes. For a monotone system, solving all its equations at once
+      * gives the same least fixed point as solving them one at a time
+      * (Bekic's lemma).
+      *
       * A component that reads one of its own keys contravariantly answers
       * Unknown. Iterating it from the bottom can settle on a fixed point that
       * is not the least one, and Bosatsu accepts such components. With
@@ -439,8 +448,8 @@ object Inhabitedness {
       }
 
       private def solveFrom(root: Type): Unit = {
-        // One table for everything about a key: `Type`'s hash is not cached,
-        // so every lookup walks the key.
+        // One table holds everything about a key, so each step looks a key
+        // up once: a lookup that hits compares the keys structurally.
         val nodes = mutable.HashMap.empty[Type, Node]
         val stack = mutable.ArrayBuffer.empty[Node]
         // The nodes being visited, innermost last, each with the successors it
@@ -511,7 +520,7 @@ object Inhabitedness {
 
       private def solveComponent(
           component: List[Node],
-          nodes: collection.Map[Type, Node]
+          nodes: mutable.HashMap[Type, Node]
       ): Unit = {
         component.foreach(_.inComponent = true)
         def member(k: Type): Option[Node] =
@@ -546,7 +555,12 @@ object Inhabitedness {
               val n = queue.removeHead()
               n.queued = false
               val next = expand(n.key, read)
-              if (next != n.state) {
+              // Values only rise, because the component is monotone; taking
+              // rises alone also bounds the loop by construction.
+              val rises =
+                (next != n.state) &&
+                  ((n.state == Uninhabited) || (next == Inhabited))
+              if (rises) {
                 n.state = next
                 n.readers.foreach { r =>
                   // The equations only rise, so an Inhabited key is done.
