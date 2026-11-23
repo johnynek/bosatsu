@@ -1371,29 +1371,53 @@ object TypedExprRecursionLoweringTest {
       body <- pathGen(ctx.bind(name :: Nil, s), depth - 1)
     } yield Let(name, value, body)
 
-  // Catch-all patterns, which subsume the later branches, and binders that
-  // shadow names an earlier guard reads, are common.
+  // Often a name in scope of the scrutinee's sort that earlier guards test
+  // and later patterns rebind. An earlier guard is about the outer name, so
+  // the fact that it was false must not become a fact about the new one.
+  def shadowNameGen(ctx: Ctx, s: Sort): Gen[Option[String]] =
+    ctx.namesOf(s) match {
+      case Nil   => Gen.const(None)
+      case names => Gen.frequency(1 -> Gen.const(None), 2 -> Gen.oneOf(names).map(Some(_)))
+    }
+
+  // a catch-all pattern, which subsumes the later branches, that may rebind
+  // the shadow name
+  def pathCatchAllGen(ctx: Ctx, shadow: Option[String]): Gen[Pat] =
+    shadow match {
+      case None    => catchAllGen(ctx)
+      case Some(n) => Gen.frequency(2 -> catchAllGen(ctx), 1 -> Gen.const(Pat.Bind(n)))
+    }
+
   def pathMatchGen(ctx: Ctx, depth: Int): Gen[Ex] =
     for {
       s <- sortGen
       arg <- exGen(s, ctx, pathExDepth)
+      shadow <- shadowNameGen(ctx, s)
+      // guards test the most recent name, which is the shadow name when the
+      // pattern binds none
+      guardCtx = shadow.fold(ctx)(n => ctx.copy(recent = (n :: ctx.recent).take(3)))
       n <- Gen.chooseNum(1, 3)
       init <- Gen.listOfN(
         n,
         for {
-          pat <- Gen.frequency(3 -> refutablePatGen(s, ctx), 2 -> catchAllGen(ctx))
-          guard <- guardGen(ctx.bind(pat.names, s), pathExDepth)
+          pat <- Gen.frequency(3 -> refutablePatGen(s, ctx), 2 -> pathCatchAllGen(ctx, shadow))
+          guard <- guardGen(guardCtx.bind(pat.names, s), pathExDepth)
           body <- pathGen(guardNames(guard)(ctx.bind(pat.names, s)), depth - 1)
         } yield Branch(pat, guard, body)
       )
-      last <- lastPathBranchesGen(s, ctx, depth)
+      last <- lastPathBranchesGen(s, ctx, shadow, depth)
     } yield Match(arg, init ::: last)
 
   // unguarded branches that make the match total
-  def lastPathBranchesGen(s: Sort, ctx: Ctx, depth: Int): Gen[List[Branch]] = {
+  def lastPathBranchesGen(
+      s: Sort,
+      ctx: Ctx,
+      shadow: Option[String],
+      depth: Int
+  ): Gen[List[Branch]] = {
     val catchAll =
       for {
-        pat <- catchAllGen(ctx)
+        pat <- pathCatchAllGen(ctx, shadow)
         body <- pathGen(ctx.bind(pat.names, s), depth - 1)
       } yield List(Branch(pat, None, body))
     val pats: List[Pat] =
