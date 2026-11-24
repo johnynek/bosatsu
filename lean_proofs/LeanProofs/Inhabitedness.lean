@@ -981,8 +981,9 @@ Bosatsu programs takes the following assumptions about the rest of Bosatsu.
      a count or size limit.
    * The Scala search nests fixed points by type level, where a type's level
      is above that of every type its definition uses, and of every type that
-     a key of the component passes it as a higher-kinded argument (in
-     `RF[Neg]`, `RF` applies `Neg`): entering a key, it keeps only the
+     a key of the component passes it as a higher-kinded argument, even under
+     a quantifier (in `RF[Neg]`, `RF` applies `Neg`; in
+     `RF[forall y. Wr[y]]`, it applies `Wr`): entering a key, it keeps only the
      assumptions about keys at the same or a higher level. A cycle of uses,
      which only an environment that skipped `KindFormula` can have, makes the
      component Unknown.

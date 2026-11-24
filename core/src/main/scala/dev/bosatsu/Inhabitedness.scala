@@ -376,14 +376,33 @@ object Inhabitedness {
         // $COVERAGE-ON$
       }
 
+    // The type constructor at the head of `t`, as `Type.rootConst` finds it
+    // under applications and quantifiers, with the number of arguments it is
+    // applied to. A quantifier doesn't stop a type being applied:
+    // `forall y. Wr[y]` applied to `a` is `forall y. Wr[y, a]`.
+    private def appliedHead(t: Type): Option[(Type.TyConst, Int)] = {
+      @annotation.tailrec
+      def loop(t: Type, applied: Int): Option[(Type.TyConst, Int)] =
+        t match {
+          case tc @ Type.TyConst(_)           => Some((tc, applied))
+          case Type.TyApply(on, _)            => loop(on, applied + 1)
+          case Type.ForAll(_, in)             => loop(in, applied)
+          case Type.Exists(_, in)             => loop(in, applied)
+          case Type.TyVar(_) | Type.TyMeta(_) => None
+        }
+      loop(t, 0)
+    }
+
     /** The levels of the types that a component's keys reach. A type's level
       * is above the level of every type it uses, so a key's fixed point
       * encloses those of the types its type uses.
       *
       * A type uses the other types of the env that its constructors mention.
       * A key also makes its type use each type of the env that it passes as
-      * an argument of a higher kind, a type constructor short of arguments.
-      * With `enum RF[f]: R1(r: RF[f]), R2(g: f[RF[f]] -> Never)`, RF's
+      * an argument of a higher kind: a type constructor short of arguments,
+      * even under a quantifier, as in `forall y. Wr[y]`. A key's argument is
+      * applied only at a higher-kinded parameter, and only such an argument
+      * is short of arguments, so this counts every type a key applies. With `enum RF[f]: R1(r: RF[f]), R2(g: f[RF[f]] -> Never)`, RF's
       * constructors apply Neg in the key RF[Neg], which reads Neg[RF[Neg]]:
       * Neg applied to RF[Neg]'s own fixed point. RF's definition doesn't
       * mention Neg, so without that use the two could get the same level, or
@@ -403,16 +422,12 @@ object Inhabitedness {
         on match {
           case Type.TyConst(head) =>
             val applied = args.iterator.flatMap { arg =>
-              val (argOn, argArgs) = Type.unapplyAll(arg)
-              argOn match {
-                case tc @ Type.TyConst(c) =>
-                  env.getType(tc) match {
-                    case Some(dt)
-                        if dt.typeParams.lengthCompare(argArgs.length) > 0 =>
-                      Some(c)
-                    case _ => None
-                  }
-                case _ => None
+              appliedHead(arg).flatMap { case (tc, argCount) =>
+                env.getType(tc) match {
+                  case Some(dt) if dt.typeParams.lengthCompare(argCount) > 0 =>
+                    Some(tc.tpe)
+                  case _ => None
+                }
               }
             }
             if (applied.hasNext)

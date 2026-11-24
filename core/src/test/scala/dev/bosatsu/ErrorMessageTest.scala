@@ -1080,6 +1080,38 @@ main = f(C)
       ()
     }
 
+    // ... and with the higher-kinded argument under a quantifier:
+    // forall y. Wr[y] applied to a is forall y. a -> y.
+    evalFail(List("""
+package A
+
+enum Never: Never(n: Never)
+struct Wr[x, a](f: a -> x)
+enum RF[f: -* -> *]: R1(r: RF[f]), R2(g: f[RF[f]] -> Never)
+
+def absurd[x](r: RF[forall y. Wr[y]]) -> x:
+  loop r:
+    case R1(r1): absurd(r1)
+
+neg: forall x. Wr[x, RF[forall y. Wr[y]]] = Wr(absurd)
+
+enum E: X(n: forall x. Wr[x, RF[forall y. Wr[y]]]), D, C
+
+def f(e: E) -> Int:
+  loop e:
+    case D: f(X(neg))
+    case C: f(D)
+
+main = f(C)
+""")) { case te @ PackageError.TotalityCheckError(_, _) =>
+      assert(
+        te.message(Map.empty, Colorize.None)
+          .endsWith("non-total match, missing: X(_)"),
+        te.message(Map.empty, Colorize.None)
+      )
+      ()
+    }
+
     evalFail(List("""
 package A
 

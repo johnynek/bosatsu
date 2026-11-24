@@ -750,6 +750,7 @@ struct Pad0
 struct Pad1(p: Pad0)
 struct Pad2(p: Pad1)
 struct NegPad[a](f: a -> Never, pad: Pad2)
+struct Wr[x, a](f: a -> x)
 """)
 
   private def quantified(
@@ -966,6 +967,29 @@ struct NegPad[a](f: a -> Never, pad: Pad2)
         Inhabitedness.check(Type.apply1(neg, rfNeg), captureEnv),
         State.Inhabited
       )
+    }
+
+    // The argument can be a quantified type: forall y. Wr[y] is short of an
+    // argument, and applying it to x gives forall y. Wr[y, x], that is,
+    // forall y. x -> y. RF[forall y. Wr[y]] has no values, so
+    // forall x. Wr[x, RF[...]] holds `absurd`. The use was missed under the
+    // quantifier, so this was Uninhabited. Under exists the use is counted
+    // too, though there the inhabited choice of y decides both answers in
+    // any order.
+    val wr = localType("Wr")
+    val x = Type.Var.Bound("x")
+    List[(List[(Type.Var.Bound, Kind)], Type) => Type](
+      Type.forAll(_, _),
+      Type.exists(_, _)
+    ).foreach { q =>
+      val rfQ = Type.apply1(rf, quantified(q, "y", wr))
+      val absurdType =
+        Type.forAll(
+          List((x, Kind.Type)),
+          Type.applyAll(wr, List(Type.TyVar(x), rfQ))
+        )
+      assertState(Inhabitedness.check(rfQ, captureEnv), State.Uninhabited)
+      assertState(Inhabitedness.check(absurdType, captureEnv), State.Inhabited)
     }
   }
 
