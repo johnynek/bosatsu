@@ -33,19 +33,38 @@ object TypedExprRecursionCheck {
   def checkLets(
       pack: PackageName,
       fullTypeEnv: TypeEnv[Kind.Arg],
+      dependencyTypeEnv: TypeEnv[Kind.Arg],
       lets: List[(Bindable, RecursionKind, TypedExpr[Declaration])]
   ): Res[Unit] =
-    checkLets(pack, fullTypeEnv, lets, Map.empty)
+    checkLets(pack, fullTypeEnv, dependencyTypeEnv, lets, Map.empty)
 
+  /** `fullTypeEnv` has every type and alias of `pack` and of its imports, as
+    * for the package's totality check. `dependencyTypeEnv` has what the
+    * packages `pack` imports from export, as type inference saw them.
+    */
   def checkLets(
       pack: PackageName,
       fullTypeEnv: TypeEnv[Kind.Arg],
+      dependencyTypeEnv: TypeEnv[Kind.Arg],
       lets: List[(Bindable, RecursionKind, TypedExpr[Declaration])],
       topLevelDefs: Map[Bindable, NonEmptyList[NonEmptyList[Pattern.Parsed]]]
   ): Res[Unit] = {
     // This checker enforces structural recursion plus type-directed Int
     // decrease obligations in typed IR.
-    val totalityCheck = TotalityCheck(fullTypeEnv)
+    //
+    // TargetContainment treats a type missing from its environment as
+    // opaque to `pack`, since `pack` could neither expand it nor match on
+    // it. That holds only for an environment with everything inference
+    // could use: `pack`'s own types and imports, and what its dependencies
+    // export, aliases included. `fullTypeEnv` goes on the right so that
+    // `pack`'s own view of a type wins: `dependencyTypeEnv` may have an
+    // exported type without its constructors. The totality check keeps
+    // `fullTypeEnv`, like the package's own.
+    val types =
+      Impl.TypeContext(
+        TotalityCheck(fullTypeEnv),
+        dependencyTypeEnv ++ fullTypeEnv
+      )
     val topLevelLowerableAliases = Impl.topLevelLowerableAliases(pack, lets)
     val topLevelPredefAliases = Impl.topLevelPredefAliases(pack, lets)
     lets.traverse_ { case (name, rec, expr) =>
@@ -57,7 +76,7 @@ object TypedExprRecursionCheck {
         topLevelDefs.get(name),
         topLevelLowerableAliases,
         topLevelPredefAliases,
-        totalityCheck
+        types
       )
     }
   }
@@ -335,6 +354,15 @@ object TypedExprRecursionCheck {
       val Empty: WrapperScope = WrapperScope(Set.empty, Set.empty, 0)
     }
 
+    // What the check knows about types. `totalityCheck` uses the same
+    // environment as the package's own totality check. `typeEnv` also has
+    // what the package's dependencies export, for questions about what a
+    // type can contain (see `checkLets` and TargetContainment).
+    case class TypeContext(
+        totalityCheck: TotalityCheck,
+        typeEnv: TypeEnv[Kind.Arg]
+    )
+
     /*
      * While checking a def we have three states we can be in:
      * 1. we are in a normal def, but have 0 or more outer recursive defs to avoid
@@ -346,7 +374,7 @@ object TypedExprRecursionCheck {
         this match {
           case TopLevel(_)     => Set.empty
           case ids: InDefState =>
-            val InDef(outer, n, _, _, _, _, _, _, _, _) = ids.inDef
+            val InDef(outer, n, _, _, _, _, _, _, _) = ids.inDef
             outer.outerDefNames + n
         }
 
@@ -355,7 +383,7 @@ object TypedExprRecursionCheck {
         this match {
           case TopLevel(_)     => false
           case ids: InDefState =>
-            val InDef(outer, dn, _, _, _, _, _, _, _, _) = ids.inDef
+            val InDef(outer, dn, _, _, _, _, _, _, _) = ids.inDef
             (dn == n) || outer.defNamesContain(n)
         }
 
@@ -366,8 +394,7 @@ object TypedExprRecursionCheck {
           topLevelLowerableAliases: TopLevelLowerableAliases,
           fnType: Type,
           topLevelPredefAliases: TopLevelPredefAliases,
-          totalityCheck: TotalityCheck,
-          currentPackage: PackageName
+          types: TypeContext
       ): InDef =
         InDef(
           this,
@@ -377,8 +404,7 @@ object TypedExprRecursionCheck {
           topLevelLowerableAliases,
           fnType,
           topLevelPredefAliases,
-          totalityCheck,
-          currentPackage,
+          types,
           Set.empty
         )
     }
@@ -386,7 +412,7 @@ object TypedExprRecursionCheck {
     sealed abstract class InDefState extends State {
       final def inDef: InDef =
         this match {
-          case id @ InDef(_, _, _, _, _, _, _, _, _, _)    => id
+          case id @ InDef(_, _, _, _, _, _, _, _, _)    => id
           case InDefRecurred(ir, _, _, _, _)            => ir.inDef
           case InRecurBranch(
                 InDefRecurred(ir, _, _, _, _),
@@ -400,7 +426,7 @@ object TypedExprRecursionCheck {
       final def defname: Bindable = inDef.fnname
     }
 
-    case class TopLevel(totalityCheck: TotalityCheck) extends State
+    case class TopLevel(types: TypeContext) extends State
 
     case class InDef(
         outer: State,
@@ -410,10 +436,7 @@ object TypedExprRecursionCheck {
         topLevelLowerableAliases: TopLevelLowerableAliases,
         fnType: Type,
         topLevelPredefAliases: TopLevelPredefAliases,
-        totalityCheck: TotalityCheck,
-        // the package being checked: every type declared in it is in the
-        // type environment, and no dependency can mention one
-        currentPackage: PackageName,
+        types: TypeContext,
         localScope: Set[Bindable]
     ) extends InDefState {
       def addLocal(b: Bindable): InDef =
@@ -425,8 +448,7 @@ object TypedExprRecursionCheck {
           topLevelLowerableAliases,
           fnType,
           topLevelPredefAliases,
-          totalityCheck,
-          currentPackage,
+          types,
           localScope + b
         )
 
@@ -947,7 +969,7 @@ object TypedExprRecursionCheck {
         finalState: FinalDefState
     ): Res[Unit] =
       finalState match {
-        case InDef(_, _, _, _, _, _, _, _, _, _) =>
+        case InDef(_, _, _, _, _, _, _, _, _) =>
           unitValid
         case InDefRecurred(_, _, recur, _, _) =>
           val selfCallKind = SelfCallKind(fnname, body)
@@ -2564,7 +2586,7 @@ object TypedExprRecursionCheck {
     private def initBranchSmtState(inrec: InDefRecurred): SmtBranchState =
       initSmtState(
         inrec.inRec.typedArgs,
-        inrec.inRec.totalityCheck,
+        inrec.inRec.types.totalityCheck,
         inrec.inRec.topLevelLowerableAliases,
         inrec.inRec.topLevelPredefAliases
       )
@@ -2841,21 +2863,22 @@ object TypedExprRecursionCheck {
     // carry no values of their own, and neither do a constant's type
     // arguments: callers decide how to walk those.
     //
-    // `typeEnv` has every type declared in `currentPackage`, so a constant
-    // it doesn't define is from a dependency, for example one the package
-    // doesn't import, or one a dependency keeps private. Packages form a DAG,
-    // so no dependency can mention a type declared in `currentPackage`: such
-    // a constant can only contain a target declared in another package, and
-    // since we can't see its definition we assume it does.
+    // What matters is target values the package being checked can read.
+    // `typeEnv` has the package's own view of its types and imports, and
+    // what its dependencies export, so it expands every alias inference
+    // expands. A type the package can't name the constructors of is opaque
+    // to it: one `typeEnv` doesn't define (a type a dependency keeps
+    // private), and one `typeEnv` has without constructors (an opaque or
+    // external type, or a dependency's type the package didn't import).
+    // Target values come out of an opaque type only through function calls,
+    // which are never classified smaller, so like a type variable of the def
+    // it counts as not containing the target. Type arguments are walked as
+    // usual, so `Lazy[T]` still contains `T`.
     private final class TargetContainment(
         typeEnv: TypeEnv[Kind.Arg],
-        currentPackage: PackageName,
         targetConsts: List[Type.Const]
     ) {
       private val cache = mutable.Map.empty[Type.Const, Boolean]
-
-      private val hasNonLocalTarget: Boolean =
-        targetConsts.exists(_.toDefined.packageName != currentPackage)
 
       def mayContain(c: Type.Const): Boolean = {
         @annotation.tailrec
@@ -2881,10 +2904,8 @@ object TypedExprRecursionCheck {
                   }
                 deps match {
                   case Some(ds) => loop(ds.map(_.tpe) ::: tail, seen + h)
-                  case None     =>
-                    // a dependency's type we can't see; see above
-                    if (hasNonLocalTarget) true
-                    else loop(tail, seen + h)
+                  // opaque to the package; see above
+                  case None => loop(tail, seen + h)
                 }
               }
           }
@@ -2946,7 +2967,7 @@ object TypedExprRecursionCheck {
         currentCtor: KnownCtor,
         arg: TypedExpr[Declaration]
     ): ArgLexOrder = {
-      val typeEnv = inrec.inRec.totalityCheck.inEnv
+      val typeEnv = inrec.inRec.types.typeEnv
       val targetType = targetItemType(inrec, target)
       val maybeSmaller =
         for {
@@ -2961,7 +2982,6 @@ object TypedExprRecursionCheck {
           if declaredFieldTypes.lengthCompare(argCtorApp.args.length) == 0
           containment = new TargetContainment(
             typeEnv,
-            inrec.inRec.currentPackage,
             currentMeta.owner.toTypeConst :: Nil
           )
           carryingParams = currentMeta.owner.typeParams.iterator
@@ -3608,7 +3628,7 @@ object TypedExprRecursionCheck {
         state <- getSt
         _ <- toSt(checkForIllegalBinds(state, bs, region)(unitValid))
         _ <- (state match {
-          case id @ InDef(_, _, _, _, _, _, _, _, _, _) =>
+          case id @ InDef(_, _, _, _, _, _, _, _, _) =>
             setSt(bs.foldLeft(id)(_.addLocal(_)))
           case _                                =>
             unitSt
@@ -3933,7 +3953,7 @@ object TypedExprRecursionCheck {
         argTypes: List[Type],
         resultType: Type
     ): Boolean = {
-      val typeEnv = inrec.inRec.totalityCheck.inEnv
+      val typeEnv = inrec.inRec.types.typeEnv
 
       val targetConsts: List[Type.Const] =
         inrec.target.toList
@@ -3944,8 +3964,7 @@ object TypedExprRecursionCheck {
           }
           .getOrElse(Nil)
 
-      val containment =
-        new TargetContainment(typeEnv, inrec.inRec.currentPackage, targetConsts)
+      val containment = new TargetContainment(typeEnv, targetConsts)
 
       def isInput(v: Variance): Boolean =
         (v == Variance.Contravariant) || (v == Variance.Invariant)
@@ -4330,7 +4349,7 @@ object TypedExprRecursionCheck {
                 case TopLevel(_) | InRecurBranch(_, _, _, _) |
                     InDefRecurred(_, _, _, _, _) =>
                   failSt(RecursionCheck.UnexpectedRecur(recur.region))
-                case ir @ InDef(_, defname, typedArgs, sourceArgs, _, _, _, _, _, locals) =>
+                case ir @ InDef(_, defname, typedArgs, sourceArgs, _, _, _, _, locals) =>
                   toSt(getRecurTarget(defname, sourceArgs, typedArgs, recur, locals)).flatMap {
                     target =>
                       val sourcePatterns = recur.cases.get.map(_.pattern).toList.toVector
@@ -4352,7 +4371,7 @@ object TypedExprRecursionCheck {
                           entryState: SmtBranchState
                       ): St[Unit] =
                         getSt.flatMap {
-                          case ir @ InDef(_, _, _, _, _, _, _, _, _, _) =>
+                          case ir @ InDef(_, _, _, _, _, _, _, _, _) =>
                             val rec = ir.setRecur(target, recur)
                             setSt(rec) *> beginBranch(compiledPat, entryState)
                           case irr @ InDefRecurred(_, _, _, _, _) =>
@@ -4524,12 +4543,12 @@ object TypedExprRecursionCheck {
               case TopLevel(_)           =>
                 topLevelPredefAliases
             }
-          val inheritedTotalityCheck =
+          val inheritedTypes =
             state match {
               case inDefState: InDefState =>
-                inDefState.inDef.totalityCheck
+                inDefState.inDef.types
               case top: TopLevel         =>
-                top.totalityCheck
+                top.types
             }
           val sourceArgs = sourceArgsForDef(sourceArgPatterns, typedArgs)
           val nameArgs = sourceArgs.toList.flatMap(_.patternNames)
@@ -4540,8 +4559,7 @@ object TypedExprRecursionCheck {
             inheritedLowerableAliases,
             expr.getType,
             inheritedPredefAliases,
-            inheritedTotalityCheck,
-            currentPackage
+            inheritedTypes
           )
           checkForIllegalBinds(state, fnname :: nameArgs, body.tag.region) {
             // We start the body checker in `InDef`, and a successful run must
@@ -4573,20 +4591,20 @@ object TypedExprRecursionCheck {
         sourceArgs: Option[NonEmptyList[NonEmptyList[Pattern.Parsed]]],
         topLevelLowerableAliases: TopLevelLowerableAliases,
         topLevelPredefAliases: TopLevelPredefAliases,
-        totalityCheck: TotalityCheck
+        types: TypeContext
     ): Res[Unit] = {
       val shouldCheckAsDef = sourceArgs.nonEmpty || rec.isRecursive
       if (shouldCheckAsDef)
         checkDef(
           currentPackage,
-          TopLevel(totalityCheck),
+          TopLevel(types),
           name,
           expr,
           sourceArgs,
           topLevelLowerableAliases,
           topLevelPredefAliases
         )
-      else checkExprV(currentPackage, TopLevel(totalityCheck), expr)
+      else checkExprV(currentPackage, TopLevel(types), expr)
     }
   }
 }

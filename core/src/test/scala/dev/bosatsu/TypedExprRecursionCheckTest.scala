@@ -4,7 +4,7 @@ import cats.Show
 import cats.data.{NonEmptyList, Validated}
 import cats.data.Ior
 import IorMethods.IorExtension
-import dev.bosatsu.rankn.Type
+import dev.bosatsu.rankn.{Type, TypeEnv}
 import scala.concurrent.duration.DurationInt
 import scala.util.Try
 
@@ -588,6 +588,99 @@ def step(t: T) -> Int:
         case D(f): step(D(f)).add(1)
         case C(_): 0
     case D(_): 0
+"""
+    )
+  }
+
+  test("constructor-rank type arguments the package can't see are opaque") {
+    // the target's type comes from a dependency, and Foo's field Bar is
+    // private to it, so this package can't read a T out of a Foo
+    allowedPackages(
+      """package RankOpaqueA
+
+export T(), mk_foo, Foo()
+
+struct Bar(i: Int)
+struct Foo(b: Bar)
+
+enum T[x]:
+  D(v: x)
+  C(n: Int)
+
+def mk_foo(i: Int) -> Foo: Foo(Bar(i))
+""",
+      """package RankOpaqueB
+
+from RankOpaqueA import T, D, C, mk_foo, Foo
+
+def step(t: T[Foo]) -> Int:
+  recur t:
+    case C(n): step(D(mk_foo(n))).add(1)
+    case D(_): 0
+"""
+    )
+  }
+
+  test("constructor-rank payloads through a dependency's alias must be smaller") {
+    // TI = T[Int] comes into bad's inferred type through `same` without
+    // being imported, and inference expands it: t has type T[T[Int]], and
+    // the payload E(t) is a T[Int] that holds the target:
+    // bad(C) -> bad(D(E(C))) -> bad(C) -> ...
+    disallowedPackages(
+      """package AliasDepA
+
+export T(), TI, same
+
+enum T[x]:
+  E(z: T[T[Int]])
+  D(v: x)
+  C
+
+type TI = T[Int]
+
+def same(_: T[TI], _: T[TI]) -> Int: 0
+""",
+      """package AliasDepB
+
+from AliasDepA import T, E, D, C, same
+
+def bad(t) -> Int:
+  n = same(t, t)
+  recur t:
+    case C: bad(D(E(t))).add(n)
+    case D(E(z)): bad(z)
+    case D(_): 0
+    case E(_): 0
+
+main = bad(C)
+"""
+    )
+  }
+
+  test("constructor-rank reads the definition of an imported type") {
+    // Wrap is imported with its constructor, so its definition, which holds
+    // a T, must be what the check sees: bad(C) -> bad(D(Wrap(C))) -> ...
+    disallowedPackages(
+      """package WrapDepA
+
+export T(), Wrap()
+
+enum T[x]:
+  D(v: x)
+  C
+
+struct Wrap(w: T[Wrap])
+""",
+      """package WrapDepB
+
+from WrapDepA import T, D, C, Wrap
+
+def bad(t: T[Wrap]) -> Int:
+  loop t:
+    case C: bad(D(Wrap(t)))
+    case D(Wrap(w)): bad(w)
+
+main = bad(C)
 """
     )
   }
@@ -1834,9 +1927,11 @@ def f(opt: Int, y: Int) -> Int:
         other
     }
 
+    // a single package: its types and Predef's are all in env
     TypedExprRecursionCheck.checkLets(
       pack,
       env,
+      TypeEnv.empty,
       rewrittenLets,
       TypedExprRecursionCheck.topLevelDefArgs(stmts)
     ) match {
@@ -2708,7 +2803,9 @@ main = loop(Item(1))
 """)
   }
 
-  test("the callback rule sees through types the package can't see only for local targets") {
+  test("types a package can't see are opaque to the callback rule") {
+    // Inner is private to its package, so CbDepB and CbDepD can't read it:
+    // no target value they could recur on comes out of an Outer
     val outer = """package CbDepA
 
 export Outer()
@@ -2716,8 +2813,6 @@ export Outer()
 struct Inner(i: Int)
 struct Outer(n: Inner)
 """
-    // Inner is private to CbDepA. A dependency can't mention Cont, which is
-    // declared in this package, so Outer in the result can't hold one.
     allowedPackages(
       outer,
       """package CbDepB
@@ -2737,9 +2832,8 @@ def loop(box: Cont) -> Int:
 """
     )
 
-    // With Cont declared in a dependency, a type we can't see might contain
-    // it, so the rule conservatively doesn't apply.
-    disallowedPackages(
+    // the same with the target declared in the dependency
+    allowedPackages(
       """package CbDepC
 
 export Outer(), Cont()
@@ -2984,6 +3078,7 @@ main = vals
                 TypedExprRecursionCheck.checkLets(
                   pack,
                   fullTypeEnv,
+                  TypeEnv.empty,
                   lets,
                   topLevelDefs
                 )
