@@ -397,9 +397,13 @@ object ApiDiff {
         }
     }
 
+    // `visiting` holds the types whose diff is already being computed further
+    // up the stack. A recursive type reaches itself through its constructor
+    // fields; its changes are reported by the outer diff, so stop there.
     def diffTA(
         oldAlias: TypeAlias[Kind.Arg],
-        newAlias: TypeAlias[Kind.Arg]
+        newAlias: TypeAlias[Kind.Arg],
+        visiting: Set[Type.Const]
     ): V[List[Diff]] = {
       val kinds =
         if (oldAlias.kindOf == newAlias.kindOf) Nil
@@ -409,7 +413,7 @@ object ApiDiff {
         if (oldAlias.rhs.sameAs(newAlias.rhs)) {
           Type.allConsts(oldAlias.rhs :: Nil)
             .traverse { const =>
-              diffConst(const).map(
+              diffConst(const, visiting).map(
                 _.map(diff => ChangedTransitiveType(newAlias.rhs, const, diff))
               )
             }
@@ -421,12 +425,17 @@ object ApiDiff {
       rhsV.map(kinds ::: _)
     }
 
-    def diffTarget(oldTarget: TypeTarget, newTarget: TypeTarget): V[List[Diff]] =
+    def diffTarget(
+        oldTarget: TypeTarget,
+        newTarget: TypeTarget,
+        visiting0: Set[Type.Const]
+    ): V[List[Diff]] = {
+      val visiting = visiting0 + oldTarget.toTypeTyConst.tpe
       (oldTarget, newTarget) match {
         case (TypeTarget.Data(oldDt), TypeTarget.Data(newDt)) =>
-          diffDT(oldDt, newDt)
+          diffDT(oldDt, newDt, visiting)
         case (TypeTarget.Alias(oldAlias), TypeTarget.Alias(newAlias)) =>
-          diffTA(oldAlias, newAlias)
+          diffTA(oldAlias, newAlias, visiting)
         case (oldT, newT) =>
           (ChangedTypeDefForm(
             pn,
@@ -435,8 +444,12 @@ object ApiDiff {
             TypeTarget.label(newT)
           ) :: Nil).validNec
       }
+    }
 
-    def diffConst(const: Type.TyConst): V[List[Diff]] = {
+    def diffConst(
+        const: Type.TyConst,
+        visiting: Set[Type.Const]
+    ): V[List[Diff]] = {
       val oldTarget =
         prevEnv
           .toDefinedType(const.tpe)
@@ -449,8 +462,10 @@ object ApiDiff {
           .orElse(curEnv.toTypeAlias(const.tpe).map(TypeTarget.Alias(_)))
 
       (oldTarget, newTarget) match {
+        case _ if visiting(const.tpe) =>
+          Nil.validNec
         case (Some(oldT), Some(newT)) =>
-          diffTarget(oldT, newT)
+          diffTarget(oldT, newT, visiting)
         case (None, _) =>
           MissingTransitiveType(
             pn,
@@ -468,7 +483,11 @@ object ApiDiff {
       }
     }
 
-    def diffType(oldTpe: Type, newTpe: Type): V[List[Diff]] =
+    def diffType(
+        oldTpe: Type,
+        newTpe: Type,
+        visiting: Set[Type.Const]
+    ): V[List[Diff]] =
       // this should be the only valid case, otherwise there were multiple things previously
       if (oldTpe.sameAs(newTpe)) {
         // these are the same so they reference the same consts
@@ -476,7 +495,7 @@ object ApiDiff {
 
         consts
           .traverse { const =>
-            diffConst(const).map(
+            diffConst(const, visiting).map(
               _.map(diff => ChangedTransitiveType(newTpe, const, diff))
             )
           }
@@ -487,7 +506,8 @@ object ApiDiff {
 
     def diffDT(
         oldDt: DefinedType[Kind.Arg],
-        newDt: DefinedType[Kind.Arg]
+        newDt: DefinedType[Kind.Arg],
+        visiting: Set[Type.Const]
     ): V[List[Diff]] = {
       // invariant: oldDt.toTypeConst == newDt.toTypeConst
       val oldKind = oldDt.kindOf
@@ -545,7 +565,7 @@ object ApiDiff {
                     .toList
                     .traverse {
                       case (Ior.Both(oldParam, newParam), idx) =>
-                        diffType(oldParam.tpe, newParam.tpe).map { tpeDiffs =>
+                        diffType(oldParam.tpe, newParam.tpe, visiting).map { tpeDiffs =>
                           val tpeDiff = tpeDiffs.map(
                             ConstructorParamChange(
                               cons,
@@ -644,7 +664,7 @@ object ApiDiff {
                         ExportedName.Binding(_, Referant.Value(oldTpe)) :: Nil,
                         ExportedName.Binding(_, Referant.Value(newTpe)) :: Nil
                       ) =>
-                    diffType(oldTpe, newTpe)
+                    diffType(oldTpe, newTpe, Set.empty)
                       .map(_.map(ChangedValue(bindable, _)))
                   case _ =>
                     // this is impossible for correctly constructed ExportedName[R] values
@@ -673,7 +693,7 @@ object ApiDiff {
 
                 (typeTargetsOf(oldExp), typeTargetsOf(newExp)) match {
                   case (oldTarget :: Nil, newTarget :: Nil) =>
-                    diffTarget(oldTarget, newTarget)
+                    diffTarget(oldTarget, newTarget, Set.empty)
                   case diff                         =>
                     sys.error(
                       s"invariant violation: have Constructor=$cons but unexpected diff of not exactly one type: diff=$diff"

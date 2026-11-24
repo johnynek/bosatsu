@@ -186,4 +186,59 @@ class ApiDiffTest extends munit.FunSuite {
     assert(!diffs.isValidWhen(Version.DiffKind.Minor))
     assert(diffs.isValidWhen(Version.DiffKind.Major))
   }
+
+  test("a changed recursive type is diffed once, not through its own fields forever") {
+    val treeCons = Identifier.Constructor("Tree")
+    val treeName = TypeName(treeCons)
+    val tree: Type = Type.TyConst(Type.Const.Defined(pack, treeName))
+    val leaf = ConstructorFn[Kind.Arg](Identifier.Constructor("Leaf"), Nil)
+    val node = Identifier.Constructor("Node")
+    val left = ConstructorParam(Identifier.Name("left"), tree, None)
+    val size = ConstructorParam(Identifier.Name("size"), Type.IntType, None)
+
+    def treeDt(nodeArgs: List[ConstructorParam]): DefinedType[Kind.Arg] =
+      DefinedType(pack, treeName, Nil, leaf :: ConstructorFn[Kind.Arg](node, nodeArgs) :: Nil)
+
+    def exports(dt: DefinedType[Kind.Arg]) =
+      SortedMap(
+        pack -> (
+          ExportedName.TypeName(treeCons, Referant.DefinedT(dt)) ::
+            ExportedName.Binding(Identifier.Name("root"), Referant.Value(tree)) ::
+            dt.constructors.map { cf =>
+              ExportedName.Constructor(cf.name, Referant.Constructor(dt, cf))
+            }
+        )
+      )
+
+    val oldDt = treeDt(left :: Nil)
+    val newDt = treeDt(left :: size :: Nil)
+    val diffs = ApiDiff(
+      exports(oldDt),
+      TypeEnv.fromDefinitions(oldDt :: Nil),
+      exports(newDt),
+      TypeEnv.fromDefinitions(newDt :: Nil)
+    ) match {
+      case Validated.Valid(diffs)    => diffs
+      case Validated.Invalid(errors) =>
+        fail(s"expected diffs, got errors: ${errors.iterator.toList}")
+    }
+    val flat = diffs.toMap.valuesIterator.flatMap(_.toList).toList
+
+    assert(
+      flat.exists {
+        case ApiDiff.ConstructorParamAdded(_, `node`, _, 1, _, _) => true
+        case _                                                    => false
+      },
+      s"expected the added Node field in: $flat"
+    )
+    assert(
+      flat.exists {
+        case ApiDiff.ChangedValue(Identifier.Name("root"), _) => true
+        case _                                               => false
+      },
+      s"expected root to see the change to Tree in: $flat"
+    )
+    assert(!diffs.isValidWhen(Version.DiffKind.Minor))
+    assert(diffs.isValidWhen(Version.DiffKind.Major))
+  }
 }
