@@ -4,6 +4,7 @@ import cats.{Id, Show}
 import cats.data.{NonEmptyList, Validated, ValidatedNel}
 
 import IorMethods.IorExtension
+import rankn.TypeEnv
 
 class PackageTest extends munit.FunSuite with ParTest {
 
@@ -764,7 +765,7 @@ def mk_hidden(x: Int) -> Hidden: HiddenB(x)
     val open = TypeName(Identifier.Constructor("Open"))
     val hidden = TypeName(Identifier.Constructor("Hidden"))
 
-    def check(label: String, te: rankn.TypeEnv[Kind.Arg]): Unit = {
+    def check(label: String, te: TypeEnv[Kind.Arg]): Unit = {
       assertEquals(
         te.getType(shapesName, open).map(_.constructors.map(_.name)),
         Some(List(Identifier.Constructor("Open"))),
