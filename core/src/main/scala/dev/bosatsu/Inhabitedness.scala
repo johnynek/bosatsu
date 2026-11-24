@@ -293,37 +293,6 @@ object Inhabitedness {
         else Type.substituteVar(t, sub).normalize
       }
 
-    /** The existentials and field types of `cfn` applied to `args`, the type
-      * arguments that `paramSub` maps its type parameters to.
-      *
-      * Unlike a quantifier inside a type, an existential is not named apart
-      * from the arguments by `normalize`. So existentials that share a name
-      * with a free variable of `args` (or with a variable a field uses
-      * without declaring it) are renamed first. Otherwise evaluating them
-      * with `varState ++ assignment` would capture that outer variable. Other
-      * names need no avoiding: keys never name a variable that has a state,
-      * and an outer variable that occurs in no field can't be captured.
-      */
-    private def openConstructor(
-        cfn: ConstructorFn[Kind.Arg],
-        paramSub: Map[Type.Var, Type],
-        args: List[Type]
-    ): (List[(Type.Var.Bound, Kind)], List[Type]) = {
-      val fields = cfn.args.map(_.tpe)
-      NonEmptyList.fromList(cfn.exists.map { case (b, ka) => (b, ka.kind) }) match {
-        case None =>
-          (Nil, fields.map(Type.substituteVar(_, paramSub)))
-        case Some(exists) =>
-          val existNames = exists.iterator.map(_._1).toSet
-          val avoid =
-            Type.freeBoundTyVars(args).toSet ++
-              Type.freeBoundTyVars(fields).filterNot(existNames)
-          val (rename, exists1) = Type.unshadow(exists, avoid)
-          val sub = paramSub ++ rename
-          (exists1.toList, fields.map(Type.substituteVar(_, sub)))
-      }
-    }
-
     /** One unfolding of the data type `key`, a `dataKey`, reading the data
       * types in its fields through `dataState`.
       *
@@ -346,7 +315,11 @@ object Inhabitedness {
                   .toMap
 
               State.orStates(dt.constructors.map { cfn =>
-                val (exists, fields) = openConstructor(cfn, paramSub, args)
+                // Evaluating the existentials with `varState ++ assignment`
+                // would capture an outer variable of the same name, so
+                // openAt renames them apart. Keys never name a variable
+                // that has a state, so no other names need avoiding.
+                val (exists, fields) = ConstructorFn.openAt(cfn, paramSub, args)
                 evaluateQuantifier(
                   exists,
                   vs => State.andStates(fields.map(checkType(_, vs, dataState))),
@@ -861,7 +834,7 @@ object Inhabitedness {
                         // `validatePattern` rejects free variables in them,
                         // so they can't refer to an outer variable.
                         val (exists, fieldTypes) =
-                          openConstructor(cfn, paramSub, scrArgs)
+                          ConstructorFn.openAt(cfn, paramSub, scrArgs)
                         evaluateQuantifier(
                           exists,
                           vs => {

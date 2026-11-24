@@ -148,10 +148,11 @@ class TypedExprRecursionCheckTest extends munit.FunSuite with ParTest {
         }
     }
 
-  // Type checks full packages, with `package` headers and imports, together.
-  private def recursionErrorsOfPackages(
+  // Type checks full packages, with `package` headers and imports, together:
+  // the errors, and how they render.
+  private def packageErrorsOf(
       sources: NonEmptyList[String]
-  ): Either[String, Unit] = {
+  ): (List[PackageError], String) = {
     val parsed = sources.zipWithIndex.map { case (source, idx) =>
       (
         (s"<test $idx>", LocationMap(source)),
@@ -162,20 +163,31 @@ class TypedExprRecursionCheckTest extends munit.FunSuite with ParTest {
     TestUtils
       .typeCheckParsedInferred(parsed, Nil, "<predef>", CompileOptions.Default)
       .strictToValidated match {
-      case Validated.Valid(_)      => Right(())
+      case Validated.Valid(_)      => (Nil, "")
       case Validated.Invalid(errs) =>
         val sourceMap = parsed.toList.map { case ((path, lm), pack) =>
           pack.name -> (lm, path)
         }.toMap
-        val recursionErrs =
-          errs.toList.collect { case r: PackageError.RecursionError => r }
         val rendered = errs.toList
           .map(_.message(sourceMap, LocationMap.Colorize.None))
           .mkString("\n-----\n")
-        if (recursionErrs.nonEmpty) Left(rendered)
-        else fail(s"expected only recursion errors, got:\n$rendered")
+        (errs.toList, rendered)
     }
   }
+
+  private def recursionErrorsOfPackages(
+      sources: NonEmptyList[String]
+  ): Either[String, Unit] =
+    packageErrorsOf(sources) match {
+      case (Nil, _)            => Right(())
+      case (errs, rendered) =>
+        val onlyRecursion = errs.forall {
+          case _: PackageError.RecursionError => true
+          case _                              => false
+        }
+        if (onlyRecursion) Left(rendered)
+        else fail(s"expected only recursion errors, got:\n$rendered")
+    }
 
   private def allowedPackages(first: String, rest: String*): Unit =
     recursionErrorsOfPackages(NonEmptyList(first, rest.toList)) match {
@@ -446,6 +458,20 @@ def bad[a](t: T[a]) -> Int:
 main = bad(C(1))
 """)
 
+    // Conservative: no T[String] can hold a T[Int] here, but the field's
+    // type alone can't tell that apart from E(z: T[Int]) above, where a
+    // T[List[Int]] holds the target. Every T counts.
+    disallowed("""#
+enum T[x]:
+  E(z: T[String])
+  C(v: x)
+
+def step(t: T[Int]) -> Int:
+  recur t:
+    case C(_): step(E(C("s"))).add(1)
+    case E(_): 0
+""")
+
     // a nested datatype: the T[List[a]] payload is never smaller, and the
     // list nesting grows on every step
     disallowed("""#
@@ -478,6 +504,23 @@ def bad(t: T[Wrap]) -> Int:
   loop t:
     case C: bad(D(Wrap(t)))
     case D(Wrap(w)): bad(w)
+
+main = bad(C)
+""")
+
+    // so does one that hands the target to a callback: k gives the
+    // callback t back, bad(C) -> k(cb) -> cb(C) -> bad(C) -> ...
+    disallowed("""#
+enum T[x]:
+  D(v: x)
+  C
+
+struct Cont(k: (T[Cont] -> Int) -> Int)
+
+def bad(t: T[Cont]) -> Int:
+  recur t:
+    case C: bad(D(Cont(cb -> cb(t)))).add(1)
+    case D(Cont(k)): k(y -> bad(y))
 
 main = bad(C)
 """)
@@ -554,6 +597,509 @@ enum T:
 def wrap(t: T) -> Int:
   recur t:
     case C: wrap(D(t)).add(1)
+    case D(_): 0
+""")
+  }
+
+  test("constructor-rank existentials another field takes as input must be smaller") {
+    // f knows what b is, so it can hand x, the target, to a callback:
+    // bad(C(g)) -> bad(D(C(g), g)) -> g(C(g), cb) -> bad(C(g)) -> ...
+    disallowed("""#
+enum T:
+  D[b](x: b, f: (b, T -> Int) -> Int)
+  C(g: forall a. (a, a -> Int) -> Int)
+
+def bad(t: T) -> Int:
+  recur t:
+    case C(g): bad(D(t, g))
+    case D(x, f): f(x, y -> bad(y))
+
+main = bad(C((z, cb) -> cb(z)))
+""")
+
+    // a dangerous existential needs a smaller value wherever it is output:
+    // in a list, bad(C(g)) -> bad(D([C(g)], g)) -> g(C(g), cb) -> ...
+    disallowed("""#
+enum T:
+  D[b](ys: List[b], f: (b, T -> Int) -> Int)
+  C(g: forall a. (a, a -> Int) -> Int)
+
+def bad(t: T) -> Int:
+  recur t:
+    case C(g): bad(D([t], g))
+    case D(ys, f):
+      match ys:
+        case [x, *_]: f(x, y -> bad(y))
+        case []: 0
+
+main = bad(C((z, cb) -> cb(z)))
+""")
+
+    // or returned by a thunk
+    disallowed("""#
+enum T:
+  D[b](th: () -> b, f: (b, T -> Int) -> Int)
+  C(g: forall a. (a, a -> Int) -> Int)
+
+def bad(t: T) -> Int:
+  recur t:
+    case C(g): bad(D(() -> t, g))
+    case D(th, f): f(th(), y -> bad(y))
+
+main = bad(C((z, cb) -> cb(z)))
+""")
+
+    // the callback can be hidden in a named type:
+    // bad(C(g)) -> bad(D(C(g), g)) -> h(C(g), cb) -> bad(C(g)) -> ...
+    disallowed("""#
+struct Box[a, r](h: (a, r -> Int) -> Int)
+
+enum T:
+  D[b](x: b, fs: Box[b, T])
+  C(g: forall a. Box[a, a])
+
+def bad(t: T) -> Int:
+  recur t:
+    case C(g): bad(D(t, g))
+    case D(x, Box(h)): h(x, y -> bad(y))
+
+main = bad(C(Box((z, cb) -> cb(z))))
+""")
+
+    // or behind a thunk, whose result the trusted force reads as smaller
+    disallowed("""#
+struct Box[a, r](h: (a, r -> Int) -> Int)
+
+enum T:
+  D[b](x: b, th: () -> Box[b, T])
+  C(g: forall a. () -> Box[a, a])
+
+def bad(t: T) -> Int:
+  recur t:
+    case C(g): bad(D(t, g))
+    case D(x, th):
+      match th(()):
+        case Box(h): h(x, y -> bad(y))
+
+main = bad(C(() -> Box((z, cb) -> cb(z))))
+""")
+
+    // or in the target's own type at another argument. The checker
+    // accepted this one before this rule, and it loops.
+    disallowed("""#
+enum T[w]:
+  E(h: (w, T[Int] -> Int) -> Int)
+  D[b](x: b, fs: T[b])
+  C(g: forall a. (a, a -> Int) -> Int)
+
+def bad(t: T[Int]) -> Int:
+  recur t:
+    case C(g): bad(D(t, E(g)))
+    case D(x, E(h)): h(x, y -> bad(y))
+    case _: 0
+
+main = bad(C((z, cb) -> cb(z)))
+""")
+
+    // Conservative: out returns a value holding the target, which the def
+    // can't read as smaller, but a result can't be told apart from one it
+    // can read, such as a thunk's, so st needs a smaller value too
+    disallowed("""#
+enum M[r]:
+  Done(n: Int)
+  Step[s](st: s, out: s -> r)
+  Start(n: Int, out: Int -> r)
+
+struct Res(m: M[Int])
+
+def run(m: M[Res]) -> Int:
+  loop m:
+    case Start(n, out): run(Step(n.add(1), out))
+    case Step(_, _): 1
+    case Done(n): n
+""")
+
+    // through a chain: f1 turns b into c, which f2 hands to a callback
+    disallowed("""#
+enum T:
+  D[b, c](x: b, f1: b -> c, f2: (c, T -> Int) -> Int)
+  C(g: forall a. (a, a -> Int) -> Int, i: forall a. a -> a)
+
+def bad(t: T) -> Int:
+  recur t:
+    case C(g, i): bad(D(t, i, g))
+    case D(x, f1, f2): f2(f1(x), y -> bad(y))
+
+main = bad(C((z, cb) -> cb(z), z -> z))
+""")
+  }
+
+  test("constructor-rank existentials only consumed by fields that hand out nothing take any value") {
+    // k takes the existential but returns an Int, so x stays opaque
+    allowed("""#
+enum State:
+  Done(n: Int)
+  Step[b](x: b, k: b -> Int)
+  Start(n: Int)
+
+def run(s: State) -> Int:
+  loop s:
+    case Start(n): run(Step(n.add(1), x -> x.mul(2)))
+    case Step(x, k): run(Done(k(x)))
+    case Done(n): n
+""")
+
+    // and with several consumers and a list payload
+    allowed("""#
+enum State:
+  Done(n: Int)
+  Step[b](x: b, show: b -> String, k: b -> Int)
+  Start(n: Int)
+
+def run(s: State) -> Int:
+  loop s:
+    case Start(n): run(Step([n, n], _ -> "list", xs -> xs.foldl_List(0, add)))
+    case Step(x, _, k): run(Done(k(x)))
+    case Done(n): n
+""")
+  }
+
+  test("constructor-rank existentials are not confused with binders of the same name") {
+    // g's `forall b` binds its own b, so g takes nothing of type Lo's b.
+    // Renaming the binder must not change whether this is accepted.
+    allowed("""#
+enum T[w]:
+  Lo[b](x: b, f: (b, w -> Int) -> Int, g: forall b. b -> b)
+  Hi[b](x: b, f: (b, w -> Int) -> Int)
+
+struct Wrap(t: T[Int])
+
+def bad(t: T[Wrap]) -> Int:
+  loop t:
+    case Hi(x, f): bad(Lo(x, f, z -> z))
+    case Lo(_, _, _): 0
+""")
+  }
+
+  test("constructor-rank sees the target in nested, let-bound and matched constructors") {
+    // E(t) is a T[T[Int]] here, so its field holds t, a T[Int]:
+    // bad(C(0)) -> bad(D(E(C(0)))) -> bad(C(0)) -> ...
+    disallowed("""#
+enum T[w]:
+  E(z: w)
+  D(y: T[T[Int]])
+  C(n: Int)
+
+def bad(t: T[Int]) -> Int:
+  loop t:
+    case C(_): bad(D(E(t)))
+    case D(E(z)): bad(z)
+    case _: 0
+
+main = bad(C(0))
+""")
+
+    // so does a let-bound value. The checker accepted this one before this
+    // rule, and it loops
+    disallowed("""#
+enum T[w]:
+  E(z: w)
+  C(n: Int)
+
+def bad(t: T[Int]) -> Int:
+  loop t:
+    case C(_):
+      u: T[T[Int]] = E(t)
+      match u:
+        case E(z): bad(z)
+        case _: 0
+    case _: 0
+
+main = bad(C(0))
+""")
+
+    // and a match scrutinee, which the checker also accepted before, and
+    // which loops
+    disallowed("""#
+enum T[w]:
+  E(z: w)
+  C(n: Int)
+
+def bad(t: T[Int]) -> Int:
+  loop t:
+    case C(_):
+      match E((t, 1)):
+        case E((z, _)): bad(z)
+        case _: 0
+    case _: 0
+
+main = bad(C(0))
+""")
+  }
+
+  test("constructor-rank reads a let-generalized constructor") {
+    // n has type forall a. Option[a], which holds nothing at a
+    allowed("""#
+def f(o: Option[Int]) -> Int:
+  loop o:
+    case Some(_):
+      n = None
+      f(n)
+    case None: 0
+""")
+
+    allowed("""#
+def len(xs: List[Int]) -> Int:
+  recur xs:
+    case []: 0
+    case [_, *tl]:
+      e = []
+      len(e).add(len(tl)).add(1)
+""")
+  }
+
+  test("constructor-rank reads a payload at its field's type") {
+    // The next call reads B's field as a T[a], so E(t)'s field is an
+    // opaque a there, though E(t) has type T[T[a]] here
+    allowed("""#
+enum T[w]:
+  E(z: w)
+  B(x: T[w])
+  C(n: Int)
+
+def g(t: T[a]) -> Int:
+  loop t:
+    case C(_): g(B(E(t)))
+    case _: 0
+""")
+
+    // but not when the field's type has a dangerous existential: f was
+    // packed at the real b, so it hands x's contents back as a target.
+    // g(C(h)) -> g(K(E(C(h)), h)) -> h(C(h), cb) -> g(C(h)) -> ...
+    disallowed("""#
+enum T[w]:
+  E(z: w)
+  K[b](x: T[b], f: (b, T[w] -> Int) -> Int)
+  C(h: forall q. (q, q -> Int) -> Int)
+
+def g(t: T[a]) -> Int:
+  recur t:
+    case E(_): 0
+    case K(x, f):
+      match x:
+        case E(z): f(z, y -> g(y))
+        case _: 0
+    case C(h): g(K(E(t), h))
+
+main = g(C((z, k) -> k(z)))
+""")
+
+    // the same through a let-bound value
+    disallowed("""#
+enum T[w]:
+  E(z: w)
+  K[b](x: T[b], f: (b, T[w] -> Int) -> Int)
+  C(h: forall q. (q, q -> Int) -> Int)
+
+def g(t: T[a]) -> Int:
+  recur t:
+    case E(_): 0
+    case K(x, f):
+      match x:
+        case E(z): f(z, y -> g(y))
+        case _: 0
+    case C(h):
+      u = K(E(t), h)
+      g(u)
+
+main = g(C((z, k) -> k(z)))
+""")
+
+    // and through a match scrutinee, which loops within one call
+    disallowed("""#
+enum T[w]:
+  E(z: w)
+  K[b](x: T[b], f: (b, T[w] -> Int) -> Int)
+  C(h: forall q. (q, q -> Int) -> Int)
+
+def g(t: T[a]) -> Int:
+  recur t:
+    case C(h):
+      match K(E(t), h):
+        case K(x, f):
+          match x:
+            case E(z): f(z, y -> g(y))
+            case _: 0
+        case _: 0
+    case _: 0
+
+main = g(C((z, k) -> k(z)))
+""")
+
+    // An enclosing constructor's existential is opaque in its fields' types,
+    // and an inner constructor's existentials are named apart from it. Here
+    // O's b is opaque, so K(E(t), h)'s y is a T[b] holding nothing the def
+    // can read. K's own b is dangerous, but it is a different variable, so
+    // the verdict must not depend on what O names its existential.
+    allowed("""#
+enum T[w]:
+  E(z: w)
+  K[b](y: T[w], f: (b, T[Int] -> Int) -> Int)
+  O[b](x: T[b])
+  C(n: Int, h: forall q. (q, T[Int] -> Int) -> Int)
+
+def g(t: T[Int]) -> Int:
+  loop t:
+    case C(_, h): g(O(K(E(t), h)))
+    case _: 0
+""")
+
+    allowed("""#
+enum T[w]:
+  E(z: w)
+  K[b](y: T[w], f: (b, T[Int] -> Int) -> Int)
+  O[c](x: T[c])
+  C(n: Int, h: forall q. (q, T[Int] -> Int) -> Int)
+
+def g(t: T[Int]) -> Int:
+  loop t:
+    case C(_, h): g(O(K(E(t), h)))
+    case _: 0
+""")
+
+    // the same with the target directly in K's field of type w := O's b
+    allowed("""#
+enum T[w]:
+  E(z: w)
+  K[b](y: w, f: (b, T[Int] -> Int) -> Int)
+  O[b](x: T[b])
+  C(n: Int, h: forall q. (q, T[Int] -> Int) -> Int)
+
+def g(t: T[Int]) -> Int:
+  loop t:
+    case C(_, h): g(O(K(t, h)))
+    case _: 0
+""")
+
+    allowed("""#
+enum T[w]:
+  E(z: w)
+  K[b](y: w, f: (b, T[Int] -> Int) -> Int)
+  O[c](x: T[c])
+  C(n: Int, h: forall q. (q, T[Int] -> Int) -> Int)
+
+def g(t: T[Int]) -> Int:
+  loop t:
+    case C(_, h): g(O(K(t, h)))
+    case _: 0
+""")
+
+    // Conservative: x mixes a type variable of the def (at w) with K's
+    // dangerous b (at v), so P(t, s) is read at its own type, and its l
+    // holds the target, though the next call reads l as an opaque a and f
+    // only gets r
+    disallowed("""#
+enum T[w, v]:
+  P(l: w, r: v)
+  K[b](x: T[w, b], f: (b, T[Int, Int] -> Int) -> Int)
+  C(h: forall q. (q, q -> Int) -> Int, s: T[Int, Int])
+
+def g(t: T[a, Int]) -> Int:
+  recur t:
+    case C(h, s): g(K(P(t, s), h))
+    case K(x, f):
+      match x:
+        case P(_, r): f(r, y -> g(y))
+        case _: 0
+    case P(_, _): 0
+""")
+
+    // Conservative: conv makes b dangerous by returning a plain T, which
+    // the def can't read as smaller, so E(t) is read at its own type
+    disallowed("""#
+enum T[w]:
+  E(z: w)
+  K[b](x: T[b], conv: b -> T[Int])
+  C(c: forall q. q -> T[Int])
+
+def g(t: T[a]) -> Int:
+  loop t:
+    case E(_): 0
+    case K(_, _): 1
+    case C(c): g(K(E(t), c))
+""")
+
+    // A dangerous existential field still takes a payload that is smaller
+    // at its own type: A(1) holds no T
+    allowed("""#
+enum T:
+  A(n: Int)
+  D[b](x: b, f: (b, T -> Int) -> Int)
+  C(g: forall q. (q, q -> Int) -> Int)
+
+def ok(t: T) -> Int:
+  recur t:
+    case C(g): ok(D(A(1), g))
+    case D(x, f): f(x, y -> ok(y))
+    case A(n): n
+""")
+
+    // Conservative: a let-bound value is read at its own type, as the
+    // current call would read it, though the next call reads it as a T[a]
+    disallowed("""#
+enum T[w]:
+  E(z: w)
+  C(n: Int)
+
+def g(t: T[a]) -> Int:
+  loop t:
+    case C(_):
+      u = E(t)
+      g(u)
+    case E(_): 0
+""")
+  }
+
+  test("constructor-rank payload functions that can return the target must be smaller") {
+    // the thunk hands back t: bad(C(1)) -> bad(E(_ -> C(1))) -> bad(C(1))
+    disallowed("""#
+enum T[x]:
+  E(th: Unit -> T[Int])
+  C(v: x)
+
+def bad(t: T[Int]) -> Int:
+  loop t:
+    case C(_): bad(E(_ -> t))
+    case E(th): bad(th(()))
+
+main = bad(C(1))
+""")
+  }
+
+  test("constructor-rank payload functions that only take the target take any value") {
+    // a T[Int] -> Int can't hand out a T, so its value needn't be smaller
+    allowed("""#
+enum T[x]:
+  D(v: x)
+  C(n: Int)
+
+def step(t: T[T[Int] -> Int]) -> Int:
+  recur t:
+    case C(n): step(D(_ -> n)).add(1)
+    case D(_): 0
+""")
+
+    // nor can a type declared after T whose field only takes a T
+    allowed("""#
+enum T[x]:
+  D(v: x)
+  C(n: Int)
+
+struct Handler(h: T[Int] -> Int)
+
+def step(t: T[Handler]) -> Int:
+  recur t:
+    case C(n): step(D(Handler(_ -> n))).add(1)
     case D(_): 0
 """)
   }
@@ -2767,6 +3313,29 @@ def bad(s: S) -> Int:
 
 main = bad(More(k -> k))
 """)
+
+    // Conservative: f is parametric in r, so the Box it returns is one the
+    // callback built, and this terminates. But the call's types match the
+    // first example's, where f returns the callback itself, so it is
+    // rejected too
+    disallowed("""#
+struct Box[a](get: a)
+
+enum S:
+  Done
+  More(f: forall r. (S -> r) -> r)
+
+def bad(s: S) -> Int:
+  recur s:
+    case Done: 0
+    case More(f):
+      Box(h) = f(y -> Box((z: S) -> match z:
+        case Done: bad(y)
+        case More(_): 1))
+      h(Done)
+
+main = bad(More(k -> k(Done)))
+""")
   }
 
   test("a reachable function's result may hold the target type at output positions") {
@@ -2856,6 +3425,51 @@ def loop(box: Cont) -> Int:
       (_, n) = cont_fn(cont -> loop(cont))
       n
 """
+    )
+  }
+
+  test("a type that wraps the target can't reach an input position of the callback rule") {
+    // The callback rule treats an opaque type at an input position as
+    // harmless. Handing g the target wrapped in O, which g can unwrap,
+    // would loop, but O recurs through T's parameter, which g takes as
+    // input, so the covariance check on recursive types rejects O.
+    val (errs, rendered) = packageErrorsOf(
+      NonEmptyList.of(
+        """package OpaqueInA
+
+export T(), O, wrap, unwrap
+
+enum T[x]:
+  Done
+  More(g: x -> (T[x] -> Int) -> Int)
+
+struct O(t: T[O])
+
+def wrap(t: T[O]) -> O: O(t)
+
+def unwrap(o: O) -> T[O]:
+  O(t) = o
+  t
+""",
+        """package OpaqueInB
+
+from OpaqueInA import T, Done, More, O, wrap, unwrap
+
+def bad(t: T[O]) -> Int:
+  recur t:
+    case Done: 0
+    case More(g): g(wrap(t))(y -> bad(y))
+
+main = bad(More(o -> k -> k(unwrap(o))))
+"""
+      )
+    )
+    assert(
+      errs.exists {
+        case _: PackageError.KindInferenceError => true
+        case _                                  => false
+      },
+      s"expected the covariance check to reject O, got:\n$rendered"
     )
   }
 
