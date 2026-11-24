@@ -206,6 +206,19 @@ object ApiDiff {
       ) + Doc.text(show" ${cfn.name}")
   }
 
+  // A type with no visible constructors now has some, e.g. `export T` became
+  // `export T()`. No one could construct or match a T before, so this only
+  // adds API.
+  case class ConstructorsExposed(
+      pack: PackageName,
+      tycons: Type.TyConst
+  ) extends Diff {
+    def isValidWhen(dk: Version.DiffKind) = dk.isMajor | dk.isMinor
+    def toDoc =
+      Doc.text("exported the constructors of ") +
+        Type.fullyResolvedDocument.document(tycons)
+  }
+
   case class ConstructorIndexChange(
       pack: PackageName,
       tycons: Type.TyConst,
@@ -519,7 +532,7 @@ object ApiDiff {
           ChangedKind(pn, oldDt, newDt) :: Nil
         }
 
-      val consV: V[List[Diff]] = {
+      def constructorDiffs: V[List[Diff]] = {
         val oldConsByName =
           oldDt.constructors.zipWithIndex.groupByNel(_._1.name)
         val newConsByName =
@@ -638,8 +651,30 @@ object ApiDiff {
           .map(_.flatten)
       }
 
+      val consV: V[List[Diff]] =
+        if (oldDt.constructors.isEmpty && newDt.constructors.nonEmpty)
+          // An opaque (or external) type now exports its constructors. Nothing
+          // could match on it before, so this adds API without breaking any.
+          (ConstructorsExposed(pn, newDt.toTypeTyConst) :: Nil).validNec
+        else constructorDiffs
+
       consV.map(cons => kinds ::: cons)
     }
+
+    // Only `export T()` exports T's constructors, and its constructors may be
+    // named differently from T, so this needs the whole export list. An
+    // `export T` carries T's private constructors unless the interface was
+    // canonicalized, so compare it as opaque.
+    def exportsConstructors(
+        exps: List[ExportedName[R]]
+    ): Set[Type.Const.Defined] =
+      exps.iterator.collect {
+        case ExportedName.Constructor(_, Referant.Constructor(dt, _)) =>
+          dt.toTypeConst
+      }.toSet
+
+    val prevExposed = exportsConstructors(prev)
+    val currExposed = exportsConstructors(current)
 
     val prevMap = prev.groupByNel(_.name)
     val currMap = current.groupByNel(_.name)
@@ -674,12 +709,15 @@ object ApiDiff {
                 }
               case cons: Identifier.Constructor =>
                 def typeTargetsOf(
-                    nel: NonEmptyList[ExportedName[R]]
+                    nel: NonEmptyList[ExportedName[R]],
+                    exposed: Set[Type.Const.Defined]
                 ): List[TypeTarget] =
                   nel.toList
                     .collect {
                       case ExportedName.TypeName(_, Referant.DefinedT(dt)) =>
-                        TypeTarget.Data(dt)
+                        TypeTarget.Data(
+                          if (exposed(dt.toTypeConst)) dt else dt.toOpaque
+                        )
                       case ExportedName.TypeName(_, Referant.TypeAliasT(ta)) =>
                         TypeTarget.Alias(ta)
                       case ExportedName.Constructor(
@@ -691,7 +729,10 @@ object ApiDiff {
                     .distinct
                     .sortBy(_.toTypeTyConst: Type)
 
-                (typeTargetsOf(oldExp), typeTargetsOf(newExp)) match {
+                (
+                  typeTargetsOf(oldExp, prevExposed),
+                  typeTargetsOf(newExp, currExposed)
+                ) match {
                   case (oldTarget :: Nil, newTarget :: Nil) =>
                     diffTarget(oldTarget, newTarget, Set.empty)
                   case diff                         =>

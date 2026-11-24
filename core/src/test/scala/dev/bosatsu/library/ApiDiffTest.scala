@@ -241,4 +241,84 @@ class ApiDiffTest extends munit.FunSuite {
     assert(!diffs.isValidWhen(Version.DiffKind.Minor))
     assert(diffs.isValidWhen(Version.DiffKind.Major))
   }
+
+  private def rec(
+      params: List[ConstructorParam],
+      typeParams: List[(Type.Var.Bound, Kind.Arg)] = Nil
+  ): DefinedType[Kind.Arg] =
+    DefinedType(pack, tyName, typeParams, ConstructorFn[Kind.Arg](constructor, params) :: Nil)
+
+  // `export Rec`
+  private def opaqueExport(dt: DefinedType[Kind.Arg]) =
+    SortedMap(pack -> List(ExportedName.TypeName(constructor, Referant.DefinedT(dt))))
+
+  // `export Rec()`
+  private def publicExport(dt: DefinedType[Kind.Arg]) =
+    SortedMap(
+      pack -> (
+        ExportedName.TypeName(constructor, Referant.DefinedT(dt)) ::
+          dt.constructors.map { cf =>
+            ExportedName.Constructor(cf.name, Referant.Constructor(dt, cf))
+          }
+      )
+    )
+
+  private def diffExports(
+      prev: SortedMap[PackageName, List[ExportedName[Referant[Kind.Arg]]]],
+      prevDt: DefinedType[Kind.Arg],
+      curr: SortedMap[PackageName, List[ExportedName[Referant[Kind.Arg]]]],
+      currDt: DefinedType[Kind.Arg]
+  ): (ApiDiff.Diffs, List[Diff]) =
+    ApiDiff(
+      prev,
+      TypeEnv.fromDefinitions(prevDt :: Nil),
+      curr,
+      TypeEnv.fromDefinitions(currDt :: Nil)
+    ) match {
+      case Validated.Valid(diffs)    =>
+        (diffs, diffs.toMap.valuesIterator.flatMap(_.toList).toList)
+      case Validated.Invalid(errors) =>
+        fail(s"expected diffs, got errors: ${errors.iterator.toList}")
+    }
+
+  private val fieldA = ConstructorParam(fieldName, Type.IntType, None)
+  private val fieldB = ConstructorParam(Identifier.Name("b"), Type.StrType, None)
+
+  test("changing the private constructors of an opaque export is not an API change") {
+    val oldDt = rec(fieldA :: Nil)
+    val newDt = rec(fieldB :: fieldA :: Nil)
+    val (diffs, flat) = diffExports(opaqueExport(oldDt), oldDt, opaqueExport(newDt), newDt)
+    assertEquals(flat, Nil)
+    assert(diffs.isValidWhen(Version.DiffKind.Patch))
+  }
+
+  test("an opaque export still reports a kind change") {
+    val a = Type.Var.Bound("a")
+    val oldDt = rec(fieldA :: Nil)
+    val newDt = rec(fieldB :: Nil, (a, Kind.Arg(Variance.phantom, Kind.Type)) :: Nil)
+    val (_, flat) = diffExports(opaqueExport(oldDt), oldDt, opaqueExport(newDt), newDt)
+    assert(flat.nonEmpty && flat.forall(_.isInstanceOf[ApiDiff.ChangedKind]), s"got: $flat")
+  }
+
+  test("exporting the constructors of an opaque type is a minor change") {
+    val dt = rec(fieldA :: Nil)
+    val (diffs, flat) = diffExports(opaqueExport(dt), dt, publicExport(dt), dt)
+    assert(
+      flat.exists(_.isInstanceOf[ApiDiff.ConstructorsExposed]),
+      s"expected ConstructorsExposed in: $flat"
+    )
+    assert(!diffs.isValidWhen(Version.DiffKind.Patch))
+    assert(diffs.isValidWhen(Version.DiffKind.Minor))
+  }
+
+  test("hiding the constructors of a type is a major change") {
+    val dt = rec(fieldA :: Nil)
+    val (diffs, flat) = diffExports(publicExport(dt), dt, opaqueExport(dt), dt)
+    assert(
+      flat.exists(_.isInstanceOf[ApiDiff.ConstructorRemoved]),
+      s"expected ConstructorRemoved in: $flat"
+    )
+    assert(!diffs.isValidWhen(Version.DiffKind.Minor))
+    assert(diffs.isValidWhen(Version.DiffKind.Major))
+  }
 }

@@ -352,8 +352,9 @@ class LibConfigTest extends munit.FunSuite {
   }
 
   test("api diffs follow constructors of types exported with them, not of opaque types") {
-    // Built the way validatePacks builds the env for a public dependency:
-    // Dep's types reach the diff of Main only through exportedTypeEnv.
+    // Built the way validatePacks builds the env: Dep's types reach the diff of
+    // Main only through exportedTypeEnv, and Dep's own exports are diffed
+    // directly.
     val depName = PackageName.parts("Dep")
     val mainName = PackageName.parts("Main")
 
@@ -390,22 +391,37 @@ class LibConfigTest extends munit.FunSuite {
       val env = predefTypes ++
         pm.toMap(depName).exportedTypeEnv ++
         pm.toMap(mainName).exportedTypeEnv
-      (SortedMap(mainName -> pm.toMap(mainName).exports), env)
+      (
+        SortedMap(
+          depName -> pm.toMap(depName).exports,
+          mainName -> pm.toMap(mainName).exports
+        ),
+        env
+      )
     }
 
     val (prevExports, prevEnv) = version(extraField = false)
     val (currExports, currEnv) = version(extraField = true)
 
-    val changed =
+    val diffs =
       ApiDiff(prevExports, prevEnv, currExports, currEnv).fold(
         errs => fail(errs.toList.mkString("api diff failed: ", "\n", "")),
-        _.toMap.valuesIterator.flatMap(_.toList).collect {
-          case ApiDiff.ChangedValue(name, _) => name
-        }.toSet
+        _.toMap.view.mapValues(_.toList).toMap
       )
 
     // Open's constructor is public, so adding a field changes use_open.
     // Hidden's is private, so use_hidden's API is unchanged.
-    assertEquals(changed, Set[Identifier.Bindable](Identifier.Name("use_open")))
+    assertEquals(
+      diffs.getOrElse(mainName, Nil).collect { case ApiDiff.ChangedValue(name, _) => name },
+      List[Identifier.Bindable](Identifier.Name("use_open"))
+    )
+    // Dep's own diff likewise reports Open's new field and nothing for Hidden.
+    assertEquals(
+      diffs.getOrElse(depName, Nil).map {
+        case ApiDiff.ConstructorParamAdded(_, cons, _, _, field, _) => (cons, field)
+        case other => fail(s"unexpected diff in Dep: $other")
+      }.distinct,
+      List((Identifier.Constructor("Open"), Identifier.Name("extra")))
+    )
   }
 }
