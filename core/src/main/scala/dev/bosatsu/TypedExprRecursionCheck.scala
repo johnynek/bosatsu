@@ -346,7 +346,7 @@ object TypedExprRecursionCheck {
         this match {
           case TopLevel(_)     => Set.empty
           case ids: InDefState =>
-            val InDef(outer, n, _, _, _, _, _, _, _) = ids.inDef
+            val InDef(outer, n, _, _, _, _, _, _, _, _) = ids.inDef
             outer.outerDefNames + n
         }
 
@@ -355,7 +355,7 @@ object TypedExprRecursionCheck {
         this match {
           case TopLevel(_)     => false
           case ids: InDefState =>
-            val InDef(outer, dn, _, _, _, _, _, _, _) = ids.inDef
+            val InDef(outer, dn, _, _, _, _, _, _, _, _) = ids.inDef
             (dn == n) || outer.defNamesContain(n)
         }
 
@@ -366,7 +366,8 @@ object TypedExprRecursionCheck {
           topLevelLowerableAliases: TopLevelLowerableAliases,
           fnType: Type,
           topLevelPredefAliases: TopLevelPredefAliases,
-          totalityCheck: TotalityCheck
+          totalityCheck: TotalityCheck,
+          currentPackage: PackageName
       ): InDef =
         InDef(
           this,
@@ -377,6 +378,7 @@ object TypedExprRecursionCheck {
           fnType,
           topLevelPredefAliases,
           totalityCheck,
+          currentPackage,
           Set.empty
         )
     }
@@ -384,7 +386,7 @@ object TypedExprRecursionCheck {
     sealed abstract class InDefState extends State {
       final def inDef: InDef =
         this match {
-          case id @ InDef(_, _, _, _, _, _, _, _, _)    => id
+          case id @ InDef(_, _, _, _, _, _, _, _, _, _)    => id
           case InDefRecurred(ir, _, _, _, _)            => ir.inDef
           case InRecurBranch(
                 InDefRecurred(ir, _, _, _, _),
@@ -409,6 +411,9 @@ object TypedExprRecursionCheck {
         fnType: Type,
         topLevelPredefAliases: TopLevelPredefAliases,
         totalityCheck: TotalityCheck,
+        // the package being checked: every type declared in it is in the
+        // type environment, and no dependency can mention one
+        currentPackage: PackageName,
         localScope: Set[Bindable]
     ) extends InDefState {
       def addLocal(b: Bindable): InDef =
@@ -421,6 +426,7 @@ object TypedExprRecursionCheck {
           fnType,
           topLevelPredefAliases,
           totalityCheck,
+          currentPackage,
           localScope + b
         )
 
@@ -941,7 +947,7 @@ object TypedExprRecursionCheck {
         finalState: FinalDefState
     ): Res[Unit] =
       finalState match {
-        case InDef(_, _, _, _, _, _, _, _, _) =>
+        case InDef(_, _, _, _, _, _, _, _, _, _) =>
           unitValid
         case InDefRecurred(_, _, recur, _, _) =>
           val selfCallKind = SelfCallKind(fnname, body)
@@ -2798,20 +2804,140 @@ object TypedExprRecursionCheck {
         }
       }
 
+    // Typed expressions keep type aliases as written (`type CbA = Cb`), so
+    // comparisons of type constants must see through them. Returns a type
+    // whose head is not an alias, or None if the alias can't be expanded
+    // (under-applied, or a cycle, which source conversion already rejects);
+    // callers treat None as unsafe.
+    private def expandAliasHead(
+        typeEnv: TypeEnv[Kind.Arg],
+        t: Type
+    ): Option[Type] = {
+      @annotation.tailrec
+      def loop(t: Type, expanding: Set[Type.Const]): Option[Type] =
+        Type.unapplyAll(t) match {
+          case (Type.TyConst(c), args) =>
+            typeEnv.getTypeAlias(Type.TyConst(c)) match {
+              case Some(alias) =>
+                if (expanding(c)) None
+                else
+                  alias.expandWith(args) match {
+                    case Some(t1) => loop(t1, expanding + c)
+                    case None     => None
+                  }
+              case None => Some(t)
+            }
+          case _ => Some(t)
+        }
+
+      loop(t, Set.empty)
+    }
+
+    // Which type constants may have values that contain values of a target
+    // type: a target itself, with any type arguments, or a constant whose
+    // definition (or alias right-hand side) transitively mentions one. The
+    // name alone is not enough: an alias, or a type declared after a target
+    // (`struct Wrap(t: T[Wrap])`), can hide it. Function type constants
+    // carry no values of their own, and neither do a constant's type
+    // arguments: callers decide how to walk those.
+    //
+    // `typeEnv` has every type declared in `currentPackage`, so a constant
+    // it doesn't define is from a dependency, for example one the package
+    // doesn't import, or one a dependency keeps private. Packages form a DAG,
+    // so no dependency can mention a type declared in `currentPackage`: such
+    // a constant can only contain a target declared in another package, and
+    // since we can't see its definition we assume it does.
+    private final class TargetContainment(
+        typeEnv: TypeEnv[Kind.Arg],
+        currentPackage: PackageName,
+        targetConsts: List[Type.Const]
+    ) {
+      private val cache = mutable.Map.empty[Type.Const, Boolean]
+
+      private val hasNonLocalTarget: Boolean =
+        targetConsts.exists(_.toDefined.packageName != currentPackage)
+
+      def mayContain(c: Type.Const): Boolean = {
+        @annotation.tailrec
+        def loop(
+            todo: List[Type.Const],
+            seen: Set[Type.Const]
+        ): Boolean =
+          todo match {
+            case Nil => false
+            case h :: tail =>
+              if (targetConsts.contains(h)) true
+              else if (seen(h)) loop(tail, seen)
+              else {
+                val tc = Type.TyConst(h)
+                val deps: Option[List[Type.TyConst]] =
+                  tc match {
+                    case Type.FnType(_) => Some(Nil)
+                    case _ =>
+                      typeEnv
+                        .getType(tc)
+                        .map(_.dependsOn)
+                        .orElse(typeEnv.getTypeAlias(tc).map(_.dependsOn))
+                  }
+                deps match {
+                  case Some(ds) => loop(ds.map(_.tpe) ::: tail, seen + h)
+                  case None     =>
+                    // a dependency's type we can't see; see above
+                    if (hasNonLocalTarget) true
+                    else loop(tail, seen + h)
+                }
+              }
+          }
+
+        cache.getOrElseUpdate(c, loop(c :: Nil, Set.empty))
+      }
+
+      // Some constant anywhere in `t` (including type arguments, phantom or
+      // not, and function arguments) may contain target values.
+      def typeMayContain(t: Type): Boolean =
+        Type.allConsts(t :: Nil).exists(tc => mayContain(tc.tpe))
+    }
+
+    // The constructor-rank rule: in a branch where the target is known to be
+    // constructor C, `D(e1, ..., en)` with D declared before C in the same
+    // type is smaller than the target when every ei whose field may hold
+    // target values is itself smaller. That is the recursive path ordering,
+    // with constructors ordered by declaration, on values with the positions
+    // the def can't read erased (see below): every target value the def can
+    // read from the new value is a strict part of the current one, so the
+    // order is well-founded.
+    //
+    // A field may hold target values when its declared type has:
+    //   - the target's type constructor, with any type arguments. Through
+    //     polymorphic recursion, or a constructor with a field of fixed type
+    //     (`E(z: T[Int])`), a `T[List[Int]]` value can hold a `T[Int]`.
+    //   - a type parameter that the def's target type instantiates with a
+    //     type that may contain the target (`T[Wrap]` with
+    //     `struct Wrap(w: T[Wrap])`), as TargetContainment decides.
+    // No other constant in a declared field type can: types are declared in
+    // order and packages form a DAG, so it was declared before the target's
+    // type or in a dependency of its package. That needs no lookup, so it
+    // also holds for field types the current package doesn't import.
+    //
+    // A type parameter instantiated with a type variable of the def, and an
+    // existential, are opaque to the def. Every recursive call runs the same
+    // code, which never reads such a field as a target value, even when
+    // polymorphic recursion puts one there, so those fields take any value.
     private def fieldPayloadAllowed(
         inrec: InDefRecurred,
         target: RecurTargetItem,
         proof: TargetProof,
-        fieldType: Type,
-        fieldArgExpr: TypedExpr[Declaration],
-        targetType: Type
-    ): Boolean =
-      // v1 safety rule: exact recursive payloads must use known-smaller names,
-      // and wrapped recursive payloads are rejected conservatively.
-      if (!Type.containsType(fieldType, targetType)) true
-      else if (fieldType.sameAs(targetType))
-        classifyExpr(inrec, target, proof, fieldArgExpr) == Smaller
-      else false
+        ownerConst: Type.TyConst,
+        carryingParams: Set[Type.Var.Bound],
+        declaredFieldType: Type,
+        fieldArgExpr: TypedExpr[Declaration]
+    ): Boolean = {
+      val mayHoldTarget =
+        Type.allConsts(declaredFieldType :: Nil).contains(ownerConst) ||
+          Type.freeBoundTyVars(declaredFieldType :: Nil).exists(carryingParams)
+      !mayHoldTarget ||
+      (classifyExpr(inrec, target, proof, fieldArgExpr) == Smaller)
+    }
 
     private def classifyConstructorRankArg(
         inrec: InDefRecurred,
@@ -2828,23 +2954,33 @@ object TypedExprRecursionCheck {
           currentMeta <- constructorMeta(typeEnv, currentCtor)
           nextMeta <- constructorMeta(typeEnv, argCtorApp.ctor)
           if currentMeta.owner.toTypeConst == nextMeta.owner.toTypeConst
+          // the same length as the owner's type parameters
           targetArgs <- currentMeta.owner.extractTypeArgs(targetType)
           if nextMeta.index < currentMeta.index
-          fieldTypes <- nextMeta.owner.instantiateConstructorFieldTypes(
-            nextMeta.ctor,
-            targetArgs
+          declaredFieldTypes = nextMeta.ctor.args.map(_.tpe)
+          if declaredFieldTypes.lengthCompare(argCtorApp.args.length) == 0
+          containment = new TargetContainment(
+            typeEnv,
+            inrec.inRec.currentPackage,
+            currentMeta.owner.toTypeConst :: Nil
           )
-          if fieldTypes.lengthCompare(argCtorApp.args.length) == 0
-          if fieldTypes.iterator
+          carryingParams = currentMeta.owner.typeParams.iterator
+            .zip(targetArgs.iterator)
+            .collect {
+              case (param, arg) if containment.typeMayContain(arg) => param
+            }
+            .toSet
+          if declaredFieldTypes.iterator
             .zip(argCtorApp.args.iterator)
             .forall { case (fieldType, fieldArg) =>
               fieldPayloadAllowed(
                 inrec,
                 target,
                 proof,
+                currentMeta.owner.toTypeTyConst,
+                carryingParams,
                 fieldType,
-                fieldArg,
-                targetType
+                fieldArg
               )
             }
         } yield Smaller
@@ -3472,7 +3608,7 @@ object TypedExprRecursionCheck {
         state <- getSt
         _ <- toSt(checkForIllegalBinds(state, bs, region)(unitValid))
         _ <- (state match {
-          case id @ InDef(_, _, _, _, _, _, _, _, _) =>
+          case id @ InDef(_, _, _, _, _, _, _, _, _, _) =>
             setSt(bs.foldLeft(id)(_.addLocal(_)))
           case _                                =>
             unitSt
@@ -3764,15 +3900,26 @@ object TypedExprRecursionCheck {
      * contain target values, the caller can pass the target itself in and f
      * can pass it straight back, e.g. f: forall a. (a, a -> Int) -> Int.
      *
-     * Everything the caller can pass into f is one of the call's arguments
-     * (in any group of a curried call), including whatever the callbacks
-     * return. So we look at the types of the arguments at this call, which
-     * already reflect how the caller instantiated f's quantifiers, and
-     * require that no type which may contain values of a target type is
-     * something the caller hands to f (an input position of the argument
-     * types). For example `forall r. (T -> r) -> r` is accepted at r := Int.
-     * At r := (T, Int) it is rejected: a callback could return the target to
-     * f, and the argument types alone don't show that f is parametric in r.
+     * The call is an exchange between the caller and f, and its type at this
+     * call is the instantiated function type `(A1, ..., An) -> R`, where the
+     * As are the arguments of every group of a curried call and R is the
+     * result. The caller hands values to f at the input (negative) positions
+     * of that type, and only there:
+     *   - the arguments themselves, and whatever the callbacks return to f;
+     *   - inputs inside the result. f may return a callback, or a function
+     *     that calls one, and the caller can then apply it to anything, e.g.
+     *     `f: forall a. (a -> Int) -> Box[a -> Int]` then `h(target)`.
+     * So we require that no type which may contain values of a target type
+     * is at an input position of `(A1, ..., An) -> R`. Output positions are
+     * fine: what f hands out, to a callback or to the caller, was built by f
+     * or by a callback, and a callback's binders still see only what f
+     * hands them. The types at the call already reflect how the caller
+     * instantiated f's quantifiers.
+     * For example `forall r. (T -> r) -> r` is accepted at r := Int. At
+     * r := (T, Int) it is rejected: a callback could return the target to f,
+     * and the types at the call alone don't show that f is parametric in r.
+     * At r := T -> Int it is also rejected, though f, being parametric in r,
+     * could only return what a callback returned, not the callback itself.
      *
      * Quantifiers left in the argument types are looked through. A forall in
      * an input position is instantiated by f (as in the existential encoding
@@ -3783,80 +3930,22 @@ object TypedExprRecursionCheck {
      */
     private def reachableCallbackRuleApplies(
         inrec: InDefRecurred,
-        argTypes: List[Type]
+        argTypes: List[Type],
+        resultType: Type
     ): Boolean = {
       val typeEnv = inrec.inRec.totalityCheck.inEnv
-
-      // Typed expressions keep type aliases as written (`type CbA = Cb`), so
-      // every comparison of type constants below must see through them.
-      // Returns a type whose head is not an alias, or None if the alias can't
-      // be expanded (under-applied, or a cycle, which source conversion
-      // already rejects); callers treat None as unsafe.
-      @annotation.tailrec
-      def expandAliasHead(t: Type, expanding: Set[Type.Const]): Option[Type] =
-        Type.unapplyAll(t) match {
-          case (Type.TyConst(c), args) =>
-            typeEnv.getTypeAlias(Type.TyConst(c)) match {
-              case Some(alias) =>
-                if (expanding(c)) None
-                else
-                  alias.expandWith(args) match {
-                    case Some(t1) => expandAliasHead(t1, expanding + c)
-                    case None     => None
-                  }
-              case None => Some(t)
-            }
-          case _ => Some(t)
-        }
 
       val targetConsts: List[Type.Const] =
         inrec.target.toList
           .traverse { targetItem =>
-            expandAliasHead(targetItemType(inrec, targetItem), Set.empty)
+            expandAliasHead(typeEnv, targetItemType(inrec, targetItem))
               .map(Type.unapplyAll(_)._1)
               .collect { case Type.TyConst(c) => c }
           }
           .getOrElse(Nil)
 
-      // Can values of type constant `c` contain values of a target type?
-      // True if `c` is a target, or its definition (or alias right-hand side)
-      // transitively mentions one. Constants we can't resolve are assumed to.
-      // Function type constants carry no values of their own: their
-      // arguments are walked separately by `unsafe`. Phantom parameters,
-      // including those declared on external types, are trusted to hold no
-      // values.
-      val mayContainCache = mutable.Map.empty[Type.Const, Boolean]
-      def mayContainTarget(c: Type.Const): Boolean = {
-        @annotation.tailrec
-        def loop(
-            todo: List[Type.Const],
-            seen: Set[Type.Const]
-        ): Boolean =
-          todo match {
-            case Nil => false
-            case h :: tail =>
-              if (targetConsts.contains(h)) true
-              else if (seen(h)) loop(tail, seen)
-              else {
-                val tc = Type.TyConst(h)
-                val deps: Option[List[Type.TyConst]] =
-                  tc match {
-                    case Type.FnType(_) => Some(Nil)
-                    case _ =>
-                      typeEnv
-                        .getType(tc)
-                        .map(_.dependsOn)
-                        .orElse(typeEnv.getTypeAlias(tc).map(_.dependsOn))
-                  }
-                deps match {
-                  case Some(ds) => loop(ds.map(_.tpe) ::: tail, seen + h)
-                  case None     => true
-                }
-              }
-          }
-
-        mayContainCache.getOrElseUpdate(c, loop(c :: Nil, Set.empty))
-      }
+      val containment =
+        new TargetContainment(typeEnv, inrec.inRec.currentPackage, targetConsts)
 
       def isInput(v: Variance): Boolean =
         (v == Variance.Contravariant) || (v == Variance.Invariant)
@@ -3871,7 +3960,7 @@ object TypedExprRecursionCheck {
       def unsafe(t: Type, v: Variance): Boolean =
         if (v == Variance.Phantom) false
         else
-          expandAliasHead(t, Set.empty) match {
+          expandAliasHead(typeEnv, t) match {
             case None => true
             case Some(Type.ForAll(_, in)) => unsafe(in, v)
             case Some(Type.Exists(_, in)) => unsafe(in, v)
@@ -3880,7 +3969,11 @@ object TypedExprRecursionCheck {
             case Some(t1) =>
               Type.unapplyAll(t1) match {
                 case (Type.TyConst(c), args) =>
-                  (isInput(v) && mayContainTarget(c)) ||
+                  // a constant's own values; its arguments are walked below,
+                  // by their declared variance, so phantom parameters
+                  // (including those declared on external types) are
+                  // trusted to hold no values
+                  (isInput(v) && containment.mayContain(c)) ||
                   args.iterator.zipWithIndex.exists { case (arg, idx) =>
                     unsafe(arg, v * paramVariance(c, idx))
                   }
@@ -3894,14 +3987,18 @@ object TypedExprRecursionCheck {
               }
           }
 
+      // the input positions of `(A1, ..., An) -> R`
       targetConsts.nonEmpty &&
-      !argTypes.exists(unsafe(_, Variance.contra))
+      !argTypes.exists(unsafe(_, Variance.contra)) &&
+      !unsafe(resultType, Variance.co)
     }
 
+    // `resultType` is the type of the whole application `fn(args)`
     private def checkApply(
         currentPackage: PackageName,
         fn: TypedExpr[Declaration],
         args: NonEmptyList[TypedExpr[Declaration]],
+        resultType: Type,
         region: Region,
         wrappers: WrapperScope
     ): St[Unit] =
@@ -3974,7 +4071,8 @@ object TypedExprRecursionCheck {
                     smallerNamesFromProofs(proofsPerTarget).contains(nm) &&
                     reachableCallbackRuleApplies(
                       inrec,
-                      allArgs.map(_.getType)
+                      allArgs.map(_.getType),
+                      resultType
                     )
                   ) {
                     // we are calling a reachable function. Any lambda args are new names
@@ -4073,8 +4171,15 @@ object TypedExprRecursionCheck {
           }
         case TypedExpr.Global(_, _, _, _) =>
           unitSt
-        case TypedExpr.App(fn, args, _, _) =>
-          checkApply(currentPackage, fn, args, expr.tag.region, wrappers)
+        case TypedExpr.App(fn, args, resultType, _) =>
+          checkApply(
+            currentPackage,
+            fn,
+            args,
+            resultType,
+            expr.tag.region,
+            wrappers
+          )
         case TypedExpr.Let(arg, ex, in, rec, tag) =>
           if (isDefLike(rec, tag)) {
             val fromSource =
@@ -4225,7 +4330,7 @@ object TypedExprRecursionCheck {
                 case TopLevel(_) | InRecurBranch(_, _, _, _) |
                     InDefRecurred(_, _, _, _, _) =>
                   failSt(RecursionCheck.UnexpectedRecur(recur.region))
-                case ir @ InDef(_, defname, typedArgs, sourceArgs, _, _, _, _, locals) =>
+                case ir @ InDef(_, defname, typedArgs, sourceArgs, _, _, _, _, _, locals) =>
                   toSt(getRecurTarget(defname, sourceArgs, typedArgs, recur, locals)).flatMap {
                     target =>
                       val sourcePatterns = recur.cases.get.map(_.pattern).toList.toVector
@@ -4247,7 +4352,7 @@ object TypedExprRecursionCheck {
                           entryState: SmtBranchState
                       ): St[Unit] =
                         getSt.flatMap {
-                          case ir @ InDef(_, _, _, _, _, _, _, _, _) =>
+                          case ir @ InDef(_, _, _, _, _, _, _, _, _, _) =>
                             val rec = ir.setRecur(target, recur)
                             setSt(rec) *> beginBranch(compiledPat, entryState)
                           case irr @ InDefRecurred(_, _, _, _, _) =>
@@ -4435,7 +4540,8 @@ object TypedExprRecursionCheck {
             inheritedLowerableAliases,
             expr.getType,
             inheritedPredefAliases,
-            inheritedTotalityCheck
+            inheritedTotalityCheck,
+            currentPackage
           )
           checkForIllegalBinds(state, fnname :: nameArgs, body.tag.region) {
             // We start the body checker in `InDef`, and a successful run must

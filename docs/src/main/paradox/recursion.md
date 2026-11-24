@@ -63,10 +63,15 @@ At a high level:
    A recursive call can pass an earlier constructor in source order
    (for example `Some(_) -> None`, `Even(prev) -> Odd(prev)`), including
    zero-argument constructors.
-   This still requires direct recursive payload fields (`Fi == T`) to use
-   already-proven smaller local names from the branch.
-   Wrapped recursive payloads (`Fi` contains `T` but `Fi != T`, such as
-   `List[T]`) are intentionally rejected in this version.
+   Every field whose type may contain a value of the target type must get a
+   value already proven smaller in the branch. That covers the target type
+   itself (`Fi == T`), the target's type at other type arguments
+   (`T[List[a]]`, or an existential `T[b]`), and types that contain it
+   (`List[T]`, or a type declared after `T` that mentions it). So
+   `B(xs) -> A(xs)` with `xs: List[T]` bound by the pattern is accepted,
+   but `B(x) -> A([B(x)])` is not: the list is new, and so is its element.
+   Fields whose types can't hold a target value, including a field whose
+   type is a type parameter of the `def`, can take any value.
 
 1. Bosatsu also accepts two trusted strict-child projections:
    1. `th()` (canonical `th(())`) when `th: () -> T`.

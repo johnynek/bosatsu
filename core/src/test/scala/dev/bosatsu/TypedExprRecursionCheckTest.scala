@@ -148,6 +148,47 @@ class TypedExprRecursionCheckTest extends munit.FunSuite with ParTest {
         }
     }
 
+  // Type checks full packages, with `package` headers and imports, together.
+  private def recursionErrorsOfPackages(
+      sources: NonEmptyList[String]
+  ): Either[String, Unit] = {
+    val parsed = sources.zipWithIndex.map { case (source, idx) =>
+      (
+        (s"<test $idx>", LocationMap(source)),
+        Parser.unsafeParse(Package.parser, source)
+      )
+    }
+    given Show[String] = Show.fromToString
+    TestUtils
+      .typeCheckParsedInferred(parsed, Nil, "<predef>", CompileOptions.Default)
+      .strictToValidated match {
+      case Validated.Valid(_)      => Right(())
+      case Validated.Invalid(errs) =>
+        val sourceMap = parsed.toList.map { case ((path, lm), pack) =>
+          pack.name -> (lm, path)
+        }.toMap
+        val recursionErrs =
+          errs.toList.collect { case r: PackageError.RecursionError => r }
+        val rendered = errs.toList
+          .map(_.message(sourceMap, LocationMap.Colorize.None))
+          .mkString("\n-----\n")
+        if (recursionErrs.nonEmpty) Left(rendered)
+        else fail(s"expected only recursion errors, got:\n$rendered")
+    }
+  }
+
+  private def allowedPackages(first: String, rest: String*): Unit =
+    recursionErrorsOfPackages(NonEmptyList(first, rest.toList)) match {
+      case Right(_)    => ()
+      case Left(errs) => fail(s"expected success, got errors:\n$errs")
+    }
+
+  private def disallowedPackages(first: String, rest: String*): Unit =
+    recursionErrorsOfPackages(NonEmptyList(first, rest.toList)) match {
+      case Right(_) => fail("expected recursion-check failure")
+      case Left(_)  => ()
+    }
+
   private def typedLetsOf(
       source: String
   ): (
@@ -369,6 +410,186 @@ def bad(v: T) -> T:
     case Z:
       Z
 """)
+  }
+
+  test("constructor-rank payloads at the target's type with other arguments must be smaller") {
+    // E's field has a fixed type, so the T[List[Int]] value E(t) holds the
+    // T[Int] target: bad(C(1)) -> bad(D(E(C(1)))) -> bad(C(1)) -> ...
+    disallowed("""#
+enum T[x]:
+  E(z: T[Int])
+  D(y: T[List[x]])
+  C(v: x)
+
+def bad(t: T[Int]) -> Int:
+  loop t:
+    case C(_): bad(D(E(t)))
+    case D(E(z)): bad(z)
+    case D(_): 0
+    case E(_): 0
+
+main = bad(C(1))
+""")
+
+    // through an existential and polymorphic recursion:
+    // bad(C(1)) -> bad(D(C(1))) -> bad(C(1)) -> ...
+    disallowed("""#
+enum T[a]:
+  D[b](x: T[b])
+  C(v: a)
+
+def bad[a](t: T[a]) -> Int:
+  loop t:
+    case C(_): bad(D(t))
+    case D(x): bad(x)
+
+main = bad(C(1))
+""")
+
+    // a nested datatype: the T[List[a]] payload is never smaller, and the
+    // list nesting grows on every step
+    disallowed("""#
+enum T[a]:
+  L(v: a)
+  D(x: T[List[a]])
+  C(t: T[a])
+
+def bad[a](t: T[a]) -> Int:
+  loop t:
+    case L(_): 0
+    case D(x): bad(x)
+    case C(L(v)): bad(D(C(L([v]))))
+    case C(_): 0
+
+main = bad(C(L(1)))
+""")
+  }
+
+  test("constructor-rank payloads of types that contain the target must be smaller") {
+    // Wrap is declared after T and contains it
+    disallowed("""#
+enum T[x]:
+  D(v: x)
+  C
+
+struct Wrap(w: T[Wrap])
+
+def bad(t: T[Wrap]) -> Int:
+  loop t:
+    case C: bad(D(Wrap(t)))
+    case D(Wrap(w)): bad(w)
+
+main = bad(C)
+""")
+
+    // an alias declared after T hides it
+    disallowed("""#
+enum T[x]:
+  E(z: T[T[Int]])
+  D(v: x)
+  C
+
+type TI = T[Int]
+
+def bad(t: T[TI]) -> Int:
+  loop t:
+    case C: bad(D(E(t)))
+    case D(E(z)): bad(z)
+    case D(_): 0
+    case E(_): 0
+
+main = bad(C)
+""")
+  }
+
+  test("constructor-rank payloads of other types may be smaller values") {
+    // a wrapped payload is fine when it is already smaller
+    allowed("""#
+enum T:
+  Z
+  A(xs: List[T])
+  B(xs: List[T])
+
+def step(v: T) -> Int:
+  recur v:
+    case B(xs): step(A(xs)).add(1)
+    case A([x, *_]): step(x)
+    case A([]): 0
+    case Z: 0
+""")
+
+    // and so is a nested-type payload, here with polymorphic recursion
+    allowed("""#
+enum T[a]:
+  L(v: a)
+  D(x: T[List[a]])
+  C(t: T[List[a]])
+
+def depth[a](t: T[a]) -> Int:
+  recur t:
+    case L(_): 0
+    case C(x): depth(D(x)).add(1)
+    case D(x): depth(x)
+""")
+
+    // a field whose type is a type variable of the def is never read as a
+    // target value, even when polymorphic recursion puts one there
+    allowed("""#
+enum T[a]:
+  D(x: a)
+  C(t: T[a])
+
+def wrap[a](t: T[a]) -> Int:
+  recur t:
+    case C(_): wrap(D(t)).add(1)
+    case D(_): 0
+""")
+
+    // nor is an existential field
+    allowed("""#
+enum T:
+  D[b](x: b)
+  C
+
+def wrap(t: T) -> Int:
+  recur t:
+    case C: wrap(D(t)).add(1)
+    case D(_): 0
+""")
+  }
+
+  test("constructor-rank fields of types the package can't see take any value") {
+    // Foo is private to RankDepA, so RankDepB's type environment doesn't
+    // have it. It was declared before T, so it can't hold a T.
+    allowedPackages(
+      """package RankDepA
+
+export T()
+
+struct Foo(i: Int)
+
+enum T:
+  D(f: Foo)
+  C(n: Int)
+""",
+      """package RankDepB
+
+from RankDepA import T, D, C
+
+def mk(t: T) -> T:
+  match t:
+    case D(f): D(f)
+    case C(_): t
+
+def step(t: T) -> Int:
+  recur t:
+    case C(_):
+      match mk(t):
+        case D(f): step(D(f)).add(1)
+        case C(_): 0
+    case D(_): 0
+"""
+    )
   }
 
   test("recur does not use constructor-rank rule when current constructor is ambiguous") {
@@ -2396,6 +2617,152 @@ def loop[a](box: Box[a]) -> a:
 
 main = loop(Item(1))
 """)
+  }
+
+  test("a reachable function may not hand a callback back to the caller") {
+    // f returns the callback in a Box, and the caller applies it to the
+    // target: bad(s) -> h(s) -> bad(s) -> ...
+    disallowed("""#
+struct Box[a](get: a)
+
+enum S:
+  Done
+  More(f: forall a. (a -> Int) -> Box[a -> Int])
+
+def bad(s: S) -> Int:
+  recur s:
+    case Done: 0
+    case More(f):
+      Box(h) = f(y -> bad(y))
+      h(s)
+
+main = bad(More(k -> Box(k)))
+""")
+
+    // the same with the def passed by name and a tuple result
+    disallowed("""#
+enum S:
+  Done
+  More(f: forall a. (a -> Int) -> (a -> Int, Int))
+
+def bad(s: S) -> Int:
+  recur s:
+    case Done: 0
+    case More(f):
+      (h, _) = f(bad)
+      h(s)
+
+main = bad(More(k -> (k, 0)))
+""")
+
+    // or a partial application whose remaining argument is the target. Type
+    // checking eta-expands `h` to `_a -> f(cb)(_a)`, so the arguments already
+    // show the target; a Box or tuple result is not eta-expanded
+    disallowed("""#
+enum S:
+  Done
+  More(f: forall a. (a -> Int) -> a -> Int)
+
+def bad(s: S) -> Int:
+  recur s:
+    case Done: 0
+    case More(f):
+      h = f(y -> bad(y))
+      h(s)
+
+main = bad(More(k -> k))
+""")
+  }
+
+  test("a reachable function's result may hold the target type at output positions") {
+    // the Cont in the result is one f built
+    allowed("""#
+enum Cont:
+  Item(a: Int)
+  Next(use: (Cont -> Int) -> (Int, Cont))
+
+def loop(box: Cont) -> Int:
+  recur box:
+    case Item(a): a
+    case Next(cont_fn):
+      (n, _) = cont_fn(cont -> loop(cont))
+      n
+
+main = loop(Item(1))
+""")
+
+    // a function result that takes only values the target can't be in
+    allowed("""#
+enum Cont:
+  Item(a: Int)
+  Next(use: (Cont -> Int) -> Int -> Int)
+
+def loop(box: Cont) -> Int:
+  recur box:
+    case Item(a): a
+    case Next(cont_fn):
+      h = cont_fn(cont -> loop(cont))
+      h(0)
+
+main = loop(Item(1))
+""")
+  }
+
+  test("the callback rule sees through types the package can't see only for local targets") {
+    val outer = """package CbDepA
+
+export Outer()
+
+struct Inner(i: Int)
+struct Outer(n: Inner)
+"""
+    // Inner is private to CbDepA. A dependency can't mention Cont, which is
+    // declared in this package, so Outer in the result can't hold one.
+    allowedPackages(
+      outer,
+      """package CbDepB
+
+from CbDepA import Outer
+
+enum Cont:
+  Item(a: Int)
+  Next(use: (Cont -> Int) -> (Outer -> Int, Int))
+
+def loop(box: Cont) -> Int:
+  recur box:
+    case Item(a): a
+    case Next(cont_fn):
+      (_, n) = cont_fn(cont -> loop(cont))
+      n
+"""
+    )
+
+    // With Cont declared in a dependency, a type we can't see might contain
+    // it, so the rule conservatively doesn't apply.
+    disallowedPackages(
+      """package CbDepC
+
+export Outer(), Cont()
+
+struct Inner(i: Int)
+struct Outer(n: Inner)
+
+enum Cont:
+  Item(a: Int)
+  Next(use: (Cont -> Int) -> (Outer -> Int, Int))
+""",
+      """package CbDepD
+
+from CbDepC import Outer, Cont, Item, Next
+
+def loop(box: Cont) -> Int:
+  recur box:
+    case Item(a): a
+    case Next(cont_fn):
+      (_, n) = cont_fn(cont -> loop(cont))
+      n
+"""
+    )
   }
 
   test("curried calls check every argument group") {
