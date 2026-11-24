@@ -745,6 +745,11 @@ enum NR: NR1(r: NR), NR2(g: Neg[NR] -> Never)
 enum NegT[a]: N1(n: NegT[a]), N2(f: a -> Never)
 enum NTR: NT1(r: NTR), NT2(g: NegT[NTR] -> Never)
 struct RecN(w: Wrapper[Wrapper[RecN, Never], RecN])
+enum RF[f: * -> *]: RF1(r: RF[f]), RF2(g: f[RF[f]] -> Never)
+struct Pad0
+struct Pad1(p: Pad0)
+struct Pad2(p: Pad1)
+struct NegPad[a](f: a -> Never, pad: Pad2)
 """)
 
   private def quantified(
@@ -944,6 +949,39 @@ struct RecN(w: Wrapper[Wrapper[RecN, Never], RecN])
     assertState(Inhabitedness.check(recN, captureEnv), State.Uninhabited)
     assertState(Inhabitedness.check(inner, captureEnv), State.Inhabited)
     assertState(Inhabitedness.check(outer, captureEnv), State.Uninhabited)
+  }
+
+  test("a type is above the higher-kinded arguments its keys apply") {
+    // RF[Neg] reads Neg[RF[Neg]], Neg applied to RF[Neg]'s own fixed
+    // point, though RF's definition doesn't mention Neg. RF[Neg] has no
+    // values, so Neg[RF[Neg]] holds `absurd`. By definitions alone, RF and
+    // Neg had the same level, so each assumed the other empty.
+    val rf = localType("RF")
+    List(localType("Neg"), localType("NegPad")).foreach { neg =>
+      // NegPad's padding puts it above RF by definitions alone, which
+      // made RF[NegPad] inhabited and lost the `absurd` above.
+      val rfNeg = Type.apply1(rf, neg)
+      assertState(Inhabitedness.check(rfNeg, captureEnv), State.Uninhabited)
+      assertState(
+        Inhabitedness.check(Type.apply1(neg, rfNeg), captureEnv),
+        State.Inhabited
+      )
+    }
+  }
+
+  test("a type that recurs through a higher-kinded argument is Unknown") {
+    // The kind check rejects G, so only a hand-built env has it. G uses RG
+    // by definition, and RG[G] applies G, so the two have no levels. By
+    // definitions alone G was above RG, which treated G's fixed point as
+    // the outer one; nesting RG's outside gives other answers.
+    val env = sourceTypeEnv("""#
+enum Never: Never(next: Never)
+enum RG[f: * -> *]: RG1(r: RG[f]), RG2(g: f[Never] -> Never)
+struct G[a](h: RG[G] -> a)
+""")
+    val g = localType("G")
+    assertState(Inhabitedness.check(Type.apply1(localType("RG"), g), env), State.Unknown)
+    assertState(Inhabitedness.check(Type.apply1(g, neverType), env), State.Unknown)
   }
 
   test("the search runs on an env without the types its definitions mention") {

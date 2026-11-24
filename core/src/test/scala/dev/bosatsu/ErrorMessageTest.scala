@@ -1048,6 +1048,38 @@ main = f(C)
       ()
     }
 
+    // The same loop with R's recursion passing through a higher-kinded
+    // argument. RF's definition doesn't mention Neg, but RF[Neg] applies it.
+    evalFail(List("""
+package A
+
+enum Never: Never(n: Never)
+struct Neg[a](f: a -> Never)
+enum RF[f]: R1(r: RF[f]), R2(g: f[RF[f]] -> Never)
+
+def absurd(r: RF[Neg]) -> Never:
+  loop r:
+    case R1(r1): absurd(r1)
+
+neg_r: Neg[RF[Neg]] = Neg(absurd)
+
+enum E: X(n: Neg[RF[Neg]]), D, C
+
+def f(e: E) -> Int:
+  loop e:
+    case D: f(X(neg_r))
+    case C: f(D)
+
+main = f(C)
+""")) { case te @ PackageError.TotalityCheckError(_, _) =>
+      assert(
+        te.message(Map.empty, Colorize.None)
+          .endsWith("non-total match, missing: X(_)"),
+        te.message(Map.empty, Colorize.None)
+      )
+      ()
+    }
+
     evalFail(List("""
 package A
 

@@ -352,43 +352,104 @@ object Inhabitedness {
       count <= limit
     }
 
-    // A type's level is one more than the highest level of the other types
-    // in the env that its constructors mention, so every type of the env
-    // that a definition uses, directly or not, has a lower level than the
-    // type defined. Types outside the env are never keys (`checkType`
-    // answers Unknown for them), so they are left out: `Toposort` would
-    // give them a depth but no layer. Bosatsu has no mutually recursive
-    // types. A hand-built env with such a cycle leaves the types on it, and
-    // the types that use them, without a level. Only `searchComponent`
-    // needs levels, so they are computed on first use.
-    private lazy val typeLevels: Map[Type.Const, Int] = {
+    // The other types of the env that each type's constructors mention.
+    // Types outside the env are never keys (`checkType` answers Unknown for
+    // them), so they are left out.
+    private lazy val definitionUses: Map[Type.Const, List[Type.Const]] = {
       val defined: Set[Type.Const] =
         env.allDefinedTypes.iterator.map(dt => dt.toTypeConst: Type.Const).toSet
-      val uses: Map[Type.Const, List[Type.Const]] =
-        env.allDefinedTypes.iterator.map { dt =>
-          val c: Type.Const = dt.toTypeConst
-          c -> dt.constructors
-            .flatMap(_.typeConstants)
-            .distinct
-            .filter(u => (u != c) && defined(u))
-        }.toMap
+      env.allDefinedTypes.iterator.map { dt =>
+        val c: Type.Const = dt.toTypeConst
+        c -> dt.constructors
+          .flatMap(_.typeConstants)
+          .distinct
+          .filter(u => (u != c) && defined(u))
+      }.toMap
+    }
+
+    // The type constructor of a data-type key.
+    private def keyHead(key: Type): Option[Type.Const] =
+      Type.unapplyAll(key)._1 match {
+        case Type.TyConst(c) => Some(c)
+        // $COVERAGE-OFF$ a key is a defined type applied to arguments
+        case _               => None
+        // $COVERAGE-ON$
+      }
+
+    /** The levels of the types that a component's keys reach. A type's level
+      * is above the level of every type it uses, so a key's fixed point
+      * encloses those of the types its type uses.
+      *
+      * A type uses the other types of the env that its constructors mention.
+      * A key also makes its type use each type of the env that it passes as
+      * an argument of a higher kind, a type constructor short of arguments.
+      * With `enum RF[f]: R1(r: RF[f]), R2(g: f[RF[f]] -> Never)`, RF's
+      * constructors apply Neg in the key RF[Neg], which reads Neg[RF[Neg]]:
+      * Neg applied to RF[Neg]'s own fixed point. RF's definition doesn't
+      * mention Neg, so without that use the two could get the same level, or
+      * Neg the higher one. A key's arguments of kind `*` are types, not
+      * functions its definition applies, so they add no use.
+      *
+      * Bosatsu has no mutually recursive types, and its kind check rejects a
+      * type that recurs through a higher-kinded argument, such as G in
+      * `struct G[a](h: RF[G] -> a)`. A hand-built env can have either. The
+      * types on such a cycle of uses, and the types that use them, get no
+      * level.
+      */
+    private def componentLevels(keys: List[Type]): Map[Type.Const, Int] = {
+      val keyUses = mutable.HashMap.empty[Type.Const, Set[Type.Const]]
+      keys.foreach { key =>
+        val (on, args) = Type.unapplyAll(key)
+        on match {
+          case Type.TyConst(head) =>
+            val applied = args.iterator.flatMap { arg =>
+              val (argOn, argArgs) = Type.unapplyAll(arg)
+              argOn match {
+                case tc @ Type.TyConst(c) =>
+                  env.getType(tc) match {
+                    case Some(dt)
+                        if dt.typeParams.lengthCompare(argArgs.length) > 0 =>
+                      Some(c)
+                    case _ => None
+                  }
+                case _ => None
+              }
+            }
+            if (applied.hasNext)
+              keyUses(head) = keyUses.getOrElse(head, Set.empty) ++ applied
+          // $COVERAGE-OFF$ a key is a defined type applied to arguments
+          case _ => ()
+          // $COVERAGE-ON$
+        }
+      }
+
+      // Unlike a definition's mention of its own type, which is its
+      // recursion, a key passing its own type as an argument would be a
+      // cycle of uses. Kinds rule that out, and the cycle would cost the
+      // type its level.
+      def uses(c: Type.Const): List[Type.Const] =
+        keyUses.get(c) match {
+          case Some(more) => (definitionUses.getOrElse(c, Nil) ++ more).distinct
+          case None       => definitionUses.getOrElse(c, Nil)
+        }
+
+      // Sort only the types the keys reach, so that every use stays inside
+      // the sorted graph: `Toposort` gives a use outside it a depth but no
+      // layer. A type's depth depends only on the types it reaches.
+      val reached = mutable.LinkedHashSet.empty[Type.Const]
+      val todo = mutable.ArrayBuffer.from(keys.flatMap(keyHead(_)))
+      while (todo.nonEmpty) {
+        val c = todo.remove(todo.length - 1)
+        if (reached.add(c)) (todo ++= uses(c)): Unit
+      }
       Toposort
-        .sort(uses.keys)(uses.getOrElse(_, Nil))
+        .sort(reached)(uses)
         .layers
         .iterator
         .zipWithIndex
         .flatMap { case (layer, level) => layer.iterator.map(_ -> level) }
         .toMap
     }
-
-    // the level of a data-type key's type constructor
-    private def keyLevel(key: Type): Option[Int] =
-      Type.unapplyAll(key)._1 match {
-        case Type.TyConst(c) => typeLevels.get(c)
-        // $COVERAGE-OFF$ a key is a defined type applied to arguments
-        case _               => None
-        // $COVERAGE-ON$
-      }
 
     def newSolver(): Solver = new Solver
 
@@ -671,24 +732,32 @@ object Inhabitedness {
       // and Neg[R] empty.
       //
       // Neg[R] is Neg applied to R's answer: R's fixed point is the outer
-      // one. So the search nests fixed points by type level (`typeLevels`):
-      // entering a key keeps only the assumptions about keys at its level or
-      // above. A key of a lower level is then solved afresh, as a function
-      // of the outer assumptions. A key of a higher level is solved without
-      // the assumptions made about lower keys on the way to it. At or below
-      // its own level, a key's reads reach only its own type's recursion,
-      // earlier types and the keys in its arguments. So a key is met again
-      // on its own path only through its type's recursion, where induction
-      // on values holds. `parityConsistent` makes each key covariant in its
-      // own unfolding (`Model.cov`).
+      // one. So the search nests fixed points by type level
+      // (`componentLevels`): entering a key keeps only the assumptions about
+      // keys at its level or above. A key of a lower level is then solved
+      // afresh, as a function of the outer assumptions. A key of a higher
+      // level is solved without the assumptions made about lower keys on
+      // the way to it.
+      //
+      // Suppose the search meets key K, of type U, again with no key above
+      // U's level in between, so K is still assumed. A key reads the keys
+      // its constructors make and the keys among its arguments. Its
+      // constructors name only its own type and lower types, and apply only
+      // lower types, since a higher-kinded argument counts as a use. So
+      // between the two K's only U's constructors make keys of type U, and a
+      // key among arguments was made earlier on the path or is part of K.
+      // K therefore came back through U's own recursion, where induction on
+      // values holds. `parityConsistent` makes each key covariant in its own
+      // unfolding (`Model.cov`).
       private def searchComponent(
           component: NonEmptyList[Node],
           member: Type => Option[Node],
           nodes: mutable.HashMap[Type, Node]
       ): Unit = {
+        val typeLevels = componentLevels(component.toList.map(_.key))
         val levels: Map[Type, Int] =
           component.iterator
-            .flatMap(n => keyLevel(n.key).map(n.key -> _))
+            .flatMap(n => keyHead(n.key).flatMap(typeLevels.get).map(n.key -> _))
             .toMap
 
         var visitsLeft = MaxSearchVisits

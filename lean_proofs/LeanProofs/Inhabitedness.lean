@@ -980,8 +980,12 @@ Bosatsu programs takes the following assumptions about the rest of Bosatsu.
      that skipped `KindFormula` can have, is Unknown, and so is any key past
      a count or size limit.
    * The Scala search nests fixed points by type level, where a type's level
-     is above that of every type its definition uses: entering a key, it
-     keeps only the assumptions about keys at the same or a higher level.
+     is above that of every type its definition uses, and of every type that
+     a key of the component passes it as a higher-kinded argument (in
+     `RF[Neg]`, `RF` applies `Neg`): entering a key, it keeps only the
+     assumptions about keys at the same or a higher level. A cycle of uses,
+     which only an environment that skipped `KindFormula` can have, makes the
+     component Unknown.
      The model's search has no levels. Without them, Scala
      called `Neg[R]` empty with `struct Neg[a](f: a -> Never)` and
      `enum R: R1(r: R), R2(g: Neg[R] -> Never)`, though `R` has no values,

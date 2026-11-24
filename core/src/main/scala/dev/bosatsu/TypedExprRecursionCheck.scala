@@ -4500,9 +4500,11 @@ object TypedExprRecursionCheck {
             getSt.flatMap { state =>
               val checkedDef =
                 checkDef(currentPackage, state, arg, ex, fromSource)
-              // arg is local in `in`, like a let's name, so a later
-              // `recur arg` can't resolve to a parameter it shadows.
-              // checkDef already reports arg shadowing an outer def.
+              // From here on arg is a local, so a later `recur arg` can't
+              // resolve to a parameter it shadows. Like a let's name, it
+              // stays local to the end of the def, even past the block
+              // that binds it. checkDef already reports arg shadowing an
+              // outer def.
               val inState =
                 state match {
                   case id @ InDef(_, _, _, _, _, _, _, _, _) =>
