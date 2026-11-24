@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-6e67ee29*
+0.0.0+1-bc7710c9*
 </div>
 </div>
 <div class="nav-toc">
@@ -80,7 +80,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-6e67ee29*
+0.0.0+1-bc7710c9*
 </div>
 </div>
 <div class="nav-toc">
@@ -153,7 +153,10 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
   <li>
   <p>With a single target (<code>recur x</code>), recursive calls are allowed only when the  call argument for <code>x</code> is structurally smaller.</p></li>
   <li>
-  <p>For ADT targets, Bosatsu also accepts constructor-rank decreases in a  branch that proves the current constructor.  A recursive call can pass an earlier constructor in source order  (for example <code>Some(_) -&gt; None</code>, <code>Even(prev) -&gt; Odd(prev)</code>), including  zero-argument constructors.  This still requires direct recursive payload fields (<code>Fi == T</code>) to use  already-proven smaller local names from the branch.  Wrapped recursive payloads (<code>Fi</code> contains <code>T</code> but <code>Fi != T</code>, such as  <code>List[T]</code>) are intentionally rejected in this version.</p></li>
+  <p>For ADT targets, Bosatsu also accepts constructor-rank decreases in a  branch that proves the current constructor.  A recursive call can pass an earlier constructor in source order  (for example <code>Some(_) -&gt; None</code>, <code>Even(prev) -&gt; Odd(prev)</code>), including  zero-argument constructors.  Every field whose value could hand out a value of the target type must  get a value already proven smaller in the branch. That is a field whose  type has <code>T</code> at an output position: the target type itself  (<code>Fi == T</code>), <code>T</code> at other type arguments (<code>T[List[a]]</code>, or an  existential <code>T[b]</code>), a type that can hand one out (<code>List[T]</code>, or a type  declared after <code>T</code> with such a field), or a function that returns one or  passes one to a callback (<code>() -&gt; T</code>, <code>(T -&gt; Int) -&gt; Int</code>). So  <code>B(xs) -&gt; A(xs)</code> with <code>xs: List[T]</code> bound by the pattern is accepted,  but <code>B(x) -&gt; A([B(x)])</code> is not: the list is new, and so is its element.  A constructor nested inside a field is checked the same way, at that field&rsquo;s  type: with <code>D(y: T[T[Int]])</code>, the <code>E(t)</code> in <code>D(E(t))</code> is a <code>T[T[Int]]</code> whose  field holds a <code>T[Int]</code>. If that type mentions an existential that a sibling  field can hand back as a <code>T</code> (see below), the constructor is checked at its  own type instead, which is conservative for the rest of the field&rsquo;s type. One  bound by <code>let</code> or matched on is checked at its own type. That is conservative  when it is then passed to the recursive call under polymorphic recursion, as  in <code>u = E(t); g(u)</code> with <code>def g(t: T[a])</code>. Other fields can take any value,  since the <code>def</code> can never read a target value out of them. These include a  function that only takes a <code>T</code> (<code>T -&gt; Int</code>, or a type whose fields only take  one), and a type whose constructors the package can&rsquo;t name. So does a field  whose type is a type variable of the <code>def</code>, in the recursive call&rsquo;s own  argument: every call runs the same code, which can&rsquo;t look inside it. A field  holding an existential type can too (<code>b</code>, <code>List[b]</code>, <code>() -&gt; b</code>), unless a  field of the same constructor takes that existential as input and outputs a  <code>T</code>, directly or through another such existential. In <code>D[b](x: b, f: (b, T -&gt;
+   Int) -&gt; Int)</code>, <code>f</code> can hand <code>x</code> to a callback as a <code>T</code>; in <code>Step[b](x: b, k:
+   b -&gt; Int)</code> nothing can. This is conservative: in <code>Step[b](x: b, out: b -&gt;
+   T)</code>, <code>x</code> needs a smaller value too, though <code>out(x)</code> is never read as smaller.  Only callback arguments and the results of <code>th()</code>, <code>get_Lazy</code> and <code>eval</code> are.</p></li>
   <li>
   <p>Bosatsu also accepts two trusted strict-child projections:</p></li>
   <li><code>th()</code> (canonical <code>th(())</code>) when <code>th: () -&gt; T</code>.</li>
@@ -456,7 +459,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-6e67ee29-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-bc7710c9-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>
