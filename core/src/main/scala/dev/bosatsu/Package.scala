@@ -945,7 +945,13 @@ object Package {
               val recursionIssues: Chain[PackageError] =
                 toErrsChain(
                   TypedExprRecursionCheck
-                    .checkLets(p, fullTypeEnv, typedLets, topLevelDefs)
+                    .checkLets(
+                      p,
+                      fullTypeEnv,
+                      dependencyTypeEnv,
+                      typedLets,
+                      topLevelDefs
+                    )
                     .leftMap(
                       _.map {
                         case err: RecursionCheck.Error =>

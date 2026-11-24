@@ -33,19 +33,38 @@ object TypedExprRecursionCheck {
   def checkLets(
       pack: PackageName,
       fullTypeEnv: TypeEnv[Kind.Arg],
+      dependencyTypeEnv: TypeEnv[Kind.Arg],
       lets: List[(Bindable, RecursionKind, TypedExpr[Declaration])]
   ): Res[Unit] =
-    checkLets(pack, fullTypeEnv, lets, Map.empty)
+    checkLets(pack, fullTypeEnv, dependencyTypeEnv, lets, Map.empty)
 
+  /** `fullTypeEnv` has every type and alias of `pack` and of its imports, as
+    * for the package's totality check. `dependencyTypeEnv` has what the
+    * packages `pack` imports from export, as type inference saw them.
+    */
   def checkLets(
       pack: PackageName,
       fullTypeEnv: TypeEnv[Kind.Arg],
+      dependencyTypeEnv: TypeEnv[Kind.Arg],
       lets: List[(Bindable, RecursionKind, TypedExpr[Declaration])],
       topLevelDefs: Map[Bindable, NonEmptyList[NonEmptyList[Pattern.Parsed]]]
   ): Res[Unit] = {
     // This checker enforces structural recursion plus type-directed Int
     // decrease obligations in typed IR.
-    val totalityCheck = TotalityCheck(fullTypeEnv)
+    //
+    // TargetContainment treats a type missing from its environment as
+    // opaque to `pack`, since `pack` could neither expand it nor match on
+    // it. That holds only for an environment with everything inference
+    // could use: `pack`'s own types and imports, and what its dependencies
+    // export, aliases included. `fullTypeEnv` goes on the right so that
+    // `pack`'s own view of a type wins: `dependencyTypeEnv` may have an
+    // exported type without its constructors. The totality check keeps
+    // `fullTypeEnv`, like the package's own.
+    val types =
+      new Impl.TypeContext(
+        TotalityCheck(fullTypeEnv),
+        dependencyTypeEnv ++ fullTypeEnv
+      )
     val topLevelLowerableAliases = Impl.topLevelLowerableAliases(pack, lets)
     val topLevelPredefAliases = Impl.topLevelPredefAliases(pack, lets)
     lets.traverse_ { case (name, rec, expr) =>
@@ -57,7 +76,7 @@ object TypedExprRecursionCheck {
         topLevelDefs.get(name),
         topLevelLowerableAliases,
         topLevelPredefAliases,
-        totalityCheck
+        types
       )
     }
   }
@@ -335,6 +354,28 @@ object TypedExprRecursionCheck {
       val Empty: WrapperScope = WrapperScope(Set.empty, Set.empty, 0)
     }
 
+    // What the check knows about types. `totalityCheck` uses the same
+    // environment as the package's own totality check. `typeEnv` also has
+    // what the package's dependencies export, for questions about what a
+    // type can contain (see `checkLets` and TargetContainment).
+    // One per package. It holds a cache, so it is compared by reference,
+    // including as a field of TopLevel and InDef.
+    final class TypeContext(
+        val totalityCheck: TotalityCheck,
+        val typeEnv: TypeEnv[Kind.Arg]
+    ) {
+      // one per list of target types, so each one's cache serves the
+      // whole package
+      private val containments =
+        mutable.Map.empty[List[Type.Const], TargetContainment]
+
+      def containment(targetConsts: List[Type.Const]): TargetContainment =
+        containments.getOrElseUpdate(
+          targetConsts,
+          new TargetContainment(typeEnv, targetConsts)
+        )
+    }
+
     /*
      * While checking a def we have three states we can be in:
      * 1. we are in a normal def, but have 0 or more outer recursive defs to avoid
@@ -366,7 +407,7 @@ object TypedExprRecursionCheck {
           topLevelLowerableAliases: TopLevelLowerableAliases,
           fnType: Type,
           topLevelPredefAliases: TopLevelPredefAliases,
-          totalityCheck: TotalityCheck
+          types: TypeContext
       ): InDef =
         InDef(
           this,
@@ -376,7 +417,7 @@ object TypedExprRecursionCheck {
           topLevelLowerableAliases,
           fnType,
           topLevelPredefAliases,
-          totalityCheck,
+          types,
           Set.empty
         )
     }
@@ -398,7 +439,7 @@ object TypedExprRecursionCheck {
       final def defname: Bindable = inDef.fnname
     }
 
-    case class TopLevel(totalityCheck: TotalityCheck) extends State
+    case class TopLevel(types: TypeContext) extends State
 
     case class InDef(
         outer: State,
@@ -408,7 +449,7 @@ object TypedExprRecursionCheck {
         topLevelLowerableAliases: TopLevelLowerableAliases,
         fnType: Type,
         topLevelPredefAliases: TopLevelPredefAliases,
-        totalityCheck: TotalityCheck,
+        types: TypeContext,
         localScope: Set[Bindable]
     ) extends InDefState {
       def addLocal(b: Bindable): InDef =
@@ -420,7 +461,7 @@ object TypedExprRecursionCheck {
           topLevelLowerableAliases,
           fnType,
           topLevelPredefAliases,
-          totalityCheck,
+          types,
           localScope + b
         )
 
@@ -2558,7 +2599,7 @@ object TypedExprRecursionCheck {
     private def initBranchSmtState(inrec: InDefRecurred): SmtBranchState =
       initSmtState(
         inrec.inRec.typedArgs,
-        inrec.inRec.totalityCheck,
+        inrec.inRec.types.totalityCheck,
         inrec.inRec.topLevelLowerableAliases,
         inrec.inRec.topLevelPredefAliases
       )
@@ -2798,54 +2839,411 @@ object TypedExprRecursionCheck {
         }
       }
 
-    private def fieldPayloadAllowed(
-        inrec: InDefRecurred,
-        target: RecurTargetItem,
-        proof: TargetProof,
-        fieldType: Type,
-        fieldArgExpr: TypedExpr[Declaration],
-        targetType: Type
-    ): Boolean =
-      // v1 safety rule: exact recursive payloads must use known-smaller names,
-      // and wrapped recursive payloads are rejected conservatively.
-      if (!Type.containsType(fieldType, targetType)) true
-      else if (fieldType.sameAs(targetType))
-        classifyExpr(inrec, target, proof, fieldArgExpr) == Smaller
-      else false
+    // Typed expressions keep type aliases as written (`type CbA = Cb`), so
+    // comparisons of type constants must see through them. Returns a type
+    // whose head is not an alias, or None if the alias can't be expanded
+    // (under-applied, or a cycle, which source conversion already rejects);
+    // callers treat None as unsafe.
+    private def expandAliasHead(
+        typeEnv: TypeEnv[Kind.Arg],
+        t: Type
+    ): Option[Type] = {
+      @annotation.tailrec
+      def loop(t: Type, expanding: Set[Type.Const]): Option[Type] =
+        Type.unapplyAll(t) match {
+          case (Type.TyConst(c), args) =>
+            typeEnv.getTypeAlias(Type.TyConst(c)) match {
+              case Some(alias) =>
+                if (expanding(c)) None
+                else
+                  alias.expandWith(args) match {
+                    case Some(t1) => loop(t1, expanding + c)
+                    case None     => None
+                  }
+              case None => Some(t)
+            }
+          case _ => Some(t)
+        }
 
+      loop(t, Set.empty)
+    }
+
+    // Which type constants may have values that hand out values of a target
+    // type: a target itself, with any type arguments, or a constant one of
+    // whose constructors has a field with such a constant at an output
+    // position. The name alone is not enough: an alias, or a type declared
+    // after a target (`struct Wrap(t: T[Wrap])`), can hide it. A field that
+    // only takes a target in (`struct Handler(h: T -> Int)`) doesn't count.
+    // Function type constants carry no values of their own, and a constant's
+    // type arguments are walked where it is used, by `occurrences`.
+    //
+    // What matters is target values the package being checked can read.
+    // `typeEnv` has the package's own view of its types and imports, and
+    // what its dependencies export, so it expands every alias inference
+    // expands. A type the package can't name the constructors of is opaque
+    // to it: one `typeEnv` doesn't define (a type a dependency keeps
+    // private), and one `typeEnv` has without constructors (an opaque or
+    // external type, or a dependency's type the package didn't import).
+    // Target values come out of an opaque type only through function calls,
+    // which are never classified smaller, so like a type variable of the def
+    // it counts as not containing the target. Type arguments are walked as
+    // usual, so `Lazy[T]` still contains `T`.
+    //
+    // The callback rule asks this at input positions instead, where a caller
+    // hands values to a function `f` that may read the opaque type. That is
+    // still safe. Where the opaque type instantiates a quantifier of `f`,
+    // `f` is parametric in it, so it can only pass the value on at that
+    // type, which the callbacks can't read either. Otherwise the type is in
+    // the type `f` was declared with, which comes from the target's own
+    // structure. Either it was declared before the target's type, so it can
+    // hold a target value only through its type arguments, which are
+    // walked, or it is a type argument of the target's type at a parameter
+    // the type takes as input. Holding the target's type at those same
+    // arguments makes it a recursive occurrence through that parameter,
+    // which the covariance check on recursive types rejects
+    // (`struct O(t: T[O])` when T's parameter is an input). External types
+    // have no constructors and no covariance check: like their declared
+    // variances, they are trusted, as foreign functions are.
+    final class TargetContainment(
+        typeEnv: TypeEnv[Kind.Arg],
+        targetConsts: List[Type.Const]
+    ) {
+      import TargetContainment.{Occurrences, isOutput}
+
+      private val cache = mutable.Map.empty[Type.Const, Boolean]
+
+      private def paramVariance(c: Type.Const, idx: Int): Variance =
+        typeEnv
+          .getType(Type.TyConst(c))
+          .flatMap(_.annotatedTypeParams.lift(idx))
+          .fold(Variance.in)(_._2.variance)
+
+      // The constants and free type variables in `t`, which is at polarity
+      // `v`, at the positions whose polarity `at` accepts. Polarity flips at
+      // function arguments and follows the declared variance of type
+      // parameters, invariant when unknown. A phantom parameter (including
+      // one declared on an external type) is trusted to hold no values.
+      // Variables a `forall` or `exists` inside `t` binds are not free.
+      def occurrences(
+          t: Type,
+          v: Variance,
+          at: Variance => Boolean
+      ): Occurrences = {
+        // a type at a polarity, with the variables bound around it
+        type Item = (Type, Variance, Set[Type.Var])
+
+        @annotation.tailrec
+        def loop(
+            todo: List[Item],
+            consts: List[Type.Const],
+            vars: List[Type.Var],
+            unknown: Boolean
+        ): Occurrences =
+          todo match {
+            case Nil => Occurrences(consts, vars, unknown)
+            case (t1, v1, bound) :: rest =>
+              if (v1 == Variance.Phantom) loop(rest, consts, vars, unknown)
+              else
+                expandAliasHead(typeEnv, t1) match {
+                  case None => loop(rest, consts, vars, true)
+                  case Some(Type.ForAll(binders, in)) =>
+                    val bound1 = bound ++ binders.iterator.map(_._1)
+                    loop((in, v1, bound1) :: rest, consts, vars, unknown)
+                  case Some(Type.Exists(binders, in)) =>
+                    val bound1 = bound ++ binders.iterator.map(_._1)
+                    loop((in, v1, bound1) :: rest, consts, vars, unknown)
+                  case Some(Type.Fun(args, res)) =>
+                    val argItems: List[Item] = args.toList.map((_, -v1, bound))
+                    loop(
+                      argItems ::: ((res, v1, bound) :: rest),
+                      consts,
+                      vars,
+                      unknown
+                    )
+                  case Some(t2) =>
+                    Type.unapplyAll(t2) match {
+                      case (Type.TyConst(c), args) =>
+                        val argItems: List[Item] =
+                          args.zipWithIndex.map { case (arg, idx) =>
+                            (arg, v1 * paramVariance(c, idx), bound)
+                          }
+                        loop(
+                          argItems ::: rest,
+                          if (at(v1)) c :: consts else consts,
+                          vars,
+                          unknown
+                        )
+                      case (Type.TyVar(tv), args) =>
+                        val argItems: List[Item] =
+                          args.map((_, Variance.in, bound))
+                        loop(
+                          argItems ::: rest,
+                          consts,
+                          if (at(v1) && !bound(tv)) tv :: vars else vars,
+                          unknown
+                        )
+                      // $COVERAGE-OFF$ typechecked expressions have no
+                      // metas left
+                      case _ =>
+                        // be conservative about anything unexpected
+                        loop(rest, consts, vars, true)
+                      // $COVERAGE-ON$
+                    }
+                }
+          }
+
+        loop((t, v, Set.empty[Type.Var]) :: Nil, Nil, Nil, false)
+      }
+
+      def mayContain(c: Type.Const): Boolean = {
+        @annotation.tailrec
+        def loop(
+            todo: List[Type.Const],
+            seen: Set[Type.Const]
+        ): Boolean =
+          todo match {
+            case Nil => false
+            case h :: tail =>
+              if (targetConsts.contains(h)) true
+              else if (seen(h)) loop(tail, seen)
+              else {
+                val tc = Type.TyConst(h)
+                // the constants a value of `h` can hand out, or None if we
+                // can't tell
+                val deps: Option[List[Type.Const]] =
+                  tc match {
+                    case Type.FnType(_) => Some(Nil)
+                    case _ =>
+                      typeEnv.getType(tc) match {
+                        case Some(dt) =>
+                          val occs = dt.constructors.flatMap(_.args).map {
+                            param =>
+                              occurrences(param.tpe, Variance.co, isOutput)
+                          }
+                          // $COVERAGE-OFF$ source conversion rejects an alias
+                          // that won't expand
+                          if (occs.exists(_.unknown)) None
+                          // $COVERAGE-ON$
+                          else Some(occs.flatMap(_.consts))
+                        case None =>
+                          typeEnv.getTypeAlias(tc) match {
+                            // $COVERAGE-OFF$ occurrences expands aliases
+                            // before asking, so this is only a fallback
+                            case Some(alias) =>
+                              Some(alias.dependsOn.map(_.tpe))
+                            // $COVERAGE-ON$
+                            // opaque to the package; see above
+                            case None => Some(Nil)
+                          }
+                      }
+                  }
+                deps match {
+                  case Some(ds) => loop(ds ::: tail, seen + h)
+                  case None     => true
+                }
+              }
+          }
+
+        cache.getOrElseUpdate(c, loop(c :: Nil, Set.empty))
+      }
+
+      // Whether a constant that may contain target values occurs in `t`,
+      // which is at polarity `v`, at a position whose polarity `at` accepts.
+      // An alias that won't expand counts as an occurrence.
+      def occursAt(t: Type, v: Variance, at: Variance => Boolean): Boolean = {
+        val occs = occurrences(t, v, at)
+        occs.unknown || occs.consts.exists(mayContain)
+      }
+    }
+
+    object TargetContainment {
+      final case class Occurrences(
+          consts: List[Type.Const],
+          vars: List[Type.Var],
+          unknown: Boolean
+      )
+
+      // where a value of the type is handed in: contravariant or invariant
+      def isInput(v: Variance): Boolean =
+        (v == Variance.Contravariant) || (v == Variance.Invariant)
+
+      // where a value of the type can be read out: covariant or invariant
+      def isOutput(v: Variance): Boolean =
+        (v == Variance.Covariant) || (v == Variance.Invariant)
+    }
+
+    // Which fields may hold target values, in order, and the dangerous
+    // existentials.
+    private final case class RankFields(
+        mayHold: List[Boolean],
+        dangerous: Set[Type.Var]
+    )
+
+    // The constructor-rank rule: in a branch where the target is known to be
+    // constructor C, `D(e1, ..., en)` with D declared before C in the same
+    // type is smaller than the target when every ei whose field may hold
+    // target values is itself smaller. That is the recursive path ordering,
+    // with constructors ordered by declaration, on values with the positions
+    // the def can't read erased (see below): every target value the def can
+    // read from the new value is a strict part of the current one, so the
+    // order is well-founded.
+    //
+    // A field may hold target values the def can read when a type that may
+    // contain them occurs at an output position of the field's type, at the
+    // type arguments `classifyExprAt` gives. That counts the target's type with
+    // any type arguments: through polymorphic recursion, or a constructor
+    // with a field of fixed type (`E(z: T[Int])`), a `T[List[Int]]` value
+    // can hold a `T[Int]`. It counts a type that can hand out the target
+    // (`struct Wrap(w: T[Wrap])`), and `() -> T` or `(T -> Int) -> Int`. It
+    // does not count `T -> Int`, which only takes one in. Other constants
+    // the field's declared type names were declared before the target's type
+    // or in a dependency of its package, so they can't contain it.
+    //
+    // In the recursive call's own argument, a field whose type is a type
+    // variable of the def is opaque to the def: every recursive call runs the
+    // same code, which never reads such a field as a target value, even when
+    // polymorphic recursion puts one there. A smaller function built at a
+    // concrete type could read it, but its type would then need the target's
+    // type at an input position, which the covariance argument in
+    // TargetContainment rules out.
+    //
+    // An existential of D is opaque too, unless a function packed with the
+    // value can turn it into a target value the def reads. With
+    // `D[b](x: b, f: (b, T -> Int) -> Int)` and x := the target,
+    // `f(x, y -> bad(y))` hands the target to a callback whose binder is
+    // smaller. The callback may be hidden in a named type
+    // (`fs: Box[b, T]`, with `Box[a, r](h: (a, r -> Int) -> Int)`), and the
+    // trusted forces read results of thunks, `Lazy` and `Eval`. So an
+    // existential is dangerous when a field that takes it as input outputs
+    // a target-containing type, or a dangerous existential, anywhere. That
+    // is a least fixed point. A field needs a smaller value under the same
+    // condition. `k: b -> Int` outputs neither, so `Step[b](x: b,
+    // k: b -> Int)` keeps x opaque. This is conservative for a consumer
+    // like `Step[s](st: s, out: s -> r)` whose result is a plain value
+    // holding the target: the def never reads that as smaller. But it can
+    // read some results (a thunk's, or a curried function's that the
+    // callback rule applies), and this walk doesn't tell them apart.
+    //
+    // Existentials are matched by name in the instantiated field types,
+    // where `occurrences` skips variables a `forall` or `exists` in the
+    // field binds. `ConstructorFn.openAt` names them apart from the type
+    // arguments, so they don't merge with the def's type variables or an
+    // enclosing constructor's existentials.
+    private def rankFieldsMayHoldTarget(
+        containment: TargetContainment,
+        existentials: Set[Type.Var],
+        fieldTypes: List[Type]
+    ): RankFields = {
+      import TargetContainment.{isInput, isOutput}
+
+      // what one field can do with target values and existentials
+      final case class FieldFacts(
+          outputsTarget: Boolean,
+          outputVars: List[Type.Var],
+          consumed: Set[Type.Var]
+      )
+
+      val fields: List[FieldFacts] =
+        fieldTypes.map { fieldType =>
+          val out = containment.occurrences(fieldType, Variance.co, isOutput)
+          val in = containment.occurrences(fieldType, Variance.co, isInput)
+          FieldFacts(
+            out.unknown || out.consts.exists(containment.mayContain),
+            out.vars.filter(existentials),
+            in.vars.iterator.filter(existentials).toSet
+          )
+        }
+
+      def handsOut(field: FieldFacts, dangerous: Set[Type.Var]): Boolean =
+        field.outputsTarget || field.outputVars.exists(dangerous)
+
+      // grows by at least one existential per step, so it stops
+      @annotation.tailrec
+      def dangerousFrom(dangerous: Set[Type.Var]): Set[Type.Var] = {
+        val next =
+          fields.foldLeft(dangerous) { (acc, field) =>
+            if (handsOut(field, dangerous)) acc ++ field.consumed else acc
+          }
+        if (next.size == dangerous.size) dangerous else dangerousFrom(next)
+      }
+
+      val dangerous = dangerousFrom(Set.empty)
+      RankFields(fields.map(handsOut(_, dangerous)), dangerous)
+    }
+
+    // `argType` is the type `arg`'s fields are read at; see classifyExprAt.
+    // When it isn't an application of the owner type (a field type whose
+    // head is a type variable or an `exists`, or a parameter declared with
+    // `exists`), `arg`'s own type is used.
     private def classifyConstructorRankArg(
         inrec: InDefRecurred,
         target: RecurTargetItem,
         proof: TargetProof,
         currentCtor: KnownCtor,
-        arg: TypedExpr[Declaration]
+        arg: TypedExpr[Declaration],
+        argType: Type
     ): ArgLexOrder = {
-      val typeEnv = inrec.inRec.totalityCheck.inEnv
-      val targetType = targetItemType(inrec, target)
+      val types = inrec.inRec.types
+      // A `forall` is stripped: a let-generalized `n = None` has type
+      // `forall a. Option[a]`, and by parametricity a value of that type
+      // holds nothing at the positions of `a`, which then count as type
+      // variables, which TargetContainment treats as opaque.
+      def typeArgsOf(
+          owner: DefinedType[Kind.Arg],
+          t: Type
+      ): Option[List[Type]] =
+        expandAliasHead(types.typeEnv, Type.liftUniversals(t)._2)
+          .flatMap(owner.extractTypeArgs)
       val maybeSmaller =
         for {
           argCtorApp <- constructorAppFromArgExpr(arg)
-          currentMeta <- constructorMeta(typeEnv, currentCtor)
-          nextMeta <- constructorMeta(typeEnv, argCtorApp.ctor)
+          currentMeta <- constructorMeta(types.typeEnv, currentCtor)
+          nextMeta <- constructorMeta(types.typeEnv, argCtorApp.ctor)
           if currentMeta.owner.toTypeConst == nextMeta.owner.toTypeConst
-          targetArgs <- currentMeta.owner.extractTypeArgs(targetType)
+          targetArgs <- typeArgsOf(currentMeta.owner, argType)
+            .orElse(typeArgsOf(currentMeta.owner, arg.getType))
           if nextMeta.index < currentMeta.index
-          fieldTypes <- nextMeta.owner.instantiateConstructorFieldTypes(
+          paramSub = nextMeta.owner.typeParams.iterator
+            .zip(targetArgs.iterator)
+            .map { case (param, arg) => (param: Type.Var) -> arg }
+            .toMap
+          // targetArgs may name an enclosing constructor's existentials, so
+          // this constructor's own are renamed apart: otherwise the two
+          // would merge and the verdict would depend on their names
+          (existentials, fieldTypes) = ConstructorFn.openAt(
             nextMeta.ctor,
+            paramSub,
             targetArgs
           )
           if fieldTypes.lengthCompare(argCtorApp.args.length) == 0
-          if fieldTypes.iterator
+          rankFields = rankFieldsMayHoldTarget(
+            types.containment(currentMeta.owner.toTypeConst :: Nil),
+            existentials.iterator.map(_._1: Type.Var).toSet,
+            fieldTypes
+          )
+          // A field that may hold target values needs a smaller value. The
+          // value is read at the field's type: that is how whatever reads
+          // this constructor reads its fields. But a dangerous existential
+          // in the field's type stands for whatever type the value was
+          // packed at, which a function packed with it can read, so then
+          // the value is read at its own type. That is conservative for the
+          // rest of such a field's type: a type variable of the def beside
+          // the existential (`x: T[w, b]`) loses its opacity too.
+          if rankFields.mayHold.iterator
+            .zip(fieldTypes.iterator)
             .zip(argCtorApp.args.iterator)
-            .forall { case (fieldType, fieldArg) =>
-              fieldPayloadAllowed(
-                inrec,
-                target,
-                proof,
-                fieldType,
-                fieldArg,
-                targetType
-              )
+            .forall { case ((mayHold, fieldType), fieldArg) =>
+              !mayHold || {
+                val payloadType =
+                  if (
+                    Type
+                      .freeBoundTyVars(fieldType :: Nil)
+                      .exists(rankFields.dangerous)
+                  ) fieldArg.getType
+                  else fieldType
+                classifyExprAt(inrec, target, proof, fieldArg, payloadType) ==
+                  Smaller
+              }
             }
         } yield Smaller
 
@@ -2974,6 +3372,30 @@ object TypedExprRecursionCheck {
         target: RecurTargetItem,
         proof: TargetProof,
         arg: TypedExpr[Declaration]
+    ): ArgLexOrder =
+      classifyExprAt(inrec, target, proof, arg, arg.getType)
+
+    // The constructor-rank rule reads a constructor application's fields at
+    // `argType`, the type whatever later matches on the value reads it at:
+    //   - the recursive call's own argument: the target's declared type (see
+    //     classifyStructuralArg);
+    //   - a payload in a constructor's field: that field's type, as the
+    //     enclosing value is read. So `D(E(t))` with `D(y: T[T[Int]])` reads
+    //     `E(t)` as a `T[T[Int]]`, whose field holds a `T[Int]`. If the
+    //     field's type has a dangerous existential, the payload's own type
+    //     instead: with `K[b](x: T[b], f: (b, T[w] -> Int) -> Int)`, `f` reads
+    //     `x`'s contents at the type `b` was packed at;
+    //   - a let-bound value or a match scrutinee: its own type, which is how
+    //     the current call reads it. That is conservative when the value is
+    //     then passed to the recursive call under polymorphic recursion
+    //     (`u = E(t); g(u)` with `def g(t: T[a])`), which would read it at
+    //     the declared type.
+    private def classifyExprAt(
+        inrec: InDefRecurred,
+        target: RecurTargetItem,
+        proof: TargetProof,
+        arg: TypedExpr[Declaration],
+        argType: Type
     ): ArgLexOrder = {
       localNameOf(arg)
         .flatMap(proof.relationOf(_))
@@ -2991,7 +3413,7 @@ object TypedExprRecursionCheck {
         .orElse(classifyEvalForceArg(inrec, target, proof, arg))
         .orElse(
           proof.currentCtorIfEqual.map(
-            classifyConstructorRankArg(inrec, target, proof, _, arg)
+            classifyConstructorRankArg(inrec, target, proof, _, arg, argType)
           )
         )
         .getOrElse(Other)
@@ -3060,14 +3482,28 @@ object TypedExprRecursionCheck {
       }
     }
 
+    // The recursive call's own argument is read at the target's declared
+    // type, not its own: the next call runs the same code, which reads a
+    // field whose type is a type variable of the def as that variable,
+    // whatever polymorphic recursion instantiates it with. Payloads nested
+    // inside it are read at their fields' types (see classifyExprAt).
     private def classifyStructuralArg(
         inrec: InDefRecurred,
         target: RecurTargetItem,
         proof: TargetProof,
         arg: TypedExpr[Declaration]
-    ): LexStep = {
-      LexStep(classifyExpr(inrec, target, proof, arg), None, None)
-    }
+    ): LexStep =
+      LexStep(
+        classifyExprAt(
+          inrec,
+          target,
+          proof,
+          arg,
+          targetItemType(inrec, target)
+        ),
+        None,
+        None
+      )
 
     private def intObligationError(
         fnname: Bindable,
@@ -3764,144 +4200,85 @@ object TypedExprRecursionCheck {
      * contain target values, the caller can pass the target itself in and f
      * can pass it straight back, e.g. f: forall a. (a, a -> Int) -> Int.
      *
-     * Everything the caller can pass into f is one of the call's arguments
-     * (in any group of a curried call), including whatever the callbacks
-     * return. So we look at the types of the arguments at this call, which
-     * already reflect how the caller instantiated f's quantifiers, and
-     * require that no type which may contain values of a target type is
-     * something the caller hands to f (an input position of the argument
-     * types). For example `forall r. (T -> r) -> r` is accepted at r := Int.
-     * At r := (T, Int) it is rejected: a callback could return the target to
-     * f, and the argument types alone don't show that f is parametric in r.
+     * The call is an exchange between the caller and f, and its type at this
+     * call is the instantiated function type `(A1, ..., An) -> R`, where the
+     * As are the arguments of every group of a curried call and R is the
+     * result. The caller hands values to f at the input (negative) positions
+     * of that type, and only there:
+     *   - the arguments themselves, and whatever the callbacks return to f;
+     *   - inputs inside the result. f may return a callback, or a function
+     *     that calls one, and the caller can then apply it to anything, e.g.
+     *     `f: forall a. (a -> Int) -> Box[a -> Int]` then `h(target)`.
+     * So we require that no type which may contain values of a target type
+     * is at an input position of `(A1, ..., An) -> R`. Output positions are
+     * fine: what f hands out, to a callback or to the caller, was built by f
+     * or by a callback, and a callback's binders still see only what f
+     * hands them. The types at the call already reflect how the caller
+     * instantiated f's quantifiers.
+     * A named type in R counts only if it can hand out a target value, so
+     * one that only takes the target in, like `struct Handler(h: T -> Int)`,
+     * is allowed at an output position of R, though f could fill it with a
+     * callback. That is safe because such a type names T, so it was declared
+     * after T and is not in the field types f's type comes from. It reaches R
+     * only through a quantifier of f or a type argument of the target. A
+     * callback that builds it for f takes f's callback as input, which puts
+     * T at an input position of the call. As a type argument it would recur
+     * through T's parameter at an input position, which the covariance check
+     * on recursive types rejects.
+     * For example `forall r. (T -> r) -> r` is accepted at r := Int. At
+     * r := (T, Int) it is rejected: a callback could return the target to f,
+     * and the types at the call alone don't show that f is parametric in r.
+     * At r := T -> Int it is also rejected, though f, being parametric in r,
+     * could only return what a callback returned, not the callback itself.
      *
      * Quantifiers left in the argument types are looked through. A forall in
      * an input position is instantiated by f (as in the existential encoding
      * `forall res. (forall b. (Box[b], b -> a) -> res) -> res`), and one in
      * an output position is instantiated by a callback, at a later call that
      * gets its own check. Values whose type is a type variable can never be
-     * used where a target type is required, so variables are harmless.
+     * used where a target type is required, so variables are harmless. An
+     * existential is the exception f could see through, when f is packed
+     * with the value and knows what it is. A value of existential type from
+     * a pattern is part of a value at most as large as the target, unless
+     * the constructor-rank rule put a larger one there, which it does only
+     * when no function packed with it takes the existential and outputs a
+     * target-containing value (see rankFieldsMayHoldTarget). So such an f
+     * can't turn it into a target value here.
      */
     private def reachableCallbackRuleApplies(
         inrec: InDefRecurred,
-        argTypes: List[Type]
+        argTypes: List[Type],
+        resultType: Type
     ): Boolean = {
-      val typeEnv = inrec.inRec.totalityCheck.inEnv
-
-      // Typed expressions keep type aliases as written (`type CbA = Cb`), so
-      // every comparison of type constants below must see through them.
-      // Returns a type whose head is not an alias, or None if the alias can't
-      // be expanded (under-applied, or a cycle, which source conversion
-      // already rejects); callers treat None as unsafe.
-      @annotation.tailrec
-      def expandAliasHead(t: Type, expanding: Set[Type.Const]): Option[Type] =
-        Type.unapplyAll(t) match {
-          case (Type.TyConst(c), args) =>
-            typeEnv.getTypeAlias(Type.TyConst(c)) match {
-              case Some(alias) =>
-                if (expanding(c)) None
-                else
-                  alias.expandWith(args) match {
-                    case Some(t1) => expandAliasHead(t1, expanding + c)
-                    case None     => None
-                  }
-              case None => Some(t)
-            }
-          case _ => Some(t)
-        }
+      val typeEnv = inrec.inRec.types.typeEnv
 
       val targetConsts: List[Type.Const] =
         inrec.target.toList
           .traverse { targetItem =>
-            expandAliasHead(targetItemType(inrec, targetItem), Set.empty)
+            expandAliasHead(typeEnv, targetItemType(inrec, targetItem))
               .map(Type.unapplyAll(_)._1)
               .collect { case Type.TyConst(c) => c }
           }
           .getOrElse(Nil)
 
-      // Can values of type constant `c` contain values of a target type?
-      // True if `c` is a target, or its definition (or alias right-hand side)
-      // transitively mentions one. Constants we can't resolve are assumed to.
-      // Function type constants carry no values of their own: their
-      // arguments are walked separately by `unsafe`. Phantom parameters,
-      // including those declared on external types, are trusted to hold no
-      // values.
-      val mayContainCache = mutable.Map.empty[Type.Const, Boolean]
-      def mayContainTarget(c: Type.Const): Boolean = {
-        @annotation.tailrec
-        def loop(
-            todo: List[Type.Const],
-            seen: Set[Type.Const]
-        ): Boolean =
-          todo match {
-            case Nil => false
-            case h :: tail =>
-              if (targetConsts.contains(h)) true
-              else if (seen(h)) loop(tail, seen)
-              else {
-                val tc = Type.TyConst(h)
-                val deps: Option[List[Type.TyConst]] =
-                  tc match {
-                    case Type.FnType(_) => Some(Nil)
-                    case _ =>
-                      typeEnv
-                        .getType(tc)
-                        .map(_.dependsOn)
-                        .orElse(typeEnv.getTypeAlias(tc).map(_.dependsOn))
-                  }
-                deps match {
-                  case Some(ds) => loop(ds.map(_.tpe) ::: tail, seen + h)
-                  case None     => true
-                }
-              }
-          }
+      val containment = inrec.inRec.types.containment(targetConsts)
 
-        mayContainCache.getOrElseUpdate(c, loop(c :: Nil, Set.empty))
-      }
-
-      def isInput(v: Variance): Boolean =
-        (v == Variance.Contravariant) || (v == Variance.Invariant)
-
-      def paramVariance(c: Type.Const, idx: Int): Variance =
-        typeEnv
-          .getType(Type.TyConst(c))
-          .flatMap(_.annotatedTypeParams.lift(idx))
-          .fold(Variance.in)(_._2.variance)
-
-      // true if the type (at polarity v) is unsafe for the callback rule
+      // the caller hands a value in at this position of the call's type
       def unsafe(t: Type, v: Variance): Boolean =
-        if (v == Variance.Phantom) false
-        else
-          expandAliasHead(t, Set.empty) match {
-            case None => true
-            case Some(Type.ForAll(_, in)) => unsafe(in, v)
-            case Some(Type.Exists(_, in)) => unsafe(in, v)
-            case Some(Type.Fun(args, res)) =>
-              args.exists(unsafe(_, -v)) || unsafe(res, v)
-            case Some(t1) =>
-              Type.unapplyAll(t1) match {
-                case (Type.TyConst(c), args) =>
-                  (isInput(v) && mayContainTarget(c)) ||
-                  args.iterator.zipWithIndex.exists { case (arg, idx) =>
-                    unsafe(arg, v * paramVariance(c, idx))
-                  }
-                case (Type.TyVar(_), args) =>
-                  args.exists(unsafe(_, Variance.in))
-                // $COVERAGE-OFF$ typechecked expressions have no metas left
-                case _ =>
-                  // be conservative about anything unexpected
-                  true
-                // $COVERAGE-ON$
-              }
-          }
+        containment.occursAt(t, v, TargetContainment.isInput)
 
+      // the input positions of `(A1, ..., An) -> R`
       targetConsts.nonEmpty &&
-      !argTypes.exists(unsafe(_, Variance.contra))
+      !argTypes.exists(unsafe(_, Variance.contra)) &&
+      !unsafe(resultType, Variance.co)
     }
 
+    // `resultType` is the type of the whole application `fn(args)`
     private def checkApply(
         currentPackage: PackageName,
         fn: TypedExpr[Declaration],
         args: NonEmptyList[TypedExpr[Declaration]],
+        resultType: Type,
         region: Region,
         wrappers: WrapperScope
     ): St[Unit] =
@@ -3974,7 +4351,8 @@ object TypedExprRecursionCheck {
                     smallerNamesFromProofs(proofsPerTarget).contains(nm) &&
                     reachableCallbackRuleApplies(
                       inrec,
-                      allArgs.map(_.getType)
+                      allArgs.map(_.getType),
+                      resultType
                     )
                   ) {
                     // we are calling a reachable function. Any lambda args are new names
@@ -4073,8 +4451,15 @@ object TypedExprRecursionCheck {
           }
         case TypedExpr.Global(_, _, _, _) =>
           unitSt
-        case TypedExpr.App(fn, args, _, _) =>
-          checkApply(currentPackage, fn, args, expr.tag.region, wrappers)
+        case TypedExpr.App(fn, args, resultType, _) =>
+          checkApply(
+            currentPackage,
+            fn,
+            args,
+            resultType,
+            expr.tag.region,
+            wrappers
+          )
         case TypedExpr.Let(arg, ex, in, rec, tag) =>
           if (isDefLike(rec, tag)) {
             val fromSource =
@@ -4419,12 +4804,12 @@ object TypedExprRecursionCheck {
               case TopLevel(_)           =>
                 topLevelPredefAliases
             }
-          val inheritedTotalityCheck =
+          val inheritedTypes =
             state match {
               case inDefState: InDefState =>
-                inDefState.inDef.totalityCheck
+                inDefState.inDef.types
               case top: TopLevel         =>
-                top.totalityCheck
+                top.types
             }
           val sourceArgs = sourceArgsForDef(sourceArgPatterns, typedArgs)
           val nameArgs = sourceArgs.toList.flatMap(_.patternNames)
@@ -4435,7 +4820,7 @@ object TypedExprRecursionCheck {
             inheritedLowerableAliases,
             expr.getType,
             inheritedPredefAliases,
-            inheritedTotalityCheck
+            inheritedTypes
           )
           checkForIllegalBinds(state, fnname :: nameArgs, body.tag.region) {
             // We start the body checker in `InDef`, and a successful run must
@@ -4467,20 +4852,20 @@ object TypedExprRecursionCheck {
         sourceArgs: Option[NonEmptyList[NonEmptyList[Pattern.Parsed]]],
         topLevelLowerableAliases: TopLevelLowerableAliases,
         topLevelPredefAliases: TopLevelPredefAliases,
-        totalityCheck: TotalityCheck
+        types: TypeContext
     ): Res[Unit] = {
       val shouldCheckAsDef = sourceArgs.nonEmpty || rec.isRecursive
       if (shouldCheckAsDef)
         checkDef(
           currentPackage,
-          TopLevel(totalityCheck),
+          TopLevel(types),
           name,
           expr,
           sourceArgs,
           topLevelLowerableAliases,
           topLevelPredefAliases
         )
-      else checkExprV(currentPackage, TopLevel(totalityCheck), expr)
+      else checkExprV(currentPackage, TopLevel(types), expr)
     }
   }
 }
