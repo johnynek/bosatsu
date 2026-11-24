@@ -71,8 +71,11 @@ final case class Package[A, B, C, +D](
   def exposedDepPackages[K](implicit ev: C <:< Referant[K]): List[PackageName] =
     Package.normalizeExposedDepPackages(name, visibleDepPackages)
 
-  /** These are all the types that are exported with constructors deleted for
-    * opaque types
+  /** The exported types and aliases as a dependent sees them. A type exported
+    * with its constructors (`export T()`) keeps them. A type exported without
+    * them (`export T`) is opaque, so its constructors are deleted: an opaque
+    * export's `DefinedT` still carries the full definition unless the interface
+    * was canonicalized by `PackageSignatures.canonical`.
     */
   def exportedTypeEnv[K](implicit ev: C <:< Referant[K]): TypeEnv[K] = {
     type ListEN[+Z] = List[ExportedName[Z]]
@@ -90,20 +93,17 @@ final case class Package[A, B, C, +D](
         }
         .iterator
         .collect { case (Some(_), exps) =>
-          val isOpaque = exps.map(_.tag).exists {
-            case Referant.Constructor(_, _) => true
-            case _                          => false
+          val tags = exps.map(_.tag)
+          // Only `export T()` adds Constructor referants for T.
+          tags.collectFirst { case Referant.Constructor(dt, _) => dt } match {
+            case Some(dt) => dt
+            case None     =>
+              tags.head match {
+                case Referant.DefinedT(dt) => dt.toOpaque
+                case _                     =>
+                  sys.error("impossible since we have Some(tc)")
+              }
           }
-
-          val dt = exps.head.tag match {
-            case Referant.Constructor(dt, _) => dt
-            case Referant.DefinedT(dt)       => dt
-            case _                           =>
-              sys.error("impossible since we have Some(tc)")
-          }
-
-          if (isOpaque) dt.toOpaque
-          else dt
         }
         .toList
 
