@@ -1008,6 +1008,28 @@ struct G[a](h: RG[G] -> a)
     assertState(Inhabitedness.check(Type.apply1(g, neverType), env), State.Unknown)
   }
 
+  test("a kind-checked cycle of uses makes a component Unknown") {
+    // RS and RQ have no values: Non makes the argument of g inhabited, so
+    // RS2 and RQ2 are empty. But T[T[Opt], ...] makes T use itself, and
+    // T[QA, ...] makes T and QA use each other, since QA's definition
+    // mentions T. Neither use is T's own recursion, so the search has no
+    // order to nest by and answers Unknown, a known loss of precision. RO
+    // passes Opt alone, with no cycle, and keeps its answer.
+    val env = sourceTypeEnv("""#
+enum Never: Never(next: Never)
+enum Opt[a]: Non, Som(v: a)
+struct Neg[a](f: a -> Never)
+struct T[f: +* -> *, a](v: f[a])
+struct QA[a](t: T[Opt, a])
+enum RS: RS1(r: RS), RS2(g: T[T[Opt], Neg[RS]] -> Never)
+enum RQ: RQ1(r: RQ), RQ2(g: T[QA, Neg[RQ]] -> Never)
+enum RO: RO1(r: RO), RO2(g: T[Opt, Neg[RO]] -> Never)
+""")
+    assertState(Inhabitedness.check(localType("RS"), env), State.Unknown)
+    assertState(Inhabitedness.check(localType("RQ"), env), State.Unknown)
+    assertState(Inhabitedness.check(localType("RO"), env), State.Uninhabited)
+  }
+
   test("the search runs on an env without the types its definitions mention") {
     // TotalityCheck's lint replay uses only a package's own types, so a
     // type their definitions mention can be missing from the env, as Tok

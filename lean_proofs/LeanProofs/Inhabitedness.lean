@@ -984,9 +984,10 @@ Bosatsu programs takes the following assumptions about the rest of Bosatsu.
      a key of the component passes it as a higher-kinded argument, even under
      a quantifier (in `RF[Neg]`, `RF` applies `Neg`; in
      `RF[forall y. Wr[y]]`, it applies `Wr`): entering a key, it keeps only the
-     assumptions about keys at the same or a higher level. A cycle of uses,
-     which only an environment that skipped `KindFormula` can have, makes the
-     component Unknown.
+     assumptions about keys at the same or a higher level. A cycle of uses
+     makes the component Unknown. A kind-checked program can make one by
+     passing a type to itself partly applied (`T[T[Option], a]`), or by
+     passing a type whose definition uses the receiving type.
      The model's search has no levels. Without them, Scala
      called `Neg[R]` empty with `struct Neg[a](f: a -> Never)` and
      `enum R: R1(r: R), R2(g: Neg[R] -> Never)`, though `R` has no values,

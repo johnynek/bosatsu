@@ -402,18 +402,27 @@ object Inhabitedness {
       * an argument of a higher kind: a type constructor short of arguments,
       * even under a quantifier, as in `forall y. Wr[y]`. A key's argument is
       * applied only at a higher-kinded parameter, and only such an argument
-      * is short of arguments, so this counts every type a key applies. With `enum RF[f]: R1(r: RF[f]), R2(g: f[RF[f]] -> Never)`, RF's
+      * is short of arguments, so this counts every type a key applies. With
+      * `enum RF[f]: R1(r: RF[f]), R2(g: f[RF[f]] -> Never)`, RF's
       * constructors apply Neg in the key RF[Neg], which reads Neg[RF[Neg]]:
       * Neg applied to RF[Neg]'s own fixed point. RF's definition doesn't
       * mention Neg, so without that use the two could get the same level, or
       * Neg the higher one. A key's arguments of kind `*` are types, not
       * functions its definition applies, so they add no use.
       *
-      * Bosatsu has no mutually recursive types, and its kind check rejects a
-      * type that recurs through a higher-kinded argument, such as G in
-      * `struct G[a](h: RF[G] -> a)`. A hand-built env can have either. The
-      * types on such a cycle of uses, and the types that use them, get no
-      * level.
+      * Uses can form a cycle. A hand-built env can have mutually recursive
+      * types, or a type that recurs through a higher-kinded argument, such as
+      * G in `struct G[a](h: RF[G] -> a)`, which the kind check rejects. A
+      * kind-checked program can have a cycle too. With
+      * `struct T[f: +* -> *, a](v: f[a])`, the key `T[T[Option], a]` makes T
+      * use itself. With `struct Q[a](t: T[Option, a])`, the key `T[Q, a]`
+      * makes T and Q use each other. The types on a cycle, and the types
+      * that use them, get no level, so their component is Unknown. A key
+      * made by applying an argument is not its type's own recursion, and
+      * without an order between the types the search could assume such a key
+      * empty where induction on values doesn't hold. That costs precision
+      * only for components read under function arguments whose keys pass
+      * such arguments.
       */
     private def componentLevels(keys: List[Type]): Map[Type.Const, Int] = {
       val keyUses = mutable.HashMap.empty[Type.Const, Set[Type.Const]]
@@ -438,10 +447,10 @@ object Inhabitedness {
         }
       }
 
-      // Unlike a definition's mention of its own type, which is its
-      // recursion, a key passing its own type as an argument would be a
-      // cycle of uses. Kinds rule that out, and the cycle would cost the
-      // type its level.
+      // A definition's mention of its own type is its recursion, so
+      // `definitionUses` leaves it out. A key passing its own type, partly
+      // applied, as in `T[T[Option], a]`, is not its recursion: that use
+      // stays, and the cycle costs the type its level.
       def uses(c: Type.Const): List[Type.Const] =
         keyUses.get(c) match {
           case Some(more) => (definitionUses.getOrElse(c, Nil) ++ more).distinct
@@ -802,8 +811,8 @@ object Inhabitedness {
           }
         }
 
-        // a key without a level is on a cycle of type definitions, which
-        // only an environment that skipped kind checking can have
+        // a key without a level has a type on a cycle of uses, or one that
+        // uses such a type (see `componentLevels`)
         if (levels.size < component.length)
           component.toList.foreach(_.state = Unknown)
         else
