@@ -979,6 +979,18 @@ Bosatsu programs takes the following assumptions about the rest of Bosatsu.
      environment. A component with an odd cycle, which only an environment
      that skipped `KindFormula` can have, is Unknown, and so is any key past
      a count or size limit.
+   * The Scala search nests fixed points by type level, where a type's level
+     is above that of every type its definition uses: entering a key, it
+     keeps only the assumptions about keys at the same or a higher level.
+     The model's search has no levels. Without them, Scala
+     called `Neg[R]` empty with `struct Neg[a](f: a -> Never)` and
+     `enum R: R1(r: R), R2(g: Neg[R] -> Never)`, though `R` has no values,
+     so `R -> Never` does. No `Model` exists for that environment:
+     `discharge` fails for `Neg[R]`, which is not recursive through itself,
+     so `uninhabited_sound` says nothing there. With levels, a key is
+     assumed empty only where it is met again through its own type's
+     recursion, which is where `discharge` holds. A model of the levelled
+     search would need `discharge` only there.
 
    Covering that code needs worlds indexed by keys (types up to swapping
    variables with the same state) instead of syntactic points. It also needs

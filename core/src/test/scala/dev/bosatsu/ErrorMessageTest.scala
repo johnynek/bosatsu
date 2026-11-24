@@ -1015,6 +1015,39 @@ main = match Bar(1):
       ()
     }
 
+    // R has no values, so Neg(absurd) is a value of Neg[R] and X can't be
+    // left out. Otherwise f(C) -> f(D) -> f(X(neg_r)) runs another branch,
+    // and loops.
+    evalFail(List("""
+package A
+
+enum Never: Never(n: Never)
+struct Neg[a](f: a -> Never)
+enum R: R1(r: R), R2(g: Neg[R] -> Never)
+
+def absurd(r: R) -> Never:
+  loop r:
+    case R1(r1): absurd(r1)
+
+neg_r: Neg[R] = Neg(absurd)
+
+enum E: X(n: Neg[R]), D, C
+
+def f(e: E) -> Int:
+  loop e:
+    case D: f(X(neg_r))
+    case C: f(D)
+
+main = f(C)
+""")) { case te @ PackageError.TotalityCheckError(_, _) =>
+      assert(
+        te.message(Map.empty, Colorize.None)
+          .endsWith("non-total match, missing: X(_)"),
+        te.message(Map.empty, Colorize.None)
+      )
+      ()
+    }
+
     evalFail(List("""
 package A
 

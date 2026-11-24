@@ -3,6 +3,7 @@ package dev.bosatsu
 import cats.{Eq}
 import cats.data.{NonEmptyList, ValidatedNec}
 import cats.syntax.all._
+import dev.bosatsu.graph.Toposort
 import dev.bosatsu.rankn.{ConstructorFn, Type, TypeEnv}
 import scala.collection.mutable
 import Identifier.Constructor
@@ -351,6 +352,44 @@ object Inhabitedness {
       count <= limit
     }
 
+    // A type's level is one more than the highest level of the other types
+    // in the env that its constructors mention, so every type of the env
+    // that a definition uses, directly or not, has a lower level than the
+    // type defined. Types outside the env are never keys (`checkType`
+    // answers Unknown for them), so they are left out: `Toposort` would
+    // give them a depth but no layer. Bosatsu has no mutually recursive
+    // types. A hand-built env with such a cycle leaves the types on it, and
+    // the types that use them, without a level. Only `searchComponent`
+    // needs levels, so they are computed on first use.
+    private lazy val typeLevels: Map[Type.Const, Int] = {
+      val defined: Set[Type.Const] =
+        env.allDefinedTypes.iterator.map(dt => dt.toTypeConst: Type.Const).toSet
+      val uses: Map[Type.Const, List[Type.Const]] =
+        env.allDefinedTypes.iterator.map { dt =>
+          val c: Type.Const = dt.toTypeConst
+          c -> dt.constructors
+            .flatMap(_.typeConstants)
+            .distinct
+            .filter(u => (u != c) && defined(u))
+        }.toMap
+      Toposort
+        .sort(uses.keys)(uses.getOrElse(_, Nil))
+        .layers
+        .iterator
+        .zipWithIndex
+        .flatMap { case (layer, level) => layer.iterator.map(_ -> level) }
+        .toMap
+    }
+
+    // the level of a data-type key's type constructor
+    private def keyLevel(key: Type): Option[Int] =
+      Type.unapplyAll(key)._1 match {
+        case Type.TyConst(c) => typeLevels.get(c)
+        // $COVERAGE-OFF$ a key is a defined type applied to arguments
+        case _               => None
+        // $COVERAGE-ON$
+      }
+
     def newSolver(): Solver = new Solver
 
     /** Solves, on demand, the data-type equations that one check reaches.
@@ -390,7 +429,7 @@ object Inhabitedness {
       * in its own unfolding. That is the condition (`Model.cov`) under which
       * `lean_proofs/LeanProofs/Inhabitedness.lean` proves the older
       * depth-first search sound, so the component is solved by that search
-      * (`searchComponent`).
+      * (`searchComponent`), with its fixed points nested by type level.
       *
       * `KindFormula` requires every occurrence of a type in its own
       * definition to be covariant (`Constraint.RecursiveView`), so every
@@ -615,28 +654,58 @@ object Inhabitedness {
       }
 
       // The search that `lean_proofs/LeanProofs/Inhabitedness.lean` models as
-      // `check` and proves sound: expand a key with the keys on the current
-      // path assumed empty, so a key met again on the path is Uninhabited.
-      // Each key of the component is its own root. Keys outside the
-      // component are finished and don't depend on it, so their answers are
-      // the same under any assumption about its keys.
+      // `check`, with levels that the model doesn't have (see below): expand
+      // a key with the keys on the current path assumed empty, so a key met
+      // again on the path is Uninhabited. Each key of
+      // the component is its own root. Keys outside the component are
+      // finished and don't depend on it, so their answers are the same under
+      // any assumption about its keys.
+      //
+      // Assuming a key empty while expanding it is induction on its values
+      // (`Model.discharge`). That holds for a key met again through its own
+      // type's recursion, not for a key of a type that a later type wraps.
+      // With `struct Neg[a](f: a -> Never)` and
+      // `enum R: R1(r: R), R2(g: Neg[R] -> Never)`, R has no values, so
+      // `R -> Never` holds `absurd` and Neg[R] has a value. But assuming
+      // Neg[R] empty while expanding it made R2 buildable, so R inhabited
+      // and Neg[R] empty.
+      //
+      // Neg[R] is Neg applied to R's answer: R's fixed point is the outer
+      // one. So the search nests fixed points by type level (`typeLevels`):
+      // entering a key keeps only the assumptions about keys at its level or
+      // above. A key of a lower level is then solved afresh, as a function
+      // of the outer assumptions. A key of a higher level is solved without
+      // the assumptions made about lower keys on the way to it. At or below
+      // its own level, a key's reads reach only its own type's recursion,
+      // earlier types and the keys in its arguments. So a key is met again
+      // on its own path only through its type's recursion, where induction
+      // on values holds. `parityConsistent` makes each key covariant in its
+      // own unfolding (`Model.cov`).
       private def searchComponent(
           component: NonEmptyList[Node],
           member: Type => Option[Node],
           nodes: mutable.HashMap[Type, Node]
       ): Unit = {
+        val levels: Map[Type, Int] =
+          component.iterator
+            .flatMap(n => keyLevel(n.key).map(n.key -> _))
+            .toMap
+
         var visitsLeft = MaxSearchVisits
 
-        def search(key: Type, path: Set[Type]): State =
-          if (path(key)) Uninhabited
-          else if ((visitsLeft <= 0) || (path.size >= MaxSearchDepth)) Unknown
+        // `depth` counts the keys being searched, and bounds the stack
+        def search(key: Type, path: Set[Type], depth: Int): State = {
+          val level = levels.getOrElse(key, 0)
+          val assumed = path.filter(k => levels.getOrElse(k, 0) >= level)
+          if (assumed(key)) Uninhabited
+          else if ((visitsLeft <= 0) || (depth >= MaxSearchDepth)) Unknown
           else {
             visitsLeft -= 1
-            val path1 = path + key
+            val path1 = assumed + key
             val read: DataStates = new DataStates {
               def stateOf(k: Type): State =
                 member(k) match {
-                  case Some(_) => search(k, path1)
+                  case Some(_) => search(k, path1, depth + 1)
                   case None =>
                     nodes.get(k) match {
                       case Some(n) => n.state
@@ -647,8 +716,14 @@ object Inhabitedness {
             }
             expand(key, read)
           }
+        }
 
-        component.toList.foreach(n => n.state = search(n.key, Set.empty))
+        // a key without a level is on a cycle of type definitions, which
+        // only an environment that skipped kind checking can have
+        if (levels.size < component.length)
+          component.toList.foreach(_.state = Unknown)
+        else
+          component.toList.foreach(n => n.state = search(n.key, Set.empty, 0))
       }
     }
 

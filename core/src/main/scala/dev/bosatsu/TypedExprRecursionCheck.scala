@@ -522,6 +522,15 @@ object TypedExprRecursionCheck {
       // here, whatever a let or pattern later rebinds its name to.
       lazy val entrySmtState: SmtBranchState = initBranchSmtState(this)
 
+      // `recur (a,)` matches a 1-tuple holding a, and `recur a` matches a
+      // itself, so the branch patterns of a one-name target are read by how
+      // the target was written
+      def targetIsTuple: Boolean =
+        recur.arg match {
+          case Declaration.TupleCons(_) => true
+          case _                        => false
+        }
+
       def incRecCount: InDefRecurred = copy(recCount = recCount + 1)
       def noteCalledName(nm: Bindable): InDefRecurred =
         copy(calledNames = calledNames.updatedWith(nm) {
@@ -721,11 +730,15 @@ object TypedExprRecursionCheck {
         case p                            => p
       }
 
+    // The pattern each target item is matched against: the whole pattern for
+    // `recur a`, and the tuple pattern's parts for `recur (a, ...)`,
+    // including the 1-tuple `recur (a,)`.
     private def targetPatternPartsFromParsed(
         targetLength: Int,
+        targetIsTuple: Boolean,
         branchPat: Pattern.Parsed
     ): Option[List[Pattern.Parsed]] =
-      if (targetLength == 1) Some(branchPat :: Nil)
+      if (!targetIsTuple) Some(branchPat :: Nil)
       else
         unwrapNamedAnnotation(branchPat) match {
           case Pattern.PositionalStruct(kind, parts)
@@ -765,11 +778,13 @@ object TypedExprRecursionCheck {
       (pack == PackageName.PredefName) &&
         (cons.asString == s"Tuple$arity")
 
+    // see targetPatternPartsFromParsed
     private def targetPatternPartsFromTyped(
         targetLength: Int,
+        targetIsTuple: Boolean,
         branchPat: TypedPattern
     ): Option[List[TypedPattern]] =
-      if (targetLength == 1) Some(branchPat :: Nil)
+      if (!targetIsTuple) Some(branchPat :: Nil)
       else
         unwrapNamedAnnotation(branchPat) match {
           case Pattern.PositionalStruct((pack, cons), parts)
@@ -819,6 +834,7 @@ object TypedExprRecursionCheck {
 
     private def proofsByTargetFromTyped(
         target: RecurTarget,
+        targetIsTuple: Boolean,
         branchPat: TypedPattern
     ): NonEmptyList[TargetProof] = {
       // the parameter name is the target, unless the branch pattern rebinds it
@@ -827,7 +843,11 @@ object TypedExprRecursionCheck {
           .withFact(item.paramName, ProvenRel.Equal)
           .without(branchPat.names)
       }
-      targetPatternPartsFromTyped(target.length, branchPat) match {
+      targetPatternPartsFromTyped(
+        target.length,
+        targetIsTuple,
+        branchPat
+      ) match {
         case Some(parts) =>
           atEntry.zipWith(NonEmptyList.fromListUnsafe(parts)) { (proof, part) =>
             proof
@@ -891,7 +911,11 @@ object TypedExprRecursionCheck {
       // Source patterns let us recover whole-value aliases per recur-target
       // component (for example `(Succ(prev), i1)` binds `i1` to the same value
       // as the second recur target).
-      targetPatternPartsFromParsed(inrec.target.length, sourcePat) match {
+      targetPatternPartsFromParsed(
+        inrec.target.length,
+        inrec.targetIsTuple,
+        sourcePat
+      ) match {
         case Some(parts) =>
           inrec.target.toList
             .zip(parts)
@@ -4476,8 +4500,18 @@ object TypedExprRecursionCheck {
             getSt.flatMap { state =>
               val checkedDef =
                 checkDef(currentPackage, state, arg, ex, fromSource)
+              // arg is local in `in`, like a let's name, so a later
+              // `recur arg` can't resolve to a parameter it shadows.
+              // checkDef already reports arg shadowing an outer def.
+              val inState =
+                state match {
+                  case id @ InDef(_, _, _, _, _, _, _, _, _) =>
+                    id.addLocal(arg)
+                  case other                                =>
+                    other
+                }
               val checkedIn =
-                Validated.fromEither(inCheck.run(state).value).map(_._1)
+                Validated.fromEither(inCheck.run(inState).value).map(_._1)
 
               (checkedDef *> checkedIn) match {
                 case Validated.Valid(nextState) =>
@@ -4640,7 +4674,11 @@ object TypedExprRecursionCheck {
                               InRecurBranch(
                                 irr,
                                 compiledPat,
-                                proofsByTargetFromTyped(irr.target, compiledPat),
+                                proofsByTargetFromTyped(
+                                  irr.target,
+                                  irr.targetIsTuple,
+                                  compiledPat
+                                ),
                                 entryState
                               )
                             )
