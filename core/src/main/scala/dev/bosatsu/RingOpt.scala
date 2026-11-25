@@ -1623,28 +1623,17 @@ object RingOpt {
             case Some(res) => res
             case None      =>
               (expr.maybeBigInt(_ => None).isDefined) || {
-                // cost of (e + e + ... + e) with bi terms
-                // this is i * cost(e) + (i - 1) * add
-                // cost of multiplication would be cost(e) + mult
-                // so it's better to multiply when:
-                // cost(e) + mult <= i * cost(e) + (i - 1) * add
-                // mult <= (i - 1) * (cost(e) + add)
-                // with negation, we need:
-                // cost(e) + mult <= i * cost(e) + (i - 1) * add + neg
-                // which is
-                // mult <= (i - 1) * (cost(e) + add) + neg
-                val constMinus1 = cAbs - 1
-                val lhsNum = if (const > 0) {
-                  // if (mult - (i - 1) * add)/(i - 1) <= cost(e)
-                  // we are better off with mult. But note, cost(e) >=0
-                  // so, if the lhs is negative, we don't need to compute the cost
-                  BigInt(mult) - constMinus1 * add
-                } else {
-                  // if (mult - neg - (i - 1) * add)/(i - 1) <= cost(e)
-                  BigInt(mult - neg) - constMinus1 * add
-                }
-
-                lhsNum <= constMinus1 * cost(expr)
+                // replicateAdd(const, expr) is (e + e + ... + e) with i terms:
+                // i * cost(e) + (i - 1) * add. When const < 0, expr has no
+                // cheapNeg here, so replicateAdd also negates the sum: + neg.
+                val addCost =
+                  cAbs * cost(expr) + (cAbs - 1) * add +
+                    (if (const < 0) neg else 0)
+                // Don't estimate the product as cost(e) + mult: it can be
+                // cheaper, since bestEffortConstMult moves outer Negs onto
+                // the literal (Neg(x) * 2 becomes x * -2). Price what it
+                // builds.
+                BigInt(cost(expr.bestEffortConstMult(const))) <= addCost
               }
           }
         }

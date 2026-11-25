@@ -1632,6 +1632,9 @@ class RingOptLaws extends munit.ScalaCheckSuite {
   }
 
   property("multIsBetter law") {
+    // multIsBetter(e, c) must tell whether e.bestEffortConstMult(c) costs
+    // no more than replicateAdd(c, e) (ties may go either way), since
+    // constMult uses it to pick the cheaper of the two.
     def law(e: Expr[Int], c0: Int, w: Weights) = {
       // don't let replicateAdd get giant
       val c = BigInt(c0 & 0xff) * (if (c0 < 0) -1 else 1)
@@ -1662,11 +1665,32 @@ class RingOptLaws extends munit.ScalaCheckSuite {
         Add(Zero, Neg(Symbol(0))),
         -2032106750,
         Weights(16, 8, 8)
+      ) :: (
+        // c = -2: bestEffortConstMult strips all four Negs, giving
+        // [-1] * -2 (cost 7), but replicateAdd costs 9
+        Neg(Neg(Neg(Neg(Symbol(-1))))),
+        -2033039358,
+        Weights(7, 3, 1)
+      ) :: (
+        // c = 2: bestEffortConstMult moves the Neg onto the literal,
+        // giving [0] * -2 (cost 6), but replicateAdd costs 7
+        Neg(Symbol(0)),
+        2,
+        Weights(6, 3, 2)
       ) ::
         Nil
 
     regressions.foreach { case (e, c0, w) => law(e, c0, w) }
     forAll((e: Expr[Int], c0: Int, w: Weights) => law(e, c0, w))
+  }
+
+  test("constMult moves an outer Neg onto the literal") {
+    // -[0] + -[0] costs 7 here; [0] * -2 costs 6
+    val w = Weights(mult = 6, add = 3, neg = 2)
+    val e: Expr[Int] = Neg(Symbol(0))
+    val res = w.constMult(e, BigInt(2))
+    assertEquals(res, Mult(Symbol(0), Integer(-2)))
+    assertEquals(w.cost(res), 6L)
   }
 
   property("Stack.toValue is the same as Expr.toValue and maybeBigInt") {
