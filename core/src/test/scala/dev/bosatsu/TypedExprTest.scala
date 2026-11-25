@@ -1645,6 +1645,96 @@ main = match two:
     }
   }
 
+  private val allIntOps: Set[String] = Set("add", "sub", "mul")
+
+  // the number of references to the Predef Int functions in ops inside te,
+  // which in these tests are all calls
+  private def intCalls[A](te: TypedExpr[A], ops: Set[String]): Int = {
+    type W[X] = Writer[Int, X]
+    te.traverseUp[W] {
+      case g @ TypedExpr.Global(
+            PackageName.PredefName,
+            Identifier.Name(op),
+            _,
+            _
+          ) if ops(op) =>
+        Writer(1, g)
+      case other => Writer(0, other)
+    }.written
+  }
+
+  test("normalizing a literal minus a value keeps one sub") {
+    // RingOpt priced c - x as an add and a Neg, the same as -(-c + x), and
+    // picked the second, which is sub(0, add(-c, x)): two calls for one
+    val x = varTE("x", intTpe)
+    List(64, -1, 0).foreach { c =>
+      val expr = arith(PredefSub, int(c), x)
+      val norm = TypedExprNormalization.normalize(expr).getOrElse(expr)
+      assertEquals(intCalls(norm, allIntOps), 1, norm.reprString)
+      val env = Map[Bindable, BigInt](Identifier.Name("x") -> BigInt(5))
+      assertEquals(evalArith(norm, env), Some(BigInt(c - 5)), norm.reprString)
+    }
+  }
+
+  test("normalizing multiplication by a small constant") {
+    // an Int mul costs about what an add does: x * 2 becomes x + x, but
+    // x * 3 stays one mul, and 2 * w + 2 * h becomes 2 * (w + h)
+    val x = varTE("x", intTpe)
+    val w = varTE("w", intTpe)
+    val h = varTE("h", intTpe)
+    def norm(e: TypedExpr[Unit]) =
+      TypedExprNormalization.normalize(e).getOrElse(e)
+
+    val times2 = norm(arith(PredefMul, x, int(2)))
+    assertEquals(intCalls(times2, allIntOps), 1, times2.reprString)
+    assertEquals(intCalls(times2, Set("add")), 1, times2.reprString)
+
+    val times3 = norm(arith(PredefMul, x, int(3)))
+    assertEquals(intCalls(times3, allIntOps), 1, times3.reprString)
+    assertEquals(intCalls(times3, Set("mul")), 1, times3.reprString)
+
+    val perimeter = norm(
+      arith(
+        PredefAdd,
+        arith(PredefMul, int(2), w),
+        arith(PredefMul, int(2), h)
+      )
+    )
+    assertEquals(intCalls(perimeter, allIntOps), 2, perimeter.reprString)
+    val env = Map[Bindable, BigInt](
+      Identifier.Name("w") -> BigInt(3),
+      Identifier.Name("h") -> BigInt(4)
+    )
+    assertEquals(evalArith(perimeter, env), Some(BigInt(14)))
+  }
+
+  test("normalizing Int arithmetic written with operator aliases") {
+    // `operator - = sub` is inlined to Predef sub by the App case, which
+    // returned the result without letting RingOpt see the arithmetic
+    checkLast("""
+operator + = add
+operator - = sub
+def f(a: Int, b: Int) -> Int: (a + b) - a
+""") { te =>
+      assertEquals(intCalls(te, allIntOps), 0, te.reprString)
+    }
+
+    // RingOpt rewrites the inner sub(add(y, x), z) on its own here before
+    // the whole tree, which must still settle (see the fixed point test above)
+    checkLast("""
+operator + = add
+operator - = sub
+operator * = mul
+def g(x: Int, y: Int, z: Int) -> Int: z * ((y - z) + x)
+""") { te =>
+      assertEquals(
+        TypedExprNormalization.normalize(te.void).map(_.reprString),
+        None,
+        te.reprString
+      )
+    }
+  }
+
   test("normalization rewrites opaque arithmetic with identity elements") {
     val fnType = Type.Fun(NonEmptyList.one(intTpe), intTpe)
     val opaque = app(varTE("f", fnType), int(1), intTpe)

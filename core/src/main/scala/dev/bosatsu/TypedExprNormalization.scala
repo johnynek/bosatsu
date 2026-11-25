@@ -1828,8 +1828,21 @@ object TypedExprNormalization {
                 val l = appLambda[A](lam, args, tpe, tag)
                 normalize1(namerec, l, scope, typeEnv)
               case None =>
-                if ((f1 eq fn) && (tpe == tpe0) && (a1 eq args)) None
-                else Some(App(f1, a1, tpe, tag))
+                App(f1, args, tpe, tag) match {
+                  case intApp @ Impl.IntAlgebraic(_) =>
+                    // fn normalized to Predef add, sub or mul, as an alias
+                    // such as `operator + = add` does when it is inlined. The
+                    // Impl.IntAlgebraic case above only matches those Predef
+                    // functions themselves, so it never saw this tree:
+                    // normalize it again to optimize the arithmetic. Use args,
+                    // not a1: that case normalizes the arguments that are not
+                    // arithmetic itself, and normalizing an arithmetic
+                    // argument on its own first is what it avoids.
+                    normalize1(namerec, intApp, scope, typeEnv)
+                  case _ =>
+                    if ((f1 eq fn) && (tpe == tpe0) && (a1 eq args)) None
+                    else Some(App(f1, a1, tpe, tag))
+                }
             }
         }
       case Let(arg, ex, in, rec, tag) =>
@@ -3753,7 +3766,12 @@ object TypedExprNormalization {
           .map(dedupOpaque)
       }
 
-      private val RingWeights = RingOpt.Weights(mult = 3, add = 1, neg = 1)
+      // Each Int add, sub and mul is one call into the runtime, and on small
+      // Ints a mul costs about what an add does (within about 25% in the C
+      // runtime). So mult = 2: x * 2 still becomes x + x, but x * 3 stays
+      // one mul instead of x + (x + x), and 2 * w + 2 * h becomes
+      // 2 * (w + h) instead of w + (w + (h + h)).
+      private val RingWeights = RingOpt.Weights(mult = 2, add = 1, neg = 1)
       // the most RingOpt passes one optimize call runs
       private val MaxRewrites = 16
 

@@ -274,6 +274,19 @@ class RingOptLaws extends munit.ScalaCheckSuite {
     }
   }
 
+  test("opCounts counts a Neg under an Add as part of one subtraction") {
+    // as Int arithmetic is emitted: x + -y and -y + x are each one sub, and
+    // every other Neg is a 0 - x
+    val x: Expr[Int] = Symbol(0)
+    val y: Expr[Int] = Symbol(1)
+    assertEquals(Expr.opCounts(Add(x, Neg(y))), Expr.OpCounts(0, 1, 0))
+    assertEquals(Expr.opCounts(Add(Neg(x), y)), Expr.OpCounts(0, 1, 0))
+    // only one Neg of an Add: -x + -y is (0 - x) - y
+    assertEquals(Expr.opCounts(Add(Neg(x), Neg(y))), Expr.OpCounts(0, 1, 1))
+    assertEquals(Expr.opCounts(Neg(Add(x, y))), Expr.OpCounts(0, 1, 1))
+    assertEquals(Expr.opCounts(Mult(x, Neg(y))), Expr.OpCounts(1, 0, 1))
+  }
+
   property("costOf(opCounts(e)) == cost(e)") {
     forAll { (e: Expr[BigInt], w: Weights) =>
       val counts = Expr.opCounts(e)
@@ -1732,12 +1745,30 @@ class RingOptLaws extends munit.ScalaCheckSuite {
   }
 
   test("constMult moves an outer Neg onto the literal") {
-    // -[0] + -[0] costs 7 here; [0] * -2 costs 6
-    val w = Weights(mult = 6, add = 3, neg = 2)
+    // -[0] + -[0] is (0 - [0]) - [0], which costs 5 here; [0] * -2 costs 4
+    val w = Weights(mult = 4, add = 3, neg = 2)
     val e: Expr[Int] = Neg(Symbol(0))
     val res = w.constMult(e, BigInt(2))
     assertEquals(res, Mult(Symbol(0), Integer(-2)))
-    assertEquals(w.cost(res), 6L)
+    assertEquals(w.cost(res), 4L)
+  }
+
+  test("negating a long sum or difference takes polynomial time") {
+    // saveNeg and cheapNeg of an Add each use both of them on its operands,
+    // so unless each node keeps its results, the work doubles with each
+    // term: with 40 terms none of these would finish
+    val terms = (1 to 40).toList.map(i => Symbol(BigInt(i)): Expr[BigInt])
+    val diff = terms.reduceLeft((acc, t) => Add(acc, Neg(t)))
+    val sum = terms.reduceLeft((acc, t) => Add(acc, t))
+    val w = Weights(mult = 2, add = 1, neg = 1)
+
+    List(diff, sum).foreach { e =>
+      val value = Expr.toValue(e)
+      assertEquals(Expr.toValue(e.normalizeNeg), -value)
+      assertEquals(e.saveNeg.map(Expr.toValue(_)).getOrElse(-value), -value)
+      assertEquals(Expr.toValue(normalize(e, w)), value)
+      assertEquals(Expr.toValue(normalize(Neg(e), w)), -value)
+    }
   }
 
   property("Stack.toValue is the same as Expr.toValue and maybeBigInt") {
