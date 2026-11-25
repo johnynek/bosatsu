@@ -232,6 +232,40 @@ class ErrorMessageTest extends munit.FunSuite with ParTest {
     )
   }
 
+  test("unused name of a local `p as n = value` binding is reported") {
+    // the pattern is matched against the bound value, which must not count
+    // as a use of `n`
+    val destructured =
+      """package A
+        |
+        |main = (
+        |  x = [1]
+        |  [*t] as y = x
+        |  t
+        |)
+        |""".stripMargin
+
+    val m1 = unusedLetMessage(destructured)
+    assert(m1.contains("unused value 'y'"), m1)
+    assert(!m1.contains("unused value 't'"), m1)
+
+    val aliased =
+      """package A
+        |
+        |main = (
+        |  x = 1
+        |  z as y = x
+        |  z
+        |)
+        |""".stripMargin
+
+    val m2 = unusedLetMessage(aliased)
+    assert(m2.contains("unused value 'y'"), m2)
+    assert(!m2.contains("unused value 'z'"), m2)
+    // the hidden name the value is bound to is never reported
+    assert(!m2.contains("unused value '_"), m2)
+  }
+
   test("unused local def points to only that def body") {
     val source =
       """package A
