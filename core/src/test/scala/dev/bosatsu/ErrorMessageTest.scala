@@ -262,7 +262,8 @@ class ErrorMessageTest extends munit.FunSuite with ParTest {
     val m2 = unusedLetMessage(aliased)
     assert(m2.contains("unused value 'y'"), m2)
     assert(!m2.contains("unused value 'z'"), m2)
-    assert(!m2.contains("named_binding"), m2)
+    // the hidden name the value is bound to is never reported
+    assert(!m2.contains("unused value '_"), m2)
   }
 
   test("unused local def points to only that def body") {

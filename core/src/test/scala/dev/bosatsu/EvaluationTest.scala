@@ -4611,6 +4611,19 @@ main = g(5)
 """,
       Tuple(VInt(6), VInt(6))
     )
+
+    // names and annotations alternating several levels deep; the value
+    // mentions names that the outer and inner levels shadow
+    evalBothPipelines(
+      """
+def g(x: List[Int], y: List[Int]) -> (List[Int], List[Int], List[Int], List[Int]):
+  (((((([*t]: List[Int]) as y): List[Int]) as z): List[Int]) as x) = [1, *x, *y]
+  (t, y, z, x)
+
+main = g([5], [7])
+""",
+      Tuple(ints(1, 5, 7), ints(1, 5, 7), ints(1, 5, 7), ints(1, 5, 7))
+    )
   }
 
   test("a recur in the value of a local `p as n = value` binding is one recursion") {

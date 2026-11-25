@@ -357,6 +357,12 @@ final class SourceConverter(
       }
     }
 
+    // Each `as` in a binding pattern binds its value to the next of these
+    // names (see solveBindingFrame). `decl` heads the chain of bindings, so
+    // the names avoid every name in each binding's pattern, value and rest,
+    // and since the chain shares the iterator, no two of them are the same.
+    lazy val asValueNames: Iterator[Bindable] = unusedNames(decl.allNames)
+
     def solveBindingFrame(
         erest: Result[Expr[Declaration]],
         bindingDecl: Declaration,
@@ -412,15 +418,17 @@ final class SourceConverter(
             // scope of `n`, where a `value` that mentions a name `n` shadows
             // would see the new `n` instead.
             //
-            // So we bind the value once to a synthetic name, alias each
-            // name to it, and solve `p` against it. Solving `p` against `n`
-            // itself would also work, but would count as a use of `n` and
-            // hide an unused `n` from UnusedLetCheck.
+            // So we bind the value once to a fresh synthetic name, alias
+            // each name to it, and solve `p` against it. Solving `p` against
+            // `n` itself would also work, but would count as a use of `n`
+            // and hide an unused `n` from UnusedLetCheck. A `p` that has
+            // another `as` under an annotation, as in `((q as m): T) as n`,
+            // takes the next fresh name, so no level shadows another.
             val (names, innerPat) = peelNamed(named, Nil)
+            val valueName = asValueNames.next()
             // tag the reference with the value, so errors about what `p`
             // matches point at the value, as they do without the `as`
-            val shared: Expr[Declaration] =
-              Expr.Local(SourceConverter.namedBindingValue, value)
+            val shared: Expr[Declaration] = Expr.Local(valueName, value)
             (rhs, solvePat(innerPat, success(shared))).parMapN {
               (rhsExpr, innerExpr) =>
                 val aliased = names.foldRight(innerExpr) { (n, body) =>
@@ -433,7 +441,7 @@ final class SourceConverter(
                   )
                 }
                 Expr.Let(
-                  SourceConverter.namedBindingValue,
+                  valueName,
                   rhsExpr,
                   aliased,
                   RecursionKind.NonRecursive,
@@ -2927,12 +2935,6 @@ object SourceConverter {
   // use this when we want to accumulate errors in parallel
   private val parallelIor: Applicative[Result] =
     Ior.catsDataParallelForIor[NonEmptyChain[Error]].applicative
-
-  // Holds the value of a local `p as n = value` binding, so `value` is
-  // evaluated once. Source names can't be synthetic, and each such binding
-  // only refers to its own, so shadowing an enclosing one is harmless.
-  private[bosatsu] val namedBindingValue: Bindable =
-    Identifier.synthetic("named_binding")
 
   def toProgram(
       thisPackage: PackageName,
