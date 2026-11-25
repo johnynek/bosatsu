@@ -282,6 +282,28 @@ def len(lst):
 """)
   }
 
+  test("recur in the value of a local `p as n = value` binding is allowed") {
+    // source conversion used to copy the value under the pattern, so the
+    // checker saw two recurs on the argument
+    allowed("""#
+def f(xs: List[Int]) -> List[Int]:
+  [*_] as xs = recur xs:
+    case []: []
+    case [_, *t]: f(t)
+  xs
+""")
+
+    allowed("""#
+enum Nat: Zero, Succ(prev: Nat)
+
+def len(lst: List[Int]) -> Nat:
+  ((Zero | Succ(_)) as n) = recur lst:
+    case []: Zero
+    case [_, *tail]: Succ(len(tail))
+  n
+""")
+  }
+
   test("recur with no recursive call is a recursion-form lint") {
     val (errors, lints) = recursionDiagnosticsOf("""#
 def fn(x):
