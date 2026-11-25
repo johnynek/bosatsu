@@ -526,6 +526,31 @@ def target(x: Int, y: Int, z: Int, p: Bool, q: Comparison) -> Int:
     }
   }
 
+  // The k that pair's pattern binds has no SMT binding. The first inner
+  // branch binds its own k to y, which must not become the outer k the
+  // second guard reads: if it did, the facts at leaf 1 would be
+  // not(y < 1) and y < 1, false for target(0, 2, ...).
+  test("a name an earlier branch binds is not the outer name a later guard reads") {
+    val source = """
+def pair(a, b):
+  (a, b)
+
+def target(x: Int, y: Int, z: Int, p: Bool, q: Comparison) -> Int:
+  match pair(x, y):
+    case (k, _):
+      match y:
+        case k if cmp_Int(k, 1) matches LT: 0
+        case _ if cmp_Int(k, 1) matches LT: 1
+        case _: 2
+"""
+    compile(source) match {
+      case Left(err) => fail(err)
+      case Right(c) =>
+        val facts = leafPathFacts(c).getOrElse(fail("no target def"))
+        assertEquals(falsePathFacts(facts, runTarget(c), gridArgs), Nil)
+    }
+  }
+
   test("the generated path programs usually check some facts") {
     val params = Gen.Parameters.default.withSize(100)
     val seed = Seed(7L)
@@ -976,17 +1001,34 @@ object TypedExprRecursionLoweringTest {
           )
     }
 
-  def shrinkBranch(b: Branch, argSort: Sort, scope: Scope, helpers: List[Helper]): LazyList[Branch] = {
-    val scope1 = scope ++ b.pat.names.map(_ -> argSort)
-    val scope2 = b.guard match {
+  // Shrinks of a branch: without its guard, then `patShrinks`, then
+  // shrinks of its guard and body. `scope1` is the scope inside its
+  // pattern.
+  def shrinkBranchParts[B](
+      guard: Option[Guard],
+      body: Ex,
+      scope1: Scope,
+      helpers: List[Helper],
+      patShrinks: LazyList[B]
+  )(rebuild: (Option[Guard], Ex) => B): LazyList[B] = {
+    val scope2 = guard match {
       case Some(Guard.MatchG(_, s, pat, _)) => scope1 ++ pat.names.map(_ -> s)
       case _                                => scope1
     }
-    b.guard.fold(LazyList.empty[Branch])(_ => LazyList(b.copy(guard = None))) #:::
-      shrinkPat(b.pat).map(p => b.copy(pat = p)) #:::
-      b.guard.fold(LazyList.empty[Guard])(shrinkGuard(_, scope1, helpers)).map(g => b.copy(guard = Some(g))) #:::
-      shrinkEx(b.body, scope2, helpers).map(e => b.copy(body = e))
+    guard.fold(LazyList.empty[B])(_ => LazyList(rebuild(None, body))) #:::
+      patShrinks #:::
+      guard.fold(LazyList.empty[Guard])(shrinkGuard(_, scope1, helpers)).map(g => rebuild(Some(g), body)) #:::
+      shrinkEx(body, scope2, helpers).map(rebuild(guard, _))
   }
+
+  def shrinkBranch(b: Branch, argSort: Sort, scope: Scope, helpers: List[Helper]): LazyList[Branch] =
+    shrinkBranchParts(
+      b.guard,
+      b.body,
+      scope ++ b.pat.names.map(_ -> argSort),
+      helpers,
+      shrinkPat(b.pat).map(p => b.copy(pat = p))
+    )((g, e) => b.copy(guard = g, body = e))
 
   def shrinkTupleBranch(
       b: TupleBranch,
@@ -994,18 +1036,15 @@ object TypedExprRecursionLoweringTest {
       s2: Sort,
       scope: Scope,
       helpers: List[Helper]
-  ): LazyList[TupleBranch] = {
-    val scope1 = b.scope(scope, s1, s2)
-    val scope2 = b.guard match {
-      case Some(Guard.MatchG(_, s, pat, _)) => scope1 ++ pat.names.map(_ -> s)
-      case _                                => scope1
-    }
-    b.guard.fold(LazyList.empty[TupleBranch])(_ => LazyList(b.copy(guard = None))) #:::
+  ): LazyList[TupleBranch] =
+    shrinkBranchParts(
+      b.guard,
+      b.body,
+      b.scope(scope, s1, s2),
+      helpers,
       shrinkPat(b.first).map(p => b.copy(first = p)) #:::
-      shrinkPat(b.second).map(p => b.copy(second = p)) #:::
-      b.guard.fold(LazyList.empty[Guard])(shrinkGuard(_, scope1, helpers)).map(g => b.copy(guard = Some(g))) #:::
-      shrinkEx(b.body, scope2, helpers).map(e => b.copy(body = e))
-  }
+        shrinkPat(b.second).map(p => b.copy(second = p))
+    )((g, e) => b.copy(guard = g, body = e))
 
   // replace a list item with each of its shrinks
   def shrinkEach[A](as: List[A])(fn: A => LazyList[A]): LazyList[List[A]] =

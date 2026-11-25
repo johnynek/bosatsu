@@ -3144,6 +3144,21 @@ def f(n: Int, p: P) -> Int:
         case _: 0
     case _: 0
 """)
+    // the first pattern rebinds k to the scrutinee k, and the later guard
+    // reads the outer k
+    allowed("""#
+struct P(a: Int)
+
+def f(n: Int, p: P) -> Int:
+  loop n:
+    case _ if cmp_Int(n, 10) matches GT:
+      P(k) = p
+      match k:
+        case k if cmp_Int(k, 1) matches LT: 0
+        case _ if cmp_Int(k, n) matches LT: f(n.sub(k), p)
+        case _: 0
+    case _: 0
+""")
     // the same in the loop match itself
     allowed("""#
 struct P(a: Int)
@@ -3188,6 +3203,24 @@ def bad(n: Int, p: P, q: Int) -> Int:
       match q:
         case _ if cmp_Int(k, 1) matches LT: 0
         case k if cmp_Int(k, n) matches LT: bad(n.sub(k), p, q)
+        case _: 0
+    case _: 0
+""")
+  }
+
+  test("a name an earlier branch binds is not the outer name a later guard reads") {
+    // bad(11, P(-1), 5) -> bad(12, P(-1), 5) -> ...: the first pattern's
+    // k is q, and the second guard is about the k of P(k)
+    disallowed("""#
+struct P(a: Int)
+
+def bad(n: Int, p: P, q: Int) -> Int:
+  loop n:
+    case _ if cmp_Int(n, 10) matches GT:
+      P(k) = p
+      match q:
+        case k if cmp_Int(k, 1) matches LT: 0
+        case _ if cmp_Int(k, n) matches LT: bad(n.sub(k), p, q)
         case _: 0
     case _: 0
 """)
@@ -3906,65 +3939,85 @@ main = loop(1)
     assertEquals(Try(Platform.onJvm(sys.error("boom"))).isFailure, Platform.isJvm)
   }
 
+  // Coverage instrumentation adds stack depth during normalization. Keep
+  // this value large enough to stress recursion-check traversal without
+  // making coverage CI non-deterministically overflow.
+  private val largeListSize = 128
+
   Platform.onJvm(
     test("large list literals do not overflow recursion checker stack") {
-      // Coverage instrumentation adds stack depth during normalization.
-      // Keep this value large enough to stress recursion-check traversal
-      // without making coverage CI non-deterministically overflow.
-      val n = 128
-      val items = List.fill(n)("\"x\"").mkString(", ")
-      val source = s"""#
+      val items = List.fill(largeListSize)("\"x\"").mkString(", ")
+      recursionCheckOnSmallStack(s"""#
 vals: List[String] = [$items]
 main = vals
-"""
-
-      val (fullTypeEnv, lets, stmts) = typedLetsOf(source)
-      val topLevelDefs = TypedExprRecursionCheck.topLevelDefArgs(stmts)
-      var failure: Option[Throwable] = None
-      var result: Option[TypedExprRecursionCheck.Res[Unit]] = None
-
-      val thread = new Thread(
-        null,
-        new Runnable {
-          def run(): Unit =
-            try {
-              result = Some(
-                TypedExprRecursionCheck.checkLets(
-                  pack,
-                  fullTypeEnv,
-                  TypeEnv.empty,
-                  lets,
-                  topLevelDefs
-                )
-              )
-            } catch {
-              case t: Throwable =>
-                failure = Some(t)
-            }
-        },
-        "typed-recursion-check-small-stack",
-        96L * 1024L
-      )
-
-      thread.start()
-      thread.join()
-
-      failure match {
-        case Some(_: StackOverflowError) =>
-          fail("recursion checker overflowed on a large list literal")
-        case Some(other) =>
-          throw other
-        case None =>
-          result match {
-            case Some(Validated.Valid(_)) => ()
-            case Some(Validated.Invalid(errs)) =>
-              fail(
-                s"expected recursion checker success, got:\n${errs.iterator.mkString("\n")}"
-              )
-            case None =>
-              fail("recursion checker thread did not produce a result")
-          }
-        }
+""")
     }
   )
+
+  Platform.onJvm(
+    test("a large list literal scrutinee in a recur branch does not overflow the stack") {
+      val items = List.fill(largeListSize)("1").mkString(", ")
+      recursionCheckOnSmallStack(s"""#
+def count(n: Int) -> Int:
+  loop n:
+    case _ if cmp_Int(n, 0) matches GT:
+      match [$items]:
+        case []: 0
+        case _: count(n.sub(1))
+    case _: 0
+""")
+    }
+  )
+
+  // Runs the recursion check on `source`, which it accepts, in a thread
+  // with a small stack.
+  private def recursionCheckOnSmallStack(source: String): Unit = {
+    val (fullTypeEnv, lets, stmts) = typedLetsOf(source)
+    val topLevelDefs = TypedExprRecursionCheck.topLevelDefArgs(stmts)
+    var failure: Option[Throwable] = None
+    var result: Option[TypedExprRecursionCheck.Res[Unit]] = None
+
+    val thread = new Thread(
+      null,
+      new Runnable {
+        def run(): Unit =
+          try {
+            result = Some(
+              TypedExprRecursionCheck.checkLets(
+                pack,
+                fullTypeEnv,
+                TypeEnv.empty,
+                lets,
+                topLevelDefs
+              )
+            )
+          } catch {
+            case t: Throwable =>
+              failure = Some(t)
+          }
+      },
+      "typed-recursion-check-small-stack",
+      96L * 1024L
+    )
+
+    thread.start()
+    thread.join()
+
+    failure match {
+      case Some(_: StackOverflowError) =>
+        fail("recursion checker overflowed on a large list literal")
+      case Some(other) =>
+        throw other
+      case None =>
+        result match {
+          case Some(Validated.Valid(_)) => ()
+          case Some(Validated.Invalid(errs)) =>
+            fail(
+              s"expected recursion checker success, got:\n${errs.iterator.mkString("\n")}"
+            )
+          case None =>
+            fail("recursion checker thread did not produce a result")
+        }
+    }
+  }
 }

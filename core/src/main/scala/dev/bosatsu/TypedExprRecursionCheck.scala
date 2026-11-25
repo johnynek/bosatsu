@@ -2017,29 +2017,29 @@ object TypedExprRecursionCheck {
         case Pattern.PositionalStruct(_, _) =>
           // A constructor application, such as the tuple `(i, j)` a tuple
           // recur target matches, matches a pattern of the same
-          // constructor exactly when each argument matches its part.
-          sameCtorParts(argExpr, pattern) match {
-            case Some(parts) =>
-              val (partsRev, state1, ok) =
-                parts.foldLeft(
-                  (List.empty[SmtExpr.BoolExpr], state, true)
-                ) { case ((acc, st, ok), (part, partArg)) =>
-                  if (!ok) (acc, st, ok)
-                  else {
-                    val (condOpt, st1) = lowerPatternCondition(partArg, part, st)
-                    condOpt match {
-                      case Some(cond) => (cond :: acc, st1, ok)
-                      case None       => (acc, st1, false)
-                    }
-                  }
+          // constructor exactly when each argument matches its part. If a
+          // part does not lower, neither does the whole pattern, since its
+          // negation is a branch's miss.
+          @annotation.tailrec
+          def loop(
+              parts: List[(TypedPattern, TypedExpr[Declaration])],
+              acc: List[SmtExpr.BoolExpr],
+              st: SmtBranchState
+          ): (Option[SmtExpr.BoolExpr], SmtBranchState) =
+            parts match {
+              case Nil                     =>
+                (Some(simplifyBoolExpr(mkAnd(acc.reverse.toVector))), st)
+              case (part, partArg) :: rest =>
+                val (condOpt, st1) = lowerPatternCondition(partArg, part, st)
+                condOpt match {
+                  case Some(cond) => loop(rest, cond :: acc, st1)
+                  case None       => (None, st1)
                 }
-              (
-                if (ok) Some(simplifyBoolExpr(mkAnd(partsRev.reverse.toVector)))
-                else None,
-                state1
-              )
-            case None       =>
-              (None, state)
+            }
+
+          sameCtorParts(argExpr, pattern) match {
+            case Some(parts) => loop(parts, Nil, state)
+            case None        => (None, state)
           }
         case Pattern.ListPat(_) | Pattern.StrPat(_) =>
           (None, state)
@@ -2153,13 +2153,18 @@ object TypedExprRecursionCheck {
         whole ::: parts
       }
 
-      // A pattern binds a name once, but a name bound in two places would
-      // have two values, so it gets no binding.
+      // Source conversion rejects a pattern that binds a name twice, but a
+      // name bound in two places would have two values, so it gets no
+      // binding.
       val groups = aliases(argExpr, pattern)
-      val placed = groups.flatMap(_._1.distinct).groupBy(identity)
-      val once = groups.map { case (names, arg) =>
-        (names.filter(placed(_).lengthCompare(1) == 0), arg)
-      }
+      val once =
+        if (groups.lengthCompare(1) <= 0) groups
+        else {
+          val placed = groups.flatMap(_._1.distinct).groupBy(identity)
+          groups.map { case (names, arg) =>
+            (names.filter(placed(_).lengthCompare(1) == 0), arg)
+          }
+        }
       bindNameGroupsTo(once, pattern.names, state)
     }
 
@@ -2261,38 +2266,83 @@ object TypedExprRecursionCheck {
       )
     }
 
+    // `start` is the state every branch of the match starts from.
     private case class FallthroughFacts(
         facts: NonEmptyList[(TypedExpr.Branch[Declaration], SmtExpr.BoolExpr)],
-        symbolState: SmtBranchState
+        start: SmtBranchState
     )
 
-    private def mergeSymbolState(
-        symbols: SmtBranchState,
+    // Lowering binds an outer name with no binding, such as one a struct
+    // pattern bound, to a fresh symbol where it is first read. Lowering the
+    // scrutinee does that before any branch, and its items are each lowered,
+    // through the constructor applications that build it, so a branch
+    // pattern that rebinds one of its names can't hide the read. A work list
+    // keeps a long list literal off the stack.
+    private def bindScrutineeReads(
+        argExpr: TypedExpr[Declaration],
         state: SmtBranchState
-    ): SmtBranchState =
-      state.copy(
-        declarations = state.declarations ++ symbols.declarations,
-        freshId = state.freshId.max(symbols.freshId)
-      )
+    ): SmtBranchState = {
+      @annotation.tailrec
+      def loop(
+          todo: List[TypedExpr[Declaration]],
+          st: SmtBranchState
+      ): SmtBranchState =
+        todo match {
+          case Nil           => st
+          case expr :: rest =>
+            if (isLowerableMatchScrutinee(expr.getType))
+              loop(rest, lowerTerm(expr, st)._2)
+            else
+              constructorAppFromExpr(expr, Nil) match {
+                case Some(app) => loop(app.args ::: rest, st)
+                case None      => loop(rest, st)
+              }
+        }
+      loop(argExpr :: Nil, state)
+    }
 
+    // `branchState` with the bindings of `base`, and the bindings it gave
+    // outer names that had none in `base`. Those are the names its lowering
+    // read from outside the branch and bound to fresh symbols: lowering
+    // drops the names an inner let or match binds, and the branch's own
+    // names, which may shadow outer ones, are left out. A fresh Comparison
+    // symbol keeps its domain.
+    private def keepOuterReads(
+        base: SmtBranchState,
+        branchState: SmtBranchState,
+        branchNames: Set[Bindable]
+    ): SmtBranchState = {
+      def outerReads[V](
+          before: Map[Bindable, V],
+          after: Map[Bindable, V]
+      ): Map[Bindable, V] =
+        after.filter { case (name, _) =>
+          !before.contains(name) && !branchNames(name)
+        }
+      val newComparisons =
+        outerReads(base.comparisonBindings, branchState.comparisonBindings)
+      branchState.copy(
+        intBindings =
+          base.intBindings ++ outerReads(base.intBindings, branchState.intBindings),
+        boolBindings =
+          base.boolBindings ++ outerReads(base.boolBindings, branchState.boolBindings),
+        comparisonBindings = base.comparisonBindings ++ newComparisons,
+        pathFacts =
+          base.pathFacts ++ newComparisons.valuesIterator.map(comparisonInDomain)
+      )
+    }
+
+    // An outer name a branch's scrutinee or guard reads has one value in
+    // every branch, unless the branch binds the name. So the binding the
+    // first read gives it is kept for the later branches and for the
+    // branches themselves: otherwise each would read it as a fresh symbol
+    // of its own, and an earlier branch's miss would say nothing about the
+    // value a later branch reads. A fresh symbol says nothing about a value.
     private def matchFallthroughFacts(
         argExpr: TypedExpr[Declaration],
         branches: NonEmptyList[TypedExpr.Branch[Declaration]],
         initialState: SmtBranchState
     ): FallthroughFacts = {
-      val baseIntBindings = initialState.intBindings
-      val baseBoolBindings = initialState.boolBindings
-      val baseComparisonBindings = initialState.comparisonBindings
-      val basePathFacts = initialState.pathFacts
-
-      def resetBranchBindings(state: SmtBranchState): SmtBranchState =
-        state.copy(
-          intBindings = baseIntBindings,
-          boolBindings = baseBoolBindings,
-          comparisonBindings = baseComparisonBindings,
-          pathFacts = basePathFacts
-        )
-
       // This returns one fallthrough fact per branch, in the same order
       // and size as `branches`.
       val init: (
@@ -2300,29 +2350,24 @@ object TypedExprRecursionCheck {
           SmtExpr.BoolExpr,
           SmtBranchState
       ) =
-        (Nil, SmtExpr.BoolConst.True, initialState)
+        (Nil, SmtExpr.BoolConst.True, bindScrutineeReads(argExpr, initialState))
 
-      val (revFacts, _, stateN) =
+      val (revFacts, _, start) =
         branches.toList.foldLeft(init) {
-          case ((acc, priorMiss, state), branch) =>
-            val state0 = resetBranchBindings(state)
-            val (hitOpt, state1) = lowerBranchHitCondition(argExpr, branch, state0)
+          case ((acc, priorMiss, base), branch) =>
+            val (hitOpt, state1) = lowerBranchHitCondition(argExpr, branch, base)
             val nextMiss = hitOpt match {
               case Some(hit) =>
                 simplifyBoolExpr(mkAnd(Vector(priorMiss, SmtExpr.Not(hit))))
               case None      =>
                 priorMiss
             }
-            ((branch, priorMiss) :: acc, nextMiss, state1)
+            // the branch's own bindings and facts do not reach the others
+            val base1 = keepOuterReads(base, state1, branch.allBindings.toSet)
+            ((branch, priorMiss) :: acc, nextMiss, base1)
         }
 
-      FallthroughFacts(
-        NonEmptyList.fromListUnsafe(revFacts.reverse),
-        // Keep only declaration/fresh-symbol effects from lowering branch-hit
-        // conditions; branch-local bindings/path facts should not leak across
-        // branches.
-        resetBranchBindings(stateN)
-      )
+      FallthroughFacts(NonEmptyList.fromListUnsafe(revFacts.reverse), start)
     }
 
     private def patternSubsumes(
@@ -2559,35 +2604,6 @@ object TypedExprRecursionCheck {
         }
       }
 
-    // Give each name that the scrutinee or a branch guard reads from outside
-    // the match one SMT symbol, if it has no binding yet, such as a name a
-    // struct pattern bound. Otherwise each branch's hit condition, and each
-    // branch, would read the name as a fresh symbol of its own, so an
-    // earlier branch's miss would say nothing about the value a later
-    // branch reads. A fresh symbol says nothing about the name's value, and
-    // these reads are all in the scope outside the match, where the name
-    // has one value. Names a branch pattern binds are not read from outside.
-    private def bindMatchOuterNames(
-        argExpr: TypedExpr[Declaration],
-        branches: NonEmptyList[TypedExpr.Branch[Declaration]],
-        state: SmtBranchState
-    ): SmtBranchState = {
-      val argNames = TypedExprNormalization.freeLocalTypes(argExpr).toList
-      val guardNames =
-        branches.toList.flatMap { branch =>
-          val bound = branch.pattern.names.toSet
-          branch.guard.toList.flatMap { guardExpr =>
-            TypedExprNormalization
-              .freeLocalTypes(guardExpr)
-              .toList
-              .filterNot { case (name, _) => bound(name) }
-          }
-        }
-      (argNames ::: guardNames).foldLeft(state) { case (st, (name, tpe)) =>
-        bindSymbolForType(name, tpe, st)
-      }
-    }
-
     // The SMT state on entry to each branch of `match argExpr` from `state`,
     // before the branch's guard: the pattern's facts and bindings, the names
     // `bindAliases` binds for the branch at that index, then that the earlier
@@ -2599,9 +2615,8 @@ object TypedExprRecursionCheck {
     )(
         bindAliases: (Int, SmtBranchState) => SmtBranchState
     ): NonEmptyList[SmtBranchState] = {
-      val outer = bindMatchOuterNames(argExpr, branches, state)
-      val analyzed = matchFallthroughFacts(argExpr, branches, outer)
-      val start = mergeSymbolState(analyzed.symbolState, outer)
+      val analyzed = matchFallthroughFacts(argExpr, branches, state)
+      val start = analyzed.start
       val priorBranches = analyzed.facts.toList.map(_._1)
       analyzed.facts.zipWithIndex.map {
         case ((branch, fallthroughFact), idx) =>
@@ -2706,16 +2721,7 @@ object TypedExprRecursionCheck {
         tpe: Type,
         state: SmtBranchState
     ): SmtBranchState =
-      if (isIntType(tpe)) {
-        val (_, state1) = ensureIntLocal(name, state)
-        state1
-      } else if (isBoolType(tpe)) {
-        val (_, state1) = ensureBoolLocal(name, state)
-        state1
-      } else if (isComparisonType(tpe)) {
-        val (_, state1) = ensureComparisonLocal(name, state)
-        state1
-      } else state
+      freshTerm(name, tpe, state)._2
 
     private def initBranchSmtState(inrec: InDefRecurred): SmtBranchState =
       initSmtState(
@@ -2757,18 +2763,7 @@ object TypedExprRecursionCheck {
             topLevelLowerableAliases(currentPackage, lets),
             topLevelPredefAliases(currentPackage, lets)
           )
-          val tpe = body.getType
-          val (term, state1) =
-            if (isIntType(tpe)) {
-              val (t, s) = lowerIntExpr(body, state0)
-              (t.map(LoweredTerm.IntTerm(_)), s)
-            } else if (isBoolType(tpe)) {
-              val (t, s) = lowerBoolExpr(body, state0)
-              (t.map(LoweredTerm.BoolTerm(_)), s)
-            } else if (isComparisonType(tpe)) {
-              val (t, s) = lowerComparisonExpr(body, state0)
-              (t.map(LoweredTerm.ComparisonTerm(_)), s)
-            } else (None, state0)
+          val (term, state1) = lowerTerm(body, state0)
 
           LoweredDefBody(
             state0.intBindings,
@@ -2861,46 +2856,79 @@ object TypedExprRecursionCheck {
         shadowed: List[Bindable],
         state: SmtBranchState
     ): SmtBranchState = {
-      // lower every expression first, keeping how to bind its names
-      val (bindersRev, state1) =
+      val (loweredRev, state1) =
         groups.foldLeft(
-          (List.empty[SmtBranchState => SmtBranchState], state)
+          (
+            List.empty[(NonEmptyList[Bindable], Type, Option[LoweredTerm])],
+            state
+          )
         ) { case ((acc, st), (names, expr)) =>
-          names match {
-            case Nil         => (acc, st)
-            case first :: _ =>
-              val tpe = expr.getType
-              if (isIntType(tpe)) {
-                val (v, st1) = lowerIntExpr(expr, st)
-                val bind = { (s: SmtBranchState) =>
-                  val (value, s1) = v.fold(ensureIntLocal(first, s))((_, s))
-                  names.foldLeft(s1)(_.withIntBinding(_, value))
-                }
-                (bind :: acc, st1)
-              } else if (isBoolType(tpe)) {
-                val (v, st1) = lowerBoolExpr(expr, st)
-                val bind = { (s: SmtBranchState) =>
-                  val (value, s1) = v.fold(ensureBoolLocal(first, s))((_, s))
-                  names.foldLeft(s1)(_.withBoolBinding(_, value))
-                }
-                (bind :: acc, st1)
-              } else if (isComparisonType(tpe)) {
-                val (v, st1) = lowerComparisonExpr(expr, st)
-                val bind = { (s: SmtBranchState) =>
-                  val (value, s1) =
-                    v.fold(ensureComparisonLocal(first, s))((_, s))
-                  names.foldLeft(s1)(_.withComparisonBinding(_, value))
-                }
-                (bind :: acc, st1)
-              } else (acc, st)
+          NonEmptyList.fromList(names) match {
+            case Some(nonEmpty) =>
+              val (term, st1) = lowerTerm(expr, st)
+              ((nonEmpty, expr.getType, term) :: acc, st1)
+            case None           =>
+              (acc, st)
           }
         }
 
       val removed = groups.flatMap(_._1) ::: shadowed
-      bindersRev.reverse.foldLeft(state1.removeBindings(removed)) {
-        (st, bind) => bind(st)
+      loweredRev.reverse.foldLeft(state1.removeBindings(removed)) {
+        case (st, (names, tpe, term)) =>
+          val (value, st1) =
+            term match {
+              case Some(_) => (term, st)
+              case None    => freshTerm(names.head, tpe, st)
+            }
+          value match {
+            case Some(LoweredTerm.IntTerm(e))        =>
+              names.foldLeft(st1)(_.withIntBinding(_, e))
+            case Some(LoweredTerm.BoolTerm(e))       =>
+              names.foldLeft(st1)(_.withBoolBinding(_, e))
+            case Some(LoweredTerm.ComparisonTerm(e)) =>
+              names.foldLeft(st1)(_.withComparisonBinding(_, e))
+            case None                                =>
+              st1
+          }
       }
     }
+
+    // `expr` lowered to a term of its sort, if the sort has SMT terms and
+    // the expression lowers.
+    private def lowerTerm(
+        expr: TypedExpr[Declaration],
+        state: SmtBranchState
+    ): (Option[LoweredTerm], SmtBranchState) = {
+      val tpe = expr.getType
+      if (isIntType(tpe)) {
+        val (t, st) = lowerIntExpr(expr, state)
+        (t.map(LoweredTerm.IntTerm(_)), st)
+      } else if (isBoolType(tpe)) {
+        val (t, st) = lowerBoolExpr(expr, state)
+        (t.map(LoweredTerm.BoolTerm(_)), st)
+      } else if (isComparisonType(tpe)) {
+        val (t, st) = lowerComparisonExpr(expr, state)
+        (t.map(LoweredTerm.ComparisonTerm(_)), st)
+      } else (None, state)
+    }
+
+    // The symbol `name` has, or a fresh one bound to it, when `tpe` has SMT
+    // terms.
+    private def freshTerm(
+        name: Bindable,
+        tpe: Type,
+        state: SmtBranchState
+    ): (Option[LoweredTerm], SmtBranchState) =
+      if (isIntType(tpe)) {
+        val (t, st) = ensureIntLocal(name, state)
+        (Some(LoweredTerm.IntTerm(t)), st)
+      } else if (isBoolType(tpe)) {
+        val (t, st) = ensureBoolLocal(name, state)
+        (Some(LoweredTerm.BoolTerm(t)), st)
+      } else if (isComparisonType(tpe)) {
+        val (t, st) = ensureComparisonLocal(name, state)
+        (Some(LoweredTerm.ComparisonTerm(t)), st)
+      } else (None, state)
 
     @annotation.tailrec
     private def unwrapDeclExpr(

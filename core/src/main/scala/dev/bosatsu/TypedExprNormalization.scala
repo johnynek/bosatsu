@@ -1098,8 +1098,7 @@ object TypedExprNormalization {
         n
     }
 
-  // the free locals of `te`, each with the type of its first use
-  private[bosatsu] def freeLocalTypes[A](te: TypedExpr[A]): Map[Bindable, Type] = {
+  private def freeLocalTypes[A](te: TypedExpr[A]): Map[Bindable, Type] = {
     def addType(
         acc: Map[Bindable, Type],
         name: Bindable,
