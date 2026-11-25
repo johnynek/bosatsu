@@ -2141,28 +2141,30 @@ object TypedExprRecursionCheck {
       def aliases(
           arg: TypedExpr[Declaration],
           pat: Pattern[(PackageName, Identifier.Constructor), Type]
-      ): List[(List[Bindable], TypedExpr[Declaration])] = {
-        val whole = wholeNames(pat, Nil) match {
-          case Nil   => Nil
-          case names => (names, arg) :: Nil
-        }
+      ): List[(NonEmptyList[Bindable], TypedExpr[Declaration])] = {
+        val whole = NonEmptyList.fromList(wholeNames(pat, Nil)).map((_, arg))
         val parts =
           sameCtorParts(arg, pat).toList.flatten.flatMap {
             case (part, partArg) => aliases(partArg, part)
           }
-        whole ::: parts
+        whole.toList ::: parts
       }
 
-      // Source conversion rejects a pattern that binds a name twice, but a
-      // name bound in two places would have two values, so it gets no
-      // binding.
+      // A pattern that binds a name twice is a source conversion error, so
+      // this only shapes the checker's errors on such a program: a name
+      // bound in two places would have two values, so it gets no binding.
       val groups = aliases(argExpr, pattern)
       val once =
         if (groups.lengthCompare(1) <= 0) groups
         else {
-          val placed = groups.flatMap(_._1.distinct).groupBy(identity)
-          groups.map { case (names, arg) =>
-            (names.filter(placed(_).lengthCompare(1) == 0), arg)
+          val placed =
+            groups
+              .flatMap { case (names, _) => names.toList.distinct }
+              .groupBy(identity)
+          groups.flatMap { case (names, arg) =>
+            NonEmptyList
+              .fromList(names.filter(placed(_).lengthCompare(1) == 0))
+              .map((_, arg))
           }
         }
       bindNameGroupsTo(once, pattern.names, state)
@@ -2322,10 +2324,10 @@ object TypedExprRecursionCheck {
       val newComparisons =
         outerReads(base.comparisonBindings, branchState.comparisonBindings)
       branchState.copy(
-        intBindings =
-          base.intBindings ++ outerReads(base.intBindings, branchState.intBindings),
-        boolBindings =
-          base.boolBindings ++ outerReads(base.boolBindings, branchState.boolBindings),
+        intBindings = base.intBindings ++
+          outerReads(base.intBindings, branchState.intBindings),
+        boolBindings = base.boolBindings ++
+          outerReads(base.boolBindings, branchState.boolBindings),
         comparisonBindings = base.comparisonBindings ++ newComparisons,
         pathFacts =
           base.pathFacts ++ newComparisons.valuesIterator.map(comparisonInDomain)
@@ -2833,26 +2835,15 @@ object TypedExprRecursionCheck {
         expr: TypedExpr[Declaration],
         state: SmtBranchState
     ): SmtBranchState =
-      bindNamesTo(name :: Nil, name :: Nil, expr, state)
+      bindNameGroupsTo((NonEmptyList.one(name), expr) :: Nil, name :: Nil, state)
 
-    // Bind `names` to the value of `expr`, which is lowered in `state`, so
-    // outside the scope of `names` and `shadowed`. Those names lose any outer
-    // binding first, so if `expr` does not lower, `names` get one fresh
-    // symbol rather than an outer binding they shadow.
-    private def bindNamesTo(
-        names: List[Bindable],
-        shadowed: List[Bindable],
-        expr: TypedExpr[Declaration],
-        state: SmtBranchState
-    ): SmtBranchState =
-      bindNameGroupsTo((names, expr) :: Nil, shadowed, state)
-
-    // Bind each group's names to the value of its expression. As in
-    // bindNamesTo, every expression is lowered in `state`, before any of
-    // the names or `shadowed` lose their outer bindings, and a group whose
-    // expression does not lower gets one fresh symbol.
+    // Bind each group's names to the value of its expression. Every
+    // expression is lowered in `state`, so outside the scope of the names
+    // and `shadowed`. Those names then lose any outer binding, so a group
+    // whose expression does not lower gets one fresh symbol rather than an
+    // outer binding its names shadow.
     private def bindNameGroupsTo(
-        groups: List[(List[Bindable], TypedExpr[Declaration])],
+        groups: List[(NonEmptyList[Bindable], TypedExpr[Declaration])],
         shadowed: List[Bindable],
         state: SmtBranchState
     ): SmtBranchState = {
@@ -2863,16 +2854,11 @@ object TypedExprRecursionCheck {
             state
           )
         ) { case ((acc, st), (names, expr)) =>
-          NonEmptyList.fromList(names) match {
-            case Some(nonEmpty) =>
-              val (term, st1) = lowerTerm(expr, st)
-              ((nonEmpty, expr.getType, term) :: acc, st1)
-            case None           =>
-              (acc, st)
-          }
+          val (term, st1) = lowerTerm(expr, st)
+          ((names, expr.getType, term) :: acc, st1)
         }
 
-      val removed = groups.flatMap(_._1) ::: shadowed
+      val removed = groups.flatMap { case (names, _) => names.toList } ::: shadowed
       loweredRev.reverse.foldLeft(state1.removeBindings(removed)) {
         case (st, (names, tpe, term)) =>
           val (value, st1) =
@@ -3767,9 +3753,10 @@ object TypedExprRecursionCheck {
               intObligationError(fnname, target, goal, state1, failed, region)
             // argInt == currInt is the target's own value, not just a name
             // that may have been rebound
-            val isEqual =
-              (argInt == currInt) ||
-                (prove(SmtExpr.EqInt(argInt, currInt), state1) == ProofOutcome.Proved)
+            def provedEqual: Boolean =
+              prove(SmtExpr.EqInt(argInt, currInt), state1) ==
+                ProofOutcome.Proved
+            val isEqual = (argInt == currInt) || provedEqual
             if (isEqual) (LexStep(Equal, None, Some(err)), state1)
             else (LexStep(Other, Some(err), None), state1)
           }

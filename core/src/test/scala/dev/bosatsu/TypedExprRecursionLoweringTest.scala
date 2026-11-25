@@ -551,6 +551,28 @@ def target(x: Int, y: Int, z: Int, p: Bool, q: Comparison) -> Int:
     }
   }
 
+  // The same for a name a `matches` guard binds: the first guard's k is y.
+  test("a name an earlier guard pattern binds is not the outer name a later guard reads") {
+    val source = """
+def pair(a, b):
+  (a, b)
+
+def target(x: Int, y: Int, z: Int, p: Bool, q: Comparison) -> Int:
+  match pair(x, y):
+    case (k, _):
+      match z:
+        case _ if y matches k if cmp_Int(k, 1) matches LT: 0
+        case _ if cmp_Int(k, 1) matches LT: 1
+        case _: 2
+"""
+    compile(source) match {
+      case Left(err) => fail(err)
+      case Right(c) =>
+        val facts = leafPathFacts(c).getOrElse(fail("no target def"))
+        assertEquals(falsePathFacts(facts, runTarget(c), gridArgs), Nil)
+    }
+  }
+
   test("the generated path programs usually check some facts") {
     val params = Gen.Parameters.default.withSize(100)
     val seed = Seed(7L)

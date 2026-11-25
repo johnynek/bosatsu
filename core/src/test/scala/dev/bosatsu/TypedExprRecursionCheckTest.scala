@@ -3226,6 +3226,24 @@ def bad(n: Int, p: P, q: Int) -> Int:
 """)
   }
 
+  test("a name an earlier guard pattern binds is not the outer name a later guard reads") {
+    // bad(11, P(-1), 5) -> bad(12, P(-1), 5) -> ...: the first guard's k
+    // is q, and the second guard is about the k of P(k)
+    disallowed("""#
+struct P(a: Int)
+
+def bad(n: Int, p: P, q: Int) -> Int:
+  loop n:
+    case _ if cmp_Int(n, 10) matches GT:
+      P(k) = p
+      match q:
+        case _ if q matches k if cmp_Int(k, 1) matches LT: 0
+        case _ if cmp_Int(k, n) matches LT: bad(n.sub(k), p, q)
+        case _: 0
+    case _: 0
+""")
+  }
+
   test("recur target must be argument name or tuple of names") {
     disallowed("""#
 def invalid_target(x, y):
