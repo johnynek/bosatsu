@@ -2015,9 +2015,52 @@ object TypedExprRecursionCheck {
             if patternIsIrrefutable(ps, state) =>
           (Some(SmtExpr.BoolConst.True), state)
         case Pattern.PositionalStruct(_, _) =>
-          (None, state)
+          // A constructor application, such as the tuple `(i, j)` a tuple
+          // recur target matches, matches a pattern of the same
+          // constructor exactly when each argument matches its part.
+          sameCtorParts(argExpr, pattern) match {
+            case Some(parts) =>
+              val (partsRev, state1, ok) =
+                parts.foldLeft(
+                  (List.empty[SmtExpr.BoolExpr], state, true)
+                ) { case ((acc, st, ok), (part, partArg)) =>
+                  if (!ok) (acc, st, ok)
+                  else {
+                    val (condOpt, st1) = lowerPatternCondition(partArg, part, st)
+                    condOpt match {
+                      case Some(cond) => (cond :: acc, st1, ok)
+                      case None       => (acc, st1, false)
+                    }
+                  }
+                }
+              (
+                if (ok) Some(simplifyBoolExpr(mkAnd(partsRev.reverse.toVector)))
+                else None,
+                state1
+              )
+            case None       =>
+              (None, state)
+          }
         case Pattern.ListPat(_) | Pattern.StrPat(_) =>
           (None, state)
+      }
+
+    // Each part of a struct `pattern` with the argument it matches, when
+    // `argExpr` applies the pattern's constructor to one argument per part.
+    private def sameCtorParts(
+        argExpr: TypedExpr[Declaration],
+        pattern: TypedPattern
+    ): Option[List[(TypedPattern, TypedExpr[Declaration])]] =
+      unwrapNamedAnnotation(pattern) match {
+        case Pattern.PositionalStruct((pack, cons), params) =>
+          constructorAppFromExpr(argExpr, Nil).collect {
+            case ConstructorApp(KnownCtor(argPack, argCons), args)
+                if (argPack == pack) && (argCons == cons) &&
+                  args.lengthCompare(params.length) == 0 =>
+              params.zip(args)
+          }
+        case _ =>
+          None
       }
 
     private def lowerBoolExpr(
@@ -2078,9 +2121,11 @@ object TypedExprRecursionCheck {
         pattern: Pattern[(PackageName, Identifier.Constructor), Type],
         state: SmtBranchState
     ): SmtBranchState = {
-      // Var and Named bind the whole scrutinee. Names inside a struct or a
-      // union get no binding, so a use of one gets a fresh symbol, not the
-      // outer binding it shadows.
+      // Var and Named bind the whole scrutinee. When the scrutinee applies
+      // the constructor a struct pattern matches, as the tuple `(i, j)` a
+      // tuple recur target matches does, the names of each part bind that
+      // argument. Other names inside a struct or a union get no binding, so
+      // a use of one gets a fresh symbol, not the outer binding it shadows.
       @annotation.tailrec
       def wholeNames(
           pat: Pattern[(PackageName, Identifier.Constructor), Type],
@@ -2093,7 +2138,29 @@ object TypedExprRecursionCheck {
           case _                            => acc
         }
 
-      bindNamesTo(wholeNames(pattern, Nil), pattern.names, argExpr, state)
+      def aliases(
+          arg: TypedExpr[Declaration],
+          pat: Pattern[(PackageName, Identifier.Constructor), Type]
+      ): List[(List[Bindable], TypedExpr[Declaration])] = {
+        val whole = wholeNames(pat, Nil) match {
+          case Nil   => Nil
+          case names => (names, arg) :: Nil
+        }
+        val parts =
+          sameCtorParts(arg, pat).toList.flatten.flatMap {
+            case (part, partArg) => aliases(partArg, part)
+          }
+        whole ::: parts
+      }
+
+      // A pattern binds a name once, but a name bound in two places would
+      // have two values, so it gets no binding.
+      val groups = aliases(argExpr, pattern)
+      val placed = groups.flatMap(_._1.distinct).groupBy(identity)
+      val once = groups.map { case (names, arg) =>
+        (names.filter(placed(_).lengthCompare(1) == 0), arg)
+      }
+      bindNameGroupsTo(once, pattern.names, state)
     }
 
     private def addPatternFactsAndBindings(
@@ -2492,6 +2559,35 @@ object TypedExprRecursionCheck {
         }
       }
 
+    // Give each name that the scrutinee or a branch guard reads from outside
+    // the match one SMT symbol, if it has no binding yet, such as a name a
+    // struct pattern bound. Otherwise each branch's hit condition, and each
+    // branch, would read the name as a fresh symbol of its own, so an
+    // earlier branch's miss would say nothing about the value a later
+    // branch reads. A fresh symbol says nothing about the name's value, and
+    // these reads are all in the scope outside the match, where the name
+    // has one value. Names a branch pattern binds are not read from outside.
+    private def bindMatchOuterNames(
+        argExpr: TypedExpr[Declaration],
+        branches: NonEmptyList[TypedExpr.Branch[Declaration]],
+        state: SmtBranchState
+    ): SmtBranchState = {
+      val argNames = TypedExprNormalization.freeLocalTypes(argExpr).toList
+      val guardNames =
+        branches.toList.flatMap { branch =>
+          val bound = branch.pattern.names.toSet
+          branch.guard.toList.flatMap { guardExpr =>
+            TypedExprNormalization
+              .freeLocalTypes(guardExpr)
+              .toList
+              .filterNot { case (name, _) => bound(name) }
+          }
+        }
+      (argNames ::: guardNames).foldLeft(state) { case (st, (name, tpe)) =>
+        bindSymbolForType(name, tpe, st)
+      }
+    }
+
     // The SMT state on entry to each branch of `match argExpr` from `state`,
     // before the branch's guard: the pattern's facts and bindings, the names
     // `bindAliases` binds for the branch at that index, then that the earlier
@@ -2503,8 +2599,9 @@ object TypedExprRecursionCheck {
     )(
         bindAliases: (Int, SmtBranchState) => SmtBranchState
     ): NonEmptyList[SmtBranchState] = {
-      val analyzed = matchFallthroughFacts(argExpr, branches, state)
-      val start = mergeSymbolState(analyzed.symbolState, state)
+      val outer = bindMatchOuterNames(argExpr, branches, state)
+      val analyzed = matchFallthroughFacts(argExpr, branches, outer)
+      val start = mergeSymbolState(analyzed.symbolState, outer)
       val priorBranches = analyzed.facts.toList.map(_._1)
       analyzed.facts.zipWithIndex.map {
         case ((branch, fallthroughFact), idx) =>
@@ -2752,37 +2849,56 @@ object TypedExprRecursionCheck {
         shadowed: List[Bindable],
         expr: TypedExpr[Declaration],
         state: SmtBranchState
+    ): SmtBranchState =
+      bindNameGroupsTo((names, expr) :: Nil, shadowed, state)
+
+    // Bind each group's names to the value of its expression. As in
+    // bindNamesTo, every expression is lowered in `state`, before any of
+    // the names or `shadowed` lose their outer bindings, and a group whose
+    // expression does not lower gets one fresh symbol.
+    private def bindNameGroupsTo(
+        groups: List[(List[Bindable], TypedExpr[Declaration])],
+        shadowed: List[Bindable],
+        state: SmtBranchState
     ): SmtBranchState = {
-      val tpe = expr.getType
-      val removed = names ::: shadowed
-      names match {
-        case Nil => state.removeBindings(removed)
-        case first :: _ =>
-          if (isIntType(tpe)) {
-            val (intExprOpt, state1) = lowerIntExpr(expr, state)
-            val state2 = state1.removeBindings(removed)
-            val (value, state3) = intExprOpt match {
-              case Some(intExpr) => (intExpr, state2)
-              case None          => ensureIntLocal(first, state2)
-            }
-            names.foldLeft(state3)(_.withIntBinding(_, value))
-          } else if (isBoolType(tpe)) {
-            val (boolExprOpt, state1) = lowerBoolExpr(expr, state)
-            val state2 = state1.removeBindings(removed)
-            val (value, state3) = boolExprOpt match {
-              case Some(boolExpr) => (boolExpr, state2)
-              case None           => ensureBoolLocal(first, state2)
-            }
-            names.foldLeft(state3)(_.withBoolBinding(_, value))
-          } else if (isComparisonType(tpe)) {
-            val (cmpExprOpt, state1) = lowerComparisonExpr(expr, state)
-            val state2 = state1.removeBindings(removed)
-            val (value, state3) = cmpExprOpt match {
-              case Some(cmpExpr) => (cmpExpr, state2)
-              case None          => ensureComparisonLocal(first, state2)
-            }
-            names.foldLeft(state3)(_.withComparisonBinding(_, value))
-          } else state.removeBindings(removed)
+      // lower every expression first, keeping how to bind its names
+      val (bindersRev, state1) =
+        groups.foldLeft(
+          (List.empty[SmtBranchState => SmtBranchState], state)
+        ) { case ((acc, st), (names, expr)) =>
+          names match {
+            case Nil         => (acc, st)
+            case first :: _ =>
+              val tpe = expr.getType
+              if (isIntType(tpe)) {
+                val (v, st1) = lowerIntExpr(expr, st)
+                val bind = { (s: SmtBranchState) =>
+                  val (value, s1) = v.fold(ensureIntLocal(first, s))((_, s))
+                  names.foldLeft(s1)(_.withIntBinding(_, value))
+                }
+                (bind :: acc, st1)
+              } else if (isBoolType(tpe)) {
+                val (v, st1) = lowerBoolExpr(expr, st)
+                val bind = { (s: SmtBranchState) =>
+                  val (value, s1) = v.fold(ensureBoolLocal(first, s))((_, s))
+                  names.foldLeft(s1)(_.withBoolBinding(_, value))
+                }
+                (bind :: acc, st1)
+              } else if (isComparisonType(tpe)) {
+                val (v, st1) = lowerComparisonExpr(expr, st)
+                val bind = { (s: SmtBranchState) =>
+                  val (value, s1) =
+                    v.fold(ensureComparisonLocal(first, s))((_, s))
+                  names.foldLeft(s1)(_.withComparisonBinding(_, value))
+                }
+                (bind :: acc, st1)
+              } else (acc, st)
+          }
+        }
+
+      val removed = groups.flatMap(_._1) ::: shadowed
+      bindersRev.reverse.foldLeft(state1.removeBindings(removed)) {
+        (st, bind) => bind(st)
       }
     }
 
@@ -3609,66 +3725,37 @@ object TypedExprRecursionCheck {
           val argInt = argOpt.get
           val nonNegGoal = SmtExpr.Gte(argInt, SmtExpr.IntConst(BigInt(0)))
           val lessGoal = SmtExpr.Lt(argInt, currInt)
-          val nonNegProof = prove(nonNegGoal, state1)
-          nonNegProof match {
+
+          // A step that does not decrease: Equal when the argument is the
+          // target's value at entry, so a later target must decrease, else
+          // Other. Only a decreasing Int needs a lower bound, so an Equal
+          // step need not be >= 0. `goal` is the obligation that failed,
+          // reported if no later target decreases.
+          def notSmaller(
+              goal: SmtExpr.BoolExpr,
+              failed: ProofOutcome.Failed
+          ): (LexStep, SmtBranchState) = {
+            val err =
+              intObligationError(fnname, target, goal, state1, failed, region)
+            // argInt == currInt is the target's own value, not just a name
+            // that may have been rebound
+            val isEqual =
+              (argInt == currInt) ||
+                (prove(SmtExpr.EqInt(argInt, currInt), state1) == ProofOutcome.Proved)
+            if (isEqual) (LexStep(Equal, None, Some(err)), state1)
+            else (LexStep(Other, Some(err), None), state1)
+          }
+
+          prove(nonNegGoal, state1) match {
             case ProofOutcome.Proved =>
-              val lessProof = prove(lessGoal, state1)
-              lessProof match {
+              prove(lessGoal, state1) match {
                 case ProofOutcome.Proved =>
                   (LexStep(Smaller, None, None), state1)
                 case failedLess: ProofOutcome.Failed =>
-                  // the argument is the target's own value, not just a
-                  // name that may have been rebound
-                  if (argInt == currInt) {
-                    val deferredErr =
-                      intObligationError(
-                        fnname,
-                        target,
-                        lessGoal,
-                        state1,
-                        failedLess,
-                        region
-                      )
-                    (LexStep(Equal, None, Some(deferredErr)), state1)
-                  } else {
-                    val equalGoal = SmtExpr.EqInt(argInt, currInt)
-                    prove(equalGoal, state1) match {
-                      case ProofOutcome.Proved =>
-                        val deferredErr =
-                          intObligationError(
-                            fnname,
-                            target,
-                            lessGoal,
-                            state1,
-                            failedLess,
-                            region
-                          )
-                        (LexStep(Equal, None, Some(deferredErr)), state1)
-                      case _ =>
-                        val immediateErr =
-                          intObligationError(
-                            fnname,
-                            target,
-                            lessGoal,
-                            state1,
-                            failedLess,
-                            region
-                          )
-                        (LexStep(Other, Some(immediateErr), None), state1)
-                    }
-                  }
+                  notSmaller(lessGoal, failedLess)
               }
             case failedNonNeg: ProofOutcome.Failed =>
-              val err =
-                intObligationError(
-                  fnname,
-                  target,
-                  nonNegGoal,
-                  state1,
-                  failedNonNeg,
-                  region
-                )
-              (LexStep(Other, Some(err), None), state1)
+              notSmaller(nonNegGoal, failedNonNeg)
           }
       }
     }

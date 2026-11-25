@@ -457,7 +457,8 @@ def target(x: Int, y: Int, z: Int, p: Bool, q: Comparison) -> Int:
     closed = false
   )
 
-  // the pattern's x was the argument x, not y
+  // the pattern's x was the argument x, not y. A part of a pattern matching
+  // a tuple the match builds is that item, so x is y.
   regression(
     "a name inside a struct pattern is not the outer name",
     """
@@ -465,7 +466,46 @@ def target(x: Int, y: Int, z: Int, p: Bool, q: Comparison) -> Int:
   match (y, x):
     case (x, _): x
 """,
+    closed = true
+  )
+
+  // the items are read outside the scope of the names the pattern binds,
+  // so the new x is the old y and the new y the old x
+  regression(
+    "tuple pattern names that swap the matched names bind the outer values",
+    """
+def target(x: Int, y: Int, z: Int, p: Bool, q: Comparison) -> Int:
+  match (y, x):
+    case (x, y): sub(x, y)
+""",
+    closed = true
+  )
+
+  // a part not matched against an item of a tuple the match builds still
+  // gets a fresh symbol
+  regression(
+    "a name inside a struct pattern of a value is not the outer name",
+    """
+def target(x: Int, y: Int, z: Int, p: Bool, q: Comparison) -> Int:
+  pair = (y, x)
+  match pair:
+    case (x, _): x
+""",
     closed = false
+  )
+
+  // the literal parts of a tuple pattern are facts about their items, so
+  // the first branch is x == 0 and y == 1
+  regression(
+    "literal parts of a tuple pattern match their items",
+    """
+def target(x: Int, y: Int, z: Int, p: Bool, q: Comparison) -> Int:
+  match (x, y):
+    case (0, 1): 10
+    case (a, 0): a
+    case (_, b): b
+""",
+    closed = true
   )
 
   // the path facts at the branch were not(m < 1), about the outer m, but
@@ -740,19 +780,30 @@ object TypedExprRecursionLoweringTest {
     case Let(name: String, value: Ex, body: Ex)
     // `opaque(a)(b)`, an Int the lowering does not see into
     case Opaque(a: Ex, b: Ex)
-    // `match (first, second): case (firstPat, secondPat): body`, which binds
-    // names inside a struct
+    // `match (first, second):` with `case (firstPat, secondPat)` branches,
+    // which bind names inside a struct. Unless `built`, the tuple is
+    // `pair(first, second)`, so the lowering can't see its items and the
+    // names the patterns bind get no SMT binding.
     case TupleMatch(
         first: Ex,
         firstSort: Sort,
         second: Ex,
         secondSort: Sort,
-        firstPat: Pat,
-        secondPat: Pat,
-        body: Ex
+        built: Boolean,
+        branches: List[TupleBranch]
     )
   }
   import Ex.*
+
+  final case class TupleBranch(
+      first: Pat,
+      second: Pat,
+      guard: Option[Guard],
+      body: Ex
+  ) {
+    def scope(outer: Scope, firstSort: Sort, secondSort: Sort): Scope =
+      outer ++ first.names.map(_ -> firstSort) ++ second.names.map(_ -> secondSort)
+  }
 
   // An extra top level def the target can call. With a forwarding body of
   // `fn(a, b)`, it is an alias of the Predef function fn; otherwise the
@@ -783,9 +834,11 @@ object TypedExprRecursionLoweringTest {
               (renderBlock(ex, "  ") :+ "")
         }
       }
-      // two argument groups, so the lowering does not inline it
+      // two argument groups, so the lowering does not inline it; pair is
+      // not a constructor, so the lowering does not see into its tuple
       val opaqueLines =
-        "def opaque(a: Int)(b: Int) -> Int:" :: "  add(b, a)" :: "" :: Nil
+        "def opaque(a: Int)(b: Int) -> Int:" :: "  add(b, a)" :: "" ::
+          "def pair(a, b):" :: "  (a, b)" :: "" :: Nil
       val targetLines =
         s"def target(x: Int, y: Int, z: Int, p: Bool, q: Comparison) -> ${result.typeName}:" ::
           renderBlock(body, "  ")
@@ -797,7 +850,7 @@ object TypedExprRecursionLoweringTest {
   private def isBlock(e: Ex): Boolean =
     e match {
       case If(_, _, _, _) | IfMatches(_, _, _, _, _) | Match(_, _) | Let(_, _, _) |
-          TupleMatch(_, _, _, _, _, _, _) =>
+          TupleMatch(_, _, _, _, _, _) =>
         true
       case _                                                                     => false
     }
@@ -822,9 +875,14 @@ object TypedExprRecursionLoweringTest {
               s"${ind}else:" :: renderBlock(f, inner)
           }
         head ::: elses(f)
-      case TupleMatch(a, _, b, _, pa, pb, body) =>
-        s"${ind}match (${renderInline(a, ind)}, ${renderInline(b, ind)}):" ::
-          s"${inner}case (${pa.render}, ${pb.render}):" :: renderBlock(body, inner + "  ")
+      case TupleMatch(a, _, b, _, built, branches) =>
+        val items = s"${renderInline(a, ind)}, ${renderInline(b, ind)}"
+        val tuple = if (built) s"($items)" else s"pair($items)"
+        s"${ind}match $tuple:" :: branches.flatMap { br =>
+          val guard = br.guard.fold("")(g => " if " + renderGuard(g, inner))
+          s"${inner}case (${br.first.render}, ${br.second.render})$guard:" ::
+            renderBlock(br.body, inner + "  ")
+        }
       case IfMatches(arg, pat, guard, t, f) =>
         val g = guard.fold("")(g => " if " + renderInline(g, ind))
         (s"${ind}if ${renderInline(arg, ind)} matches ${pat.render}$g:" :: renderBlock(t, inner)) :::
@@ -885,8 +943,9 @@ object TypedExprRecursionLoweringTest {
         sortOf(last.body, scope ++ last.pat.names.map(_ -> s), helpers)
       case Let(n, v, body)              =>
         sortOf(body, scope + (n -> sortOf(v, scope, helpers)), helpers)
-      case TupleMatch(_, s1, _, s2, p1, p2, body) =>
-        sortOf(body, scope ++ p1.names.map(_ -> s1) ++ p2.names.map(_ -> s2), helpers)
+      case TupleMatch(_, s1, _, s2, _, branches) =>
+        val last = branches.last
+        sortOf(last.body, last.scope(scope, s1, s2), helpers)
     }
 
   def simplestLit(s: Sort): Ex =
@@ -925,6 +984,25 @@ object TypedExprRecursionLoweringTest {
     }
     b.guard.fold(LazyList.empty[Branch])(_ => LazyList(b.copy(guard = None))) #:::
       shrinkPat(b.pat).map(p => b.copy(pat = p)) #:::
+      b.guard.fold(LazyList.empty[Guard])(shrinkGuard(_, scope1, helpers)).map(g => b.copy(guard = Some(g))) #:::
+      shrinkEx(b.body, scope2, helpers).map(e => b.copy(body = e))
+  }
+
+  def shrinkTupleBranch(
+      b: TupleBranch,
+      s1: Sort,
+      s2: Sort,
+      scope: Scope,
+      helpers: List[Helper]
+  ): LazyList[TupleBranch] = {
+    val scope1 = b.scope(scope, s1, s2)
+    val scope2 = b.guard match {
+      case Some(Guard.MatchG(_, s, pat, _)) => scope1 ++ pat.names.map(_ -> s)
+      case _                                => scope1
+    }
+    b.guard.fold(LazyList.empty[TupleBranch])(_ => LazyList(b.copy(guard = None))) #:::
+      shrinkPat(b.first).map(p => b.copy(first = p)) #:::
+      shrinkPat(b.second).map(p => b.copy(second = p)) #:::
       b.guard.fold(LazyList.empty[Guard])(shrinkGuard(_, scope1, helpers)).map(g => b.copy(guard = Some(g))) #:::
       shrinkEx(b.body, scope2, helpers).map(e => b.copy(body = e))
   }
@@ -989,12 +1067,18 @@ object TypedExprRecursionLoweringTest {
           LazyList(a, b) #:::
             shrinkEx(a, scope, helpers).map(Opaque(_, b)) #:::
             shrinkEx(b, scope, helpers).map(Opaque(a, _))
-        case TupleMatch(a, s1, b, s2, p1, p2, body) =>
-          val scope1 = scope ++ p1.names.map(_ -> s1) ++ p2.names.map(_ -> s2)
-          sameSort(List(body -> scope)) #:::
-            shrinkEx(a, scope, helpers).map(TupleMatch(_, s1, b, s2, p1, p2, body)) #:::
-            shrinkEx(b, scope, helpers).map(TupleMatch(a, s1, _, s2, p1, p2, body)) #:::
-            shrinkEx(body, scope1, helpers).map(TupleMatch(a, s1, b, s2, p1, p2, _))
+        case TupleMatch(a, s1, b, s2, built, branches) =>
+          val bodies = branches.map(br => br.body -> br.scope(scope, s1, s2))
+          // drop a branch other than the last, which keeps the match total
+          val dropped =
+            LazyList.from(branches.indices.init).map { i =>
+              TupleMatch(a, s1, b, s2, built, branches.patch(i, Nil, 1))
+            }
+          sameSort(bodies) #::: dropped #:::
+            shrinkEx(a, scope, helpers).map(TupleMatch(_, s1, b, s2, built, branches)) #:::
+            shrinkEx(b, scope, helpers).map(TupleMatch(a, s1, _, s2, built, branches)) #:::
+            shrinkEach(branches)(shrinkTupleBranch(_, s1, s2, scope, helpers))
+              .map(TupleMatch(a, s1, b, s2, built, _))
         case Let(n, v, body) =>
           val vs = sortOf(v, scope, helpers)
           val scope1 = scope + (n -> vs)
@@ -1342,19 +1426,43 @@ object TypedExprRecursionLoweringTest {
       case (a, b) => Opaque(a, b)
     }
 
-  def tupleMatchGen(sort: Sort, ctx: Ctx, depth: Int): Gen[Ex] =
+  // A match on a pair: up to two branches whose items are literals or
+  // catch-alls, maybe guarded, then an unguarded catch-all branch. The
+  // scrutinee items have depth `itemDepth`, guards `guardDepth`, and
+  // `body` makes each branch's body in the scope of its names.
+  def tupleMatchOf(ctx: Ctx, itemDepth: Int, guardDepth: Int)(
+      body: Ctx => Gen[Ex]
+  ): Gen[Ex] = {
+    def branchGen(s1: Sort, s2: Sort, last: Boolean): Gen[TupleBranch] = {
+      def partGen(s: Sort): Gen[Pat] =
+        if (last) catchAllGen(ctx, s)
+        else Gen.frequency(3 -> refutablePatGen(s, ctx), 2 -> catchAllGen(ctx, s))
+      for {
+        p1 <- partGen(s1)
+        // a pattern binds each name at most once
+        p2 <- partGen(s2).map { p =>
+          if (p.names.exists(p1.names.contains)) Pat.Wild else p
+        }
+        inner = ctx.bind(p1.names, s1).bind(p2.names, s2)
+        guard <- if (last) Gen.const(None) else guardGen(inner, guardDepth)
+        b <- body(guardNames(guard)(inner))
+      } yield TupleBranch(p1, p2, guard, b)
+    }
+
     for {
       s1 <- sortGen
       s2 <- sortGen
-      a <- exGen(s1, ctx, depth - 1)
-      b <- exGen(s2, ctx, depth - 1)
-      p1 <- catchAllGen(ctx, s1)
-      // a pattern binds each name at most once
-      p2 <- catchAllGen(ctx, s2).map { p =>
-        if (p.names.exists(p1.names.contains)) Pat.Wild else p
-      }
-      body <- exGen(sort, ctx.bind(p1.names, s1).bind(p2.names, s2), depth - 1)
-    } yield TupleMatch(a, s1, b, s2, p1, p2, body)
+      a <- exGen(s1, ctx, itemDepth)
+      b <- exGen(s2, ctx, itemDepth)
+      built <- Gen.frequency(2 -> true, 1 -> false)
+      n <- Gen.chooseNum(0, 2)
+      init <- Gen.listOfN(n, branchGen(s1, s2, last = false))
+      last <- branchGen(s1, s2, last = true)
+    } yield TupleMatch(a, s1, b, s2, built, init :+ last)
+  }
+
+  def tupleMatchGen(sort: Sort, ctx: Ctx, depth: Int): Gen[Ex] =
+    tupleMatchOf(ctx, depth - 1, depth)(exGen(sort, _, depth - 1))
 
   def exGen(sort: Sort, ctx: Ctx, depth: Int): Gen[Ex] =
     if (depth <= 0) leafGen(sort, ctx)
@@ -1441,6 +1549,8 @@ object TypedExprRecursionLoweringTest {
       case IntLit(_)          => true
       case Let(_, _, body)    => isPathTree(body)
       case Match(_, branches) => branches.forall(b => isPathTree(b.body))
+      case TupleMatch(_, _, _, _, _, branches) =>
+        branches.forall(b => isPathTree(b.body))
       case _                  => false
     }
 
@@ -1458,6 +1568,13 @@ object TypedExprRecursionLoweringTest {
               (b.copy(body = body1) :: acc, n1)
             }
           (Match(arg, revBranches.reverse), nextN)
+        case TupleMatch(a, s1, b, s2, built, branches) =>
+          val (revBranches, nextN) =
+            branches.foldLeft((List.empty[TupleBranch], next)) { case ((acc, n), br) =>
+              val (body1, n1) = go(br.body, n)
+              (br.copy(body = body1) :: acc, n1)
+            }
+          (TupleMatch(a, s1, b, s2, built, revBranches.reverse), nextN)
         case _ =>
           (IntLit(BigInt(next)), next + 1)
       }
@@ -1476,7 +1593,8 @@ object TypedExprRecursionLoweringTest {
         Gen.frequency(
           1 -> Gen.const(leafPlaceholder),
           2 -> pathLetGen(ctx, depth),
-          5 -> pathMatchGen(ctx, depth)
+          5 -> pathMatchGen(ctx, depth),
+          2 -> tupleMatchOf(ctx, pathExDepth, pathExDepth)(pathGen(_, depth - 1))
         )
       )
 
