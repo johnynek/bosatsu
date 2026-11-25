@@ -741,6 +741,16 @@ struct SelfWithFn(s: SelfWithFn, f: Never -> Tok)
 struct Neg[a](f: a -> Never)
 struct DN2(f: Neg[Neg[DN2]])
 enum DNLoop4[w, x, y, z]: DNL4[a, b, c, d](f: Neg[Neg[DNLoop4[a, b, c, d]]])
+enum NR: NR1(r: NR), NR2(g: Neg[NR] -> Never)
+enum NegT[a]: N1(n: NegT[a]), N2(f: a -> Never)
+enum NTR: NT1(r: NTR), NT2(g: NegT[NTR] -> Never)
+struct RecN(w: Wrapper[Wrapper[RecN, Never], RecN])
+enum RF[f: * -> *]: RF1(r: RF[f]), RF2(g: f[RF[f]] -> Never)
+struct Pad0
+struct Pad1(p: Pad0)
+struct Pad2(p: Pad1)
+struct NegPad[a](f: a -> Never, pad: Pad2)
+struct Wr[x, a](f: a -> x)
 """)
 
   private def quantified(
@@ -879,6 +889,177 @@ enum DNLoop4[w, x, y, z]: DNL4[a, b, c, d](f: Neg[Neg[DNLoop4[a, b, c, d]]])
 
     // DN2 = Neg[Neg[DN2]] = not not DN2, so it is empty.
     assertState(Inhabitedness.check(localType("DN2"), captureEnv), State.Uninhabited)
+  }
+
+  test("a function from an empty type is inhabited, inside a data type too") {
+    val neg = localType("Neg")
+    // any argument without values makes the function inhabited
+    assertState(
+      Inhabitedness.check(
+        Type.Fun(NonEmptyList.of(Type.IntType, neverType), neverType),
+        captureEnv
+      ),
+      State.Inhabited
+    )
+    // Neg[Never] holds `n -> n`, and Neg[Int] holds nothing
+    assertState(
+      Inhabitedness.check(Type.apply1(neg, neverType), captureEnv),
+      State.Inhabited
+    )
+    assertState(
+      Inhabitedness.check(Type.apply1(neg, Type.IntType), captureEnv),
+      State.Uninhabited
+    )
+    // through a variable's state: Neg[a] has a value when a has none
+    assertState(
+      Inhabitedness.check(quantified(Type.exists(_, _), "a", neg), captureEnv),
+      State.Inhabited
+    )
+    assertState(
+      Inhabitedness.check(quantified(Type.forAll(_, _), "a", neg), captureEnv),
+      State.Uninhabited
+    )
+  }
+
+  test("the search nests a component's fixed points by type level") {
+    // NR has no values, so NR -> Never holds a total `absurd`, and
+    // Neg[NR] has a value. Assuming Neg[NR] empty while expanding it made
+    // NR2 buildable, so NR inhabited and Neg[NR] empty. Neg[NR] is Neg
+    // applied to NR's answer, so NR's fixed point is the outer one.
+    val nr = localType("NR")
+    assertState(Inhabitedness.check(nr, captureEnv), State.Uninhabited)
+    assertState(
+      Inhabitedness.check(Type.apply1(localType("Neg"), nr), captureEnv),
+      State.Inhabited
+    )
+
+    // the same when the wrapper is recursive itself: NegT[NTR] assumes
+    // itself empty through N1, its own recursion, but not through NTR
+    val ntr = localType("NTR")
+    assertState(Inhabitedness.check(ntr, captureEnv), State.Uninhabited)
+    assertState(
+      Inhabitedness.check(Type.apply1(localType("NegT"), ntr), captureEnv),
+      State.Inhabited
+    )
+
+    // Rec with Never for Tok: Wrapper[RecN, Never] = Never or not RecN,
+    // which is Inhabited because RecN is empty
+    val recN = localType("RecN")
+    val inner = Type.applyAll(localType("Wrapper"), List(recN, neverType))
+    val outer = Type.applyAll(localType("Wrapper"), List(inner, recN))
+    assertState(Inhabitedness.check(recN, captureEnv), State.Uninhabited)
+    assertState(Inhabitedness.check(inner, captureEnv), State.Inhabited)
+    assertState(Inhabitedness.check(outer, captureEnv), State.Uninhabited)
+  }
+
+  test("a type is above the higher-kinded arguments its keys apply") {
+    // RF[Neg] reads Neg[RF[Neg]], Neg applied to RF[Neg]'s own fixed
+    // point, though RF's definition doesn't mention Neg. RF[Neg] has no
+    // values, so Neg[RF[Neg]] holds `absurd`. By definitions alone, RF and
+    // Neg had the same level, so each assumed the other empty.
+    val rf = localType("RF")
+    List(localType("Neg"), localType("NegPad")).foreach { neg =>
+      // NegPad's padding puts it above RF by definitions alone, which
+      // made RF[NegPad] inhabited and lost the `absurd` above.
+      val rfNeg = Type.apply1(rf, neg)
+      assertState(Inhabitedness.check(rfNeg, captureEnv), State.Uninhabited)
+      assertState(
+        Inhabitedness.check(Type.apply1(neg, rfNeg), captureEnv),
+        State.Inhabited
+      )
+    }
+
+    // The argument can be a quantified type: forall y. Wr[y] is short of an
+    // argument, and applying it to x gives forall y. Wr[y, x], that is,
+    // forall y. x -> y. RF[forall y. Wr[y]] has no values, so
+    // forall x. Wr[x, RF[...]] holds `absurd`. The use was missed under the
+    // quantifier, so this was Uninhabited. Under exists the use is counted
+    // too, though there the inhabited choice of y decides both answers in
+    // any order.
+    val wr = localType("Wr")
+    val x = Type.Var.Bound("x")
+    List[(List[(Type.Var.Bound, Kind)], Type) => Type](
+      Type.forAll(_, _),
+      Type.exists(_, _)
+    ).foreach { q =>
+      val rfQ = Type.apply1(rf, quantified(q, "y", wr))
+      val absurdType =
+        Type.forAll(
+          List((x, Kind.Type)),
+          Type.applyAll(wr, List(Type.TyVar(x), rfQ))
+        )
+      assertState(Inhabitedness.check(rfQ, captureEnv), State.Uninhabited)
+      assertState(Inhabitedness.check(absurdType, captureEnv), State.Inhabited)
+    }
+  }
+
+  test("a type that recurs through a higher-kinded argument is Unknown") {
+    // The kind check rejects G, so only a hand-built env has it. G uses RG
+    // by definition, and RG[G] applies G, so the two have no levels. By
+    // definitions alone G was above RG, which treated G's fixed point as
+    // the outer one; nesting RG's outside gives other answers.
+    val env = sourceTypeEnv("""#
+enum Never: Never(next: Never)
+enum RG[f: * -> *]: RG1(r: RG[f]), RG2(g: f[Never] -> Never)
+struct G[a](h: RG[G] -> a)
+""")
+    val g = localType("G")
+    assertState(Inhabitedness.check(Type.apply1(localType("RG"), g), env), State.Unknown)
+    assertState(Inhabitedness.check(Type.apply1(g, neverType), env), State.Unknown)
+  }
+
+  test("a kind-checked cycle of uses makes a component Unknown") {
+    // RS and RQ have no values: Non makes the argument of g inhabited, so
+    // RS2 and RQ2 are empty. But T[T[Opt], ...] makes T use itself, and
+    // T[QA, ...] makes T and QA use each other, since QA's definition
+    // mentions T. Neither use is T's own recursion, so the search has no
+    // order to nest by and answers Unknown, a known loss of precision. RO
+    // passes Opt alone, with no cycle, and keeps its answer.
+    val env = sourceTypeEnv("""#
+enum Never: Never(next: Never)
+enum Opt[a]: Non, Som(v: a)
+struct Neg[a](f: a -> Never)
+struct T[f: +* -> *, a](v: f[a])
+struct QA[a](t: T[Opt, a])
+enum RS: RS1(r: RS), RS2(g: T[T[Opt], Neg[RS]] -> Never)
+enum RQ: RQ1(r: RQ), RQ2(g: T[QA, Neg[RQ]] -> Never)
+enum RO: RO1(r: RO), RO2(g: T[Opt, Neg[RO]] -> Never)
+""")
+    assertState(Inhabitedness.check(localType("RS"), env), State.Unknown)
+    assertState(Inhabitedness.check(localType("RQ"), env), State.Unknown)
+    assertState(Inhabitedness.check(localType("RO"), env), State.Uninhabited)
+  }
+
+  test("the search runs on an env without the types its definitions mention") {
+    // TotalityCheck's lint replay uses only a package's own types, so a
+    // type their definitions mention can be missing from the env, as Tok
+    // is here. Levels were then computed with an empty first layer, and
+    // the search threw.
+    val tok: Type.Const = localType("Tok").tpe
+    val env = TypeEnv.fromDefinitions(
+      sourceTypeEnv("""#
+struct Tok
+struct Pred[a](test: a -> Tok)
+enum Expr: Lit, Test(f: Pred[Expr] -> Tok)
+""").allDefinedTypes.filter(dt =>
+        (dt.packageName == localPackage) && (dt.toTypeConst != tok)
+      )
+    )
+    assertState(Inhabitedness.check(localType("Expr"), env), State.Inhabited)
+  }
+
+  test("a component of mutually recursive types has no levels and is Unknown") {
+    // Bosatsu rejects mutually recursive types, so only a hand-built env
+    // has these. They read each other under one function argument each,
+    // so they would be searched, but without levels the search can't nest
+    // their fixed points.
+    val env = sourceTypeEnv("""#
+enum Never: Never(next: Never)
+struct MA(f: MB -> Never)
+struct MB(g: MA -> Never)
+""")
+    assertState(Inhabitedness.check(localType("MA"), env), State.Unknown)
+    assertState(Inhabitedness.check(localType("MB"), env), State.Unknown)
   }
 
   test("the search over a component read under function arguments is bounded") {

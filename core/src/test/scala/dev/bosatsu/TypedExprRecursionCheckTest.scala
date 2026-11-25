@@ -2974,6 +2974,57 @@ def g(t: T) -> Int:
 """)
   }
 
+  test("a nested def that shadows a parameter before the recur is not the recur target") {
+    // `loop th` matches the nested def, so g() is Go(orig) and k is the
+    // original th: bad(f) -> bad(f) -> ...
+    disallowed("""#
+enum S:
+  Stop
+  Go(k: () -> S)
+
+def bad(th: () -> S) -> Int:
+  orig = th
+  def th() -> S: Go(orig)
+  loop th:
+    case g:
+      match g():
+        case Go(k): bad(k)
+        case Stop: 0
+""")
+
+    // and as one name of a tuple target
+    disallowed("""#
+enum S:
+  Stop
+  Go(k: () -> S)
+
+def bad(n: Int, th: () -> S) -> Int:
+  orig = th
+  def th() -> S: Go(orig)
+  loop (th, n):
+    case (g, _):
+      match g():
+        case Go(k): bad(n.add(1), k)
+        case Stop: n
+""")
+
+    // a nested def may still shadow a parameter that is not the target
+    allowed("""#
+enum S:
+  Stop
+  Go(k: () -> S)
+
+def walk(th: () -> S, alt: () -> S) -> Int:
+  base = alt
+  def alt() -> S: base()
+  loop th:
+    case g:
+      match g():
+        case Go(k): walk(k, alt)
+        case Stop: 0
+""")
+  }
+
   test("subsumed loop guard facts skip a guard about an outer name the pattern rebinds") {
     // bad(0, 5) -> bad(-1, 5) -> ...: as above, in the loop match itself
     disallowed("""#
@@ -2989,6 +3040,37 @@ def bad(i: Int, m: Int) -> Int:
 def invalid_target(x, y):
   recur (x, 1):
     case (_, _): invalid_target(x, y)
+""")
+  }
+
+  test("a one-name tuple target matches a 1-tuple") {
+    // (ys,) binds ys to xs itself, not to a part of it: bad(xs) -> bad(xs)
+    disallowed("""#
+def bad(xs: List[Int]) -> Int:
+  recur (xs,):
+    case (ys,): bad(ys).add(1)
+""")
+
+    disallowed("""#
+def bad(xs: List[Int]) -> Int:
+  loop (xs,):
+    case (ys,): bad(ys)
+""")
+
+    // the parts of the 1-tuple pattern are matched against the target
+    allowed("""#
+def len(xs: List[Int]) -> Int:
+  recur (xs,):
+    case ([],): 0
+    case ([_, *tl],): len(tl).add(1)
+""")
+
+    // and k names the Int target, so the guard bounds it
+    allowed("""#
+def count(i: Int) -> Int:
+  loop (i,):
+    case (k,) if cmp_Int(k, 0) matches GT: count(k.sub(1))
+    case _: 0
 """)
   }
 

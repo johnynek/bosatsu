@@ -3,6 +3,7 @@ package dev.bosatsu
 import cats.{Eq}
 import cats.data.{NonEmptyList, ValidatedNec}
 import cats.syntax.all._
+import dev.bosatsu.graph.Toposort
 import dev.bosatsu.rankn.{ConstructorFn, Type, TypeEnv}
 import scala.collection.mutable
 import Identifier.Constructor
@@ -351,6 +352,129 @@ object Inhabitedness {
       count <= limit
     }
 
+    // The other types of the env that each type's constructors mention.
+    // Types outside the env are never keys (`checkType` answers Unknown for
+    // them), so they are left out.
+    private lazy val definitionUses: Map[Type.Const, List[Type.Const]] = {
+      val defined: Set[Type.Const] =
+        env.allDefinedTypes.iterator.map(dt => dt.toTypeConst: Type.Const).toSet
+      env.allDefinedTypes.iterator.map { dt =>
+        val c: Type.Const = dt.toTypeConst
+        c -> dt.constructors
+          .flatMap(_.typeConstants)
+          .distinct
+          .filter(u => (u != c) && defined(u))
+      }.toMap
+    }
+
+    // The type constructor of a data-type key.
+    private def keyHead(key: Type): Option[Type.Const] =
+      Type.unapplyAll(key)._1 match {
+        case Type.TyConst(c) => Some(c)
+        // $COVERAGE-OFF$ a key is a defined type applied to arguments
+        case _               => None
+        // $COVERAGE-ON$
+      }
+
+    // The type constructor at the head of `t`, as `Type.rootConst` finds it
+    // under applications and quantifiers, with the number of arguments it is
+    // applied to. A quantifier doesn't stop a type being applied:
+    // `forall y. Wr[y]` applied to `a` is `forall y. Wr[y, a]`.
+    private def appliedHead(t: Type): Option[(Type.TyConst, Int)] = {
+      @annotation.tailrec
+      def loop(t: Type, applied: Int): Option[(Type.TyConst, Int)] =
+        t match {
+          case tc @ Type.TyConst(_)           => Some((tc, applied))
+          case Type.TyApply(on, _)            => loop(on, applied + 1)
+          case Type.ForAll(_, in)             => loop(in, applied)
+          case Type.Exists(_, in)             => loop(in, applied)
+          case Type.TyVar(_) | Type.TyMeta(_) => None
+        }
+      loop(t, 0)
+    }
+
+    /** The levels of the types that a component's keys reach. A type's level
+      * is above the level of every type it uses, so a key's fixed point
+      * encloses those of the types its type uses.
+      *
+      * A type uses the other types of the env that its constructors mention.
+      * A key also makes its type use each type of the env that it passes as
+      * an argument of a higher kind: a type constructor short of arguments,
+      * even under a quantifier, as in `forall y. Wr[y]`. A key's argument is
+      * applied only at a higher-kinded parameter, and only such an argument
+      * is short of arguments, so this counts every type a key applies. With
+      * `enum RF[f]: R1(r: RF[f]), R2(g: f[RF[f]] -> Never)`, RF's
+      * constructors apply Neg in the key RF[Neg], which reads Neg[RF[Neg]]:
+      * Neg applied to RF[Neg]'s own fixed point. RF's definition doesn't
+      * mention Neg, so without that use the two could get the same level, or
+      * Neg the higher one. A key's arguments of kind `*` are types, not
+      * functions its definition applies, so they add no use.
+      *
+      * Uses can form a cycle. A hand-built env can have mutually recursive
+      * types, or a type that recurs through a higher-kinded argument, such as
+      * G in `struct G[a](h: RF[G] -> a)`, which the kind check rejects. A
+      * kind-checked program can have a cycle too. With
+      * `struct T[f: +* -> *, a](v: f[a])`, the key `T[T[Option], a]` makes T
+      * use itself. With `struct Q[a](t: T[Option, a])`, the key `T[Q, a]`
+      * makes T and Q use each other. The types on a cycle, and the types
+      * that use them, get no level, so their component is Unknown. A key
+      * made by applying an argument is not its type's own recursion, and
+      * without an order between the types the search could assume such a key
+      * empty where induction on values doesn't hold. That costs precision
+      * only for components read under function arguments whose keys pass
+      * such arguments.
+      */
+    private def componentLevels(keys: List[Type]): Map[Type.Const, Int] = {
+      val keyUses = mutable.HashMap.empty[Type.Const, Set[Type.Const]]
+      keys.foreach { key =>
+        val (on, args) = Type.unapplyAll(key)
+        on match {
+          case Type.TyConst(head) =>
+            val applied = args.iterator.flatMap { arg =>
+              appliedHead(arg).flatMap { case (tc, argCount) =>
+                env.getType(tc) match {
+                  case Some(dt) if dt.typeParams.lengthCompare(argCount) > 0 =>
+                    Some(tc.tpe)
+                  case _ => None
+                }
+              }
+            }
+            if (applied.hasNext)
+              keyUses(head) = keyUses.getOrElse(head, Set.empty) ++ applied
+          // $COVERAGE-OFF$ a key is a defined type applied to arguments
+          case _ => ()
+          // $COVERAGE-ON$
+        }
+      }
+
+      // A definition's mention of its own type is its recursion, so
+      // `definitionUses` leaves it out. A key passing its own type, partly
+      // applied, as in `T[T[Option], a]`, is not its recursion: that use
+      // stays, and the cycle costs the type its level.
+      def uses(c: Type.Const): List[Type.Const] =
+        keyUses.get(c) match {
+          case Some(more) => (definitionUses.getOrElse(c, Nil) ++ more).distinct
+          case None       => definitionUses.getOrElse(c, Nil)
+        }
+
+      // Sort only the types the keys reach, so that every use stays inside
+      // the sorted graph: `Toposort` gives a use outside it a depth but no
+      // layer. A type's depth depends only on the types it reaches.
+      val reached = mutable.LinkedHashSet.empty[Type.Const]
+      val todo = mutable.ArrayBuffer.from(keys.flatMap(keyHead(_)))
+      while (todo.nonEmpty) {
+        val c = todo.remove(todo.length - 1)
+        if (reached.add(c)) (todo ++= uses(c)): Unit
+      }
+      Toposort
+        .sort(reached)(uses)
+        .layers
+        .iterator
+        .zipWithIndex
+        .flatMap { case (layer, level) => layer.iterator.map(_ -> level) }
+        .toMap
+    }
+
     def newSolver(): Solver = new Solver
 
     /** Solves, on demand, the data-type equations that one check reaches.
@@ -390,7 +514,7 @@ object Inhabitedness {
       * in its own unfolding. That is the condition (`Model.cov`) under which
       * `lean_proofs/LeanProofs/Inhabitedness.lean` proves the older
       * depth-first search sound, so the component is solved by that search
-      * (`searchComponent`).
+      * (`searchComponent`), with its fixed points nested by type level.
       *
       * `KindFormula` requires every occurrence of a type in its own
       * definition to be covariant (`Constraint.RecursiveView`), so every
@@ -615,28 +739,66 @@ object Inhabitedness {
       }
 
       // The search that `lean_proofs/LeanProofs/Inhabitedness.lean` models as
-      // `check` and proves sound: expand a key with the keys on the current
-      // path assumed empty, so a key met again on the path is Uninhabited.
-      // Each key of the component is its own root. Keys outside the
-      // component are finished and don't depend on it, so their answers are
-      // the same under any assumption about its keys.
+      // `check`, with levels that the model doesn't have (see below): expand
+      // a key with the keys on the current path assumed empty, so a key met
+      // again on the path is Uninhabited. Each key of
+      // the component is its own root. Keys outside the component are
+      // finished and don't depend on it, so their answers are the same under
+      // any assumption about its keys.
+      //
+      // Assuming a key empty while expanding it is induction on its values
+      // (`Model.discharge`). That holds for a key met again through its own
+      // type's recursion, not for a key of a type that a later type wraps.
+      // With `struct Neg[a](f: a -> Never)` and
+      // `enum R: R1(r: R), R2(g: Neg[R] -> Never)`, R has no values, so
+      // `R -> Never` holds `absurd` and Neg[R] has a value. But assuming
+      // Neg[R] empty while expanding it made R2 buildable, so R inhabited
+      // and Neg[R] empty.
+      //
+      // Neg[R] is Neg applied to R's answer: R's fixed point is the outer
+      // one. So the search nests fixed points by type level
+      // (`componentLevels`): entering a key keeps only the assumptions about
+      // keys at its level or above. A key of a lower level is then solved
+      // afresh, as a function of the outer assumptions. A key of a higher
+      // level is solved without the assumptions made about lower keys on
+      // the way to it.
+      //
+      // Suppose the search meets key K, of type U, again with no key above
+      // U's level in between, so K is still assumed. A key reads the keys
+      // its constructors make and the keys among its arguments. Its
+      // constructors name only its own type and lower types, and apply only
+      // lower types, since a higher-kinded argument counts as a use. So
+      // between the two K's only U's constructors make keys of type U, and a
+      // key among arguments was made earlier on the path or is part of K.
+      // K therefore came back through U's own recursion, where induction on
+      // values holds. `parityConsistent` makes each key covariant in its own
+      // unfolding (`Model.cov`).
       private def searchComponent(
           component: NonEmptyList[Node],
           member: Type => Option[Node],
           nodes: mutable.HashMap[Type, Node]
       ): Unit = {
+        val typeLevels = componentLevels(component.toList.map(_.key))
+        val levels: Map[Type, Int] =
+          component.iterator
+            .flatMap(n => keyHead(n.key).flatMap(typeLevels.get).map(n.key -> _))
+            .toMap
+
         var visitsLeft = MaxSearchVisits
 
-        def search(key: Type, path: Set[Type]): State =
-          if (path(key)) Uninhabited
-          else if ((visitsLeft <= 0) || (path.size >= MaxSearchDepth)) Unknown
+        // `depth` counts the keys being searched, and bounds the stack
+        def search(key: Type, path: Set[Type], depth: Int): State = {
+          val level = levels.getOrElse(key, 0)
+          val assumed = path.filter(k => levels.getOrElse(k, 0) >= level)
+          if (assumed(key)) Uninhabited
+          else if ((visitsLeft <= 0) || (depth >= MaxSearchDepth)) Unknown
           else {
             visitsLeft -= 1
-            val path1 = path + key
+            val path1 = assumed + key
             val read: DataStates = new DataStates {
               def stateOf(k: Type): State =
                 member(k) match {
-                  case Some(_) => search(k, path1)
+                  case Some(_) => search(k, path1, depth + 1)
                   case None =>
                     nodes.get(k) match {
                       case Some(n) => n.state
@@ -647,8 +809,14 @@ object Inhabitedness {
             }
             expand(key, read)
           }
+        }
 
-        component.toList.foreach(n => n.state = search(n.key, Set.empty))
+        // a key without a level has a type on a cycle of uses, or one that
+        // uses such a type (see `componentLevels`)
+        if (levels.size < component.length)
+          component.toList.foreach(_.state = Unknown)
+        else
+          component.toList.foreach(n => n.state = search(n.key, Set.empty, 0))
       }
     }
 
