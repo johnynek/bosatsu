@@ -3949,20 +3949,22 @@ object TypedExprRecursionCheck {
     // InDef once it has left it (a recur match moves it on for good), so
     // in any other state there is nothing to track.
     private def withLocals[A](names: Iterable[Bindable])(in: St[A]): St[A] =
-      getSt.flatMap {
-        case id @ InDef(_, _, _, _, _, _, _, _, outerScope) =>
-          setSt(id.withLocalScope(outerScope ++ names)) *>
-            in.flatMap { a =>
-              getSt.flatMap {
-                case idEnd @ InDef(_, _, _, _, _, _, _, _, _) =>
-                  setSt(idEnd.withLocalScope(outerScope)).as(a)
-                case _                                       =>
-                  pureSt(a)
+      if (names.isEmpty) in
+      else
+        getSt.flatMap {
+          case id @ InDef(_, _, _, _, _, _, _, _, outerScope) =>
+            setSt(id.withLocalScope(outerScope ++ names)) *>
+              in.flatMap { a =>
+                getSt.flatMap {
+                  case idEnd @ InDef(_, _, _, _, _, _, _, _, _) =>
+                    setSt(idEnd.withLocalScope(outerScope)).as(a)
+                  case _                                       =>
+                    pureSt(a)
+                }
               }
-            }
-        case _                                              =>
-          in
-      }
+          case _                                              =>
+            in
+        }
 
     // A binder of `names` whose scope is `in`: report names that shadow a
     // def, then check `in` with the names local.
@@ -4164,23 +4166,13 @@ object TypedExprRecursionCheck {
         wrappers: WrapperScope,
         region: Region
     )(
-        updateProofs: LambdaProofUpdate
+        updateProofs: NonEmptyList[TargetProof] => NonEmptyList[TargetProof]
     ): St[Unit] =
       bindingNames(args.toList.map(_._1), region)(
         withLambdaBinders(args, checkExpr(currentPackage, body, wrappers))(
           updateProofs
         )
       )
-
-    // Gets the proofs outside a lambda, then the same proofs with facts
-    // about the names its binders shadow dropped, and gives the proofs for
-    // its body. Anything the lambda's caller evaluates outside the lambda,
-    // such as Eval.flat_map's first argument, is read with the outer
-    // proofs.
-    type LambdaProofUpdate =
-      (NonEmptyList[TargetProof], NonEmptyList[TargetProof]) => NonEmptyList[TargetProof]
-
-    private val innerLambdaProofs: LambdaProofUpdate = (_, inner) => inner
 
     // Check a lambda body with its binders in scope: facts about any shadowed
     // names are dropped from the proofs and the SMT state, then updateProofs
@@ -4189,7 +4181,7 @@ object TypedExprRecursionCheck {
         args: NonEmptyList[(Bindable, Type)],
         bareBodyCheck: St[Unit]
     )(
-        updateProofs: LambdaProofUpdate
+        updateProofs: NonEmptyList[TargetProof] => NonEmptyList[TargetProof]
     ): St[Unit] = {
       val newBinds = args.toList.map(_._1)
       val bodyCheck =
@@ -4197,7 +4189,7 @@ object TypedExprRecursionCheck {
           bareBodyCheck,
           _ => bareBodyCheck
         ) { proofs =>
-          updateProofs(proofs, proofs.map(_.without(newBinds)))
+          updateProofs(proofs.map(_.without(newBinds)))
         }
 
       withTemporaryRecurBranchSmtState(
@@ -4370,24 +4362,22 @@ object TypedExprRecursionCheck {
                   body,
                   wrappers,
                   lambdaTag.region
-                ) { (outerProofs, innerProofs) =>
-                  // evalArg is evaluated outside the lambda, so it is
-                  // read with the outer proofs, even when the binder
-                  // shadows a name in it
-                  val updated =
-                    inrec.target.toList
-                      .zip(outerProofs.toList.zip(innerProofs.toList))
-                      .map { case (targetItem, (outerProof, innerProof)) =>
-                        extendProofWithStrictChildExpr(
-                          inrec,
-                          targetItem,
-                          outerProof,
-                          innerProof,
-                          binderName,
-                          evalArg
-                        )
-                      }
-                  NonEmptyList.fromListUnsafe(updated)
+                ) { innerProofs =>
+                  // evalArg is evaluated here, at the call, so it is
+                  // classified with the proofs at the call, not the
+                  // lambda's: the binder may shadow a name in it
+                  inrec.target
+                    .zip(proofsPerTarget.zip(innerProofs))
+                    .map { case (targetItem, (callProof, innerProof)) =>
+                      extendProofWithStrictChildExpr(
+                        inrec,
+                        targetItem,
+                        callProof,
+                        innerProof,
+                        binderName,
+                        evalArg
+                      )
+                    }
                 }
             case None =>
               argsOnDefName(currentPackage, fn, NonEmptyList.one(args)) match {
@@ -4446,7 +4436,7 @@ object TypedExprRecursionCheck {
                                   wrappers,
                                   lambdaTag
                                 )
-                              )((_, inner) => smallerIfSingleTarget(inner, names1))
+                              )(smallerIfSingleTarget(_, names1))
                             )
                           case None =>
                             localOrLocalPackageGlobalNameOf(
@@ -4459,7 +4449,7 @@ object TypedExprRecursionCheck {
                                 withLambdaBinders(
                                   asLambda.args,
                                   checkExpr(currentPackage, asLambda.expr, wrappers)
-                                )((_, inner) => smallerIfSingleTarget(inner, names1))
+                                )(smallerIfSingleTarget(_, names1))
                               case _ =>
                                 checkExpr(currentPackage, argExpr, wrappers)
                             }
@@ -4511,7 +4501,7 @@ object TypedExprRecursionCheck {
             body,
             wrappers,
             expr.tag.region
-          )(innerLambdaProofs)
+          )(identity)
         case TypedExpr.Local(v, _, _) =>
           getSt.flatMap {
             case TopLevel(_) =>
@@ -4553,8 +4543,19 @@ object TypedExprRecursionCheck {
               )
             )
             getSt.flatMap { state =>
+              // A nested def inherits the aliases from the def around it
+              // (see checkDef), so only a def directly in a top-level
+              // value, where state is TopLevel, uses these empty maps.
               val checkedDef =
-                checkDef(currentPackage, state, arg, ex, fromSource)
+                checkDef(
+                  currentPackage,
+                  state,
+                  arg,
+                  ex,
+                  fromSource,
+                  Map.empty,
+                  Map.empty
+                )
               val checkedIn =
                 Validated.fromEither(inCheck.run(state).value).map(_._1)
 
@@ -4566,43 +4567,42 @@ object TypedExprRecursionCheck {
               }
             }
           } else {
-            val inCheck =
-              withTemporaryExprBindingProofs(arg, ex)(
-                checkExpr(currentPackage, in, wrappers)
-              )
             // The let is not recursive, so its scope is `in`, not `ex`:
             // in ex, arg still names what it shadows.
+            val inCheck =
+              withLocals(arg :: Nil)(
+                withTemporaryExprBindingProofs(arg, ex)(
+                  checkExpr(currentPackage, in, wrappers)
+                )
+              )
             checkForIllegalBindsSt(arg :: Nil, tag.region) *>
               checkExpr(currentPackage, ex, wrappers) *>
-              withLocals(arg :: Nil)(
-                withTemporaryRecurBranchSmtState(
-                  inCheck,
-                  _ => inCheck
-                ) { smtState =>
-                  bindLetName(arg, ex, smtState)
-                }
-              )
+              withTemporaryRecurBranchSmtState(
+                inCheck,
+                _ => inCheck
+              ) { smtState =>
+                bindLetName(arg, ex, smtState)
+              }
           }
         case TypedExpr.Loop(loopArgs, body, _) =>
           val newBinds = loopArgs.toList.map(_._1)
           val checkArgs = loopArgs.parTraverse_ { case (_, argExpr) =>
             checkExpr(currentPackage, argExpr, wrappers)
           }
-          val bodyCheck = filterNames(newBinds)(checkExpr(currentPackage, body, wrappers))
           // the loop's names are bound in its body, not in its arguments
+          val bodyCheck =
+            withLocals(newBinds)(filterNames(newBinds)(checkExpr(currentPackage, body, wrappers)))
           checkForIllegalBindsSt(newBinds, expr.tag.region) *>
             checkArgs *>
-            withLocals(newBinds)(
-              withTemporaryRecurBranchSmtState(
-                bodyCheck,
-                _ => bodyCheck
-              ) { smtState =>
-                loopArgs.toList.foldLeft(smtState.removeBindings(newBinds)) {
-                  case (st, (name, valueExpr)) =>
-                    bindLetName(name, valueExpr, st)
-                }
+            withTemporaryRecurBranchSmtState(
+              bodyCheck,
+              _ => bodyCheck
+            ) { smtState =>
+              loopArgs.toList.foldLeft(smtState.removeBindings(newBinds)) {
+                case (st, (name, valueExpr)) =>
+                  bindLetName(name, valueExpr, st)
               }
-            )
+            }
         case TypedExpr.Recur(args, _, _) =>
           args.parTraverse_(checkExpr(currentPackage, _, wrappers))
         case TypedExpr.Literal(_, _, _) =>
@@ -4881,8 +4881,8 @@ object TypedExprRecursionCheck {
         fnname: Bindable,
         expr: TypedExpr[Declaration],
         sourceArgPatterns: Option[NonEmptyList[NonEmptyList[Pattern.Parsed]]],
-        topLevelLowerableAliases: TopLevelLowerableAliases = Map.empty,
-        topLevelPredefAliases: TopLevelPredefAliases = Map.empty
+        topLevelLowerableAliases: TopLevelLowerableAliases,
+        topLevelPredefAliases: TopLevelPredefAliases
     ): Res[Unit] =
       collectArgGroupsAndBody(expr) match {
         case None =>

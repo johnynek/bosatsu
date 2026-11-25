@@ -3236,6 +3236,25 @@ def bad(th: () -> S) -> Int:
             case Stop: 0
 """)(assertRecurNotOnArg)
 
+    // a match guard pattern: bad(() -> Stop) -> bad(orig) -> ...
+    disallowedWithMessage("""#
+enum S:
+  Stop
+  Go(k: () -> S)
+
+def bad(th: () -> S) -> Int:
+  orig = th
+  wrapped = () -> Go(orig)
+  match th():
+    case Stop if wrapped matches th:
+      loop th:
+        case g:
+          match g():
+            case Go(k): bad(k)
+            case Stop: 0
+    case _: 0
+""")(assertRecurNotOnArg)
+
     // a lambda: `th <- ...` binds th in a lambda around the rest
     disallowedWithMessage("""#
 enum S:
