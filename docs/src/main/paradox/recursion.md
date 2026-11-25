@@ -406,6 +406,9 @@ proof idea as sorting: derive a bound, decrease it, recurse.
 Bosatsu supports direct recursion on `Int` when the checker can prove the next
 recursive argument is non-negative and strictly smaller on the recursive path.
 A helper like `int_loop` can be implemented in Bosatsu using these checks.
+In a tuple target such as `recur (n, xs)`, only the target that decreases needs
+this: an `Int` passed unchanged ahead of it, as in `f(n, tail)`, may be any
+value.
 
 ## Relation To Fuel And Bove-Capretta
 The design request for this page is tracked at

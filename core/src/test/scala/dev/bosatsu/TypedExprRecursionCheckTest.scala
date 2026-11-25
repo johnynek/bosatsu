@@ -3285,6 +3285,215 @@ def bad(i: Int, m: Int) -> Int:
 """)
   }
 
+  test("an Int target passed unchanged before a smaller target need not be non-negative") {
+    allowed("""#
+def f(n: Int, xs: List[Int]) -> Int:
+  loop (n, xs):
+    case (_, []): n
+    case (_, [_, *t]): f(n, t)
+""")
+  }
+
+  test("an earlier Int target that changes is not an equal lexicographic step") {
+    // bad(0, []) -> bad(-1, [1]) -> bad(-1, []) -> bad(-2, [1]) -> ...: n
+    // goes down without a lower bound
+    disallowed("""#
+def bad(n: Int, xs: List[Int]) -> Int:
+  loop (n, xs):
+    case (_, []): bad(n.sub(1), [1])
+    case (_, [_, *t]): bad(n, t)
+""")
+    // bad(0, []) -> bad(1, [1]) -> bad(1, []) -> bad(2, [1]) -> ...
+    disallowed("""#
+def bad(n: Int, xs: List[Int]) -> Int:
+  loop (n, xs):
+    case (_, []): bad(n.add(1), [1])
+    case (_, [_, *t]): bad(n, t)
+""")
+  }
+
+  test("literal parts of a tuple loop pattern give facts") {
+    allowed("""#
+def f(i: Int, j: Int) -> Int:
+  loop (i, j):
+    case (_, _) if cmp_Int(i, 0) matches LT: 0
+    case (0, _): j
+    case (_, _): f(i.sub(1), j)
+""")
+  }
+
+  test("an earlier tuple branch's miss reads its part names as the targets") {
+    allowed("""#
+def f(i: Int, j: Int) -> Int:
+  loop (i, j):
+    case (a, _) if cmp_Int(a, 0) matches LT: 0
+    case (0, _): j
+    case (_, _): f(i.sub(1), j)
+""")
+  }
+
+  test("a literal part of a tuple pattern is a fact about its own item") {
+    // bad(0, 1) -> bad(0, 1) -> ...: the literal is about j, not i
+    disallowed("""#
+def bad(i: Int, j: Int) -> Int:
+  loop (i, j):
+    case (_, _) if cmp_Int(i, 0) matches LT: 0
+    case (_, 0): j
+    case (_, _): bad(i.div(2), j)
+""")
+  }
+
+  test("a tuple pattern with a part that does not lower gives no miss") {
+    // bad(0, [1]) -> bad(0, [1]) -> ...: (0, [1]) misses (0, []) though
+    // i is 0
+    disallowed("""#
+def bad(i: Int, xs: List[Int]) -> Int:
+  loop (i, xs):
+    case (_, _) if cmp_Int(i, 0) matches LT: 0
+    case (0, []): 0
+    case (_, _): bad(i.div(2), xs)
+""")
+  }
+
+  test("names in a tuple pattern part bind the matched tuple's items") {
+    allowed("""#
+def count(i: Int, j: Int) -> Int:
+  loop i:
+    case _ if cmp_Int(i, 0) matches GT:
+      match (j, i):
+        case (_, k): count(sub(k, 1), j)
+    case _: j
+""")
+  }
+
+  test("tuple pattern names that swap the matched names bind the outer values") {
+    // bad(1, 3) -> bad(2, 6) -> bad(5, 7) -> bad(6, 10) -> ...: in the
+    // inner match i is the outer j
+    disallowed("""#
+def bad(i: Int, j: Int) -> Int:
+  loop i:
+    case _ if cmp_Int(i, 0) matches GT:
+      match (j, i):
+        case (i, j): bad(sub(i, 1), add(j, 5))
+    case _: 0
+""")
+  }
+
+  test("earlier branch misses about a name a struct pattern bound give facts") {
+    allowed("""#
+struct P(a: Int)
+
+def f(n: Int, p: P) -> Int:
+  loop n:
+    case _ if cmp_Int(n, 10) matches GT:
+      P(k) = p
+      match k:
+        case 0: 0
+        case _ if cmp_Int(k, 0) matches LT: 0
+        case _ if cmp_Int(k, n) matches LT: f(n.sub(k), p)
+        case _: 0
+    case _: 0
+""")
+    // the first pattern rebinds k to the scrutinee k, and the later guard
+    // reads the outer k
+    allowed("""#
+struct P(a: Int)
+
+def f(n: Int, p: P) -> Int:
+  loop n:
+    case _ if cmp_Int(n, 10) matches GT:
+      P(k) = p
+      match k:
+        case k if cmp_Int(k, 1) matches LT: 0
+        case _ if cmp_Int(k, n) matches LT: f(n.sub(k), p)
+        case _: 0
+    case _: 0
+""")
+    // the same in the loop match itself
+    allowed("""#
+struct P(a: Int)
+
+def f(n: Int, p: P) -> Int:
+  P(k) = p
+  loop n:
+    case 0: 0
+    case _ if cmp_Int(k, 1) matches LT: 0
+    case _ if cmp_Int(n, k) matches LT: n
+    case _: f(n.sub(k), p)
+""")
+  }
+
+  test("a name a struct pattern bound that may not be positive does not decrease") {
+    // bad(11, P(-1)) -> bad(12, P(-1)) -> ...
+    disallowed("""#
+struct P(a: Int)
+
+def bad(n: Int, p: P) -> Int:
+  loop n:
+    case _ if cmp_Int(n, 10) matches GT:
+      P(k) = p
+      match k:
+        case 0: 0
+        case _ if cmp_Int(k, n) matches LT: bad(n.sub(k), p)
+        case _: 0
+    case _: 0
+""")
+  }
+
+  test("an earlier miss about an unbound outer name says nothing of a pattern name") {
+    // bad(11, P(5), -1) -> bad(12, P(5), -1) -> ...: the first guard is
+    // about the k of P(k), and the second pattern's k is q
+    disallowed("""#
+struct P(a: Int)
+
+def bad(n: Int, p: P, q: Int) -> Int:
+  loop n:
+    case _ if cmp_Int(n, 10) matches GT:
+      P(k) = p
+      match q:
+        case _ if cmp_Int(k, 1) matches LT: 0
+        case k if cmp_Int(k, n) matches LT: bad(n.sub(k), p, q)
+        case _: 0
+    case _: 0
+""")
+  }
+
+  test("a name an earlier branch binds is not the outer name a later guard reads") {
+    // bad(11, P(-1), 5) -> bad(12, P(-1), 5) -> ...: the first pattern's
+    // k is q, and the second guard is about the k of P(k)
+    disallowed("""#
+struct P(a: Int)
+
+def bad(n: Int, p: P, q: Int) -> Int:
+  loop n:
+    case _ if cmp_Int(n, 10) matches GT:
+      P(k) = p
+      match q:
+        case k if cmp_Int(k, 1) matches LT: 0
+        case _ if cmp_Int(k, n) matches LT: bad(n.sub(k), p, q)
+        case _: 0
+    case _: 0
+""")
+  }
+
+  test("a name an earlier guard pattern binds is not the outer name a later guard reads") {
+    // bad(11, P(-1), 5) -> bad(12, P(-1), 5) -> ...: the first guard's k
+    // is q, and the second guard is about the k of P(k)
+    disallowed("""#
+struct P(a: Int)
+
+def bad(n: Int, p: P, q: Int) -> Int:
+  loop n:
+    case _ if cmp_Int(n, 10) matches GT:
+      P(k) = p
+      match q:
+        case _ if q matches k if cmp_Int(k, 1) matches LT: 0
+        case _ if cmp_Int(k, n) matches LT: bad(n.sub(k), p, q)
+        case _: 0
+    case _: 0
+""")
+  }
+
   test("recur target must be argument name or tuple of names") {
     disallowed("""#
 def invalid_target(x, y):
@@ -3998,65 +4207,85 @@ main = loop(1)
     assertEquals(Try(Platform.onJvm(sys.error("boom"))).isFailure, Platform.isJvm)
   }
 
+  // Coverage instrumentation adds stack depth during normalization. Keep
+  // this value large enough to stress recursion-check traversal without
+  // making coverage CI non-deterministically overflow.
+  private val largeListSize = 128
+
   Platform.onJvm(
     test("large list literals do not overflow recursion checker stack") {
-      // Coverage instrumentation adds stack depth during normalization.
-      // Keep this value large enough to stress recursion-check traversal
-      // without making coverage CI non-deterministically overflow.
-      val n = 128
-      val items = List.fill(n)("\"x\"").mkString(", ")
-      val source = s"""#
+      val items = List.fill(largeListSize)("\"x\"").mkString(", ")
+      recursionCheckOnSmallStack(s"""#
 vals: List[String] = [$items]
 main = vals
-"""
-
-      val (fullTypeEnv, lets, stmts) = typedLetsOf(source)
-      val topLevelDefs = TypedExprRecursionCheck.topLevelDefArgs(stmts)
-      var failure: Option[Throwable] = None
-      var result: Option[TypedExprRecursionCheck.Res[Unit]] = None
-
-      val thread = new Thread(
-        null,
-        new Runnable {
-          def run(): Unit =
-            try {
-              result = Some(
-                TypedExprRecursionCheck.checkLets(
-                  pack,
-                  fullTypeEnv,
-                  TypeEnv.empty,
-                  lets,
-                  topLevelDefs
-                )
-              )
-            } catch {
-              case t: Throwable =>
-                failure = Some(t)
-            }
-        },
-        "typed-recursion-check-small-stack",
-        96L * 1024L
-      )
-
-      thread.start()
-      thread.join()
-
-      failure match {
-        case Some(_: StackOverflowError) =>
-          fail("recursion checker overflowed on a large list literal")
-        case Some(other) =>
-          throw other
-        case None =>
-          result match {
-            case Some(Validated.Valid(_)) => ()
-            case Some(Validated.Invalid(errs)) =>
-              fail(
-                s"expected recursion checker success, got:\n${errs.iterator.mkString("\n")}"
-              )
-            case None =>
-              fail("recursion checker thread did not produce a result")
-          }
-        }
+""")
     }
   )
+
+  Platform.onJvm(
+    test("a large list literal scrutinee in a recur branch does not overflow the stack") {
+      val items = List.fill(largeListSize)("1").mkString(", ")
+      recursionCheckOnSmallStack(s"""#
+def count(n: Int) -> Int:
+  loop n:
+    case _ if cmp_Int(n, 0) matches GT:
+      match [$items]:
+        case []: 0
+        case _: count(n.sub(1))
+    case _: 0
+""")
+    }
+  )
+
+  // Runs the recursion check on `source`, which it accepts, in a thread
+  // with a small stack.
+  private def recursionCheckOnSmallStack(source: String): Unit = {
+    val (fullTypeEnv, lets, stmts) = typedLetsOf(source)
+    val topLevelDefs = TypedExprRecursionCheck.topLevelDefArgs(stmts)
+    var failure: Option[Throwable] = None
+    var result: Option[TypedExprRecursionCheck.Res[Unit]] = None
+
+    val thread = new Thread(
+      null,
+      new Runnable {
+        def run(): Unit =
+          try {
+            result = Some(
+              TypedExprRecursionCheck.checkLets(
+                pack,
+                fullTypeEnv,
+                TypeEnv.empty,
+                lets,
+                topLevelDefs
+              )
+            )
+          } catch {
+            case t: Throwable =>
+              failure = Some(t)
+          }
+      },
+      "typed-recursion-check-small-stack",
+      96L * 1024L
+    )
+
+    thread.start()
+    thread.join()
+
+    failure match {
+      case Some(_: StackOverflowError) =>
+        fail("recursion checker overflowed on a large list literal")
+      case Some(other) =>
+        throw other
+      case None =>
+        result match {
+          case Some(Validated.Valid(_)) => ()
+          case Some(Validated.Invalid(errs)) =>
+            fail(
+              s"expected recursion checker success, got:\n${errs.iterator.mkString("\n")}"
+            )
+          case None =>
+            fail("recursion checker thread did not produce a result")
+        }
+    }
+  }
 }
