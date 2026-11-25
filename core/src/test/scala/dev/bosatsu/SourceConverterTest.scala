@@ -608,6 +608,136 @@ else:
     )
   }
 
+  test("a local `p as n = value` binding converts value once and matches p against it") {
+    // the value is bound once to a synthetic name, each name aliases it, and
+    // p is matched against it, rather than against a second copy of value
+    // inside the scope of n
+    val shared = SourceConverter.namedBindingValue
+    val n = Identifier.Name("n")
+    val m = Identifier.Name("m")
+    val nr = RecursionKind.NonRecursive
+    val valueSrc = "[1, *n]"
+
+    // the body of `def main(n): ...`, where n is an argument
+    def mainBody(code: String): Expr[Declaration] =
+      mainExpr(code) match {
+        case Expr.Lambda(_, body, _) => body
+        case other => fail(s"expected a lambda, got: $other")
+      }
+
+    val value = mainBody(s"""def main(n):
+  $valueSrc""").eraseTags
+
+    def bindingMain(binding: String): String =
+      s"""def main(n):
+  $binding = $valueSrc
+  t"""
+
+    mainBody(bindingMain("[*t] as n")).eraseTags match {
+      case Expr.Let(
+            `shared`,
+            rhs,
+            Expr.Let(
+              `n`,
+              Expr.Local(`shared`, _),
+              Expr.Match(Expr.Local(`shared`, _), _, _),
+              `nr`,
+              _
+            ),
+            `nr`,
+            _
+          ) =>
+        assertEquals(rhs, value)
+      case other => fail(s"unexpected desugaring: $other")
+    }
+
+    // a name under a name aliases the same value
+    mainBody(bindingMain("(([*t] as m) as n)")).eraseTags match {
+      case Expr.Let(
+            `shared`,
+            rhs,
+            Expr.Let(
+              `n`,
+              Expr.Local(`shared`, _),
+              Expr.Let(
+                `m`,
+                Expr.Local(`shared`, _),
+                Expr.Match(Expr.Local(`shared`, _), _, _),
+                `nr`,
+                _
+              ),
+              `nr`,
+              _
+            ),
+            `nr`,
+            _
+          ) =>
+        assertEquals(rhs, value)
+      case other => fail(s"unexpected desugaring: $other")
+    }
+
+    // an annotation over the name annotates the value n is bound to
+    mainBody(bindingMain("(([*t] as n): List[Int])")).eraseTags match {
+      case Expr.Let(
+            `shared`,
+            Expr.Annotation(rhs, _, _),
+            Expr.Let(
+              `n`,
+              Expr.Local(`shared`, _),
+              Expr.Match(Expr.Local(`shared`, _), _, _),
+              `nr`,
+              _
+            ),
+            `nr`,
+            _
+          ) =>
+        assertEquals(rhs, value)
+      case other => fail(s"unexpected desugaring: $other")
+    }
+
+    // an annotation under the name annotates what p matches, as in a match
+    // branch, so n keeps the value's own type
+    mainBody(bindingMain("(([*t]: List[Int]) as n)")).eraseTags match {
+      case Expr.Let(
+            `shared`,
+            rhs,
+            Expr.Let(
+              `n`,
+              Expr.Local(`shared`, _),
+              Expr.Match(
+                Expr.Annotation(Expr.Local(`shared`, _), _, _),
+                _,
+                _
+              ),
+              `nr`,
+              _
+            ),
+            `nr`,
+            _
+          ) =>
+        assertEquals(rhs, value)
+      case other => fail(s"unexpected desugaring: $other")
+    }
+
+    // errors about what p matches point at the value
+    val code = bindingMain("[*t] as n")
+    val valueStart = code.indexOf(valueSrc)
+    mainBody(code) match {
+      case Expr.Let(
+            _,
+            _,
+            Expr.Let(_, _, Expr.Match(Expr.Local(_, tag), _, _), _, _),
+            _,
+            _
+          ) =>
+        assertEquals(
+          tag.region,
+          Region(valueStart, valueStart + valueSrc.length)
+        )
+      case other => fail(s"unexpected desugaring: $other")
+    }
+  }
+
   test("zero-arg defs desugar to explicit unit-pattern defs") {
     assertMainDesugarsAs(
       """def later():

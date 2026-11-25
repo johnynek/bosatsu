@@ -4562,6 +4562,73 @@ main = target(7)
     )
   }
 
+  test("a local `p as n = value` binding reads value once, outside n's scope") {
+    def ints(is: Int*): Value = VList(is.toList.map(VInt(_)))
+
+    // `p` was matched against a second copy of `value`, inside the scope of
+    // `n`, so the copy's `x` read the new `x`: t was [1, 1, 5]
+    evalBothPipelines(
+      """
+def g(x: List[Int]) -> (List[Int], List[Int]):
+  [*t] as x = [1, *x]
+  (t, x)
+
+main = g([5])
+""",
+      Tuple(ints(1, 5), ints(1, 5))
+    )
+
+    // annotations under and over the name, and a name under a name
+    evalBothPipelines(
+      """
+def id(x: List[Int]) -> List[Int]: x
+
+def g(x: List[Int]) -> (List[Int], List[Int], List[Int], List[Int], List[Int]):
+  (([*a]: List[Int]) as x) = [1, *x]
+  (([*c] as x): List[Int]) = [2, *x]
+  (([*e] as f) as x) = [3, *id(x)]
+  (a, c, e, f, x)
+
+main = g([5])
+""",
+      Tuple(
+        ints(1, 5),
+        ints(2, 1, 5),
+        ints(3, 2, 1, 5),
+        ints(3, 2, 1, 5),
+        ints(3, 2, 1, 5)
+      )
+    )
+
+    // a var under the name
+    evalBothPipelines(
+      """
+def g(x: Int) -> (Int, Int):
+  y as x = x.add(1)
+  (y, x)
+
+main = g(5)
+""",
+      Tuple(VInt(6), VInt(6))
+    )
+  }
+
+  test("a recur in the value of a local `p as n = value` binding is one recursion") {
+    // the second copy of the value made a second recur
+    evalBothPipelines(
+      """
+def f(xs: List[Int]) -> List[Int]:
+  [*_] as xs = recur xs:
+    case []: []
+    case [_, *t]: f(t)
+  xs
+
+main = f([1, 2])
+""",
+      VList.VNil
+    )
+  }
+
   test("a pattern that rebinds the scrutinee's name reads the scrutinee before binding") {
     evalBothPipelines(
       """
