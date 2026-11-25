@@ -1647,27 +1647,21 @@ main = match two:
 
   private val allIntOps: Set[String] = Set("add", "sub", "mul")
 
-  // the number of calls to the Predef Int functions in ops inside te
-  private def intCalls[A](te: TypedExpr[A], ops: Set[String]): Int =
-    te match {
-      case TypedExpr.App(fn, args, _, _) =>
-        val here = fn match {
-          case TypedExpr.Global(
-                PackageName.PredefName,
-                Identifier.Name(op),
-                _,
-                _
-              ) if ops(op) =>
-            1
-          case _ => 0
-        }
-        here + intCalls(fn, ops) + args.toList.map(intCalls(_, ops)).sum
-      case TypedExpr.Let(_, value, in, _, _) =>
-        intCalls(value, ops) + intCalls(in, ops)
-      case TypedExpr.AnnotatedLambda(_, body, _) => intCalls(body, ops)
-      case TypedExpr.Generic(_, in)              => intCalls(in, ops)
-      case _                                     => 0
-    }
+  // the number of references to the Predef Int functions in ops inside te,
+  // which in these tests are all calls
+  private def intCalls[A](te: TypedExpr[A], ops: Set[String]): Int = {
+    type W[X] = Writer[Int, X]
+    te.traverseUp[W] {
+      case g @ TypedExpr.Global(
+            PackageName.PredefName,
+            Identifier.Name(op),
+            _,
+            _
+          ) if ops(op) =>
+        Writer(1, g)
+      case other => Writer(0, other)
+    }.written
+  }
 
   test("normalizing a literal minus a value keeps one sub") {
     // RingOpt priced c - x as an add and a Neg, the same as -(-c + x), and

@@ -228,10 +228,16 @@ object RingOpt {
               }
         }
 
+    // saveNeg and cheapNeg are lazy vals, not defs, because each uses both of
+    // them on the operands of an Add (saveNeg of x + y can need cheapNeg of
+    // x, and cheapNeg can need saveNeg of x). As defs, each use redoes the
+    // operand's work, which is exponential in the length of a sum such as
+    // a - b - c - ... Kept on the node, each is computed once.
+
     // Do neg if it is cheaper: the result has fewer Negs that cost anything.
     // A Neg that is a direct child of an Add is a subtraction and costs
     // nothing (see Expr.opCounts), so removing one of those saves nothing.
-    def saveNeg: Option[Expr[A]] =
+    lazy val saveNeg: Option[Expr[A]] =
       saveNegCandidate.filter { n =>
         Expr.opCounts(n).neg < Expr.opCounts(expr).neg
       }
@@ -261,7 +267,7 @@ object RingOpt {
           }
     }
     // Do neg if it is as cheap or cheaper (no more Negs that cost anything)
-    def cheapNeg: Option[Expr[A]] = expr match {
+    lazy val cheapNeg: Option[Expr[A]] = expr match {
       case Zero       => Some(Zero)
       case One        => Some(Integer(-1))
       case Integer(n) => Some(canonInt[A](-n))

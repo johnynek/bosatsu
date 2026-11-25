@@ -1828,20 +1828,21 @@ object TypedExprNormalization {
                 val l = appLambda[A](lam, args, tpe, tag)
                 normalize1(namerec, l, scope, typeEnv)
               case None =>
-                val intApp = App(f1, args, tpe, tag)
-                if (
-                  !(f1 eq fn) && Impl.IntAlgebraic.unapply(intApp).isDefined
-                ) {
-                  // fn was an alias of Predef add, sub or mul, such as
-                  // `operator + = add`, and normalizing it inlined that alias.
-                  // The Impl.IntAlgebraic case above only matches the Predef
-                  // functions themselves, so it never saw this tree: normalize
-                  // it again to optimize the arithmetic.
-                  normalize1(namerec, intApp, scope, typeEnv).orElse(
-                    Some(intApp)
-                  )
-                } else if ((f1 eq fn) && (tpe == tpe0) && (a1 eq args)) None
-                else Some(App(f1, a1, tpe, tag))
+                App(f1, args, tpe, tag) match {
+                  case intApp @ Impl.IntAlgebraic(_) =>
+                    // fn normalized to Predef add, sub or mul, as an alias
+                    // such as `operator + = add` does when it is inlined. The
+                    // Impl.IntAlgebraic case above only matches those Predef
+                    // functions themselves, so it never saw this tree:
+                    // normalize it again to optimize the arithmetic. Use args,
+                    // not a1: that case normalizes the arguments that are not
+                    // arithmetic itself, and normalizing an arithmetic
+                    // argument on its own first is what it avoids.
+                    normalize1(namerec, intApp, scope, typeEnv)
+                  case _ =>
+                    if ((f1 eq fn) && (tpe == tpe0) && (a1 eq args)) None
+                    else Some(App(f1, a1, tpe, tag))
+                }
             }
         }
       case Let(arg, ex, in, rec, tag) =>
