@@ -3945,9 +3945,14 @@ object TypedExprRecursionCheck {
     // and localScope gets back exactly what it was, which still has the
     // names of the binders around this one. Scope is lexical, so a later
     // recur outside `in` names whatever binds the name there.
-    // Only an InDef reads localScope, and the state never goes back to
-    // InDef once it has left it (a recur match moves it on for good), so
-    // in any other state there is nothing to track.
+    //
+    // So localScope always holds the binders around the current expression
+    // that were opened before the recur match. Only getRecurTarget reads
+    // it, in InDef, and the state never goes back to InDef once the recur
+    // match starts, so binders opened after that are not tracked. A scope
+    // opened in InDef is closed in whichever state `in` ends in: InDef, or
+    // InDefRecurred when the recur match is inside the scope, where the
+    // scope lives in inRec.
     private def withLocals[A](names: Iterable[Bindable])(in: St[A]): St[A] =
       if (names.isEmpty) in
       else
@@ -3958,8 +3963,18 @@ object TypedExprRecursionCheck {
                 getSt.flatMap {
                   case idEnd @ InDef(_, _, _, _, _, _, _, _, _) =>
                     setSt(idEnd.withLocalScope(outerScope)).as(a)
-                  case _                                       =>
-                    pureSt(a)
+                  case irEnd @ InDefRecurred(inRec, _, _, _, _) =>
+                    setSt(
+                      irEnd.copy(inRec = inRec.withLocalScope(outerScope))
+                    ).as(a)
+                  // $COVERAGE-OFF$ this should be unreachable: every recur
+                  // branch ends back in InDefRecurred (see endBranch), and
+                  // TopLevel never becomes InDef
+                  case unexpected                               =>
+                    sys.error(
+                      s"invariant violation: a scope opened in InDef ended in $unexpected"
+                    )
+                  // $COVERAGE-ON$
                 }
               }
           case _                                              =>
