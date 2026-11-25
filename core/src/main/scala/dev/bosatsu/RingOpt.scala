@@ -228,8 +228,16 @@ object RingOpt {
               }
         }
 
-    // Do neg if it is cheaper (only < number of Neg nodes)
-    def saveNeg: Option[Expr[A]] = expr match {
+    // Do neg if it is cheaper: the result has fewer Negs that cost anything.
+    // A Neg that is a direct child of an Add is a subtraction and costs
+    // nothing (see Expr.opCounts), so removing one of those saves nothing.
+    def saveNeg: Option[Expr[A]] =
+      saveNegCandidate.filter { n =>
+        Expr.opCounts(n).neg < Expr.opCounts(expr).neg
+      }
+
+    // a negation of this with at most as many Neg nodes, or None
+    private def saveNegCandidate: Option[Expr[A]] = expr match {
       case Zero | One | Integer(_) | Symbol(_) => None
       case Neg(y)                              => Some(y)
       case Add(x, y)                           =>
@@ -252,7 +260,7 @@ object RingOpt {
             y.saveNeg.map(Mult(x, _))
           }
     }
-    // Do neg if it is as cheap or cheaper (only <= number of Neg nodes)
+    // Do neg if it is as cheap or cheaper (no more Negs that cost anything)
     def cheapNeg: Option[Expr[A]] = expr match {
       case Zero       => Some(Zero)
       case One        => Some(Integer(-1))
@@ -273,6 +281,14 @@ object RingOpt {
               nx <- x.cheapNeg
               ny <- y.cheapNeg
             } yield Add(nx, ny)
+          )
+          .orElse(
+            // -(x + y) == (-x) - y, and a Neg that is the right side of a
+            // subtraction costs nothing (see Expr.opCounts), so one side
+            // negating cheaply is enough: -(-64 + x) is 64 - x
+            x.cheapNeg
+              .map(Add(_, Neg(y)))
+              .orElse(y.cheapNeg.map(Add(_, Neg(x))))
           )
       /*
       case Mult(Integer(x), Integer(y)) => Some(canonInt(-(x * y)))
@@ -586,6 +602,12 @@ object RingOpt {
         (mul <= other.mul) && (add <= other.add) && (neg <= other.neg)
     }
 
+    /** The operations it takes to evaluate e when subtraction is one
+      * operation, as it is when Int arithmetic is emitted: x + -y and -y + x
+      * are each one sub, so a Neg that is a direct child of an Add costs
+      * nothing (only one per Add: -x + -y is (0 - x) - y). Every other Neg is
+      * a 0 - x.
+      */
     def opCounts[A](e: Expr[A]): OpCounts = {
       @annotation.tailrec
       def loop(
@@ -602,6 +624,10 @@ object RingOpt {
                 loop(tail, mulCnt, addCnt, negCnt)
               case Neg(x) =>
                 loop(x :: tail, mulCnt, addCnt, negCnt + 1)
+              case Add(x, Neg(y)) =>
+                loop(x :: y :: tail, mulCnt, addCnt + 1, negCnt)
+              case Add(Neg(x), y) =>
+                loop(x :: y :: tail, mulCnt, addCnt + 1, negCnt)
               case Add(x, y) =>
                 loop(x :: y :: tail, mulCnt, addCnt + 1, negCnt)
               case Mult(x, y) =>
@@ -1548,7 +1574,8 @@ object RingOpt {
     }
   }
 
-  // Heuristic cost model (make Mult much costlier than Add)
+  // Heuristic cost model: a weight per operation, counted as in
+  // Expr.opCounts, so x - y (that is x + -y) costs one add and no neg
   final case class Weights(mult: Int, add: Int, neg: Int) {
     Require(add > 0, s"add = $add must be > 0")
     Require(mult > 0, s"mult = $mult must be > 0")
@@ -1596,6 +1623,12 @@ object RingOpt {
       // but, the e could have an outer Neg(_) which
       // can easily be removed, so actually
       // we need to resort to using the above in the pessimistic case
+      //
+      // A copy of e in the sum can cost less than e alone: a Neg that is a
+      // direct child of an Add costs nothing (see Expr.opCounts). It never
+      // costs less than what bestEffortConstMult puts next to the literal
+      // (e, or its cheapNeg for a negative constant, without outer Negs),
+      // so mult <= (i - 1) * add is still enough.
 
       val (d, m) = BigInt(mult) /% BigInt(add)
       if (m == 0) (d + 1)
@@ -1608,34 +1641,17 @@ object RingOpt {
     ): Boolean =
       if ((const == 0) || (const == 1) || (const == -1)) false
       else {
-        val cAbs = const.abs
-        if (multThreshold <= cAbs) {
+        if (multThreshold <= const.abs) {
           // it's always better to multiply
           true
         } else {
-          val maybeNegated = if (const < 0) {
-            expr.cheapNeg.map(multIsBetter(_, -const))
-          } else {
-            None
-          }
-
-          maybeNegated match {
-            case Some(res) => res
-            case None      =>
-              (expr.maybeBigInt(_ => None).isDefined) || {
-                // replicateAdd(const, expr) is (e + e + ... + e) with i terms:
-                // i * cost(e) + (i - 1) * add. When const < 0, expr has no
-                // cheapNeg here, so replicateAdd also negates the sum: + neg.
-                val addCost =
-                  cAbs * cost(expr) + (cAbs - 1) * add +
-                    (if (const < 0) neg else 0)
-                // Don't estimate the product as cost(e) + mult: it can be
-                // cheaper, since bestEffortConstMult moves outer Negs onto
-                // the literal (Neg(x) * 2 becomes x * -2). Price what it
-                // builds.
-                BigInt(cost(expr.bestEffortConstMult(const))) <= addCost
-              }
-          }
+          // Below the threshold, price both forms as they are built. Neither
+          // is a closed form of cost(expr): bestEffortConstMult moves outer
+          // Negs onto the literal (Neg(x) * 2 becomes x * -2), and a copy of
+          // expr that is a Neg can be the right side of a subtraction in
+          // replicateAdd, where it costs nothing.
+          cost(expr.bestEffortConstMult(const)) <=
+            cost(Expr.replicateAdd(const, expr))
         }
       }
 

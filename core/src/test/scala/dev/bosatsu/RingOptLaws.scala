@@ -1732,12 +1732,12 @@ class RingOptLaws extends munit.ScalaCheckSuite {
   }
 
   test("constMult moves an outer Neg onto the literal") {
-    // -[0] + -[0] costs 7 here; [0] * -2 costs 6
-    val w = Weights(mult = 6, add = 3, neg = 2)
+    // -[0] + -[0] is (0 - [0]) - [0], which costs 5 here; [0] * -2 costs 4
+    val w = Weights(mult = 4, add = 3, neg = 2)
     val e: Expr[Int] = Neg(Symbol(0))
     val res = w.constMult(e, BigInt(2))
     assertEquals(res, Mult(Symbol(0), Integer(-2)))
-    assertEquals(w.cost(res), 6L)
+    assertEquals(w.cost(res), 4L)
   }
 
   property("Stack.toValue is the same as Expr.toValue and maybeBigInt") {
