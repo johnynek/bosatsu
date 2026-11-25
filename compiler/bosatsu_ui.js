@@ -407191,9 +407191,9 @@ function $c_Ldev_bosatsu_BuildInfo$() {
   this.ahl = null;
   this.bws = null;
   $n_Ldev_bosatsu_BuildInfo$ = this;
-  this.Ql = "0.0.0+1-c99b174f-SNAPSHOT";
+  this.Ql = "0.0.0+1-05651096-SNAPSHOT";
   this.aTI = "3.8.2";
-  this.Yc = new $c_s_Some("c99b174f5a00326c09ade36ac6b89b33390d722e");
+  this.Yc = new $c_s_Some("05651096f18d415806fe6580e05417d6cd2a2e3f");
   this.ahl = "";
   this.bws = ((((((("version: " + this.Ql) + ", scalaVersion: ") + this.aTI) + ", gitHeadCommit: ") + this.Yc) + ", cRuntimeArchiveHash: ") + this.ahl);
 }
