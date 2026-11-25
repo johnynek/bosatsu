@@ -4543,9 +4543,11 @@ object TypedExprRecursionCheck {
               )
             )
             getSt.flatMap { state =>
-              // A nested def inherits the aliases from the def around it
-              // (see checkDef), so only a def directly in a top-level
-              // value, where state is TopLevel, uses these empty maps.
+              // A def inside another def inherits that def's aliases (see
+              // checkDef). These empty maps are used only by a def that
+              // is not inside any def, such as one in a top-level value,
+              // where state is TopLevel. Fewer aliases only make the SMT
+              // lowering reject more, never accept more.
               val checkedDef =
                 checkDef(
                   currentPackage,
