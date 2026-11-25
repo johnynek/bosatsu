@@ -2016,7 +2016,7 @@ def walk(t: Tree) -> Eval[Int]:
 
     // walk(t) -> walk(t) -> ...: the outer x is not smaller, so neither is
     // the binder
-    disallowed(
+    disallowedWithMessage(
       header + """
 def walk(t: Tree) -> Eval[Int]:
   recur t:
@@ -2026,18 +2026,19 @@ def walk(t: Tree) -> Eval[Int]:
       flat_map(x, x -> walk(x))
 """,
       evalPack
-    )
+    )(msg => assert(msg.contains("not lexicographically smaller"), msg))
 
-    // the binder shadows a smaller name, but is bound to t
-    disallowed(
+    // walk(t) -> walk(t) -> ...: the inner binder shadows the smaller x,
+    // but is bound to t
+    disallowedWithMessage(
       header + """
 def walk(t: Tree) -> Eval[Int]:
   recur t:
     case Leaf: done(0)
-    case Node(x): flat_map(done(t), x -> walk(x))
+    case Node(x): flat_map(x, _ -> flat_map(done(t), x -> walk(x)))
 """,
       evalPack
-    )
+    )(msg => assert(msg.contains("not lexicographically smaller"), msg))
   }
 
   test("Int recursion rejects non-decreasing recursive calls") {
