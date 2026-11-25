@@ -450,9 +450,12 @@ object TypedExprRecursionCheck {
         fnType: Type,
         topLevelPredefAliases: TopLevelPredefAliases,
         types: TypeContext,
+        // the names bound by the binders around the current expression, so
+        // a recur on one of them is not a recur on a parameter (see
+        // withLocals)
         localScope: Set[Bindable]
     ) extends InDefState {
-      def addLocal(b: Bindable): InDef =
+      def withLocalScope(scope: Set[Bindable]): InDef =
         InDef(
           outer,
           fnname,
@@ -462,7 +465,7 @@ object TypedExprRecursionCheck {
           fnType,
           topLevelPredefAliases,
           types,
-          localScope + b
+          scope
         )
 
       def setRecur(target: RecurTarget, m: Declaration.Match): InDefRecurred =
@@ -3590,18 +3593,22 @@ object TypedExprRecursionCheck {
       }
     }
 
+    // `name` is bound to a strict child of `expr`'s value: expr is
+    // classified with `outer`, the proof where it is evaluated, and the fact
+    // about name goes in `inner`, the proof where name is bound.
     private def extendProofWithStrictChildExpr(
         inrec: InDefRecurred,
         target: RecurTargetItem,
-        proof: TargetProof,
+        outer: TargetProof,
+        inner: TargetProof,
         name: Bindable,
         expr: TypedExpr[Declaration]
     ): TargetProof =
-      classifyExpr(inrec, target, proof, expr) match {
+      classifyExpr(inrec, target, outer, expr) match {
         case Equal | Smaller =>
-          proof.withFact(name, ProvenRel.Smaller)
+          inner.withFact(name, ProvenRel.Smaller)
         case Other =>
-          proof
+          inner
       }
 
     // `match scrutinee: case pattern`: the scrutinee is classified in the
@@ -4030,16 +4037,59 @@ object TypedExprRecursionCheck {
         bs: Iterable[Bindable],
         region: Region
     ): St[Unit] =
-      for {
-        state <- getSt
-        _ <- toSt(checkForIllegalBinds(state, bs, region)(unitValid))
-        _ <- (state match {
-          case id @ InDef(_, _, _, _, _, _, _, _, _) =>
-            setSt(bs.foldLeft(id)(_.addLocal(_)))
-          case _                                =>
-            unitSt
-        })
-      } yield ()
+      getSt.flatMap { state =>
+        toSt(checkForIllegalBinds(state, bs, region)(unitValid))
+      }
+
+    // Check `in`, the scope of a binder of `names`. In it those names are
+    // locals, so a recur on one of them is not a recur on a parameter it
+    // shadows (see getRecurTarget). When `in` ends they go out of scope,
+    // and localScope gets back exactly what it was, which still has the
+    // names of the binders around this one. Scope is lexical, so a later
+    // recur outside `in` names whatever binds the name there.
+    //
+    // So localScope always holds the binders around the current expression
+    // that were opened before the recur match. Only getRecurTarget reads
+    // it, in InDef, and the state never goes back to InDef once the recur
+    // match starts, so binders opened after that are not tracked. A scope
+    // opened in InDef is closed in whichever state `in` ends in: InDef, or
+    // InDefRecurred when the recur match is inside the scope, where the
+    // scope lives in inRec.
+    private def withLocals[A](names: Iterable[Bindable])(in: St[A]): St[A] =
+      if (names.isEmpty) in
+      else
+        getSt.flatMap {
+          case id @ InDef(_, _, _, _, _, _, _, _, outerScope) =>
+            setSt(id.withLocalScope(outerScope ++ names)) *>
+              in.flatMap { a =>
+                getSt.flatMap {
+                  case idEnd @ InDef(_, _, _, _, _, _, _, _, _) =>
+                    setSt(idEnd.withLocalScope(outerScope)).as(a)
+                  case irEnd @ InDefRecurred(inRec, _, _, _, _) =>
+                    setSt(
+                      irEnd.copy(inRec = inRec.withLocalScope(outerScope))
+                    ).as(a)
+                  // $COVERAGE-OFF$ this should be unreachable: every recur
+                  // branch ends back in InDefRecurred (see endBranch), and
+                  // TopLevel never becomes InDef
+                  case unexpected                               =>
+                    sys.error(
+                      s"invariant violation: a scope opened in InDef ended in $unexpected"
+                    )
+                  // $COVERAGE-ON$
+                }
+              }
+          case _                                              =>
+            in
+        }
+
+    // A binder of `names` whose scope is `in`: report names that shadow a
+    // def, then check `in` with the names local.
+    private def bindingNames[A](
+        names: Iterable[Bindable],
+        region: Region
+    )(in: St[A]): St[A] =
+      checkForIllegalBindsSt(names, region) *> withLocals(names)(in)
 
     private def argsOnDefName(
         currentPackage: PackageName,
@@ -4235,10 +4285,11 @@ object TypedExprRecursionCheck {
     )(
         updateProofs: NonEmptyList[TargetProof] => NonEmptyList[TargetProof]
     ): St[Unit] =
-      checkForIllegalBindsSt(args.toList.map(_._1), region) *>
+      bindingNames(args.toList.map(_._1), region)(
         withLambdaBinders(args, checkExpr(currentPackage, body, wrappers))(
           updateProofs
         )
+      )
 
     // Check a lambda body with its binders in scope: facts about any shadowed
     // names are dropped from the proofs and the SMT state, then updateProofs
@@ -4284,13 +4335,14 @@ object TypedExprRecursionCheck {
           val branch = branches.head
           val newBinds = branch.pattern.names.toList
           checkExpr(currentPackage, arg, wrappers) *>
-            checkForIllegalBindsSt(newBinds, tag.region) *>
-            unionNames(newBinds)(
-              checkReachableLambdaBody(
-                currentPackage,
-                branch.expr,
-                wrappers,
-                lambdaTag
+            bindingNames(newBinds, tag.region)(
+              unionNames(newBinds)(
+                checkReachableLambdaBody(
+                  currentPackage,
+                  branch.expr,
+                  wrappers,
+                  lambdaTag
+                )
               )
             )
         case _ =>
@@ -4427,20 +4479,22 @@ object TypedExprRecursionCheck {
                   body,
                   wrappers,
                   lambdaTag.region
-                ) { proofs =>
-                  val updated =
-                    inrec.target.toList
-                      .zip(proofs.toList)
-                      .map { case (targetItem, proof) =>
-                        extendProofWithStrictChildExpr(
-                          inrec,
-                          targetItem,
-                          proof,
-                          binderName,
-                          evalArg
-                        )
-                      }
-                  NonEmptyList.fromListUnsafe(updated)
+                ) { innerProofs =>
+                  // evalArg is evaluated here, at the call, so it is
+                  // classified with the proofs at the call, not the
+                  // lambda's: the binder may shadow a name in it
+                  inrec.target
+                    .zip(proofsPerTarget.zip(innerProofs))
+                    .map { case (targetItem, (callProof, innerProof)) =>
+                      extendProofWithStrictChildExpr(
+                        inrec,
+                        targetItem,
+                        callProof,
+                        innerProof,
+                        binderName,
+                        evalArg
+                      )
+                    }
                 }
             case None =>
               argsOnDefName(currentPackage, fn, NonEmptyList.one(args)) match {
@@ -4490,7 +4544,7 @@ object TypedExprRecursionCheck {
                         asAnnotatedLambda(argExpr) match {
                           case Some(TypedExpr.AnnotatedLambda(lambdaArgs, body, lambdaTag)) =>
                             val names1 = lambdaArgs.toList.map(_._1)
-                            checkForIllegalBindsSt(names1, lambdaTag.region) *>
+                            bindingNames(names1, lambdaTag.region)(
                               withLambdaBinders(
                                 lambdaArgs,
                                 checkReachableLambdaBody(
@@ -4500,6 +4554,7 @@ object TypedExprRecursionCheck {
                                   lambdaTag
                                 )
                               )(smallerIfSingleTarget(_, names1))
+                            )
                           case None =>
                             localOrLocalPackageGlobalNameOf(
                               currentPackage,
@@ -4594,28 +4649,34 @@ object TypedExprRecursionCheck {
                   Some(normalizedDefArgs(defstmt.args))
                 case _                          => None
               }
-            // in `in`, arg is the new def, so drop facts about the name
-            // it shadows
-            val inCheck = withShadowingNames(arg :: Nil)(
-              checkExpr(currentPackage, in, wrappers)
+            // In `in`, arg is the new def: a `recur arg` there can't name
+            // a parameter it shadows, and facts about the shadowed name
+            // are dropped. checkDef already reports arg shadowing an outer
+            // def. The def's own body is checked by checkDef in a state
+            // of its own.
+            val inCheck = withLocals(arg :: Nil)(
+              withShadowingNames(arg :: Nil)(
+                checkExpr(currentPackage, in, wrappers)
+              )
             )
             getSt.flatMap { state =>
+              // A def inside another def inherits that def's aliases (see
+              // checkDef). These empty maps are used only by a def that
+              // is not inside any def, such as one in a top-level value,
+              // where state is TopLevel. Fewer aliases only make the SMT
+              // lowering reject more, never accept more.
               val checkedDef =
-                checkDef(currentPackage, state, arg, ex, fromSource)
-              // From here on arg is a local, so a later `recur arg` can't
-              // resolve to a parameter it shadows. Like a let's name, it
-              // stays local to the end of the def, even past the block
-              // that binds it. checkDef already reports arg shadowing an
-              // outer def.
-              val inState =
-                state match {
-                  case id @ InDef(_, _, _, _, _, _, _, _, _) =>
-                    id.addLocal(arg)
-                  case other                                =>
-                    other
-                }
+                checkDef(
+                  currentPackage,
+                  state,
+                  arg,
+                  ex,
+                  fromSource,
+                  Map.empty,
+                  Map.empty
+                )
               val checkedIn =
-                Validated.fromEither(inCheck.run(inState).value).map(_._1)
+                Validated.fromEither(inCheck.run(state).value).map(_._1)
 
               (checkedDef *> checkedIn) match {
                 case Validated.Valid(nextState) =>
@@ -4625,9 +4686,13 @@ object TypedExprRecursionCheck {
               }
             }
           } else {
+            // The let is not recursive, so its scope is `in`, not `ex`:
+            // in ex, arg still names what it shadows.
             val inCheck =
-              withTemporaryExprBindingProofs(arg, ex)(
-                checkExpr(currentPackage, in, wrappers)
+              withLocals(arg :: Nil)(
+                withTemporaryExprBindingProofs(arg, ex)(
+                  checkExpr(currentPackage, in, wrappers)
+                )
               )
             checkForIllegalBindsSt(arg :: Nil, tag.region) *>
               checkExpr(currentPackage, ex, wrappers) *>
@@ -4643,7 +4708,9 @@ object TypedExprRecursionCheck {
           val checkArgs = loopArgs.parTraverse_ { case (_, argExpr) =>
             checkExpr(currentPackage, argExpr, wrappers)
           }
-          val bodyCheck = filterNames(newBinds)(checkExpr(currentPackage, body, wrappers))
+          // the loop's names are bound in its body, not in its arguments
+          val bodyCheck =
+            withLocals(newBinds)(filterNames(newBinds)(checkExpr(currentPackage, body, wrappers)))
           checkForIllegalBindsSt(newBinds, expr.tag.region) *>
             checkArgs *>
             withTemporaryRecurBranchSmtState(
@@ -4699,9 +4766,10 @@ object TypedExprRecursionCheck {
                 // shadowed names' facts and derive new ones from the guard's
                 // scrutinee. addPatternFactsAndBindings rebinds them for SMT.
                 checkExpr(currentPackage, argExpr, wrappers) *>
-                  checkForIllegalBindsSt(pattern.names, guard.patternRegion) *>
-                  withTemporaryPatternProofs(argExpr, pattern)(
-                    innerGuardCheck *> bodyWithGuardFacts
+                  bindingNames(pattern.names, guard.patternRegion)(
+                    withTemporaryPatternProofs(argExpr, pattern)(
+                      innerGuardCheck *> bodyWithGuardFacts
+                    )
                   )
               case None                                      =>
                 bodyCheck
@@ -4734,11 +4802,14 @@ object TypedExprRecursionCheck {
                           _ => branchExprCheck
                         )(_ => entry)
                       }
-                    checkForIllegalBindsSt(branch.pattern.names, tag.region) *>
+                    // a branch's pattern names are bound in its guard and
+                    // body, not in the later branches
+                    bindingNames(branch.pattern.names, tag.region)(
                       withTemporaryPatternProofs(
                         arg,
                         branch.pattern
                       )(withEntryState)
+                    )
                 }
               }
               argRes *> optRes
@@ -4804,6 +4875,10 @@ object TypedExprRecursionCheck {
 
                       branches.toList.zip(entryStates.toList).parTraverse_ {
                         case (branch, entryState) =>
+                          // The branches run after the recur, where
+                          // localScope is no longer read (a second recur
+                          // is an error), so their names need not be
+                          // made local.
                           for {
                             _ <- checkForIllegalBindsSt(branch.pattern.names, tag.region)
                             _ <- beginBranch(branch.pattern, entryState)
@@ -4925,8 +5000,8 @@ object TypedExprRecursionCheck {
         fnname: Bindable,
         expr: TypedExpr[Declaration],
         sourceArgPatterns: Option[NonEmptyList[NonEmptyList[Pattern.Parsed]]],
-        topLevelLowerableAliases: TopLevelLowerableAliases = Map.empty,
-        topLevelPredefAliases: TopLevelPredefAliases = Map.empty
+        topLevelLowerableAliases: TopLevelLowerableAliases,
+        topLevelPredefAliases: TopLevelPredefAliases
     ): Res[Unit] =
       collectArgGroupsAndBody(expr) match {
         case None =>

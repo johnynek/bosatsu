@@ -2015,6 +2015,54 @@ def step(t: Tree) -> Eval[Tree]:
     )
   }
 
+  test("Eval.flat_map's argument is read outside its lambda, even when the binder shadows it") {
+    val evalPack = PackageName.parts("Bosatsu", "Eval")
+    val header = """#
+external type Eval[a: +*]
+external def done[a](a: a) -> Eval[a]
+external def flat_map[a, b](e: Eval[a], fn: a -> Eval[b]) -> Eval[b]
+
+enum Tree:
+  Leaf
+  Node(next: Eval[Tree])
+"""
+    allowed(
+      header + """
+def walk(t: Tree) -> Eval[Int]:
+  recur t:
+    case Leaf: done(0)
+    case Node(x): flat_map(x, x -> walk(x))
+""",
+      evalPack
+    )
+
+    // walk(t) -> walk(t) -> ...: the outer x is not smaller, so neither is
+    // the binder
+    disallowedWithMessage(
+      header + """
+def walk(t: Tree) -> Eval[Int]:
+  recur t:
+    case Leaf: done(0)
+    case Node(_):
+      x = done(t)
+      flat_map(x, x -> walk(x))
+""",
+      evalPack
+    )(msg => assert(msg.contains("not lexicographically smaller"), msg))
+
+    // walk(t) -> walk(t) -> ...: the inner binder shadows the smaller x,
+    // but is bound to t
+    disallowedWithMessage(
+      header + """
+def walk(t: Tree) -> Eval[Int]:
+  recur t:
+    case Leaf: done(0)
+    case Node(x): flat_map(x, _ -> flat_map(done(t), x -> walk(x)))
+""",
+      evalPack
+    )(msg => assert(msg.contains("not lexicographically smaller"), msg))
+  }
+
   test("Int recursion rejects non-decreasing recursive calls") {
     disallowedWithMessage("""#
 def bad(i: Int) -> Int:
@@ -3045,6 +3093,208 @@ def walk(th: () -> S, alt: () -> S) -> Int:
         case Go(k): walk(k, alt)
         case Stop: 0
 """)
+  }
+
+  private def assertRecurNotOnArg(msg: String): Unit =
+    assert(msg.contains("recur not on an argument"), msg)
+
+  test("a let's value is outside the let's scope, so it can recur on the name the let shadows") {
+    allowed("""#
+def f(xs: List[Int]) -> List[Int]:
+  xs = recur xs:
+    case []: []
+    case [_, *t]: f(t)
+  xs
+""")
+  }
+
+  test("a let's name shadows the parameter in the let's body") {
+    // f([1]) -> xs is [1, 1] -> f([1]) -> ...: t is the original xs
+    disallowedWithMessage("""#
+def f(xs: List[Int]) -> List[Int]:
+  xs = [1, *xs]
+  loop xs:
+    case []: []
+    case [_, *t]: f(t)
+""")(assertRecurNotOnArg)
+  }
+
+  test("a binder whose scope has ended does not block a later loop on the parameter") {
+    // the nested def's scope ends with the match branch
+    allowed("""#
+enum S:
+  Stop
+  Go(k: () -> S)
+
+def f(th: () -> S) -> Int:
+  x = match th:
+    case _:
+      def th() -> S: Stop
+      match th():
+        case Stop: 0
+        case Go(_): 1
+  loop th:
+    case g:
+      match g():
+        case Go(k): f(k)
+        case Stop: x
+""")
+
+    // a let
+    allowed("""#
+def f(xs: List[Int]) -> Int:
+  n = match xs:
+    case _:
+      xs = [1]
+      match xs:
+        case []: 0
+        case _: 1
+  loop xs:
+    case []: n
+    case [_, *t]: f(t)
+""")
+
+    // a match pattern
+    allowed("""#
+def f(xs: List[Int]) -> Int:
+  n = match ([1], 2):
+    case (xs, m): match xs:
+      case []: m
+      case _: 1
+  loop xs:
+    case []: n
+    case [_, *t]: f(t)
+""")
+
+    // a match guard pattern
+    allowed("""#
+def f(xs: List[Int]) -> Int:
+  n = match 1:
+    case _ if ([1], 2) matches (xs, m): match xs:
+      case []: m
+      case _: 1
+    case _: 0
+  loop xs:
+    case []: n
+    case [_, *t]: f(t)
+""")
+
+    // a lambda: `xs <- ...` binds xs in a lambda around the rest of the
+    // branch
+    allowed("""#
+def use_list(x: Int, fn: List[Int] -> Int) -> Int: fn([x])
+
+def f(xs: List[Int]) -> Int:
+  n = match xs:
+    case _:
+      xs <- use_list(1)
+      match xs:
+        case []: 0
+        case _: 1
+  loop xs:
+    case []: n
+    case [_, *t]: f(t)
+""")
+
+    // a pattern of an earlier branch of the same match
+    allowed("""#
+enum S:
+  Stop
+  Go(k: () -> S)
+
+def f(th: () -> S) -> Int:
+  match th():
+    case Go(th):
+      match th():
+        case Stop: 0
+        case Go(_): 1
+    case Stop:
+      loop th:
+        case g:
+          match g():
+            case Go(k): f(k)
+            case Stop: 1
+""")
+  }
+
+  test("a binder whose scope encloses a loop still shadows the parameter") {
+    // bad(p): th is () -> Go(p), so k is p and bad(p) -> bad(p) -> ...
+    // The nested def's scope ends before the loop, but the let's does not.
+    disallowedWithMessage("""#
+enum S:
+  Stop
+  Go(k: () -> S)
+
+def bad(th: () -> S) -> Int:
+  orig = th
+  th = () -> Go(orig)
+  x = match th:
+    case _:
+      def th() -> S: Stop
+      match th():
+        case Stop: 0
+        case Go(_): 1
+  loop th:
+    case g:
+      match g():
+        case Go(k): bad(k)
+        case Stop: x
+""")(assertRecurNotOnArg)
+
+    // a match pattern
+    disallowedWithMessage("""#
+enum S:
+  Stop
+  Go(k: () -> S)
+
+def bad(th: () -> S) -> Int:
+  orig = th
+  wrapped = () -> Go(orig)
+  match wrapped:
+    case th:
+      loop th:
+        case g:
+          match g():
+            case Go(k): bad(k)
+            case Stop: 0
+""")(assertRecurNotOnArg)
+
+    // a match guard pattern: bad(() -> Stop) -> bad(orig) -> ...
+    disallowedWithMessage("""#
+enum S:
+  Stop
+  Go(k: () -> S)
+
+def bad(th: () -> S) -> Int:
+  orig = th
+  wrapped = () -> Go(orig)
+  match th():
+    case Stop if wrapped matches th:
+      loop th:
+        case g:
+          match g():
+            case Go(k): bad(k)
+            case Stop: 0
+    case _: 0
+""")(assertRecurNotOnArg)
+
+    // a lambda: `th <- ...` binds th in a lambda around the rest
+    disallowedWithMessage("""#
+enum S:
+  Stop
+  Go(k: () -> S)
+
+def apply_to(th: () -> S, fn: (() -> S) -> Int) -> Int: fn(th)
+
+def bad(th: () -> S) -> Int:
+  orig = th
+  th <- apply_to(() -> Go(orig))
+  loop th:
+    case g:
+      match g():
+        case Go(k): bad(k)
+        case Stop: 0
+""")(assertRecurNotOnArg)
   }
 
   test("subsumed loop guard facts skip a guard about an outer name the pattern rebinds") {
