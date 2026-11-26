@@ -5,8 +5,7 @@ import cats.data.{NonEmptyChain, NonEmptyList, Validated, ValidatedNec}
 import cats.implicits._
 import dev.bosatsu.pattern.NameMap
 import dev.bosatsu.rankn.{ConstructorFn, DefinedType, Type, TypeEnv}
-import dev.bosatsu.scalawasiz3.{Z3Platform, Z3Result}
-import dev.bosatsu.smt.{SExpr, SmtCommand, SmtExpr, SmtLibRender, SmtScript, SmtScriptScope, SmtSort, Z3Api}
+import dev.bosatsu.smt.{IntDecide, SExpr, SmtCommand, SmtExpr, SmtLibRender, SmtScriptScope, SmtSort, SmtToSExpr}
 import scala.collection.mutable
 
 import Identifier.Bindable
@@ -225,15 +224,6 @@ object TypedExprRecursionCheck {
 
     private val comparisonType: Type =
       Type.TyConst(Type.Const.predef("Comparison"))
-    private val z3Solver = Z3Platform.create()
-    private val z3Runner: Z3Api.RunSmt2 = { smt2 =>
-      z3Solver.runSmt2(smt2) match {
-        case Z3Result.Success(stdout, stderr, _) =>
-          Right(Z3Api.SolverOutput(stdout, stderr))
-        case Z3Result.Failure(msg, _, stdout, stderr, _) =>
-          Left(Z3Api.RunError.ExecutionFailure(msg, stdout, stderr))
-      }
-    }
     private val emptyListSingletonCtor =
       SingletonCtor(PackageName.PredefName, Identifier.Constructor("EmptyList"))
     private val emptyListKnownCtor =
@@ -1365,10 +1355,12 @@ object TypedExprRecursionCheck {
         case _                                        => None
       }
 
+    // noDecreaseError is only reported when no later target decreases, so it
+    // is built only then.
     private case class LexStep(
         order: ArgLexOrder,
         immediateError: Option[RecursionCheck.Error],
-        noDecreaseError: Option[RecursionCheck.Error]
+        noDecreaseError: Option[Eval[RecursionCheck.Error]]
     )
 
     private sealed trait ProofOutcome derives CanEqual
@@ -2647,63 +2639,42 @@ object TypedExprRecursionCheck {
     private def renderPathCondition(state: SmtBranchState): String =
       renderBoolForSolver(buildPathCondition(state))
 
-    private def renderModel(model: Option[Vector[SExpr]]): Option[String] =
-      model.map(SExpr.renderAll(_))
+    // One `(define-fun name () Sort value)` per line, as z3 printed its
+    // models.
+    private def renderModel(model: IntDecide.Model): String = {
+      val ints = model.ints.iterator.map { case (name, value) =>
+        SmtCommand.DefineFun(name, Vector.empty, SmtSort.IntS, SmtExpr.IntConst(value))
+      }
+      val bools = model.bools.iterator.map { case (name, value) =>
+        SmtCommand.DefineFun(name, Vector.empty, SmtSort.BoolS, SmtExpr.BoolConst(value))
+      }
+      SExpr.renderAll((ints ++ bools).map(SmtToSExpr.command).toVector)
+    }
 
     private def prove(
         goal: SmtExpr.BoolExpr,
         state: SmtBranchState
     ): ProofOutcome = {
-      if (SmtExpr.pathImplies(goal, state.pathFacts)) {
-        ProofOutcome.Proved
-      } else {
-        val goal1 = SmtExpr.normalizeBoolForSolver(goal)
-        val pathCondition1 = SmtExpr.normalizeBoolForSolver(buildPathCondition(state))
-        val declarations = state.declarations.toList.sortBy(_._1).map {
-          case (name, sort) =>
-            SmtCommand.DeclareConst(name, sort)
-        }
-        val script = SmtScript(
-          Vector(SmtCommand.SetLogic.QF_LIA) ++
-            declarations ++
-            Vector(
-              SmtCommand.Assert(pathCondition1),
-              SmtCommand.Assert(SmtExpr.Not(goal1)),
-              SmtCommand.CheckSat
-            )
-        )
-
-        val undeclared = SmtScriptScope.undeclaredVars(script)
-        if (undeclared.nonEmpty) {
+      // Every symbol comes from freshSymbol, which declares it. One that
+      // didn't would be a bug in the lowering, so it is reported before
+      // what the decision procedure found.
+      def failed(model: Option[String], detail: Option[String]): ProofOutcome = {
+        val undeclared =
+          SmtScriptScope.undeclaredVars(goal +: state.pathFacts, state.declarations.keySet)
+        if (undeclared.isEmpty) ProofOutcome.Failed(model, detail)
+        else
           ProofOutcome.Failed(
             None,
             Some(
-              s"internal SMT script uses undeclared variables: ${undeclared.toList.sorted.mkString(", ")}"
+              s"internal SMT obligation uses undeclared variables: ${undeclared.toList.sorted.mkString(", ")}"
             )
           )
-        } else
-          Z3Api.run(script, parseModel = false, z3Runner) match {
-          case Right(res) =>
-            res.status match {
-              case Z3Api.Status.Unsat =>
-                ProofOutcome.Proved
-              case Z3Api.Status.Sat   =>
-                val withModel = SmtScript(script.commands :+ SmtCommand.GetModel)
-                Z3Api.run(withModel, z3Runner) match {
-                  case Right(modelRes) =>
-                    ProofOutcome.Failed(renderModel(modelRes.model), None)
-                  case Left(err)       =>
-                    ProofOutcome.Failed(None, Some(err.message))
-                }
-              case Z3Api.Status.Unknown =>
-                ProofOutcome.Failed(None, Some("solver returned unknown"))
-            }
-          case Left(err) =>
-            ProofOutcome.Failed(
-              None,
-              Some(err.message)
-            )
-        }
+      }
+
+      IntDecide.implies(goal, state.pathFacts, IntDecide.DefaultWorkLimit) match {
+        case IntDecide.Result.Proved          => ProofOutcome.Proved
+        case IntDecide.Result.Refuted(model)  => failed(Some(renderModel(model)), None)
+        case IntDecide.Result.Unknown(reason) => failed(None, Some(reason.message))
       }
     }
 
@@ -3747,6 +3718,12 @@ object TypedExprRecursionCheck {
           val nonNegGoal = SmtExpr.Gte(argInt, SmtExpr.IntConst(BigInt(0)))
           val lessGoal = SmtExpr.Lt(argInt, currInt)
 
+          def obligationError(
+              goal: SmtExpr.BoolExpr,
+              failed: ProofOutcome.Failed
+          ): RecursionCheck.Error =
+            intObligationError(fnname, target, goal, state1, failed, region)
+
           // A step that does not decrease: Equal when the argument is the
           // target's value at entry, so a later target must decrease, else
           // Other. Only a decreasing Int needs a lower bound, so an Equal
@@ -3755,30 +3732,43 @@ object TypedExprRecursionCheck {
           def notSmaller(
               goal: SmtExpr.BoolExpr,
               failed: ProofOutcome.Failed
-          ): (LexStep, SmtBranchState) = {
-            val err =
-              intObligationError(fnname, target, goal, state1, failed, region)
-            // argInt == currInt is the target's own value, not just a name
-            // that may have been rebound
-            def provedEqual: Boolean =
-              prove(SmtExpr.EqInt(argInt, currInt), state1) ==
-                ProofOutcome.Proved
-            val isEqual = (argInt == currInt) || provedEqual
-            if (isEqual) (LexStep(Equal, None, Some(err)), state1)
-            else (LexStep(Other, Some(err), None), state1)
-          }
+          ): (LexStep, SmtBranchState) =
+            if (prove(SmtExpr.EqInt(argInt, currInt), state1) == ProofOutcome.Proved)
+              (LexStep(Equal, None, Some(Eval.later(obligationError(goal, failed)))), state1)
+            else (LexStep(Other, Some(obligationError(goal, failed)), None), state1)
 
-          prove(nonNegGoal, state1) match {
-            case ProofOutcome.Proved =>
-              prove(lessGoal, state1) match {
-                case ProofOutcome.Proved =>
-                  (LexStep(Smaller, None, None), state1)
-                case failedLess: ProofOutcome.Failed =>
-                  notSmaller(lessGoal, failedLess)
+          if (argInt == currInt) {
+            // The target's own value (currInt is a symbol bound at entry, so
+            // this is not a name that was rebound): Equal, and the
+            // obligations are only proved, for the error, if no later target
+            // decreases. On a path that can't be taken every obligation
+            // holds, so there it is Smaller, as when they are proved first.
+            if (prove(SmtExpr.BoolConst.False, state1) == ProofOutcome.Proved)
+              (LexStep(Smaller, None, None), state1)
+            else {
+              // the first obligation that fails, as below
+              val err = Eval.later {
+                val (goal, outcome) =
+                  prove(nonNegGoal, state1) match {
+                    case ProofOutcome.Proved => (lessGoal, prove(lessGoal, state1))
+                    case failedNonNeg        => (nonNegGoal, failedNonNeg)
+                  }
+                intObligationError(fnname, target, goal, state1, outcome, region)
               }
-            case failedNonNeg: ProofOutcome.Failed =>
-              notSmaller(nonNegGoal, failedNonNeg)
-          }
+              (LexStep(Equal, None, Some(err)), state1)
+            }
+          } else
+            prove(nonNegGoal, state1) match {
+              case ProofOutcome.Proved =>
+                prove(lessGoal, state1) match {
+                  case ProofOutcome.Proved =>
+                    (LexStep(Smaller, None, None), state1)
+                  case failedLess: ProofOutcome.Failed =>
+                    notSmaller(lessGoal, failedLess)
+                }
+              case failedNonNeg: ProofOutcome.Failed =>
+                notSmaller(nonNegGoal, failedNonNeg)
+            }
       }
     }
 
@@ -3804,7 +3794,7 @@ object TypedExprRecursionCheck {
           val proofItems = proofsNow.toList.toVector
           val callItems = callArgsByTarget.toList.toVector
           var smtState = smtState0
-          var deferredError: Option[RecursionCheck.Error] = None
+          var deferredError: Option[Eval[RecursionCheck.Error]] = None
           var immediateError: Option[RecursionCheck.Error] = None
           var accepted = false
           var idx = 0
@@ -3849,8 +3839,6 @@ object TypedExprRecursionCheck {
             idx += 1
           }
 
-          val finalError = immediateError.orElse(deferredError).getOrElse(defaultLexErr)
-
           setSt(
             InRecurBranch(
               inrec,
@@ -3858,7 +3846,16 @@ object TypedExprRecursionCheck {
               proofsNow,
               smtState
             )
-          ) *> (if (accepted) unitSt else failSt(finalError))
+          ) *> (
+            if (accepted) unitSt
+            else
+              // only now is a deferred error built
+              failSt(
+                immediateError
+                  .orElse(deferredError.map(_.value))
+                  .getOrElse(defaultLexErr)
+              )
+          )
         case notRecur =>
           // $COVERAGE-OFF$ this should be unreachable
           sys.error(s"recurAllowedByLexOrder called outside recur branch: $notRecur")

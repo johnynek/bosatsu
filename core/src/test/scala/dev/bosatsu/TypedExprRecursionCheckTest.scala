@@ -3316,6 +3316,81 @@ def f(n: Int, xs: List[Int]) -> Int:
 """)
   }
 
+  test("a failed Int obligation shows values that break it") {
+    // i > 0 and i - 2 < 0 hold only at i == 1
+    disallowedWithMessage("""#
+def bad(i: Int) -> Int:
+  recur i:
+    case _ if cmp_Int(i, 0) matches GT: bad(i.sub(2))
+    case _: i
+""") { msg =>
+      assert(clue(msg).contains("cannot prove Int recursion obligation for bad: (>= "))
+      assert(clue(msg).contains("model:\n(define-fun i_"))
+      assert(clue(msg).contains(" () Int 1)"))
+    }
+  }
+
+  test("unchanged Int targets with none smaller report the first target's failed obligation") {
+    // n is unchanged, so its error is built only when m doesn't decrease
+    // either: n >= 0 holds there, and n < n fails at any n > 0
+    disallowedWithMessage("""#
+def bad(n: Int, m: Int) -> Int:
+  loop (n, m):
+    case _ if cmp_Int(n, 0) matches GT: bad(n, m)
+    case _: 0
+""") { msg =>
+      assert(clue(msg).contains("cannot prove Int recursion obligation for bad: (< n_"))
+      assert(clue(msg).contains("recur target: n"))
+      assert(clue(msg).contains("model:\n(define-fun "))
+    }
+  }
+
+  test("an unchanged Int target on a path that can't be taken is smaller") {
+    // every obligation holds where the guards contradict each other, as it
+    // did when each one was proved
+    allowed("""#
+def f(n: Int, m: Int) -> Int:
+  loop (n, m):
+    case _ if cmp_Int(n, 0) matches GT:
+      match cmp_Int(n, 0):
+        case LT: f(n, m)
+        case _: 0
+    case _: 0
+""")
+  }
+
+  test("Int recursion proves steps that need a case split or a fact relating two variables") {
+    // an ite on a Bool argument: n - 2 or n - 1, both >= 0 and < n
+    allowed("""#
+def f(n: Int, fast: Bool) -> Int:
+  loop n:
+    case _ if cmp_Int(n, 1) matches GT:
+      next = match fast:
+        case True: n.sub(2)
+        case False: n.sub(1)
+      f(next, fast)
+    case _: 0
+""")
+    // n > k, so n - k - 1 >= 0
+    allowed("""#
+def g(n: Int, k: Int) -> Int:
+  loop n:
+    case _ if cmp_Int(n, k) matches GT:
+      match cmp_Int(k, 0):
+        case GT: g(n.sub(k), k)
+        case _: 0
+    case _: 0
+""")
+    // the first branch missed: n > 0 or not done, so with done, n > 0
+    allowed("""#
+def h(n: Int, done: Bool) -> Int:
+  loop n:
+    case _ if and(cmp_Int(n, 0) matches LT | EQ, done): 0
+    case _ if done: h(n.sub(1), done)
+    case _: 1
+""")
+  }
+
   test("an earlier Int target that changes is not an equal lexicographic step") {
     // bad(0, []) -> bad(-1, [1]) -> bad(-1, []) -> bad(-2, [1]) -> ...: n
     // goes down without a lower bound

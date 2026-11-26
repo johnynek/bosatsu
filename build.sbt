@@ -161,7 +161,7 @@ lazy val root =
   crossProject(JSPlatform, JVMPlatform)
     .crossType(CrossType.Pure)
     .in(file("."))
-    .aggregate(core)
+    .aggregate(intdecide, core)
     .settings(
       commonSettings,
       name := "bosatsu",
@@ -473,7 +473,6 @@ lazy val cli = (project in file("cli"))
         "--verbose",
         "-O2",
         s"-J-Xmx$nativeImageBuilderXmx",
-        "-H:IncludeResources=dev/bosatsu/scalawasiz3/aot/.*\\.meta",
         "-H:+RemoveUnusedSymbols",
         "-H:CompilationExpirationPeriod=0",
         "-H:CompilationNoProgressPeriod=0"
@@ -513,6 +512,36 @@ lazy val proto =
 lazy val protoJs = proto.js
 lazy val protoJVM = proto.jvm
 
+// Decides the Int obligations of the recursion check. Pure Scala with no
+// dependency on the rest of the compiler (only cats, which core uses too); z3
+// is only used by its tests in core, to check that the two agree.
+lazy val intdecide =
+  crossProject(JSPlatform, JVMPlatform)
+    .crossType(CrossType.Pure)
+    .in(file("intdecide"))
+    .settings(
+      commonSettings,
+      name := "bosatsu-intdecide",
+      moduleName := "compiler-intdecide",
+      scalacOptions += "-Yexplicit-nulls",
+      // Scaladoc keeps state between runs in one JVM: documenting this
+      // module first makes core's scaladoc, run next as part of `doc`, fail
+      // with an NPE in SignatureBuilder on signatures that use this module's
+      // types. Nothing reads this module's API docs, so none are generated.
+      Compile / doc / sources := Seq.empty,
+      libraryDependencies ++=
+        Seq(
+          cats.value,
+          scalaCheck.value % Test,
+          munit.value % Test,
+          munitScalaCheck.value % Test
+        )
+    )
+    .jsSettings(commonJsSettings)
+
+lazy val intdecideJS = intdecide.js
+lazy val intdecideJVM = intdecide.jvm
+
 lazy val core =
   crossProject(JSPlatform, JVMPlatform)
     .crossType(CrossType.Pure)
@@ -531,13 +560,13 @@ lazy val core =
         catsParse.value,
         decline.value,
         paiges.value,
-        scalawasiz3.value,
+        scalawasiz3.value % Test,
         scalaCheck.value % Test,
         munit.value % Test,
         munitScalaCheck.value % Test,
         "com.thesamet.scalapb" %% "scalapb-runtime" % scalapb.compiler.Version.scalapbVersion
       )
-  ).dependsOn(base, proto)
+  ).dependsOn(base, proto, intdecide % "compile->compile;test->test")
     .jsSettings(
       commonJsSettings
     )
