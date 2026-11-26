@@ -165,7 +165,7 @@ enum MyNat: Z, S(prev: MyNat)
     val bytesType =
       Type.const(PackageName.parts("Bosatsu", "IO", "Bytes"), TypeName("Bytes"))
     val bytes = Value.ExternalValue(
-      PredefImpl.BytesValue(Array[Byte](0.toByte, 10.toByte, 255.toByte), 0, 3)
+      PredefImpl.BytesValue(Bytes.copyFromArray(Array[Byte](0.toByte, 10.toByte, 255.toByte)), 0, 3)
     )
 
     conv.toDoc(bytesType)(bytes) match {

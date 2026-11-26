@@ -60,6 +60,35 @@ class BytesTest extends munit.ScalaCheckSuite {
     }
   }
 
+  property("length and apply read contents without copying") {
+    forAll { (values: List[Byte]) =>
+      val bytes = Bytes.copyFromArray(values.toArray)
+      assertEquals(bytes.length, values.length)
+      assertEquals(values.indices.map(bytes(_)).toList, values)
+    }
+  }
+
+  property("decodeUtf8 decodes whole values and slices of valid UTF-8") {
+    forAll { (prefix: String, text: String) =>
+      val prefixBytes = prefix.getBytes(StandardCharsets.UTF_8)
+      val textBytes = text.getBytes(StandardCharsets.UTF_8)
+      val all = prefixBytes ++ textBytes
+      val bytes = Bytes.copyFromArray(all)
+      assertEquals(bytes.decodeUtf8.toOption, Some(new String(all, StandardCharsets.UTF_8)))
+      assertEquals(
+        bytes.decodeUtf8Slice(prefixBytes.length, textBytes.length).toOption,
+        Some(new String(textBytes, StandardCharsets.UTF_8))
+      )
+    }
+  }
+
+  test("decodeUtf8 reports malformed input instead of replacing it") {
+    val malformed = Bytes.copyFromArray(Array(0x61.toByte, 0xc3.toByte, 0x28.toByte))
+    assert(malformed.decodeUtf8.isLeft)
+    assertEquals(malformed.decodeUtf8Slice(0, 1).toOption, Some("a"))
+    assert(Bytes.copyFromArray(Array(0x80.toByte)).decodeUtf8.isLeft)
+  }
+
   property("UTF-8 and protobuf constructors preserve serialization") {
     forAll { (text: String) =>
       val bytes = Bytes.fromUTF8String(text)

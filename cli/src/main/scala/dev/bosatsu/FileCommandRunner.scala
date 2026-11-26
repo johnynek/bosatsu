@@ -173,7 +173,7 @@ object FileCommandRunner {
 
             // Join the request's transaction instead of publishing independently.
             override def writeFileSetAtomic(files: List[(Path, Bytes)]): IO[Unit] =
-              files.traverse_ { case (path, bytes) => writeBytes(path, bytes.unsafeReadOnlyView) }
+              files.traverse_ { case (path, bytes) => writeBytes(path, bytes) }
           }
           out.report(reporter).flatMap {
             case ExitCode.Success => staged.publish.as(ExitCode.Success)

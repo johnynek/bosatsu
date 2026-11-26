@@ -177,7 +177,7 @@ class Fs2PlatformIOTest extends FunSuite {
 
       val partialWriteOps = normalOps.copy(
         writeStaged = (staged, _) => {
-          normalOps.writeStaged(staged, "partial".getBytes("UTF-8")) *>
+          normalOps.writeStaged(staged, Bytes.fromUTF8String("partial")) *>
             IO.raiseError(new IOException("staged write failed"))
         }
       )
@@ -267,7 +267,7 @@ class Fs2PlatformIOTest extends FunSuite {
           }
         val ordered = if (failureAt % 2 == 0) files.reverse else files
         for {
-          _ <- Fs2PlatformIO.writeBytes(existing, "same".getBytes("UTF-8"))
+          _ <- Fs2PlatformIO.writeBytes(existing, Bytes.fromUTF8String("same"))
           existingBefore <- IO.fromPromise(IO(DocumentStat(existing.toString)))
             .map(s => (s.mode, s.uid, s.gid, s.ino))
           installs <- Ref.of[IO, Int](0)
@@ -289,7 +289,7 @@ class Fs2PlatformIOTest extends FunSuite {
           present <- absent.traverse(fs.exists)
           _ = assertEquals(present, List(false, false, false))
           existingContent <- Fs2PlatformIO.readBytes(existing)
-          _ = assertEquals(existingContent.toList, "same".getBytes("UTF-8").toList)
+          _ = assertEquals(existingContent.copyToArray.toList, "same".getBytes("UTF-8").toList)
           existingAfter <- IO.fromPromise(IO(DocumentStat(existing.toString)))
             .map(s => (s.mode, s.uid, s.gid, s.ino))
           _ = assertEquals(existingAfter, existingBefore)
@@ -309,7 +309,7 @@ class Fs2PlatformIOTest extends FunSuite {
             path -> Bytes.fromUTF8String(s"new-$index")
           }
         for {
-          _ <- Fs2PlatformIO.writeBytes(existing, "same".getBytes("UTF-8"))
+          _ <- Fs2PlatformIO.writeBytes(existing, Bytes.fromUTF8String("same"))
           writes <- Ref.of[IO, Int](0)
           ops = normalOps.copy(
             writeStaged = (staged, bytes) =>
@@ -356,7 +356,7 @@ class Fs2PlatformIOTest extends FunSuite {
       val ordered = if (reverse) outputs.reverse else outputs
       for {
         _ <- fs.createDirectories(caseDir)
-        _ <- Fs2PlatformIO.writeBytes(existing, sameBytes)
+        _ <- Fs2PlatformIO.writeBytes(existing, Bytes.copyFromArray(sameBytes))
         _ <- IO.fromPromise(IO(DocumentChmod(existing.toString, 0x180)))
         existingBefore <- stat(existing)
       } yield (caseDir, existing, absent, ordered, existingBefore)
@@ -435,9 +435,9 @@ class Fs2PlatformIOTest extends FunSuite {
           outcome <- fiber.join
           _ = assertCanceled(s"install $installPosition", outcome)
           contents <- absent.traverse(Fs2PlatformIO.readBytes)
-          _ = assertEquals(contents.map(_.toList), newBytes.map(_.toList))
+          _ = assertEquals(contents.map(_.copyToArray.toList), newBytes.map(_.toList))
           existingContent <- Fs2PlatformIO.readBytes(existing)
-          _ = assertEquals(existingContent.toList, sameBytes.toList)
+          _ = assertEquals(existingContent.copyToArray.toList, sameBytes.toList)
           existingAfter <- stat(existing)
           _ = assertEquals(existingAfter, existingBefore)
           _ <- assertNoStaging(caseDir)
@@ -473,7 +473,7 @@ class Fs2PlatformIOTest extends FunSuite {
         present <- absent.traverse(fs.exists)
         _ = assertEquals(present, List(false, false, false))
         existingContent <- Fs2PlatformIO.readBytes(existing)
-        _ = assertEquals(existingContent.toList, sameBytes.toList)
+        _ = assertEquals(existingContent.copyToArray.toList, sameBytes.toList)
         existingAfter <- stat(existing)
         _ = assertEquals(existingAfter, existingBefore)
         _ <- assertNoStaging(caseDir)
@@ -515,8 +515,8 @@ class Fs2PlatformIOTest extends FunSuite {
         "--out", stamp.toString
       )
       for {
-        _ <- Fs2PlatformIO.writeBytes(manifest, manifestBytes)
-        _ <- Fs2PlatformIO.writeBytes(compiler, compilerBytes)
+        _ <- Fs2PlatformIO.writeBytes(manifest, Bytes.copyFromArray(manifestBytes))
+        _ <- Fs2PlatformIO.writeBytes(compiler, Bytes.copyFromArray(compilerBytes))
         valid <- verify.attempt
         _ = assertEquals(valid.toOption, Some(ExitCode.Success))
         stampContent <- Fs2PlatformIO.readUtf8(stamp)
@@ -533,7 +533,7 @@ class Fs2PlatformIOTest extends FunSuite {
         _ = assertEquals(afterBlocked, "sentinel")
         paths <- fs.walk(dir).compile.toList
         _ = assertEquals(paths.toSet, Set(dir, manifest, compiler, stamp))
-        _ <- Fs2PlatformIO.writeBytes(compiler, "altered candidate".getBytes("UTF-8"))
+        _ <- Fs2PlatformIO.writeBytes(compiler, Bytes.fromUTF8String("altered candidate"))
         invalid <- verify.attempt
         _ = assert(
           invalid.swap.toOption.exists(_.getMessage.contains("compiler jar SHA-256 mismatch")),
@@ -598,24 +598,24 @@ class Fs2PlatformIOTest extends FunSuite {
       def rejectedAlias(out: Path, requested: List[Path], command: List[String]): IO[Unit] = {
         val paths = (requested :+ out).distinct
         for {
-          before <- paths.traverse(path => Fs2PlatformIO.readBytes(path).map(path.toString -> _.toList)).map(_.toMap)
+          before <- paths.traverse(path => Fs2PlatformIO.readBytes(path).map(path.toString -> _.copyToArray.toList)).map(_.toMap)
           result <- run(command).attempt
           _ = assert(
             result.swap.toOption.exists(_.getMessage.contains("refers to requested input")),
             result
           )
-          after <- paths.traverse(path => Fs2PlatformIO.readBytes(path).map(path.toString -> _.toList)).map(_.toMap)
+          after <- paths.traverse(path => Fs2PlatformIO.readBytes(path).map(path.toString -> _.copyToArray.toList)).map(_.toMap)
           _ = assertEquals(after, before)
         } yield ()
       }
       val requestedSources = List(firstSource, secondSource)
       val sourceAndRuntimeInputs = List(manifest, compiler, firstSource, secondSource, runtime)
       for {
-        _ <- Fs2PlatformIO.writeBytes(manifest, manifestBytes(coreBytes))
-        _ <- Fs2PlatformIO.writeBytes(compiler, compilerBytes)
-        _ <- Fs2PlatformIO.writeBytes(firstSource, firstBytes)
-        _ <- Fs2PlatformIO.writeBytes(secondSource, secondBytes)
-        _ <- Fs2PlatformIO.writeBytes(runtime, runtimeBytes)
+        _ <- Fs2PlatformIO.writeBytes(manifest, Bytes.copyFromArray(manifestBytes(coreBytes)))
+        _ <- Fs2PlatformIO.writeBytes(compiler, Bytes.copyFromArray(compilerBytes))
+        _ <- Fs2PlatformIO.writeBytes(firstSource, Bytes.copyFromArray(firstBytes))
+        _ <- Fs2PlatformIO.writeBytes(secondSource, Bytes.copyFromArray(secondBytes))
+        _ <- Fs2PlatformIO.writeBytes(runtime, Bytes.copyFromArray(runtimeBytes))
         _ <- sourceAndRuntimeInputs.traverse_(path =>
           rejectedAlias(path, sourceAndRuntimeInputs, verifyArgs(
             path,
@@ -630,8 +630,8 @@ class Fs2PlatformIOTest extends FunSuite {
           sourceAndRuntimeInputs,
           verifyArgs(link, sources = requestedSources, archive = Some(runtime))
         )
-        _ <- Fs2PlatformIO.writeBytes(core, coreBytes)
-        _ <- Fs2PlatformIO.writeBytes(manifest, manifestBytes(coreBytes))
+        _ <- Fs2PlatformIO.writeBytes(core, Bytes.copyFromArray(coreBytes))
+        _ <- Fs2PlatformIO.writeBytes(manifest, Bytes.copyFromArray(manifestBytes(coreBytes)))
         _ <- rejectedAlias(core, List(manifest, compiler, core), verifyArgs(core, binaryCore = Some(core)))
       } yield ()
     }.unsafeToFuture()
@@ -684,7 +684,7 @@ class Fs2PlatformIOTest extends FunSuite {
         "--descriptor-out", descriptors.toString
       )
       for {
-        _ <- Fs2PlatformIO.writeBytes(input, libraryBytes)
+        _ <- Fs2PlatformIO.writeBytes(input, Bytes.copyFromArray(libraryBytes))
         _ <- Fs2PlatformIO.writeDoc(
           context,
           Doc.text("{\"schema_version\":1,\"libraries\":[]}")
@@ -780,12 +780,12 @@ class Fs2PlatformIOTest extends FunSuite {
         contextText <- Fs2PlatformIO.readUtf8(sourceContext)
         contextBytes = contextText.replace(fixturePrefix, s"${fixtureDir.toString}/")
         _ <- Fs2PlatformIO.writeDoc(context, Doc.text(contextBytes))
-        originalRoot <- Fs2PlatformIO.readBytes(root)
+        originalRoot <- Fs2PlatformIO.readBytes(root).map(_.copyToArray)
         fullCommand = withOutputs(pinned(root, context, originalRoot), fullOptions)
         first <- report(Fs2PlatformIO, fullCommand)
         _ = assertEquals(first, ExitCode.Success)
         originalOutputs <- baselineOutputs.traverse(path =>
-          Fs2PlatformIO.readBytes(path).map(_.toList)
+          Fs2PlatformIO.readBytes(path).map(_.copyToArray.toList)
         )
         originalSignatureStat <- stat(signature)
 
@@ -817,7 +817,7 @@ class Fs2PlatformIOTest extends FunSuite {
           failedInstall
         )
         afterFailedInstall <- baselineOutputs.traverse(path =>
-          Fs2PlatformIO.readBytes(path).map(_.toList)
+          Fs2PlatformIO.readBytes(path).map(_.copyToArray.toList)
         )
         _ = assertEquals(afterFailedInstall, originalOutputs)
         signatureStatAfterFailure <- stat(signature)
@@ -857,7 +857,7 @@ class Fs2PlatformIOTest extends FunSuite {
             )
           )
         ).toByteArray
-        _ <- Fs2PlatformIO.writeBytes(root, changedRoot)
+        _ <- Fs2PlatformIO.writeBytes(root, Bytes.copyFromArray(changedRoot))
         changedSignature = dir / "changed.sig"
         changedSigResult <- report(
           Fs2PlatformIO,
@@ -865,10 +865,10 @@ class Fs2PlatformIOTest extends FunSuite {
         )
         _ = assertEquals(changedSigResult, ExitCode.Success)
         changedSignatureBytes <- Fs2PlatformIO.readBytes(changedSignature)
-        baselineSignature <- Fs2PlatformIO.readBytes(signature).map(_.toList)
-        _ = assertNotEquals(changedSignatureBytes.toList, baselineSignature)
+        baselineSignature <- Fs2PlatformIO.readBytes(signature).map(_.copyToArray.toList)
+        _ = assertNotEquals(changedSignatureBytes.copyToArray.toList, baselineSignature)
         beforeChangedPublication <- baselineOutputs.traverse(path =>
-          Fs2PlatformIO.readBytes(path).map(_.toList)
+          Fs2PlatformIO.readBytes(path).map(_.copyToArray.toList)
         )
         beforeChangedStats <- baselineOutputs.traverse(stat)
         failedChangedPublication <- report(
@@ -882,7 +882,7 @@ class Fs2PlatformIOTest extends FunSuite {
           failedChangedPublication
         )
         afterChangedPublication <- baselineOutputs.traverse(path =>
-          Fs2PlatformIO.readBytes(path).map(_.toList)
+          Fs2PlatformIO.readBytes(path).map(_.copyToArray.toList)
         )
         afterChangedStats <- baselineOutputs.traverse(stat)
         _ = assertEquals(afterChangedPublication, beforeChangedPublication)

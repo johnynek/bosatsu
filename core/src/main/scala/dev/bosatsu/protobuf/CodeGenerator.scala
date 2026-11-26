@@ -10,7 +10,7 @@ import com.google.protobuf.compiler.plugin.{
   CodeGeneratorRequest,
   CodeGeneratorResponse
 }
-import dev.bosatsu.PackageName
+import dev.bosatsu.{Bytes, PackageName}
 import dev.bosatsu.protobuf.ProtoDescriptorModel.{
   Cardinality,
   EnumModel,
@@ -79,10 +79,10 @@ object CodeGenerator {
 
   /** Shared protobuf plugin protocol entrypoint for JVM and Scala.js wrappers.
     */
-  def generateResponseBytes(requestBytes: Array[Byte]): Array[Byte] = {
+  def generateResponseBytes(requestBytes: Bytes): Bytes = {
     val response =
       try {
-        generateResponse(CodeGeneratorRequest.parseFrom(requestBytes))
+        generateResponse(CodeGeneratorRequest.parseFrom(requestBytes.unsafeReadOnlyView))
       } catch {
         case NonFatal(err) =>
           val msg = Option(err.getMessage).getOrElse(err.toString)
@@ -90,7 +90,7 @@ object CodeGenerator {
             .withError(msg)
             .withSupportedFeatures(Proto3OptionalFeatureBit)
       }
-    response.toByteArray
+    Bytes.fromMessage(response)
   }
 
   private def buildModels(

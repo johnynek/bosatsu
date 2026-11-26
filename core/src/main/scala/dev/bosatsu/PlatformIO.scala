@@ -48,7 +48,7 @@ trait PlatformIO[F[_], Path] {
     }
 
   def readUtf8(p: Path): F[String]
-  def readBytes(p: Path): F[Array[Byte]]
+  def readBytes(p: Path): F[Bytes]
   def parseUtf8[A](path: Path, p0: P0[A]): F[A] =
     readUtf8(path)
       .flatMap { str =>
@@ -69,12 +69,16 @@ trait PlatformIO[F[_], Path] {
 
   def readPackages(paths: List[Path]): F[List[Package.Compiled]]
   def readPackageBundle(path: Path): F[proto.Packages] =
-    readBytes(path).flatMap(bytes => canPromiseF.compute(proto.Packages.parseFrom(bytes)))
+    readBytes(path).flatMap(bytes =>
+      canPromiseF.compute(proto.Packages.parseFrom(bytes.unsafeReadOnlyView))
+    )
 
   def writePackageBundle(bundle: proto.Packages, path: Path): F[Unit] =
-    writeBytes(path, bundle.toByteArray)
+    writeBytes(path, Bytes.fromMessage(bundle))
   def readInterfaceBundle(path: Path): F[proto.Interfaces] =
-    readBytes(path).flatMap(bytes => moduleIOMonad.fromTry(Try(proto.Interfaces.parseFrom(bytes))))
+    readBytes(path).flatMap(bytes =>
+      moduleIOMonad.fromTry(Try(proto.Interfaces.parseFrom(bytes.unsafeReadOnlyView)))
+    )
 
   def readInterfaces(paths: List[Path]): F[List[Package.Interface]] =
     paths.parTraverse(readInterfaceBundle).flatMap { bundles =>
@@ -84,7 +88,7 @@ trait PlatformIO[F[_], Path] {
     }
 
   def writeInterfaceBundle(bundle: proto.Interfaces, path: Path): F[Unit] =
-    writeBytes(path, bundle.toByteArray)
+    writeBytes(path, Bytes.fromMessage(bundle))
 
   def readLibrary(path: Path): F[Hashed[Algo.Blake3, proto.Library]]
 
@@ -156,7 +160,7 @@ trait PlatformIO[F[_], Path] {
   def writeFileSetAtomic(files: List[(Path, Bytes)]): F[Unit]
   def writeStdout(doc: Doc): F[Unit]
   def writeError(doc: Doc): F[Unit]
-  def readStdinBytes: F[Array[Byte]]
+  def readStdinBytes: F[Bytes]
   def writeStdoutBytes(bytes: Bytes): F[Unit]
 
   def system(command: String, args: List[String]): F[Unit]
@@ -215,7 +219,7 @@ trait PlatformIO[F[_], Path] {
       path: Path
   ): F[Unit]
 
-  def writeBytes(path: Path, bytes: Array[Byte]): F[Unit]
+  def writeBytes(path: Path, bytes: Bytes): F[Unit]
 
   def writeLibrary(lib: proto.Library, path: Path): F[Unit]
   def writePackages(packages: List[Package.Compiled], path: Path): F[Unit]

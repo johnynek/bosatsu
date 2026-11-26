@@ -15,12 +15,7 @@ import java.io.{
   Writer
 }
 import java.math.BigInteger
-import java.nio.ByteBuffer
-import java.nio.charset.{
-  CharacterCodingException,
-  CodingErrorAction,
-  StandardCharsets
-}
+import java.nio.charset.{CharacterCodingException, StandardCharsets}
 import java.nio.file.attribute.{
   BasicFileAttributes,
   FileTime,
@@ -698,10 +693,38 @@ object PredefImpl {
     Require(offset + len <= data.length, s"invalid view ($offset, $len)")
   }
 
-  final case class BytesValue(data: Array[Byte], offset: Int, len: Int) {
+  /** A view of `len` bytes at `offset`. Slices share `data`, so it must be
+    * immutable storage.
+    */
+  final case class BytesValue(data: Bytes, offset: Int, len: Int) {
     Require(offset >= 0, s"offset must be >= 0: $offset")
     Require(len >= 0, s"len must be >= 0: $len")
     Require(offset + len <= data.length, s"invalid view ($offset, $len)")
+
+    // Compare the viewed bytes: equal views can sit at different offsets of
+    // different storage, and synthesized equality compares `data` by reference.
+    override def equals(other: Any): Boolean =
+      other match {
+        case that: BytesValue =>
+          len == that.len && {
+            var idx = 0
+            while (idx < len && data(offset + idx) == that.data(that.offset + idx))
+              idx += 1
+            idx == len
+          }
+        case _ => false
+      }
+
+    // Same recurrence as Arrays.hashCode, applied to the view.
+    override def hashCode: Int = {
+      var hash = 1
+      var idx = 0
+      while (idx < len) {
+        hash = 31 * hash + data(offset + idx)
+        idx += 1
+      }
+      hash
+    }
   }
 
   object Int64Value {
@@ -714,8 +737,7 @@ object PredefImpl {
   private val EmptyArrayData: Array[Value] = Array.empty[Value]
   private val EmptyArrayRepr: ArrayValue = ArrayValue(EmptyArrayData, 0, 0)
   val emptyArray: Value = ExternalValue(EmptyArrayRepr)
-  private val EmptyBytesData: Array[Byte] = Array.emptyByteArray
-  private val EmptyBytesRepr: BytesValue = BytesValue(EmptyBytesData, 0, 0)
+  private val EmptyBytesRepr: BytesValue = BytesValue(Bytes.empty, 0, 0)
   val emptyBytes: Value = ExternalValue(EmptyBytesRepr)
 
   private def intRaw(a: Value): Value.BosatsuInt =
@@ -1373,6 +1395,8 @@ object PredefImpl {
   final private case class ProgStackRecover(fn: Value, tail: ProgStack)
       extends ProgStack
 
+  // `stdin` stays Array[Byte], not Bytes: this is a mutable read cursor whose
+  // input is always fresh UTF-8 storage. Reads copy ranges out of it.
   final case class ProgRuntimeState(
       stdin: Array[Byte],
       var stdinOffset: Int,
@@ -1514,26 +1538,6 @@ object PredefImpl {
       }
     )
 
-  private def decodeUtf8Slice(
-      bytes: Array[Byte],
-      offset: Int,
-      len: Int
-  ): Option[String] = {
-    val decoder =
-      StandardCharsets.UTF_8
-        .newDecoder()
-        .onMalformedInput(CodingErrorAction.REPORT)
-        .onUnmappableCharacter(CodingErrorAction.REPORT)
-
-    try Some(decoder.decode(ByteBuffer.wrap(bytes, offset, len)).toString)
-    catch {
-      case _: CharacterCodingException => None
-    }
-  }
-
-  private def decodeUtf8(bytes: Array[Byte]): Option[String] =
-    decodeUtf8Slice(bytes, 0, bytes.length)
-
   private def utf8CharAt(bytes: BytesValue, idx: Int): Option[String] =
     if (idx < 0 || idx >= bytes.len) None
     else {
@@ -1587,20 +1591,20 @@ object PredefImpl {
   private def runtimeRead(
       runtime: ProgRuntimeState,
       count: Int
-  ): Array[Byte] = {
+  ): Bytes = {
     runtime.stdinStream match {
       case Some(stream) =>
-        if (count <= 0) Array.emptyByteArray
+        if (count <= 0) Bytes.empty
         else {
           val buffer = new Array[Byte](count)
           val readCount = stream.read(buffer, 0, count)
-          if (readCount <= 0) Array.emptyByteArray
-          else if (readCount == count) buffer
-          else java.util.Arrays.copyOf(buffer, readCount)
+          if (readCount <= 0) Bytes.empty
+          else if (readCount == count) Bytes.unsafeFromArray(buffer)
+          else Bytes.unsafeFromArray(java.util.Arrays.copyOf(buffer, readCount))
         }
       case None =>
         val remaining = runtime.stdin.length - runtime.stdinOffset
-        if (count <= 0 || remaining <= 0) Array.emptyByteArray
+        if (count <= 0 || remaining <= 0) Bytes.empty
         else {
           val toRead = if (count <= remaining) count else remaining
           val out = java.util.Arrays.copyOfRange(
@@ -1609,7 +1613,7 @@ object PredefImpl {
             runtime.stdinOffset + toRead
           )
           runtime.stdinOffset = runtime.stdinOffset + toRead
-          out
+          Bytes.unsafeFromArray(out)
         }
     }
   }
@@ -1646,18 +1650,18 @@ object PredefImpl {
         else requestedRaw.intValue
 
       val initial = runtimeRead(runtime, requested)
-      if (initial.isEmpty) Right("")
+      if (initial.length == 0) Right("")
       else
-        decodeUtf8(initial) match {
-          case Some(s) => Right(s)
-          case None    =>
+        initial.decodeUtf8 match {
+          case Right(s) => Right(s)
+          case Left(_)  =>
             if (initial.length < requested)
               Left(
                 ioerror_invalid_utf8("decoding bytes from stdin")
               )
             else {
               val bytes = new java.io.ByteArrayOutputStream(initial.length + 4)
-              bytes.write(initial)
+              bytes.write(initial.unsafeReadOnlyView)
               var extras = 0
               var done = false
               var result: Option[String] = None
@@ -1668,11 +1672,11 @@ object PredefImpl {
                   case Some(byte) =>
                     bytes.write(byte.toInt & 0xff)
                     extras = extras + 1
-                    decodeUtf8(bytes.toByteArray) match {
-                      case Some(valid) =>
+                    Bytes.unsafeFromArray(bytes.toByteArray).decodeUtf8 match {
+                      case Right(valid) =>
                         result = Some(valid)
                         done = true
-                      case None => ()
+                      case Left(_) => ()
                     }
                 }
               }
@@ -1686,7 +1690,7 @@ object PredefImpl {
         }
     }
 
-  private[bosatsu] def runtimeReadBytes(count: Int): Option[Array[Byte]] =
+  private[bosatsu] def runtimeReadBytes(count: Int): Option[Bytes] =
     currentProgRuntime.value.map(runtimeRead(_, count))
 
   private[bosatsu] def runtimeReadUtf8Chunk(
@@ -2135,7 +2139,7 @@ object PredefImpl {
         val bytes =
           if (count == maxBytes) buffer
           else java.util.Arrays.copyOf(buffer, count)
-        Right(Some(BytesValue(bytes, 0, bytes.length)))
+        Right(Some(BytesValue(Bytes.unsafeFromArray(bytes), 0, bytes.length)))
       }
     } catch {
       case NonFatal(t) =>
@@ -2161,7 +2165,7 @@ object PredefImpl {
       context: String
   ): Either[Value, Unit] =
     try {
-      if (bytes.len > 0) output.write(bytes.data, bytes.offset, bytes.len)
+      if (bytes.len > 0) output.write(bytes.data.unsafeReadOnlyView, bytes.offset, bytes.len)
       Right(())
     } catch {
       case NonFatal(t) =>
@@ -2239,7 +2243,7 @@ object PredefImpl {
         currentProgRuntime.value match {
           case Some(runtime) =>
             val read = runtimeRead(runtime, maxBytes)
-            if (read.isEmpty) Right(None)
+            if (read.length == 0) Right(None)
             else Right(Some(BytesValue(read, 0, read.length)))
           case None =>
             readFromInputStream(
@@ -2263,6 +2267,9 @@ object PredefImpl {
         Left(ioerror_known(IOErrorTagBadFileDescriptor, "reading from write-only handle"))
     }
 
+  // Captured output decodes leniently with `new String`, not the strict
+  // Bytes.decodeUtf8: writing arbitrary bytes must not fail, so malformed
+  // input becomes U+FFFD, as on a real terminal.
   private def core_write_bytes_to_handle(
       handle: HandleValue,
       bytes: BytesValue
@@ -2273,7 +2280,7 @@ object PredefImpl {
           case Some(runtime) =>
             runtime.stdout.append(
               new String(
-                bytes.data,
+                bytes.data.unsafeReadOnlyView,
                 bytes.offset,
                 bytes.len,
                 StandardCharsets.UTF_8
@@ -2282,7 +2289,8 @@ object PredefImpl {
             Right(())
           case None =>
             try {
-              if (bytes.len > 0) System.out.write(bytes.data, bytes.offset, bytes.len)
+              if (bytes.len > 0)
+                System.out.write(bytes.data.unsafeReadOnlyView, bytes.offset, bytes.len)
               Right(())
             } catch {
               case NonFatal(t) =>
@@ -2294,7 +2302,7 @@ object PredefImpl {
           case Some(runtime) =>
             runtime.stderr.append(
               new String(
-                bytes.data,
+                bytes.data.unsafeReadOnlyView,
                 bytes.offset,
                 bytes.len,
                 StandardCharsets.UTF_8
@@ -2303,7 +2311,8 @@ object PredefImpl {
             Right(())
           case None =>
             try {
-              if (bytes.len > 0) System.err.write(bytes.data, bytes.offset, bytes.len)
+              if (bytes.len > 0)
+                System.err.write(bytes.data.unsafeReadOnlyView, bytes.offset, bytes.len)
               Right(())
             } catch {
               case NonFatal(t) =>
@@ -2375,7 +2384,7 @@ object PredefImpl {
               done = true
             case Right(Some(chunk)) =>
               if (chunk.len > 0)
-                out.write(chunk.data, chunk.offset, chunk.len)
+                out.write(chunk.data.unsafeReadOnlyView, chunk.offset, chunk.len)
           }
         }
 
@@ -2384,7 +2393,7 @@ object PredefImpl {
           case None    =>
             val data = out.toByteArray
             if (data.isEmpty) Right(EmptyBytesRepr)
-            else Right(BytesValue(data, 0, data.length))
+            else Right(BytesValue(Bytes.unsafeFromArray(data), 0, data.length))
         }
       }
     } yield result
@@ -4019,7 +4028,7 @@ object PredefImpl {
         }
       }
 
-      ExternalValue(BytesValue(data, 0, count))
+      ExternalValue(BytesValue(Bytes.unsafeFromArray(data), 0, count))
     }
   }
 
@@ -4033,7 +4042,7 @@ object PredefImpl {
         data(idx) = normalizeByte(intRaw(arr.data(arr.offset + idx)))
         idx = idx + 1
       }
-      ExternalValue(BytesValue(data, 0, arr.len))
+      ExternalValue(BytesValue(Bytes.unsafeFromArray(data), 0, arr.len))
     }
   }
 
@@ -4129,7 +4138,7 @@ object PredefImpl {
       parts.result().iterator.foreach { bytes =>
         if (bytes.len > 0) {
           java.lang.System.arraycopy(
-            bytes.data,
+            bytes.data.unsafeReadOnlyView,
             bytes.offset,
             data,
             offset,
@@ -4138,7 +4147,7 @@ object PredefImpl {
           offset = offset + bytes.len
         }
       }
-      ExternalValue(BytesValue(data, 0, totalInt))
+      ExternalValue(BytesValue(Bytes.unsafeFromArray(data), 0, totalInt))
     }
   }
 
@@ -4248,8 +4257,8 @@ object PredefImpl {
   def utf8_bytes_from_String(strValue: Value): Value =
     strValue match {
       case Value.Str(str) =>
-        val utf8 = str.getBytes(StandardCharsets.UTF_8)
-        if (utf8.isEmpty) emptyBytes
+        val utf8 = Bytes.fromUTF8String(str)
+        if (utf8.length == 0) emptyBytes
         else ExternalValue(BytesValue(utf8, 0, utf8.length))
       case other =>
         // $COVERAGE-OFF$
@@ -4259,9 +4268,9 @@ object PredefImpl {
 
   def utf8_bytes_to_String(bytesValue: Value): Value = {
     val bytes = asBytes(bytesValue)
-    decodeUtf8Slice(bytes.data, bytes.offset, bytes.len) match {
-      case Some(str) => VOption.some(Value.Str(str))
-      case None      => VOption.none
+    bytes.data.decodeUtf8Slice(bytes.offset, bytes.len) match {
+      case Right(str) => VOption.some(Value.Str(str))
+      case Left(_)    => VOption.none
     }
   }
 
