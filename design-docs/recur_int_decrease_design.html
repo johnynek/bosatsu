@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-38c06037*
+0.0.0+1-91ae6252*
 </div>
 </div>
 <div class="nav-toc">
@@ -80,7 +80,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-38c06037*
+0.0.0+1-91ae6252*
 </div>
 </div>
 <div class="nav-toc">
@@ -166,10 +166,11 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
       state
 </code></pre>
 <p>On the recursive call path, guards provide facts to prove both <code>Int</code> obligations.</p>
-<h2><a href="#using-existing-dev-bosatsu-smt-support" name="using-existing-dev-bosatsu-smt-support" class="anchor"><span class="anchor-link"></span></a>Using Existing <code>dev.bosatsu.smt</code> Support</h2>
-<p>The repository already has useful SMT infrastructure in <code>core/src/main/scala/dev/bosatsu/smt</code>: 1. <code>SmtExpr</code> models integer/bool terms and comparisons (<code>Lt</code>, <code>Gte</code>, <code>And</code>, <code>Not</code>, etc.). 2. <code>SmtCommand</code>/<code>SmtScript</code> build scripts (<code>SetLogic</code>, <code>DeclareConst</code>, <code>Assert</code>, <code>CheckSat</code>, <code>GetModel</code>). 3. <code>SmtLibRender</code> renders SMT-LIB text. 4. <code>Z3Api</code> parses solver status/model output and returns structured results.</p>
-<p>For an obligation <code>PC =&gt; goal</code>, the checker can emit: 1. declarations for free variables, 2. <code>(assert PC)</code>, 3. <code>(assert (not goal))</code>, 4. <code>(check-sat)</code> (and optional <code>(get-model)</code>).</p>
-<p>Interpretation: 1. <code>unsat</code>: obligation proven, 2. <code>sat</code>: obligation failed (use model in diagnostics), 3. <code>unknown</code>/execution failure: fail conservatively.</p>
+<h2><a href="#deciding-the-obligations" name="deciding-the-obligations" class="anchor"><span class="anchor-link"></span></a>Deciding the Obligations</h2>
+<p>The checker lowers each obligation <code>PC =&gt; goal</code> to <code>SmtExpr</code> terms (<code>intdecide/src/main/scala/dev/bosatsu/smt</code>) and decides it with <code>IntDecide</code>, which is plain Scala in the <code>intdecide</code> module, so every platform (JVM, Scala.js, native image) accepts the same programs and the compiler ships no SMT solver.</p>
+<p>The obligations are linear integer arithmetic with booleans (Presburger arithmetic): <code>+</code>, <code>-</code>, multiplication by a constant, <code>div</code> and <code>mod</code> by a constant (Bosatsu&rsquo;s rounding, built by <code>SmtExpr.bosatsuDiv</code> and <code>bosatsuMod</code>), <code>ite</code>, comparisons and the boolean connectives, which is decidable. <code>IntDecide</code>: 1. tries <code>SmtExpr.pathImplies</code> and <code>LinearBounds</code>, which prove the common  goals quickly, 2. otherwise puts <code>PC and not goal</code> in negation normal form over linear  constraints, with a fresh quotient and remainder for each <code>div</code> or <code>mod</code> and  a fresh variable for each <code>ite</code>, 3. searches for integer values that make it true, splitting a disjunction  only when the values found so far make it false, and deciding each  conjunction of linear constraints exactly with the Omega test.</p>
+<p>Interpretation: 1. no values: obligation proven, 2. values found: obligation failed, and the values are checked against  <code>PC</code> and <code>goal</code> and shown in the error, 3. a term outside the fragment (a product of variables, division by a  variable) is read as an unknown integer, which keeps proofs sound; values  that only refute the goal because of that, or reaching the work limit,  fail conservatively.</p>
+<p>The tests check <code>IntDecide</code> against z3 (through <code>scalawasiz3</code>, a test-only dependency) in both directions, and replay the obligations the checker produces for <code>test_workspace</code> (<code>core/src/test/resources/int_obligations</code>).</p>
 <h2><a href="#compiler-placement" name="compiler-placement" class="anchor"><span class="anchor-link"></span></a>Compiler Placement</h2>
 <ol>
   <li>Keep existing declaration-phase recursion checks for structural shape.</li>
@@ -178,7 +179,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 </ol>
 <p>No parser changes are required for this issue.</p>
 <h2><a href="#error-reporting" name="error-reporting" class="anchor"><span class="anchor-link"></span></a>Error Reporting</h2>
-<p>When an <code>Int</code> obligation fails, report: 1. recursive call location, 2. failed obligation (<code>next_i &gt;= 0</code> or <code>next_i &lt; i</code>), 3. simplified path condition used, 4. model values when solver returns <code>sat</code>.</p>
+<p>When an <code>Int</code> obligation fails, report: 1. recursive call location, 2. failed obligation (<code>next_i &gt;= 0</code> or <code>next_i &lt; i</code>), 3. simplified path condition used, 4. values of the variables that make the path condition true and the  obligation false, when there are some.</p>
 <h2><a href="#future-direction-enums-not-phase-1-" name="future-direction-enums-not-phase-1-" class="anchor"><span class="anchor-link"></span></a>Future Direction: Enums (Not Phase 1)</h2>
 <p>We should keep moving toward one unified, type-directed notion of decrease.</p>
 <p>A likely next step for enums: 1. <code>EnumOrdinal</code>: constructor declaration order defines base order. 2. Example: <code>enum Opt[a]: None, Some(v: a)</code> gives <code>None &lt; Some(_)</code>.</p>
@@ -190,7 +191,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
   <li>Positive typed recursion tests: accepted <code>Int</code> loops with provable decrease.</li>
   <li>Negative typed recursion tests: reject non-decreasing or non-provable <code>Int</code> calls.</li>
   <li>Structural recursion regression: existing ADT recursion behavior unchanged.</li>
-  <li>Solver failure policy: <code>unknown</code>/execution failure remains conservative error.</li>
+  <li>Decision procedure policy: reaching the work limit, or depending on terms  outside linear integer arithmetic, remains a conservative error.</li>
 </ol>
 <div class="source-github">
 The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/design-docs/recur_int_decrease_design.md">here</a>.
@@ -273,7 +274,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="../lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="../lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-38c06037-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-91ae6252-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>
