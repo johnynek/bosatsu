@@ -50,6 +50,13 @@ object SmtScriptScope {
         undeclaredVarsInExpr(left, inScope) ++ undeclaredVarsInExpr(right, inScope)
     }
 
+  /** The variables of `exprs` that are not in `declared`. */
+  def undeclaredVars(
+      exprs: Iterable[SmtExpr.BoolExpr],
+      declared: Set[String]
+  ): Set[String] =
+    exprs.iterator.flatMap(undeclaredVarsInExpr(_, declared)).toSet
+
   def undeclaredVars(script: SmtScript): Set[String] = {
     import SmtCommand.*
 

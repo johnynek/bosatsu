@@ -62,8 +62,8 @@ class TypedExprRecursionSmtScopeTest extends munit.ScalaCheckSuite with ParTest 
         }
 
       val bad = details.filter { detail =>
-        detail.contains("internal SMT script uses undeclared variables") ||
-        detail.contains("Trapped on unreachable instruction")
+        detail.contains("internal SMT obligation uses undeclared variables") ||
+        detail.contains("internal error")
       }
 
       assert(

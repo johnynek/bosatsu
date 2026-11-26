@@ -21,7 +21,7 @@ class LinearBoundsLawsTest extends munit.ScalaCheckSuite {
 
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters
-      .withMinSuccessfulTests(if (dev.bosatsu.Platform.isJvm) 500 else 100)
+      .withMinSuccessfulTests(if (TestPlatform.isJvm) 500 else 100)
       .withMaxDiscardRatio(20)
 
   private def all(props: Prop*): Prop = Prop.all(props*)
