@@ -12,16 +12,16 @@ opaque type Bytes = Array[Byte]
 object Bytes {
   val empty: Bytes = Array.emptyByteArray
 
-  def fromUTF8String(value: String): Bytes =
+  inline def fromUTF8String(value: String): Bytes =
     value.getBytes(StandardCharsets.UTF_8)
 
-  def fromMessage(message: GeneratedMessage): Bytes = message.toByteArray
+  inline def fromMessage(message: GeneratedMessage): Bytes = message.toByteArray
 
   /** Copy caller-owned mutable storage. */
-  def copyFromArray(value: Array[Byte]): Bytes = value.clone()
+  inline def copyFromArray(value: Array[Byte]): Bytes = value.clone()
 
   /** Take ownership of fresh storage. The caller must not retain a mutable alias. */
-  private[bosatsu] def unsafeFromArray(value: Array[Byte]): Bytes = value
+  private[bosatsu] inline def unsafeFromArray(value: Array[Byte]): Bytes = value
 
   // Share Eq between Hash and Order so implicit Eq lookup is unambiguous.
   given bytesInstances: (Hash[Bytes] & Order[Bytes]) =
@@ -58,17 +58,17 @@ object Bytes {
   }
 
   extension (bytes: Bytes) {
-    def length: Int = bytes.length
+    inline def length: Int = bytes.length
 
     /** Read one byte without copying. Reads cannot change the storage. */
-    def apply(index: Int): Byte = bytes(index)
+    inline def apply(index: Int): Byte = bytes(index)
 
     /** Decode strict UTF-8: malformed input is an error, never replaced. */
-    def decodeUtf8: Either[CharacterCodingException, String] =
+    inline def decodeUtf8: Either[CharacterCodingException, String] =
       decodeUtf8Slice(0, bytes.length)
 
     /** Decode `length` bytes starting at `offset` as strict UTF-8. */
-    def decodeUtf8Slice(
+    inline def decodeUtf8Slice(
         offset: Int,
         length: Int
     ): Either[CharacterCodingException, String] =
@@ -77,15 +77,15 @@ object Bytes {
         Right(StandardCharsets.UTF_8.newDecoder().decode(buffer).toString)
       } catch { case error: CharacterCodingException => Left(error) }
 
-    def copyToArray: Array[Byte] = bytes.clone()
+    inline def copyToArray: Array[Byte] = bytes.clone()
 
-    def sameBytes(other: Bytes): Boolean = Arrays.equals(bytes, other)
+    inline def sameBytes(other: Bytes): Boolean = Arrays.equals(bytes, other)
 
-    def contentHashCode: Int = Arrays.hashCode(bytes)
+    inline def contentHashCode: Int = Arrays.hashCode(bytes)
 
     /** Zero-copy view for read-only foreign APIs. The caller must neither
       * mutate this array nor pass it to an API that may mutate it.
       */
-    private[bosatsu] def unsafeReadOnlyView: Array[Byte] = bytes
+    private[bosatsu] inline def unsafeReadOnlyView: Array[Byte] = bytes
   }
 }

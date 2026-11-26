@@ -4,6 +4,7 @@ import cats.data.NonEmptyList
 import java.math.BigInteger
 import scala.scalajs.js
 import scala.scalajs.js.JavaScriptException
+import scala.scalajs.js.typedarray.Uint8Array
 import scala.util.Try
 
 private[bosatsu] object PredefIoCorePlatform {
@@ -329,43 +330,20 @@ private[bosatsu] object PredefIoCorePlatform {
   private def pathValueFromString(raw: String): Value =
     Str(normalizePathString(raw))
 
-  // Returns Array[Byte], not Bytes: the fresh copy is appended to a local
-  // ArrayBuilder and never escapes.
-  private def bytesToArray(bytes: PredefImpl.BytesValue): Array[Byte] = {
-    val out = new Array[Byte](bytes.len)
-    var idx = 0
-    while (idx < bytes.len) {
-      out(idx) = bytes.data(bytes.offset + idx)
-      idx = idx + 1
-    }
-    out
-  }
-
   private def bytesValue(bytes: PredefImpl.BytesValue): Value =
     if (bytes.len == 0) PredefImpl.emptyBytes
     else ExternalValue(bytes)
 
+  // Buffer.from(arrayBuffer, byteOffset, length) shares the fresh copy's
+  // memory, so the only copy is the one JsBytes makes.
   private def bufferFromBytes(bytes: PredefImpl.BytesValue): js.Dynamic = {
-    if (bytes.len == 0) nodeBuffer.alloc(0)
-    else {
-      val data = new js.Array[Int](bytes.len)
-      var idx = 0
-      while (idx < bytes.len) {
-        data(idx) = bytes.data(bytes.offset + idx).toInt & 0xff
-        idx = idx + 1
-      }
-      nodeBuffer.from(data)
-    }
+    val view = JsBytes.toUint8Array(bytes.data, bytes.offset, bytes.len)
+    nodeBuffer.from(view.buffer, view.byteOffset, view.length)
   }
 
   private def bytesFromBuffer(buffer: js.Dynamic, length: Int): PredefImpl.BytesValue = {
-    val out = new Array[Byte](length)
-    var idx = 0
-    while (idx < length) {
-      out(idx) = (buffer.readUInt8(idx).asInstanceOf[Int] & 0xff).toByte
-      idx = idx + 1
-    }
-    PredefImpl.BytesValue(Bytes.unsafeFromArray(out), 0, out.length)
+    val bytes = JsBytes.fromUint8Array(buffer.asInstanceOf[Uint8Array].subarray(0, length))
+    PredefImpl.BytesValue(bytes, 0, bytes.length)
   }
 
   private def openModeName(modeTag: Int): String =
@@ -675,7 +653,7 @@ private[bosatsu] object PredefIoCorePlatform {
             case Left(e)          => err = Some(e)
             case Right(None)      => done = true
             case Right(Some(chunk)) =>
-              builder ++= bytesToArray(chunk)
+              builder.addAll(chunk.data.unsafeReadOnlyView, chunk.offset, chunk.len)
           }
         }
 

@@ -461,27 +461,6 @@ class Fs2PlatformIO private[dev] (
 
   private lazy val nodeFs = global.require("fs")
 
-  private def nodeBufferToBytes(buffer: js.Dynamic): Bytes = {
-    val length = buffer.length.asInstanceOf[Int]
-    val out = new Array[Byte](length)
-    var idx = 0
-    while (idx < length) {
-      out(idx) = (buffer(idx).asInstanceOf[Int] & 0xff).toByte
-      idx += 1
-    }
-    Bytes.unsafeFromArray(out)
-  }
-
-  private def bytesToUint8Array(bytes: Bytes): Uint8Array = {
-    val out = new Uint8Array(bytes.length)
-    var idx = 0
-    while (idx < bytes.length) {
-      out(idx) = (bytes(idx) & 0xff).toShort
-      idx += 1
-    }
-    out
-  }
-
   def writeStdout(doc: Doc): IO[Unit] =
     onParts(doc)(part => IO.print(part))
 
@@ -489,11 +468,11 @@ class Fs2PlatformIO private[dev] (
     onParts(doc)(part => IO.consoleForIO.error(part))
 
   def readStdinBytes: IO[Bytes] =
-    IO.blocking(nodeBufferToBytes(nodeFs.readFileSync(0)))
+    IO.blocking(JsBytes.fromUint8Array(nodeFs.readFileSync(0).asInstanceOf[Uint8Array]))
 
   def writeStdoutBytes(bytes: Bytes): IO[Unit] =
     IO.blocking {
-      val _ = nodeFs.writeFileSync(1, bytesToUint8Array(bytes))
+      val _ = nodeFs.writeFileSync(1, JsBytes.toUint8Array(bytes))
       ()
     }
 

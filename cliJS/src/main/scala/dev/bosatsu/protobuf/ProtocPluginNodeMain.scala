@@ -1,7 +1,6 @@
 package dev.bosatsu.protobuf
 
-import dev.bosatsu.Bytes
-import scala.scalajs.js
+import dev.bosatsu.JsBytes
 import scala.scalajs.js.Dynamic.global
 import scala.scalajs.js.typedarray.Uint8Array
 
@@ -11,30 +10,9 @@ object ProtocPluginNodeMain {
 
   def runFromStdio(): Unit = {
     val fs = global.require("fs")
-    val requestBytes = nodeBufferToBytes(fs.readFileSync(0))
+    val requestBytes = JsBytes.fromUint8Array(fs.readFileSync(0).asInstanceOf[Uint8Array])
     val responseBytes = CodeGenerator.generateResponseBytes(requestBytes)
-    val _ = fs.writeFileSync(1, bytesToUint8Array(responseBytes))
+    val _ = fs.writeFileSync(1, JsBytes.toUint8Array(responseBytes))
     ()
-  }
-
-  private def nodeBufferToBytes(buffer: js.Dynamic): Bytes = {
-    val length = buffer.length.asInstanceOf[Int]
-    val out = new Array[Byte](length)
-    var idx = 0
-    while (idx < length) {
-      out(idx) = (buffer(idx).asInstanceOf[Int] & 0xff).toByte
-      idx += 1
-    }
-    Bytes.unsafeFromArray(out)
-  }
-
-  private def bytesToUint8Array(bytes: Bytes): Uint8Array = {
-    val out = new Uint8Array(bytes.length)
-    var idx = 0
-    while (idx < bytes.length) {
-      out(idx) = (bytes(idx) & 0xff).toShort
-      idx += 1
-    }
-    out
   }
 }
