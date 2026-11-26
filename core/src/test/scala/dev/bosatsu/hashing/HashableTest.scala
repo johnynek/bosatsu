@@ -2,6 +2,7 @@ package dev.bosatsu.hashing
 
 import cats.Foldable
 import cats.data.NonEmptyList
+import dev.bosatsu.Bytes
 
 class HashableTest extends munit.FunSuite {
   case class User(name: String, age: Int) derives Hashable
@@ -192,14 +193,14 @@ class HashableTest extends munit.FunSuite {
     )
     assert(primitiveHashes.forall(_.hex.length == 64))
 
-    val bytes = Array[Byte](1, 2, 3, 4)
+    val bytes = Bytes.copyFromArray(Array[Byte](1, 2, 3, 4))
     val bytesHash = Hashable.hash[Algo.Blake3](bytes).hash
-    val directHash = algo.hashBytes(bytes)
+    val directHash = algo.hash(bytes)
     assertEquals(bytesHash, directHash)
 
-    val hashedBytes = Hashable[Array[Byte]]
+    val hashedBytes = Hashable[Bytes]
     val emptyBase = algo.newHasher()
-    val emptyApplied = hashedBytes.addHash(Array.emptyByteArray, algo)(algo.newHasher())
+    val emptyApplied = hashedBytes.addHash(Bytes.empty, algo)(algo.newHasher())
     val bytesApplied = hashedBytes.addHash(bytes, algo)(algo.newHasher())
     assertEquals(algo.finishHash(emptyApplied), algo.finishHash(emptyBase))
     assertNotEquals(algo.finishHash(bytesApplied), algo.finishHash(emptyBase))

@@ -78,7 +78,7 @@ private[bosatsu] object PredefIoCorePlatform {
       case None        => VOption.none
     }
 
-  private def runtimeReadBytes(count: Int): Option[Array[Byte]] =
+  private def runtimeReadBytes(count: Int): Option[Bytes] =
     PredefImpl.runtimeReadBytes(count)
 
   private def runtimeReadUtf8Chunk(
@@ -329,6 +329,8 @@ private[bosatsu] object PredefIoCorePlatform {
   private def pathValueFromString(raw: String): Value =
     Str(normalizePathString(raw))
 
+  // Returns Array[Byte], not Bytes: the fresh copy is appended to a local
+  // ArrayBuilder and never escapes.
   private def bytesToArray(bytes: PredefImpl.BytesValue): Array[Byte] = {
     val out = new Array[Byte](bytes.len)
     var idx = 0
@@ -363,7 +365,7 @@ private[bosatsu] object PredefIoCorePlatform {
       out(idx) = (buffer.readUInt8(idx).asInstanceOf[Int] & 0xff).toByte
       idx = idx + 1
     }
-    PredefImpl.BytesValue(out, 0, out.length)
+    PredefImpl.BytesValue(Bytes.unsafeFromArray(out), 0, out.length)
   }
 
   private def openModeName(modeTag: Int): String =
@@ -433,7 +435,7 @@ private[bosatsu] object PredefIoCorePlatform {
         runtimeReadBytes(maxBytes) match {
           case Some(read) =>
             // During runProgMain, stdin is captured in the in-memory runtime buffers.
-            if (read.isEmpty) Right(None)
+            if (read.length == 0) Right(None)
             else Right(Some(PredefImpl.BytesValue(read, 0, read.length)))
           case None       =>
             try {
@@ -578,6 +580,8 @@ private[bosatsu] object PredefIoCorePlatform {
       _ <- writeNodeBuffer(handle, bufferFromBytes(bytes), "writing bytes to handle")
     } yield ()
 
+  // Node's lenient decode, not the strict Bytes.decodeUtf8: it matches the
+  // JVM's InputStreamReader-backed handles, which replace malformed input.
   private def decodeUtf8(bytes: PredefImpl.BytesValue): Either[Value, String] = {
     val buffer = bufferFromBytes(bytes)
     try {
@@ -679,8 +683,8 @@ private[bosatsu] object PredefIoCorePlatform {
           case Some(e) => Left(e)
           case None    =>
             val data = builder.result()
-            if (data.isEmpty) Right(PredefImpl.BytesValue(Array.emptyByteArray, 0, 0))
-            else Right(PredefImpl.BytesValue(data, 0, data.length))
+            if (data.isEmpty) Right(PredefImpl.BytesValue(Bytes.empty, 0, 0))
+            else Right(PredefImpl.BytesValue(Bytes.unsafeFromArray(data), 0, data.length))
         }
       }
     } yield result

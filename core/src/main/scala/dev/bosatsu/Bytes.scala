@@ -1,7 +1,9 @@
 package dev.bosatsu
 
 import cats.{Hash, Order, Show}
-import java.nio.charset.StandardCharsets
+import java.nio.ByteBuffer
+import java.nio.charset.{CharacterCodingException, StandardCharsets}
+import java.util.Arrays
 import scalapb.GeneratedMessage
 
 /** Immutable serialized bytes, backed by an unboxed array. */
@@ -56,11 +58,30 @@ object Bytes {
   }
 
   extension (bytes: Bytes) {
+    def length: Int = bytes.length
+
+    /** Read one byte without copying. Reads cannot change the storage. */
+    def apply(index: Int): Byte = bytes(index)
+
+    /** Decode strict UTF-8: malformed input is an error, never replaced. */
+    def decodeUtf8: Either[CharacterCodingException, String] =
+      decodeUtf8Slice(0, bytes.length)
+
+    /** Decode `length` bytes starting at `offset` as strict UTF-8. */
+    def decodeUtf8Slice(
+        offset: Int,
+        length: Int
+    ): Either[CharacterCodingException, String] =
+      try {
+        val buffer = ByteBuffer.wrap(bytes, offset, length)
+        Right(StandardCharsets.UTF_8.newDecoder().decode(buffer).toString)
+      } catch { case error: CharacterCodingException => Left(error) }
+
     def copyToArray: Array[Byte] = bytes.clone()
 
-    def sameBytes(other: Bytes): Boolean = java.util.Arrays.equals(bytes, other)
+    def sameBytes(other: Bytes): Boolean = Arrays.equals(bytes, other)
 
-    def contentHashCode: Int = java.util.Arrays.hashCode(bytes)
+    def contentHashCode: Int = Arrays.hashCode(bytes)
 
     /** Zero-copy view for read-only foreign APIs. The caller must neither
       * mutate this array nor pass it to an API that may mutate it.

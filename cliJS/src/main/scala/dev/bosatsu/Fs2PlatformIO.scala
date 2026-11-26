@@ -249,8 +249,8 @@ class Fs2PlatformIO private[dev] (
   def readUtf8(p: Path): IO[String] =
     FilesIO.readUtf8(p).compile.string
 
-  def readBytes(p: Path): IO[Array[Byte]] =
-    FilesIO.readAll(p).compile.to(Array)
+  def readBytes(p: Path): IO[Bytes] =
+    FilesIO.readAll(p).compile.to(Array).map(Bytes.unsafeFromArray(_))
 
   def fsDataType(p: Path): IO[Option[PlatformIO.FSDataType]] =
     FilesIO
@@ -461,7 +461,7 @@ class Fs2PlatformIO private[dev] (
 
   private lazy val nodeFs = global.require("fs")
 
-  private def nodeBufferToBytes(buffer: js.Dynamic): Array[Byte] = {
+  private def nodeBufferToBytes(buffer: js.Dynamic): Bytes = {
     val length = buffer.length.asInstanceOf[Int]
     val out = new Array[Byte](length)
     var idx = 0
@@ -469,10 +469,10 @@ class Fs2PlatformIO private[dev] (
       out(idx) = (buffer(idx).asInstanceOf[Int] & 0xff).toByte
       idx += 1
     }
-    out
+    Bytes.unsafeFromArray(out)
   }
 
-  private def bytesToUint8Array(bytes: Array[Byte]): Uint8Array = {
+  private def bytesToUint8Array(bytes: Bytes): Uint8Array = {
     val out = new Uint8Array(bytes.length)
     var idx = 0
     while (idx < bytes.length) {
@@ -488,12 +488,12 @@ class Fs2PlatformIO private[dev] (
   def writeError(doc: Doc): IO[Unit] =
     onParts(doc)(part => IO.consoleForIO.error(part))
 
-  def readStdinBytes: IO[Array[Byte]] =
+  def readStdinBytes: IO[Bytes] =
     IO.blocking(nodeBufferToBytes(nodeFs.readFileSync(0)))
 
   def writeStdoutBytes(bytes: Bytes): IO[Unit] =
     IO.blocking {
-      val _ = nodeFs.writeFileSync(1, bytesToUint8Array(bytes.unsafeReadOnlyView))
+      val _ = nodeFs.writeFileSync(1, bytesToUint8Array(bytes))
       ()
     }
 
@@ -520,9 +520,9 @@ class Fs2PlatformIO private[dev] (
     IO.fromTry(ProtoConverter.packagesToProto(packages))
       .flatMap(write(_, path))
 
-  def writeBytes(path: Path, bytes: Array[Byte]): IO[Unit] =
+  def writeBytes(path: Path, bytes: Bytes): IO[Unit] =
     FilesIO
-      .writeAll(path)(fs2.Stream.chunk(fs2.Chunk.array(bytes)))
+      .writeAll(path)(fs2.Stream.chunk(fs2.Chunk.array(bytes.unsafeReadOnlyView)))
       .compile
       .drain
 
@@ -539,7 +539,7 @@ object Fs2PlatformIO extends Fs2PlatformIO(CompilerBuildInfo.constant, None) {
       createParentDirectories: Path => IO[Unit],
       resolveDestination: Path => IO[Path],
       stagedFile: Path => Resource[IO, Path],
-      writeStaged: (Path, Array[Byte]) => IO[Unit],
+      writeStaged: (Path, Bytes) => IO[Unit],
       needsInstall: (Path, Path) => IO[Boolean],
       replace: (Path, Path) => IO[Boolean],
       remove: Path => IO[Unit]
@@ -580,7 +580,10 @@ object Fs2PlatformIO extends Fs2PlatformIO(CompilerBuildInfo.constant, None) {
         .map(_ / "document")
     },
     writeStaged = (path, bytes) =>
-      Files[IO].writeAll(path)(fs2.Stream.chunk(fs2.Chunk.array(bytes))).compile.drain,
+      Files[IO]
+        .writeAll(path)(fs2.Stream.chunk(fs2.Chunk.array(bytes.unsafeReadOnlyView)))
+        .compile
+        .drain,
     needsInstall = shouldInstall,
     replace = (source, target) =>
       shouldInstall(source, target).flatMap {
@@ -631,7 +634,7 @@ object Fs2PlatformIO extends Fs2PlatformIO(CompilerBuildInfo.constant, None) {
 
         staged.use { pending =>
           pending.traverse_ { file =>
-            ops.writeStaged(file.staged, file.bytes.unsafeReadOnlyView)
+            ops.writeStaged(file.staged, file.bytes)
           } *> pending.traverse(file =>
             ops.needsInstall(file.staged, file.destination)
           ).flatMap { shouldInstall =>

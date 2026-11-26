@@ -1,7 +1,7 @@
 package dev.bosatsu.cruntime
 
 import cats.syntax.all._
-import dev.bosatsu.{Nullable, PlatformIO}
+import dev.bosatsu.{Bytes, Nullable, PlatformIO}
 import dev.bosatsu.Json.{JBool, JObject}
 import dev.bosatsu.tool.CliException
 import org.typelevel.paiges.Doc
@@ -583,7 +583,7 @@ object VendoredDeps {
     platformIO.fsDataType(archivePath).flatMap {
       case Some(PlatformIO.FSDataType.File) =>
         platformIO.readBytes(archivePath).map { bytes =>
-          dependency.hash.algo.hashBytes(bytes).hex == dependency.hash.value.hex
+          dependency.hash.algo.hash(bytes).hex == dependency.hash.value.hex
         }
       case _ =>
         platformIO.moduleIOMonad.pure(false)
@@ -792,9 +792,9 @@ object VendoredDeps {
 
     platformIO.writeBytes(
       metadataPath,
-      CDeps.renderMetadata(metadata).getBytes("utf-8")
+      Bytes.fromUTF8String(CDeps.renderMetadata(metadata))
     ) *>
-      platformIO.writeBytes(successPath, Array.emptyByteArray)
+      platformIO.writeBytes(successPath, Bytes.empty)
   }
 
   private def archiveCachePath[F[_], P](

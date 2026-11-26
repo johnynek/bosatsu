@@ -2,8 +2,6 @@ package dev.bosatsu.tool
 
 import cats.syntax.all._
 import dev.bosatsu.{Json, PlatformIO}
-import java.nio.ByteBuffer
-import java.nio.charset.{CharacterCodingException, StandardCharsets}
 
 /** JSON used by file-based build actions. Decode a manifest inside the
   * request and retain both its filename and the JSON field on failure.
@@ -47,10 +45,6 @@ private[bosatsu] object BuildManifest {
       (s"unknown $kind fields: ${unknown.toList.sorted.mkString(", ")}", from.j, from.path))
   }
 
-  def decodeUtf8(bytes: Array[Byte]): Either[String, String] =
-    try Right(StandardCharsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(bytes)).toString)
-    catch { case _: CharacterCodingException => Left("invalid UTF-8") }
-
   def read[F[_], P, A](platform: PlatformIO[F, P], file: P, reader: Json.Reader[A]): F[A] = {
     import platform.{moduleIOMonad, showPath}
     platform.readBytes(file).adaptError { case e =>
@@ -58,7 +52,7 @@ private[bosatsu] object BuildManifest {
     }.flatMap { bytes =>
       // Replacing a malformed byte can make distinct file paths or group
       // labels compare equal. A fresh decoder reports malformed UTF-8.
-      val decoded = decodeUtf8(bytes).leftMap(_ => show"invalid UTF-8 in manifest $file")
+      val decoded = bytes.decodeUtf8.leftMap(_ => show"invalid UTF-8 in manifest $file")
       val result = for {
         content <- decoded
         json <- Json.parserFile.parseAll(content).leftMap(e => show"invalid JSON in $file: $e")

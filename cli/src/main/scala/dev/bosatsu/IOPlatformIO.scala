@@ -232,13 +232,15 @@ class IOPlatformIO(val buildInfo: CompilerBuildInfo)
   def withEC[A](fn: Par.EC ?=> IO[A]): IO[A] =
     parResource.use(ec => fn(using ec))
 
+  // Lenient, so this does not use the strict Bytes.decodeUtf8: malformed
+  // input becomes U+FFFD, matching the Node and in-memory platforms.
   def readUtf8(path: Path): IO[String] =
     IO.blocking(
       new String(Files.readAllBytes(diskPath(path)), StandardCharsets.UTF_8)
     )
 
-  def readBytes(path: Path): IO[Array[Byte]] =
-    IO.blocking(Files.readAllBytes(diskPath(path)))
+  def readBytes(path: Path): IO[Bytes] =
+    IO.blocking(Bytes.unsafeFromArray(Files.readAllBytes(diskPath(path))))
 
   def fsDataType(p: Path): IO[Option[PlatformIO.FSDataType]] =
     IO.blocking {
@@ -300,8 +302,8 @@ class IOPlatformIO(val buildInfo: CompilerBuildInfo)
   def write(a: GeneratedMessage, path: Path): IO[Unit] =
     writeStream(path)(a.writeTo(_))
 
-  def writeBytes(path: Path, bytes: Array[Byte]): IO[Unit] =
-    writeStream(path)(_.write(bytes))
+  def writeBytes(path: Path, bytes: Bytes): IO[Unit] =
+    writeStream(path)(_.write(bytes.unsafeReadOnlyView))
 
   def readInterfacesAndPackages(
       ifacePaths: List[Path],
@@ -509,7 +511,8 @@ class IOPlatformIO(val buildInfo: CompilerBuildInfo)
   def writeStdout(doc: Doc): IO[Unit] = printDoc(doc, stdout)
   def writeError(doc: Doc): IO[Unit] = printDoc(doc, stderr)
 
-  def readStdinBytes: IO[Array[Byte]] = IO.blocking(System.in.readAllBytes())
+  def readStdinBytes: IO[Bytes] =
+    IO.blocking(Bytes.unsafeFromArray(System.in.readAllBytes()))
 
   def writeStdoutBytes(bytes: Bytes): IO[Unit] =
     IO.blocking {

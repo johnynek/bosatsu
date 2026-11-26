@@ -2,14 +2,22 @@ package dev.bosatsu.hashing
 
 import cats.arrow.FunctionK
 import cats.parse.Parser
-import dev.bosatsu.Json
+import dev.bosatsu.{Bytes, Json}
 import pt.kcry.blake3.{Blake3 => B3, Hasher => B3Hasher}
 import pt.kcry.sha.Sha2_256
 
 sealed abstract class Algo[A] {
   def name: String
   def hexLen: Int
+  // Kept as Array[Byte], not Bytes: hashing only borrows the input for the
+  // call and retains nothing, most callers pass fresh `toByteArray` or
+  // `getBytes` results, and the incremental form hashes slices of fs2 chunks.
+  // A Bytes overload would erase to the same signature, so Bytes uses `hash`.
   def hashBytes(bytes: Array[Byte]): HashValue[A]
+
+  /** Hash immutable bytes without copying them. */
+  final def hash(bytes: Bytes): HashValue[A] =
+    hashBytes(bytes.unsafeReadOnlyView)
 
   type Hasher
   def newHasher(): Hasher
@@ -89,6 +97,8 @@ object Algo {
 
   private val hexDigits = "0123456789abcdef"
 
+  // Kept as Array[Byte], not Bytes: this private helper renders digest output
+  // that the hash libraries return as fresh arrays, which never escape.
   private def toHex(bytes: Array[Byte]): String = {
     val result = new StringBuilder(bytes.length * 2)
     var idx = 0
@@ -155,6 +165,9 @@ object Algo {
 
   def hashBytes[A](bytes: Array[Byte])(implicit algo: Algo[A]): HashValue[A] =
     algo.hashBytes(bytes)
+
+  def hash[A](bytes: Bytes)(implicit algo: Algo[A]): HashValue[A] =
+    algo.hash(bytes)
 
   private val hexChar = Parser.charIn(('0' to '9') ++ ('a' to 'f'))
 

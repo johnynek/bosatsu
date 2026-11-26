@@ -4,6 +4,7 @@ import _root_.bosatsu.{TypedAst => proto}
 import cats.syntax.all._
 import dev.bosatsu.hashing.{Algo, Hashed, HashValue}
 import dev.bosatsu.{
+  Bytes,
   CompileOptions,
   CompilerBuildInfo,
   Package,
@@ -100,12 +101,12 @@ object CompileCache {
 
   private[cache] def outputHashValue(
       pack: Package.Compiled
-  ): Try[Hashed[Algo.Blake3, Array[Byte]]] =
+  ): Try[Hashed[Algo.Blake3, Bytes]] =
     ProtoConverter
       .packagesToProto(pack :: Nil)
       .map { p =>
-        val bytes = p.toByteArray
-        Hashed(Algo.hashBytes[Algo.Blake3](bytes), bytes)
+        val bytes = Bytes.fromMessage(p)
+        Hashed(Algo.hash[Algo.Blake3](bytes), bytes)
       }
 
   private def hashUtf8(str: String): HashValue[Algo.Blake3] =
@@ -147,8 +148,8 @@ object CompileCache {
 
     protected def buildKey(input: K): Try[Key]
     protected def keyHashValue(key: Key): HashValue[Algo.Blake3]
-    protected def decodeValue(key: Key, bytes: Array[Byte]): Try[Option[V]]
-    protected def encodeValue(value: V): Try[Hashed[Algo.Blake3, Array[Byte]]]
+    protected def decodeValue(key: Key, bytes: Bytes): Try[Option[V]]
+    protected def encodeValue(value: V): Try[Hashed[Algo.Blake3, Bytes]]
     protected def extraStatsFields: List[String] = Nil
 
     private def keyPath(hash: HashValue[Algo.Blake3]): P =
@@ -452,11 +453,11 @@ object CompileCache {
 
     override protected def decodeValue(
         key: Key,
-        bytes: Array[Byte]
+        bytes: Bytes
     ): Try[Option[Package.Compiled]] = {
       val depIfaces = key.depInterfaces.valuesIterator.toList
       for {
-        protoPackages <- Try(proto.Packages.parseFrom(bytes))
+        protoPackages <- Try(proto.Packages.parseFrom(bytes.unsafeReadOnlyView))
         decoded <- ProtoConverter
           .packagesFromProto(Nil, protoPackages.packages, depIfaces)
       } yield decoded._2 match {
@@ -467,7 +468,7 @@ object CompileCache {
 
     override protected def encodeValue(
         value: Package.Compiled
-    ): Try[Hashed[Algo.Blake3, Array[Byte]]] =
+    ): Try[Hashed[Algo.Blake3, Bytes]] =
       outputHashValue(value)
 
     override protected def extraStatsFields: List[String] = {

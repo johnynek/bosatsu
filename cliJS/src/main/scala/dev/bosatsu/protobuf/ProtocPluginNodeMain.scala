@@ -1,5 +1,6 @@
 package dev.bosatsu.protobuf
 
+import dev.bosatsu.Bytes
 import scala.scalajs.js
 import scala.scalajs.js.Dynamic.global
 import scala.scalajs.js.typedarray.Uint8Array
@@ -16,7 +17,7 @@ object ProtocPluginNodeMain {
     ()
   }
 
-  private def nodeBufferToBytes(buffer: js.Dynamic): Array[Byte] = {
+  private def nodeBufferToBytes(buffer: js.Dynamic): Bytes = {
     val length = buffer.length.asInstanceOf[Int]
     val out = new Array[Byte](length)
     var idx = 0
@@ -24,10 +25,10 @@ object ProtocPluginNodeMain {
       out(idx) = (buffer(idx).asInstanceOf[Int] & 0xff).toByte
       idx += 1
     }
-    out
+    Bytes.unsafeFromArray(out)
   }
 
-  private def bytesToUint8Array(bytes: Array[Byte]): Uint8Array = {
+  private def bytesToUint8Array(bytes: Bytes): Uint8Array = {
     val out = new Uint8Array(bytes.length)
     var idx = 0
     while (idx < bytes.length) {
