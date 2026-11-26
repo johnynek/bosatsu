@@ -1,11 +1,21 @@
 package dev.bosatsu
 
+import _root_.bosatsu.{TypedAst => proto}
 import cats.data.Chain
 import org.scalacheck.Prop.forAll
 
 class MemoryPlatformIOTest extends munit.ScalaCheckSuite {
   private type Result[A] = Either[Throwable, A]
   private val platform = MemoryMain.memoryPlatformIO[Result]
+
+  test("interface bundles round trip through binary file contents") {
+    val path = Chain.one("bundle.sig")
+    val bundle = proto.Interfaces(List(proto.Interface(strings = List("A", "Ünicode"), packageName = 1)))
+    val read = platform.writeInterfaceBundle(bundle, path)
+      .flatMap(_ => platform.readInterfaceBundle(path))
+      .runA(MemoryMain.State.empty)
+    assertEquals(read, Right(bundle))
+  }
 
   property("binary file contents compare by content, not by reference") {
     forAll { (left: List[Byte], right: List[Byte]) =>

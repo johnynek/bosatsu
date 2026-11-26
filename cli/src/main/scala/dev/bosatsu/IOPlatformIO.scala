@@ -14,6 +14,7 @@ import java.io.{
   FileOutputStream,
   BufferedInputStream,
   BufferedOutputStream,
+  InputStream,
   PrintStream
 }
 import org.typelevel.paiges.Doc
@@ -76,6 +77,7 @@ class IOPlatformIO(val buildInfo: CompilerBuildInfo)
   protected def diskPath(path: Path): Path = path
   protected def outputPath(path: Path): IO[Path] = IO.pure(diskPath(path))
 
+  protected def stdin: InputStream = System.in
   protected def stdout: PrintStream = System.out
   protected def stderr: PrintStream = System.err
 
@@ -512,7 +514,7 @@ class IOPlatformIO(val buildInfo: CompilerBuildInfo)
   def writeError(doc: Doc): IO[Unit] = printDoc(doc, stderr)
 
   def readStdinBytes: IO[Bytes] =
-    IO.blocking(Bytes.unsafeFromArray(System.in.readAllBytes()))
+    IO.blocking(Bytes.unsafeFromArray(stdin.readAllBytes()))
 
   def writeStdoutBytes(bytes: Bytes): IO[Unit] =
     IO.blocking {
