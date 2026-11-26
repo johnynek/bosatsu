@@ -50,7 +50,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
 
   private val versionCommand: Opts[IO[Output[Path]]] = {
     val gitOpt =
-      BuildInfo.gitHeadCommit match {
+      buildInfo.gitHeadCommit match {
         case Some(gitVer) =>
           // We can see at build time if the git version is set, if it isn't set
           // don't create the option (in practice this will almost never happen)
@@ -79,7 +79,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
       ).mapN { (useGit, outPath) =>
         val vStr = useGit match {
           case Some(v) => v
-          case None    => BuildInfo.version
+          case None    => buildInfo.version
         }
 
         moduleIOMonad.pure(Output.Basic(Doc.text(vStr), outPath): Output[Path])
@@ -114,9 +114,9 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
 
   def command(evalPassthroughArgs: List[String]): Command[IO[Output[Path]]] = {
     val versionInfo =
-      (s"version: ${BuildInfo.version}" ::
-        s"scala-version: ${BuildInfo.scalaVersion}" ::
-        (BuildInfo.gitHeadCommit.toList.map(sha => s"git-sha: ${sha}")))
+      (s"version: ${buildInfo.version}" ::
+        s"scala-version: ${buildInfo.scalaVersion}" ::
+        (buildInfo.gitHeadCommit.toList.map(sha => s"git-sha: ${sha}")))
         .mkString("\n")
 
     Command(

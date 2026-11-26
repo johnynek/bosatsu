@@ -13,7 +13,7 @@ python3 scripts/prepare_inspect_library_fixtures.py --out-dir "$inspection_fixtu
 sbt cli/assembly
 
 jar_path="$(
-  ls -1t "$(pwd)"/cli/target/scala-*/bosatsu-cli-assembly-*.jar 2>/dev/null | head -n 1 || true
+  ls -1t "$(pwd)"/target/out/jvm/scala-*/compiler-cli/bosatsu-cli-assembly-*.jar 2>/dev/null | head -n 1 || true
 )"
 if [ -z "$jar_path" ]; then
   echo "test_cli.sh: no assembly jar found after cli/assembly" >&2

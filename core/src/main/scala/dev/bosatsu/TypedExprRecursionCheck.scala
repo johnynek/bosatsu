@@ -7,6 +7,7 @@ import dev.bosatsu.pattern.NameMap
 import dev.bosatsu.rankn.{ConstructorFn, DefinedType, Type, TypeEnv}
 import dev.bosatsu.scalawasiz3.{Z3Platform, Z3Result}
 import dev.bosatsu.smt.{SExpr, SmtCommand, SmtExpr, SmtLibRender, SmtScript, SmtScriptScope, SmtSort, Z3Api}
+import scala.collection.mutable
 
 import Identifier.Bindable
 
@@ -32,19 +33,38 @@ object TypedExprRecursionCheck {
   def checkLets(
       pack: PackageName,
       fullTypeEnv: TypeEnv[Kind.Arg],
+      dependencyTypeEnv: TypeEnv[Kind.Arg],
       lets: List[(Bindable, RecursionKind, TypedExpr[Declaration])]
   ): Res[Unit] =
-    checkLets(pack, fullTypeEnv, lets, Map.empty)
+    checkLets(pack, fullTypeEnv, dependencyTypeEnv, lets, Map.empty)
 
+  /** `fullTypeEnv` has every type and alias of `pack` and of its imports, as
+    * for the package's totality check. `dependencyTypeEnv` has what the
+    * packages `pack` imports from export, as type inference saw them.
+    */
   def checkLets(
       pack: PackageName,
       fullTypeEnv: TypeEnv[Kind.Arg],
+      dependencyTypeEnv: TypeEnv[Kind.Arg],
       lets: List[(Bindable, RecursionKind, TypedExpr[Declaration])],
       topLevelDefs: Map[Bindable, NonEmptyList[NonEmptyList[Pattern.Parsed]]]
   ): Res[Unit] = {
     // This checker enforces structural recursion plus type-directed Int
     // decrease obligations in typed IR.
-    val totalityCheck = TotalityCheck(fullTypeEnv)
+    //
+    // TargetContainment treats a type missing from its environment as
+    // opaque to `pack`, since `pack` could neither expand it nor match on
+    // it. That holds only for an environment with everything inference
+    // could use: `pack`'s own types and imports, and what its dependencies
+    // export, aliases included. `fullTypeEnv` goes on the right so that
+    // `pack`'s own view of a type wins: `dependencyTypeEnv` may have an
+    // exported type without its constructors. The totality check keeps
+    // `fullTypeEnv`, like the package's own.
+    val types =
+      new Impl.TypeContext(
+        TotalityCheck(fullTypeEnv),
+        dependencyTypeEnv ++ fullTypeEnv
+      )
     val topLevelLowerableAliases = Impl.topLevelLowerableAliases(pack, lets)
     val topLevelPredefAliases = Impl.topLevelPredefAliases(pack, lets)
     lets.traverse_ { case (name, rec, expr) =>
@@ -56,7 +76,7 @@ object TypedExprRecursionCheck {
         topLevelDefs.get(name),
         topLevelLowerableAliases,
         topLevelPredefAliases,
-        totalityCheck
+        types
       )
     }
   }
@@ -66,6 +86,67 @@ object TypedExprRecursionCheck {
       lets: List[(Bindable, RecursionKind, TypedExpr[Region])]
   ): List[RecursionCheck.Lint] =
     Impl.replayLints(pack, lets)
+
+  /** The SMT term for an Int, Bool or Comparison expression. A Comparison is
+    * an Int: -1 for LT, 0 for EQ and 1 for GT.
+    */
+  private[bosatsu] enum LoweredTerm derives CanEqual {
+    case IntTerm(expr: SmtExpr.IntExpr)
+    case BoolTerm(expr: SmtExpr.BoolExpr)
+    case ComparisonTerm(expr: SmtExpr.IntExpr)
+  }
+
+  /** A def body lowered to SMT. The arguments are bound to the SMT terms in
+    * `intArgs`, `boolArgs` and `comparisonArgs`. `pathFacts` are the facts
+    * about the symbols: the -1, 0, 1 domain of each Comparison symbol,
+    * including the arguments'.
+    */
+  private[bosatsu] final case class LoweredDefBody(
+      intArgs: Map[Bindable, SmtExpr.IntExpr],
+      boolArgs: Map[Bindable, SmtExpr.BoolExpr],
+      comparisonArgs: Map[Bindable, SmtExpr.IntExpr],
+      term: Option[LoweredTerm],
+      pathFacts: Vector[SmtExpr.BoolExpr]
+  )
+
+  /** Test hook: lower the body of the top level def `name` in `lets` the way
+    * the recursion check lowers an expression in a recur branch of that def,
+    * starting from one SMT symbol per argument. `term` is None when the body
+    * is not an Int, Bool or Comparison or does not lower.
+    */
+  private[bosatsu] def lowerDefBodyForTest(
+      pack: PackageName,
+      fullTypeEnv: TypeEnv[Kind.Arg],
+      lets: List[(Bindable, RecursionKind, TypedExpr[Declaration])],
+      name: Bindable
+  ): Option[LoweredDefBody] =
+    Impl.lowerDefBodyForTest(pack, fullTypeEnv, lets, name)
+
+  /** The path facts at each Int literal leaf of a def body, keyed by the
+    * literal. The arguments are bound to the SMT terms in `intArgs`,
+    * `boolArgs` and `comparisonArgs`.
+    */
+  private[bosatsu] final case class LeafPathFacts(
+      intArgs: Map[Bindable, SmtExpr.IntExpr],
+      boolArgs: Map[Bindable, SmtExpr.BoolExpr],
+      comparisonArgs: Map[Bindable, SmtExpr.IntExpr],
+      leaves: Map[BigInt, Vector[SmtExpr.BoolExpr]]
+  )
+
+  /** Test hook: the path facts the recursion check assumes at each Int
+    * literal leaf of the body of the top level def `name` in `lets`, as if
+    * the body were in a recur branch of that def. The walk goes through lets
+    * and match branches, using the check's own functions for a let's binding,
+    * a branch's entry state and its guard facts. A leaf's facts must hold
+    * whenever Bosatsu's evaluator returns that leaf.
+    */
+  private[bosatsu] def leafPathFactsForTest(
+      pack: PackageName,
+      fullTypeEnv: TypeEnv[Kind.Arg],
+      lets: List[(Bindable, RecursionKind, TypedExpr[Declaration])],
+      name: Bindable
+  ): Option[LeafPathFacts] =
+    Impl.leafPathFactsForTest(pack, fullTypeEnv, lets, name)
 
   private object Impl {
     import RecursionCheck.ArgLexOrder
@@ -92,16 +173,18 @@ object TypedExprRecursionCheck {
       case Smaller
     }
 
+    // What is known about the names in scope relative to one recur target.
+    // The target's own parameter name starts in equalNames, and leaves it
+    // like any other name when a let, pattern or lambda rebinds it.
     case class TargetProof(
         smallerNames: Set[Bindable],
         equalNames: Set[Bindable],
         singletonCtorIfEqual: Option[SingletonCtor],
         currentCtorIfEqual: Option[KnownCtor]
     ) derives CanEqual {
-      def relationOf(target: RecurTargetItem, name: Bindable): Option[ProvenRel] =
+      def relationOf(name: Bindable): Option[ProvenRel] =
         if (smallerNames(name)) Some(ProvenRel.Smaller)
         else if (equalNames(name)) Some(ProvenRel.Equal)
-        else if (name == target.paramName) Some(ProvenRel.Equal)
         else None
 
       def withFact(name: Bindable, rel: ProvenRel): TargetProof =
@@ -210,6 +293,31 @@ object TypedExprRecursionCheck {
             comparisonBindings = comparisonBindings -- removeSet
           )
       }
+
+      // `names` go out of scope: they get back the bindings they have in
+      // `outer`. Symbols declared and facts added since stay. That is sound
+      // because the only facts lowering adds are the domains of fresh
+      // Comparison symbols, which hold in any scope.
+      def restoreBindings(
+          names: Iterable[Bindable],
+          outer: SmtBranchState
+      ): SmtBranchState = {
+        def restore[V](
+            inner: Map[Bindable, V],
+            before: Map[Bindable, V]
+        ): Map[Bindable, V] =
+          names.foldLeft(inner) { (acc, name) =>
+            before.get(name) match {
+              case Some(v) => acc.updated(name, v)
+              case None    => acc - name
+            }
+          }
+        copy(
+          intBindings = restore(intBindings, outer.intBindings),
+          boolBindings = restore(boolBindings, outer.boolBindings),
+          comparisonBindings = restore(comparisonBindings, outer.comparisonBindings)
+        )
+      }
     }
     object SmtBranchState {
       def empty(totalityCheck: TotalityCheck): SmtBranchState =
@@ -246,6 +354,28 @@ object TypedExprRecursionCheck {
       val Empty: WrapperScope = WrapperScope(Set.empty, Set.empty, 0)
     }
 
+    // What the check knows about types. `totalityCheck` uses the same
+    // environment as the package's own totality check. `typeEnv` also has
+    // what the package's dependencies export, for questions about what a
+    // type can contain (see `checkLets` and TargetContainment).
+    // One per package. It holds a cache, so it is compared by reference,
+    // including as a field of TopLevel and InDef.
+    final class TypeContext(
+        val totalityCheck: TotalityCheck,
+        val typeEnv: TypeEnv[Kind.Arg]
+    ) {
+      // one per list of target types, so each one's cache serves the
+      // whole package
+      private val containments =
+        mutable.Map.empty[List[Type.Const], TargetContainment]
+
+      def containment(targetConsts: List[Type.Const]): TargetContainment =
+        containments.getOrElseUpdate(
+          targetConsts,
+          new TargetContainment(typeEnv, targetConsts)
+        )
+    }
+
     /*
      * While checking a def we have three states we can be in:
      * 1. we are in a normal def, but have 0 or more outer recursive defs to avoid
@@ -277,7 +407,7 @@ object TypedExprRecursionCheck {
           topLevelLowerableAliases: TopLevelLowerableAliases,
           fnType: Type,
           topLevelPredefAliases: TopLevelPredefAliases,
-          totalityCheck: TotalityCheck
+          types: TypeContext
       ): InDef =
         InDef(
           this,
@@ -287,7 +417,7 @@ object TypedExprRecursionCheck {
           topLevelLowerableAliases,
           fnType,
           topLevelPredefAliases,
-          totalityCheck,
+          types,
           Set.empty
         )
     }
@@ -309,7 +439,7 @@ object TypedExprRecursionCheck {
       final def defname: Bindable = inDef.fnname
     }
 
-    case class TopLevel(totalityCheck: TotalityCheck) extends State
+    case class TopLevel(types: TypeContext) extends State
 
     case class InDef(
         outer: State,
@@ -319,10 +449,13 @@ object TypedExprRecursionCheck {
         topLevelLowerableAliases: TopLevelLowerableAliases,
         fnType: Type,
         topLevelPredefAliases: TopLevelPredefAliases,
-        totalityCheck: TotalityCheck,
+        types: TypeContext,
+        // the names bound by the binders around the current expression, so
+        // a recur on one of them is not a recur on a parameter (see
+        // withLocals)
         localScope: Set[Bindable]
     ) extends InDefState {
-      def addLocal(b: Bindable): InDef =
+      def withLocalScope(scope: Set[Bindable]): InDef =
         InDef(
           outer,
           fnname,
@@ -331,8 +464,8 @@ object TypedExprRecursionCheck {
           topLevelLowerableAliases,
           fnType,
           topLevelPredefAliases,
-          totalityCheck,
-          localScope + b
+          types,
+          scope
         )
 
       def setRecur(target: RecurTarget, m: Declaration.Match): InDefRecurred =
@@ -387,6 +520,20 @@ object TypedExprRecursionCheck {
         recCount: Int,
         calledNames: Map[Bindable, Int]
     ) extends InDefState {
+      // The SMT state every recur branch starts from: one symbol for each
+      // Int, Bool or Comparison argument. A target's value is its symbol
+      // here, whatever a let or pattern later rebinds its name to.
+      lazy val entrySmtState: SmtBranchState = initBranchSmtState(this)
+
+      // `recur (a,)` matches a 1-tuple holding a, and `recur a` matches a
+      // itself, so the branch patterns of a one-name target are read by how
+      // the target was written
+      def targetIsTuple: Boolean =
+        recur.arg match {
+          case Declaration.TupleCons(_) => true
+          case _                        => false
+        }
+
       def incRecCount: InDefRecurred = copy(recCount = recCount + 1)
       def noteCalledName(nm: Bindable): InDefRecurred =
         copy(calledNames = calledNames.updatedWith(nm) {
@@ -586,11 +733,15 @@ object TypedExprRecursionCheck {
         case p                            => p
       }
 
+    // The pattern each target item is matched against: the whole pattern for
+    // `recur a`, and the tuple pattern's parts for `recur (a, ...)`,
+    // including the 1-tuple `recur (a,)`.
     private def targetPatternPartsFromParsed(
         targetLength: Int,
+        targetIsTuple: Boolean,
         branchPat: Pattern.Parsed
     ): Option[List[Pattern.Parsed]] =
-      if (targetLength == 1) Some(branchPat :: Nil)
+      if (!targetIsTuple) Some(branchPat :: Nil)
       else
         unwrapNamedAnnotation(branchPat) match {
           case Pattern.PositionalStruct(kind, parts)
@@ -630,11 +781,13 @@ object TypedExprRecursionCheck {
       (pack == PackageName.PredefName) &&
         (cons.asString == s"Tuple$arity")
 
+    // see targetPatternPartsFromParsed
     private def targetPatternPartsFromTyped(
         targetLength: Int,
+        targetIsTuple: Boolean,
         branchPat: TypedPattern
     ): Option[List[TypedPattern]] =
-      if (targetLength == 1) Some(branchPat :: Nil)
+      if (!targetIsTuple) Some(branchPat :: Nil)
       else
         unwrapNamedAnnotation(branchPat) match {
           case Pattern.PositionalStruct((pack, cons), parts)
@@ -684,48 +837,74 @@ object TypedExprRecursionCheck {
 
     private def proofsByTargetFromTyped(
         target: RecurTarget,
+        targetIsTuple: Boolean,
         branchPat: TypedPattern
-    ): NonEmptyList[TargetProof] =
-      targetPatternPartsFromTyped(target.length, branchPat) match {
+    ): NonEmptyList[TargetProof] = {
+      // the parameter name is the target, unless the branch pattern rebinds it
+      val atEntry = target.map { item =>
+        TargetProof.empty
+          .withFact(item.paramName, ProvenRel.Equal)
+          .without(branchPat.names)
+      }
+      targetPatternPartsFromTyped(
+        target.length,
+        targetIsTuple,
+        branchPat
+      ) match {
         case Some(parts) =>
-          NonEmptyList.fromListUnsafe(parts.map { part =>
-            TargetProof.empty
+          atEntry.zipWith(NonEmptyList.fromListUnsafe(parts)) { (proof, part) =>
+            proof
               .withFacts(wholeValueAliases(part), ProvenRel.Equal)
               .withFacts(part.substructures, ProvenRel.Smaller)
               .copy(
                 singletonCtorIfEqual = singletonCtorFromTypedPart(part),
                 currentCtorIfEqual = knownCtorFromTypedPart(part)
               )
-          })
+          }
         case None        =>
-          target.map(_ => TargetProof.empty)
+          atEntry
       }
+    }
 
     private def smallerNamesFromProofs(
         proofs: NonEmptyList[TargetProof]
     ): Set[Bindable] =
       proofs.iterator.flatMap(_.smallerNames.iterator).toSet
 
+    // Bind `alias` to the target's value at recur entry. Reading the target
+    // by name would see an earlier alias that rebinds the name, as in
+    // `recur (i, j): case (j, i):`.
     private def bindAliasToTarget(
         alias: Bindable,
         inrec: InDefRecurred,
         targetItem: RecurTargetItem,
         state: SmtBranchState
-    ): SmtBranchState =
-      if (alias == targetItem.paramName) state
-      else {
-        val tpe = targetItemType(inrec, targetItem)
-        if (isIntType(tpe)) {
-          val (expr, st1) = ensureIntLocal(targetItem.paramName, state)
-          st1.withIntBinding(alias, expr)
-        } else if (isBoolType(tpe)) {
-          val (expr, st1) = ensureBoolLocal(targetItem.paramName, state)
-          st1.withBoolBinding(alias, expr)
-        } else if (isComparisonType(tpe)) {
-          val (expr, st1) = ensureComparisonLocal(targetItem.paramName, state)
-          st1.withComparisonBinding(alias, expr)
-        } else state
-      }
+    ): SmtBranchState = {
+      val entry = inrec.entrySmtState
+      val name = targetItem.paramName
+      entry.intBindings
+        .get(name)
+        .map(state.withIntBinding(alias, _))
+        .orElse(entry.boolBindings.get(name).map(state.withBoolBinding(alias, _)))
+        .orElse(
+          entry.comparisonBindings
+            .get(name)
+            .map(state.withComparisonBinding(alias, _))
+        )
+        .getOrElse(state)
+    }
+
+    // The SMT symbol for an Int recur target's value at recur entry.
+    private def targetIntSymbol(
+        inrec: InDefRecurred,
+        targetItem: RecurTargetItem
+    ): SmtExpr.IntExpr =
+      inrec.entrySmtState.intBindings.getOrElse(
+        targetItem.paramName,
+        // $COVERAGE-OFF$ every Int argument has a symbol at entry
+        sys.error(s"no SMT symbol for Int recur target: $targetItem")
+        // $COVERAGE-ON$
+      )
 
     private def bindSourcePatternAliases(
         inrec: InDefRecurred,
@@ -735,7 +914,11 @@ object TypedExprRecursionCheck {
       // Source patterns let us recover whole-value aliases per recur-target
       // component (for example `(Succ(prev), i1)` binds `i1` to the same value
       // as the second recur target).
-      targetPatternPartsFromParsed(inrec.target.length, sourcePat) match {
+      targetPatternPartsFromParsed(
+        inrec.target.length,
+        inrec.targetIsTuple,
+        sourcePat
+      ) match {
         case Some(parts) =>
           inrec.target.toList
             .zip(parts)
@@ -1513,11 +1696,22 @@ object TypedExprRecursionCheck {
             SmtBranchState
         ) => (Option[A], SmtBranchState)
     ): (Option[A], SmtBranchState) = {
-      val state0 = state.removeBindings(name :: Nil)
       val state1 =
-        if (rec.isRecursive) bindSymbolForType(name, valueExpr.getType, state0)
-        else state0
-      lower(inExpr, bindLetName(name, valueExpr, state1))
+        if (rec.isRecursive) {
+          // the value is in the scope of name
+          val state0 = state.removeBindings(name :: Nil)
+          bindLetName(
+            name,
+            valueExpr,
+            bindSymbolForType(name, valueExpr.getType, state0)
+          )
+        } else {
+          // the value is outside the scope of name
+          bindLetName(name, valueExpr, state)
+        }
+      val (res, state2) = lower(inExpr, state1)
+      // the rest of the enclosing expression is outside the scope of name
+      (res, state2.restoreBindings(name :: Nil, state))
     }
 
     private def lowerCmpIntArgs(
@@ -1574,27 +1768,11 @@ object TypedExprRecursionCheck {
         case TypedExpr.Let(name, valueExpr, inExpr, rec, _) =>
           lowerWithLetBinding(name, valueExpr, inExpr, rec, state)(lowerComparisonExpr)
         case TypedExpr.Match(arg, branches, _) if isLowerableMatchScrutinee(arg.getType) =>
-          lowerComparisonFromMatches(arg, branches, state)
+          lowerFromMatches(arg, branches, state)(lowerComparisonExpr)
         case other =>
           val lit = comparisonLiteralValue(other).map(SmtExpr.IntConst(_))
           (lit, state)
       }
-
-    private def lowerMatchBranchCondition(
-        argExpr: TypedExpr[Declaration],
-        branch: TypedExpr.Branch[Declaration],
-        state: SmtBranchState
-    ): (Option[SmtExpr.BoolExpr], SmtBranchState) = {
-      val (patOpt, state1) = lowerPatternCondition(argExpr, branch.pattern, state)
-      val (guardOpt, state2) =
-        lowerBranchGuardCondition(branch.guardNode, state1)
-      (
-        (patOpt, guardOpt).mapN((pat, guard) =>
-          simplifyBoolExpr(mkAnd(Vector(pat, guard)))
-        ),
-        state2
-      )
-    }
 
     private def canUseFinalBranchAsFallback(
         branch: TypedExpr.Branch[Declaration],
@@ -1602,7 +1780,8 @@ object TypedExprRecursionCheck {
     ): Boolean =
       // Totality makes the final branch the default fallback arm. If we
       // cannot lower its condition, only use that fallback when the pattern
-      // itself contributes no bound names that would need SMT bindings.
+      // binds no names. This is only conservative: names a pattern binds that
+      // do not lower get fresh symbols.
       condOpt.nonEmpty || branch.allBindings.isEmpty
 
     private def lowerIntIfExpr(
@@ -1630,52 +1809,68 @@ object TypedExprRecursionCheck {
           (None, state)
       }
 
-    private def lowerIntFromMatches(
+    // Lower a match to an ite chain over the branch hit conditions. Nested ites
+    // already give first-match order, so a branch's condition is its own hit
+    // condition. Totality makes the final branch the default arm.
+    private def lowerFromMatches[S <: SmtSort](
         argExpr: TypedExpr[Declaration],
         branches: NonEmptyList[TypedExpr.Branch[Declaration]],
         state: SmtBranchState
-    ): (Option[SmtExpr.IntExpr], SmtBranchState) =
-      branches.reverse.toList match {
-        case last :: revInit =>
-          val (lastCondOpt, state1) = lowerMatchBranchCondition(argExpr, last, state)
-          val stateForLastExpr = bindPatternNames(argExpr, last.pattern, state1)
-          val (lastExprOpt, state2) = lowerIntExpr(last.expr, stateForLastExpr)
-          (lastExprOpt, canUseFinalBranchAsFallback(last, lastCondOpt)) match {
-            // Totality checking guarantees match exhaustiveness, so once every
-            // earlier branch condition/result lowers we can use the final
-            // branch as the default arm in the ite chain.
-            // We lower branch expressions with bindPatternNames so aliases such
-            // as `case 12 as twelve:` are available while building SMT terms.
-            case (Some(lastExpr), true) =>
-              val initState = (
-                lastExpr,
-                SmtExpr.BoolConst.True: SmtExpr.BoolExpr,
-                state2,
-                true
-              )
-              val (lowered, _, stateN, ok) =
-                revInit.foldLeft(initState) {
-                  case ((elseExpr, priorMiss, st, allOk), branch) =>
-                    val (condOpt, st1) = lowerMatchBranchCondition(argExpr, branch, st)
-                    val stForExpr = bindPatternNames(argExpr, branch.pattern, st1)
-                    val (exprOpt, st2) = lowerIntExpr(branch.expr, stForExpr)
-                    (condOpt, exprOpt) match {
-                      case (Some(cond), Some(value)) =>
-                        val hit = mkAnd(Vector(priorMiss, cond))
-                        val nextElse = SmtExpr.Ite(hit, value, elseExpr)
-                        val nextMiss = mkAnd(Vector(priorMiss, SmtExpr.Not(cond)))
-                        (nextElse, nextMiss, st2, allOk)
-                      case _ =>
-                        (elseExpr, priorMiss, st2, false)
-                    }
-                }
-              if (ok) (Some(lowered), stateN) else (None, stateN)
-            case _ =>
-              (None, state2)
-          }
+    )(
+        lowerBody: (
+            TypedExpr[Declaration],
+            SmtBranchState
+        ) => (Option[SmtExpr[S]], SmtBranchState)
+    ): (Option[SmtExpr[S]], SmtBranchState) = {
+      // Wrap the ite chain built so far in the remaining branches, from the
+      // last one back, stopping at the first branch that does not lower.
+      @annotation.tailrec
+      def loop(
+          rest: List[TypedExpr.Branch[Declaration]],
+          elseExpr: SmtExpr[S],
+          st: SmtBranchState
+      ): (Option[SmtExpr[S]], SmtBranchState) =
+        rest match {
+          case Nil            => (Some(elseExpr), st)
+          case branch :: tail =>
+            val (condOpt, valueOpt, st1) =
+              lowerBranch(argExpr, branch, st)(lowerBody)
+            (condOpt, valueOpt) match {
+              case (Some(cond), Some(value)) =>
+                loop(tail, SmtExpr.Ite(cond, value, elseExpr), st1)
+              case _ =>
+                (None, st1)
+            }
+        }
+
+      val reversed = branches.reverse
+      val last = reversed.head
+      val (lastCondOpt, lastOpt, state1) =
+        lowerBranch(argExpr, last, state)(lowerBody)
+      lastOpt match {
+        case Some(lastExpr) if canUseFinalBranchAsFallback(last, lastCondOpt) =>
+          loop(reversed.tail, lastExpr, state1)
         case _ =>
-          (None, state)
+          (None, state1)
       }
+    }
+
+    // The hit condition and the lowered body of one branch.
+    private def lowerBranch[A](
+        argExpr: TypedExpr[Declaration],
+        branch: TypedExpr.Branch[Declaration],
+        state: SmtBranchState
+    )(
+        lowerBody: (
+            TypedExpr[Declaration],
+            SmtBranchState
+        ) => (Option[A], SmtBranchState)
+    ): (Option[SmtExpr.BoolExpr], Option[A], SmtBranchState) = {
+      val (condOpt, state1) = lowerBranchHitCondition(argExpr, branch, state)
+      val (bodyOpt, state2) = lowerBody(branch.expr, state1)
+      // the other branches are outside the scope of this branch's names
+      (condOpt, bodyOpt, state2.restoreBindings(branch.allBindings, state))
+    }
 
     private def lowerIntExpr(
         expr: TypedExpr[Declaration],
@@ -1702,23 +1897,13 @@ object TypedExprRecursionCheck {
                 SmtExpr.Mul(Vector(left, right))
               )
             case Some(Identifier.Name("div")) =>
-              lowerBinaryInt(args, state)((left, right) =>
-                // Bosatsu defines `x / 0 == 0`; Z3 div on zero does not.
-                SmtExpr.Ite(
-                  SmtExpr.EqInt(right, SmtExpr.IntConst(BigInt(0))),
-                  SmtExpr.IntConst(BigInt(0)),
-                  SmtExpr.Div(left, right)
-                )
-              )
+              // Bosatsu rounds toward negative infinity and defines
+              // `x / 0 == 0`; SMT-LIB `div` differs on both
+              lowerBinaryInt(args, state)(SmtExpr.bosatsuDiv)
             case Some(Identifier.Name("mod_Int")) =>
-              lowerBinaryInt(args, state)((left, right) =>
-                // Bosatsu defines `x % 0 == x`; model that instead of SMT's mod-by-zero behavior.
-                SmtExpr.Ite(
-                  SmtExpr.EqInt(right, SmtExpr.IntConst(BigInt(0))),
-                  left,
-                  SmtExpr.Mod(left, right)
-                )
-              )
+              // Bosatsu's `mod_Int` has the sign of the divisor and defines
+              // `x % 0 == x`; SMT-LIB `mod` differs on both
+              lowerBinaryInt(args, state)(SmtExpr.bosatsuMod)
             case _ =>
               inlinedTopLevelAliasApp(fn, args, state) match {
                 case Some(inlined) => lowerIntExpr(inlined, state)
@@ -1728,53 +1913,11 @@ object TypedExprRecursionCheck {
         case TypedExpr.Match(arg, branches, _) if isBoolType(arg.getType) =>
           val loweredIf @ (ifOpt, state1) = lowerIntIfExpr(arg, branches, state)
           if (ifOpt.nonEmpty) loweredIf
-          else lowerIntFromMatches(arg, branches, state1)
+          else lowerFromMatches(arg, branches, state1)(lowerIntExpr)
         case TypedExpr.Match(arg, branches, _) =>
-          lowerIntFromMatches(arg, branches, state)
+          lowerFromMatches(arg, branches, state)(lowerIntExpr)
         case TypedExpr.Let(name, valueExpr, inExpr, rec, _) =>
           lowerWithLetBinding(name, valueExpr, inExpr, rec, state)(lowerIntExpr)
-        case _ =>
-          (None, state)
-      }
-
-    private def lowerComparisonFromMatches(
-        argExpr: TypedExpr[Declaration],
-        branches: NonEmptyList[TypedExpr.Branch[Declaration]],
-        state: SmtBranchState
-    ): (Option[SmtExpr.IntExpr], SmtBranchState) =
-      branches.reverse.toList match {
-        case last :: revInit =>
-          val (lastCondOpt, state1) = lowerMatchBranchCondition(argExpr, last, state)
-          val stateForLastExpr = bindPatternNames(argExpr, last.pattern, state1)
-          val (lastExprOpt, state2) = lowerComparisonExpr(last.expr, stateForLastExpr)
-          (lastExprOpt, canUseFinalBranchAsFallback(last, lastCondOpt)) match {
-            case (Some(lastExpr), true) =>
-              val initState = (
-                lastExpr,
-                SmtExpr.BoolConst.True: SmtExpr.BoolExpr,
-                state2,
-                true
-              )
-              val (lowered, _, stateN, ok) =
-                revInit.foldLeft(initState) {
-                  case ((elseExpr, priorMiss, st, allOk), branch) =>
-                    val (condOpt, st1) = lowerMatchBranchCondition(argExpr, branch, st)
-                    val stForExpr = bindPatternNames(argExpr, branch.pattern, st1)
-                    val (exprOpt, st2) = lowerComparisonExpr(branch.expr, stForExpr)
-                    (condOpt, exprOpt) match {
-                      case (Some(cond), Some(value)) =>
-                        val hit = mkAnd(Vector(priorMiss, cond))
-                        val nextElse = SmtExpr.Ite(hit, value, elseExpr)
-                        val nextMiss = mkAnd(Vector(priorMiss, SmtExpr.Not(cond)))
-                        (nextElse, nextMiss, st2, allOk)
-                      case _ =>
-                        (elseExpr, priorMiss, st2, false)
-                    }
-                }
-              if (ok) (Some(lowered), stateN) else (None, stateN)
-            case _ =>
-              (None, state2)
-          }
         case _ =>
           (None, state)
       }
@@ -1875,51 +2018,52 @@ object TypedExprRecursionCheck {
             if patternIsIrrefutable(ps, state) =>
           (Some(SmtExpr.BoolConst.True), state)
         case Pattern.PositionalStruct(_, _) =>
-          (None, state)
+          // A constructor application, such as the tuple `(i, j)` a tuple
+          // recur target matches, matches a pattern of the same
+          // constructor exactly when each argument matches its part. If a
+          // part does not lower, neither does the whole pattern, since its
+          // negation is a branch's miss.
+          @annotation.tailrec
+          def loop(
+              parts: List[(TypedPattern, TypedExpr[Declaration])],
+              acc: List[SmtExpr.BoolExpr],
+              st: SmtBranchState
+          ): (Option[SmtExpr.BoolExpr], SmtBranchState) =
+            parts match {
+              case Nil                     =>
+                (Some(simplifyBoolExpr(mkAnd(acc.reverse.toVector))), st)
+              case (part, partArg) :: rest =>
+                val (condOpt, st1) = lowerPatternCondition(partArg, part, st)
+                condOpt match {
+                  case Some(cond) => loop(rest, cond :: acc, st1)
+                  case None       => (None, st1)
+                }
+            }
+
+          sameCtorParts(argExpr, pattern) match {
+            case Some(parts) => loop(parts, Nil, state)
+            case None        => (None, state)
+          }
         case Pattern.ListPat(_) | Pattern.StrPat(_) =>
           (None, state)
       }
 
-    private def lowerBoolFromMatches(
+    // Each part of a struct `pattern` with the argument it matches, when
+    // `argExpr` applies the pattern's constructor to one argument per part.
+    private def sameCtorParts(
         argExpr: TypedExpr[Declaration],
-        branches: NonEmptyList[TypedExpr.Branch[Declaration]],
-        state: SmtBranchState
-    ): (Option[SmtExpr.BoolExpr], SmtBranchState) =
-      branches.reverse.toList match {
-        case last :: revInit =>
-          val (lastCondOpt, state1) = lowerMatchBranchCondition(argExpr, last, state)
-          val stateForLastExpr = bindPatternNames(argExpr, last.pattern, state1)
-          val (lastExprOpt, state2) = lowerBoolExpr(last.expr, stateForLastExpr)
-          (lastExprOpt, canUseFinalBranchAsFallback(last, lastCondOpt)) match {
-            case (Some(lastExpr), true) =>
-              val initState = (
-                lastExpr,
-                SmtExpr.BoolConst.True: SmtExpr.BoolExpr,
-                state2,
-                true
-              )
-              val (lowered, _, stateN, ok) =
-                revInit.foldLeft(initState) {
-                  case ((elseExpr, priorMiss, st, allOk), branch) =>
-                    val (condOpt, st1) = lowerMatchBranchCondition(argExpr, branch, st)
-                    val stForExpr = bindPatternNames(argExpr, branch.pattern, st1)
-                    val (exprOpt, st2) = lowerBoolExpr(branch.expr, stForExpr)
-                    (condOpt, exprOpt) match {
-                      case (Some(cond), Some(value)) =>
-                        val hit = mkAnd(Vector(priorMiss, cond))
-                        val nextElse = SmtExpr.Ite(hit, value, elseExpr)
-                        val nextMiss = mkAnd(Vector(priorMiss, SmtExpr.Not(cond)))
-                        (nextElse, nextMiss, st2, allOk)
-                      case _ =>
-                        (elseExpr, priorMiss, st2, false)
-                    }
-                }
-              if (ok) (Some(lowered), stateN) else (None, stateN)
-            case _ =>
-              (None, state2)
+        pattern: TypedPattern
+    ): Option[List[(TypedPattern, TypedExpr[Declaration])]] =
+      unwrapNamedAnnotation(pattern) match {
+        case Pattern.PositionalStruct((pack, cons), params) =>
+          constructorAppFromExpr(argExpr, Nil).collect {
+            case ConstructorApp(KnownCtor(argPack, argCons), args)
+                if (argPack == pack) && (argCons == cons) &&
+                  args.lengthCompare(params.length) == 0 =>
+              params.zip(args)
           }
         case _ =>
-          (None, state)
+          None
       }
 
     private def lowerBoolExpr(
@@ -1968,7 +2112,7 @@ object TypedExprRecursionCheck {
               }
           }
         case TypedExpr.Match(arg, branches, _) =>
-          lowerBoolFromMatches(arg, branches, state)
+          lowerFromMatches(arg, branches, state)(lowerBoolExpr)
         case TypedExpr.Let(name, valueExpr, inExpr, rec, _) =>
           lowerWithLetBinding(name, valueExpr, inExpr, rec, state)(lowerBoolExpr)
         case other =>
@@ -1980,48 +2124,53 @@ object TypedExprRecursionCheck {
         pattern: Pattern[(PackageName, Identifier.Constructor), Type],
         state: SmtBranchState
     ): SmtBranchState = {
-      def bindOne(
-          name: Bindable,
-          tpe: Type,
-          st: SmtBranchState
-      ): SmtBranchState =
-        if (isIntType(tpe)) {
-          val (intExprOpt, st1) = lowerIntExpr(argExpr, st)
-          intExprOpt match {
-            case Some(intExpr) => st1.withIntBinding(name, intExpr)
-            case None          =>
-              val (fresh, st2) = ensureIntLocal(name, st1)
-              st2.withIntBinding(name, fresh)
-          }
-        } else if (isBoolType(tpe)) {
-          val (boolExprOpt, st1) = lowerBoolExpr(argExpr, st)
-          boolExprOpt match {
-            case Some(boolExpr) => st1.withBoolBinding(name, boolExpr)
-            case None           =>
-              val (fresh, st2) = ensureBoolLocal(name, st1)
-              st2.withBoolBinding(name, fresh)
-          }
-        } else if (isComparisonType(tpe)) {
-          val (cmpExprOpt, st1) = lowerComparisonExpr(argExpr, st)
-          cmpExprOpt match {
-            case Some(cmpExpr) => st1.withComparisonBinding(name, cmpExpr)
-            case None          =>
-              val (fresh, st2) = ensureComparisonLocal(name, st1)
-              st2.withComparisonBinding(name, fresh)
-          }
-        } else st
+      // Var and Named bind the whole scrutinee. When the scrutinee applies
+      // the constructor a struct pattern matches, as the tuple `(i, j)` a
+      // tuple recur target matches does, the names of each part bind that
+      // argument. Other names inside a struct or a union get no binding, so
+      // a use of one gets a fresh symbol, not the outer binding it shadows.
+      @annotation.tailrec
+      def wholeNames(
+          pat: Pattern[(PackageName, Identifier.Constructor), Type],
+          acc: List[Bindable]
+      ): List[Bindable] =
+        pat match {
+          case Pattern.Var(name)            => name :: acc
+          case Pattern.Named(name, inner)   => wholeNames(inner, name :: acc)
+          case Pattern.Annotation(inner, _) => wholeNames(inner, acc)
+          case _                            => acc
+        }
 
-      pattern match {
-        case Pattern.Var(name) =>
-          bindOne(name, argExpr.getType, state)
-        case Pattern.Named(name, inner) =>
-          val bound = bindOne(name, argExpr.getType, state)
-          bindPatternNames(argExpr, inner, bound)
-        case Pattern.Annotation(inner, _) =>
-          bindPatternNames(argExpr, inner, state)
-        case _ =>
-          state
+      def aliases(
+          arg: TypedExpr[Declaration],
+          pat: Pattern[(PackageName, Identifier.Constructor), Type]
+      ): List[(NonEmptyList[Bindable], TypedExpr[Declaration])] = {
+        val whole = NonEmptyList.fromList(wholeNames(pat, Nil)).map((_, arg))
+        val parts =
+          sameCtorParts(arg, pat).toList.flatten.flatMap {
+            case (part, partArg) => aliases(partArg, part)
+          }
+        whole.toList ::: parts
       }
+
+      // A pattern that binds a name twice is a source conversion error, so
+      // this only shapes the checker's errors on such a program: a name
+      // bound in two places would have two values, so it gets no binding.
+      val groups = aliases(argExpr, pattern)
+      val once =
+        if (groups.lengthCompare(1) <= 0) groups
+        else {
+          val placed =
+            groups
+              .flatMap { case (names, _) => names.toList.distinct }
+              .groupBy(identity)
+          groups.flatMap { case (names, arg) =>
+            NonEmptyList
+              .fromList(names.filter(placed(_).lengthCompare(1) == 0))
+              .map((_, arg))
+          }
+        }
+      bindNameGroupsTo(once, pattern.names, state)
     }
 
     private def addPatternFactsAndBindings(
@@ -2029,8 +2178,8 @@ object TypedExprRecursionCheck {
         pattern: Pattern[(PackageName, Identifier.Constructor), Type],
         state: SmtBranchState
     ): SmtBranchState = {
-      val state0 = state.removeBindings(pattern.names)
-      val (patCondOpt, state1) = lowerPatternCondition(argExpr, pattern, state0)
+      // the scrutinee is outside the scope of the names the pattern binds
+      val (patCondOpt, state1) = lowerPatternCondition(argExpr, pattern, state)
       val state2 = patCondOpt match {
         case Some(SmtExpr.BoolConst.True) => state1
         case Some(cond)                    => state1.addPathFact(simplifyBoolExpr(cond))
@@ -2059,8 +2208,9 @@ object TypedExprRecursionCheck {
         case Some(TypedExpr.BoolGuard(guardExpr)) =>
           lowerBoolExpr(guardExpr, state)
         case Some(TypedExpr.MatchGuard(argExpr, pattern, guardOpt)) =>
-          val state0 = state.removeBindings(pattern.names)
-          val (patCondOpt, state1) = lowerPatternCondition(argExpr, pattern, state0)
+          // as for a branch, the pattern matches argExpr outside the scope of
+          // the names it binds
+          val (patCondOpt, state1) = lowerPatternCondition(argExpr, pattern, state)
           val state2 = bindPatternNames(argExpr, pattern, state1)
           val (innerGuardOpt, state3) =
             guardOpt match {
@@ -2108,43 +2258,96 @@ object TypedExprRecursionCheck {
         branch: TypedExpr.Branch[Declaration],
         state: SmtBranchState
     ): (Option[SmtExpr.BoolExpr], SmtBranchState) = {
-      val state0 = state.removeBindings(branch.pattern.names)
-      val state1 = bindPatternNames(argExpr, branch.pattern, state0)
-      lowerMatchBranchCondition(argExpr, branch, state1)
+      // The pattern matches the scrutinee in the scope outside the branch,
+      // and the guard sees the names the pattern binds.
+      val (patOpt, state1) = lowerPatternCondition(argExpr, branch.pattern, state)
+      val state2 = bindPatternNames(argExpr, branch.pattern, state1)
+      val (guardOpt, state3) = lowerBranchGuardCondition(branch.guardNode, state2)
+      (
+        (patOpt, guardOpt).mapN((pat, guard) =>
+          simplifyBoolExpr(mkAnd(Vector(pat, guard)))
+        ),
+        state3
+      )
     }
 
+    // `start` is the state every branch of the match starts from.
     private case class FallthroughFacts(
         facts: NonEmptyList[(TypedExpr.Branch[Declaration], SmtExpr.BoolExpr)],
-        symbolState: SmtBranchState
+        start: SmtBranchState
     )
 
-    private def mergeSymbolState(
-        symbols: SmtBranchState,
+    // Lowering binds an outer name with no binding, such as one a struct
+    // pattern bound, to a fresh symbol where it is first read. Lowering the
+    // scrutinee does that before any branch, and its items are each lowered,
+    // through the constructor applications that build it, so a branch
+    // pattern that rebinds one of its names can't hide the read. A work list
+    // keeps a long list literal off the stack.
+    private def bindScrutineeReads(
+        argExpr: TypedExpr[Declaration],
         state: SmtBranchState
-    ): SmtBranchState =
-      state.copy(
-        declarations = state.declarations ++ symbols.declarations,
-        freshId = state.freshId.max(symbols.freshId)
-      )
+    ): SmtBranchState = {
+      @annotation.tailrec
+      def loop(
+          todo: List[TypedExpr[Declaration]],
+          st: SmtBranchState
+      ): SmtBranchState =
+        todo match {
+          case Nil           => st
+          case expr :: rest =>
+            if (isLowerableMatchScrutinee(expr.getType))
+              loop(rest, lowerTerm(expr, st)._2)
+            else
+              constructorAppFromExpr(expr, Nil) match {
+                case Some(app) => loop(app.args ::: rest, st)
+                case None      => loop(rest, st)
+              }
+        }
+      loop(argExpr :: Nil, state)
+    }
 
+    // `branchState` with the bindings of `base`, and the bindings it gave
+    // outer names that had none in `base`. Those are the names its lowering
+    // read from outside the branch and bound to fresh symbols: lowering
+    // drops the names an inner let or match binds, and the branch's own
+    // names, which may shadow outer ones, are left out. A fresh Comparison
+    // symbol keeps its domain.
+    private def keepOuterReads(
+        base: SmtBranchState,
+        branchState: SmtBranchState,
+        branchNames: Set[Bindable]
+    ): SmtBranchState = {
+      def outerReads[V](
+          before: Map[Bindable, V],
+          after: Map[Bindable, V]
+      ): Map[Bindable, V] =
+        after.filter { case (name, _) =>
+          !before.contains(name) && !branchNames(name)
+        }
+      val newComparisons =
+        outerReads(base.comparisonBindings, branchState.comparisonBindings)
+      branchState.copy(
+        intBindings = base.intBindings ++
+          outerReads(base.intBindings, branchState.intBindings),
+        boolBindings = base.boolBindings ++
+          outerReads(base.boolBindings, branchState.boolBindings),
+        comparisonBindings = base.comparisonBindings ++ newComparisons,
+        pathFacts =
+          base.pathFacts ++ newComparisons.valuesIterator.map(comparisonInDomain)
+      )
+    }
+
+    // An outer name a branch's scrutinee or guard reads has one value in
+    // every branch, unless the branch binds the name. So the binding the
+    // first read gives it is kept for the later branches and for the
+    // branches themselves: otherwise each would read it as a fresh symbol
+    // of its own, and an earlier branch's miss would say nothing about the
+    // value a later branch reads. A fresh symbol says nothing about a value.
     private def matchFallthroughFacts(
         argExpr: TypedExpr[Declaration],
         branches: NonEmptyList[TypedExpr.Branch[Declaration]],
         initialState: SmtBranchState
     ): FallthroughFacts = {
-      val baseIntBindings = initialState.intBindings
-      val baseBoolBindings = initialState.boolBindings
-      val baseComparisonBindings = initialState.comparisonBindings
-      val basePathFacts = initialState.pathFacts
-
-      def resetBranchBindings(state: SmtBranchState): SmtBranchState =
-        state.copy(
-          intBindings = baseIntBindings,
-          boolBindings = baseBoolBindings,
-          comparisonBindings = baseComparisonBindings,
-          pathFacts = basePathFacts
-        )
-
       // This returns one fallthrough fact per branch, in the same order
       // and size as `branches`.
       val init: (
@@ -2152,29 +2355,24 @@ object TypedExprRecursionCheck {
           SmtExpr.BoolExpr,
           SmtBranchState
       ) =
-        (Nil, SmtExpr.BoolConst.True, initialState)
+        (Nil, SmtExpr.BoolConst.True, bindScrutineeReads(argExpr, initialState))
 
-      val (revFacts, _, stateN) =
+      val (revFacts, _, start) =
         branches.toList.foldLeft(init) {
-          case ((acc, priorMiss, state), branch) =>
-            val state0 = resetBranchBindings(state)
-            val (hitOpt, state1) = lowerBranchHitCondition(argExpr, branch, state0)
+          case ((acc, priorMiss, base), branch) =>
+            val (hitOpt, state1) = lowerBranchHitCondition(argExpr, branch, base)
             val nextMiss = hitOpt match {
               case Some(hit) =>
                 simplifyBoolExpr(mkAnd(Vector(priorMiss, SmtExpr.Not(hit))))
               case None      =>
                 priorMiss
             }
-            ((branch, priorMiss) :: acc, nextMiss, state1)
+            // the branch's own bindings and facts do not reach the others
+            val base1 = keepOuterReads(base, state1, branch.allBindings.toSet)
+            ((branch, priorMiss) :: acc, nextMiss, base1)
         }
 
-      FallthroughFacts(
-        NonEmptyList.fromListUnsafe(revFacts.reverse),
-        // Keep only declaration/fresh-symbol effects from lowering branch-hit
-        // conditions; branch-local bindings/path facts should not leak across
-        // branches.
-        resetBranchBindings(stateN)
-      )
+      FallthroughFacts(NonEmptyList.fromListUnsafe(revFacts.reverse), start)
     }
 
     private def patternSubsumes(
@@ -2228,9 +2426,169 @@ object TypedExprRecursionCheck {
         state.comparisonBindings.keySet ++
         currentPattern.names
 
+    // An arm count past which subsumed-guard facts are not worth the
+    // cartesian product of nested unions.
+    private val maxUnionArms = 16
+
+    // The union-free patterns `pattern` is a union of, in the order Bosatsu
+    // tries them. A union binds names by its first arm that matches, and so
+    // does a union nested in a struct or list item, so the arms of a product
+    // come in order with the first part varying slowest. None when there
+    // would be more than maxUnionArms, or when a list search (two or more
+    // globs) would try positions before arms, which no such order describes.
+    private def unionArms(pattern: TypedPattern): Option[List[TypedPattern]] = {
+      def capped[A](arms: List[A]): Option[List[A]] =
+        if (arms.lengthCompare(maxUnionArms) <= 0) Some(arms) else None
+
+      // every choice of one arm per part, the first part varying slowest
+      def product[A](parts: List[List[A]]): Option[List[List[A]]] =
+        parts.foldRight(Option(List(List.empty[A]))) { (part, accOpt) =>
+          accOpt.flatMap(acc => capped(part.flatMap(a => acc.map(a :: _))))
+        }
+
+      pattern match {
+        case Pattern.Union(head, rest) =>
+          (head :: rest.toList).traverse(unionArms).flatMap(arms => capped(arms.flatten))
+        case Pattern.Named(name, inner) =>
+          unionArms(inner).map(_.map(Pattern.Named(name, _)))
+        case Pattern.Annotation(inner, tpe) =>
+          unionArms(inner).map(_.map(Pattern.Annotation(_, tpe)))
+        case Pattern.PositionalStruct(cons, params) =>
+          params
+            .traverse(unionArms)
+            .flatMap(product)
+            .map(_.map(Pattern.PositionalStruct(cons, _)))
+        case Pattern.ListPat(parts) =>
+          val globs = parts.count {
+            case _: Pattern.ListPart.Glob => true
+            case Pattern.ListPart.Item(_) => false
+          }
+          parts
+            .traverse {
+              case Pattern.ListPart.Item(item) =>
+                unionArms(item).map(_.map(Pattern.ListPart.Item(_)))
+              case glob: Pattern.ListPart.Glob =>
+                Some(List(glob))
+            }
+            .flatMap { partArms =>
+              if ((globs > 1) && partArms.exists(_.lengthCompare(1) > 0)) None
+              else product(partArms).map(_.map(Pattern.ListPat(_)))
+            }
+        case Pattern.WildCard | Pattern.Literal(_) | Pattern.Var(_) |
+            Pattern.StrPat(_) =>
+          Some(pattern :: Nil)
+      }
+    }
+
+    // The arms of `priorPattern` that can bind a value `currentPattern`
+    // matches: each arm that overlaps it, up to the first arm that covers
+    // it, since a value that arm matches never reaches a later one. Leaving
+    // an arm out is sound only because the pattern algebra is exact here:
+    // intersection is empty only for disjoint patterns, and difference only
+    // when the arm covers the pattern, as patternSubsumes already assumes.
+    private def candidateArms(
+        priorPattern: TypedPattern,
+        currentPattern: TypedPattern,
+        state: SmtBranchState
+    ): Option[NonEmptyList[TypedPattern]] =
+      unionArms(priorPattern).flatMap { arms =>
+        val (beforeCover, fromCover) =
+          arms.span(arm => !patternSubsumes(arm, currentPattern, state))
+        NonEmptyList.fromList(
+          (beforeCover ::: fromCover.take(1)).filter(arm =>
+            state.totalityCheck.intersection(arm, currentPattern).nonEmpty
+          )
+        )
+      }
+
+    // `name` has the same SMT binding in both states.
+    private def sameBinding(
+        name: Bindable,
+        a: SmtBranchState,
+        b: SmtBranchState
+    ): Boolean =
+      a.intBindings.get(name).exists(e => b.intBindings.get(name).contains(e)) ||
+        a.boolBindings.get(name).exists(e => b.boolBindings.get(name).contains(e)) ||
+        a.comparisonBindings
+          .get(name)
+          .exists(e => b.comparisonBindings.get(name).contains(e))
+
+    // That the guard held, if `arm` bound its pattern's names: the guard with
+    // those names renamed to the current pattern's names that bind the same
+    // values, lowered in `state`. Whole-value aliases give several renames
+    // that are all true at once, so any that lowers will do. None when none
+    // lowers.
+    private def subsumedArmGuardHeld(
+        guardExpr: TypedExpr[Declaration],
+        arm: TypedPattern,
+        currentPattern: TypedPattern,
+        state: SmtBranchState
+    ): Option[(SmtExpr.BoolExpr, SmtBranchState)] = {
+      // a name bound by a list search may be a different element in each
+      // pattern, so it does not rename
+      val searchBound = currentPattern.ambiguousBindings
+      val (heldRev, state1) =
+        alignSubsumedGuardExprAlternatives(guardExpr, arm, currentPattern)
+          .foldLeft((List.empty[SmtExpr.BoolExpr], state)) {
+            case ((held, st0), alignedGuardExpr) =>
+              val guardFree = alignedGuardExpr.freeVarsDup.toSet
+              if (
+                guardFree.subsetOf(availableBranchNames(currentPattern, st0)) &&
+                !guardFree.exists(searchBound)
+              ) {
+                val (guardOpt, stNext) = lowerBoolExpr(alignedGuardExpr, st0)
+                (guardOpt.fold(held)(simplifyBoolExpr(_) :: held), stNext)
+              } else (held, st0)
+          }
+      NonEmptyList
+        .fromList(heldRev.reverse.distinct)
+        .map(held => (mkOr(held.toList.toVector), state1))
+    }
+
+    // The fact that an earlier branch's guard was false, when that branch's
+    // pattern covers the current pattern. `outer` is the state before the
+    // current pattern bound its names, where the earlier guard's outer names
+    // have the values the guard read.
+    // - A union binds names by the arm that matched first, so the fact is
+    //   that the guard was false for one of the arms that can match here. If
+    //   one of them gives no fact, there is none.
+    // - A name the earlier arm binds by a list search does not rename.
+    // - An outer name the guard reads must have its outer value here: the
+    //   current pattern may rebind it only to the same value.
+    private def subsumedGuardFact(
+        guardExpr: TypedExpr[Declaration],
+        priorPattern: TypedPattern,
+        currentPattern: TypedPattern,
+        outer: SmtBranchState,
+        state: SmtBranchState
+    ): Option[(SmtExpr.BoolExpr, SmtBranchState)] = {
+      val guardNames = guardExpr.freeVarsDup.toSet
+      val outerNames = guardNames -- priorPattern.names
+      val outerKept =
+        currentPattern.names.forall(n => !outerNames(n) || sameBinding(n, outer, state))
+      val readsSearchBound = guardNames.exists(priorPattern.ambiguousBindings)
+      if (!outerKept || readsSearchBound) None
+      else
+        candidateArms(priorPattern, currentPattern, state).flatMap { arms =>
+          arms.toList
+            .foldLeft(Option((List.empty[SmtExpr.BoolExpr], state))) {
+              case (acc, arm) =>
+                acc.flatMap { case (heldRev, st) =>
+                  subsumedArmGuardHeld(guardExpr, arm, currentPattern, st).map {
+                    case (held, st1) => (held :: heldRev, st1)
+                  }
+                }
+            }
+            .map { case (heldRev, st1) =>
+              (SmtExpr.Not(mkAnd(heldRev.reverse.toVector)), st1)
+            }
+        }
+    }
+
     private def addSubsumedGuardFallthroughFacts(
         priorBranches: List[TypedExpr.Branch[Declaration]],
         currentPattern: TypedPattern,
+        outer: SmtBranchState,
         state: SmtBranchState
     ): SmtBranchState =
       // If a previous branch pattern fully covers the current pattern, falling
@@ -2239,38 +2597,49 @@ object TypedExprRecursionCheck {
         priorBranch.guard match {
           case Some(guardExpr)
               if patternSubsumes(priorBranch.pattern, currentPattern, st) =>
-            val alignedGuards =
-              alignSubsumedGuardExprAlternatives(
-                guardExpr,
-                priorBranch.pattern,
-                currentPattern
-              )
-
-            val (condsRev, st1) =
-              alignedGuards.foldLeft((List.empty[SmtExpr.BoolExpr], st)) {
-                case ((conds, st0), alignedGuardExpr) =>
-                  val guardFree = alignedGuardExpr.freeVarsDup.toSet
-                  if (guardFree.subsetOf(availableBranchNames(currentPattern, st0))) {
-                    val (guardOpt, stNext) = lowerBoolExpr(alignedGuardExpr, st0)
-                    guardOpt match {
-                      case Some(guardCond) =>
-                        (simplifyBoolExpr(guardCond) :: conds, stNext)
-                      case None =>
-                        (conds, stNext)
-                    }
-                  } else (conds, st0)
-              }
-
-            if (condsRev.isEmpty) st1
-            else
-              addPathFactIfNonTrivial(
-                SmtExpr.Not(mkOr(condsRev.reverse.distinct.toVector)),
-                st1
-              )
+            subsumedGuardFact(
+              guardExpr,
+              priorBranch.pattern,
+              currentPattern,
+              outer,
+              st
+            ).fold(st) { case (fact, st1) => addPathFactIfNonTrivial(fact, st1) }
           case _ =>
             st
         }
       }
+
+    // The SMT state on entry to each branch of `match argExpr` from `state`,
+    // before the branch's guard: the pattern's facts and bindings, the names
+    // `bindAliases` binds for the branch at that index, then that the earlier
+    // branches missed. Same order and length as `branches`.
+    private def matchBranchEntryStates(
+        argExpr: TypedExpr[Declaration],
+        branches: NonEmptyList[TypedExpr.Branch[Declaration]],
+        state: SmtBranchState
+    )(
+        bindAliases: (Int, SmtBranchState) => SmtBranchState
+    ): NonEmptyList[SmtBranchState] = {
+      val analyzed = matchFallthroughFacts(argExpr, branches, state)
+      val start = analyzed.start
+      val priorBranches = analyzed.facts.toList.map(_._1)
+      analyzed.facts.zipWithIndex.map {
+        case ((branch, fallthroughFact), idx) =>
+          val withPattern =
+            bindAliases(
+              idx,
+              addPatternFactsAndBindings(argExpr, branch.pattern, start)
+            )
+          val withSubsumed =
+            addSubsumedGuardFallthroughFacts(
+              priorBranches.take(idx),
+              branch.pattern,
+              start,
+              withPattern
+            )
+          addPathFactIfNonTrivial(fallthroughFact, withSubsumed)
+      }
+    }
 
     private def buildPathCondition(state: SmtBranchState): SmtExpr.BoolExpr =
       mkAnd(state.pathFacts)
@@ -2357,59 +2726,198 @@ object TypedExprRecursionCheck {
         tpe: Type,
         state: SmtBranchState
     ): SmtBranchState =
-      if (isIntType(tpe)) {
-        val (_, state1) = ensureIntLocal(name, state)
-        state1
-      } else if (isBoolType(tpe)) {
-        val (_, state1) = ensureBoolLocal(name, state)
-        state1
-      } else if (isComparisonType(tpe)) {
-        val (_, state1) = ensureComparisonLocal(name, state)
-        state1
-      } else state
+      freshTerm(name, tpe, state)._2
 
     private def initBranchSmtState(inrec: InDefRecurred): SmtBranchState =
-      inrec.inRec.typedArgs.iterator.flatMap(_.iterator).foldLeft(
-        SmtBranchState.empty(inrec.inRec.totalityCheck).copy(
-          topLevelLowerableAliases = inrec.inRec.topLevelLowerableAliases,
-          topLevelPredefAliases = inrec.inRec.topLevelPredefAliases
+      initSmtState(
+        inrec.inRec.typedArgs,
+        inrec.inRec.types.totalityCheck,
+        inrec.inRec.topLevelLowerableAliases,
+        inrec.inRec.topLevelPredefAliases
+      )
+
+    // One SMT symbol for each Int, Bool or Comparison argument of a def.
+    private def initSmtState(
+        typedArgs: NonEmptyList[NonEmptyList[(Bindable, Type)]],
+        totalityCheck: TotalityCheck,
+        topLevelLowerableAliases: TopLevelLowerableAliases,
+        topLevelPredefAliases: TopLevelPredefAliases
+    ): SmtBranchState =
+      typedArgs.iterator.flatMap(_.iterator).foldLeft(
+        SmtBranchState.empty(totalityCheck).copy(
+          topLevelLowerableAliases = topLevelLowerableAliases,
+          topLevelPredefAliases = topLevelPredefAliases
         )
       ) { case (state, (name, tpe)) =>
         bindSymbolForType(name, tpe, state)
       }
 
+    def lowerDefBodyForTest(
+        currentPackage: PackageName,
+        fullTypeEnv: TypeEnv[Kind.Arg],
+        lets: List[(Bindable, RecursionKind, TypedExpr[Declaration])],
+        name: Bindable
+    ): Option[LoweredDefBody] =
+      lets.reverseIterator
+        .collectFirst { case (n, _, expr) if n == name => expr }
+        .flatMap(collectArgGroupsAndBody)
+        .map { case (typedArgs, body) =>
+          val state0 = initSmtState(
+            typedArgs,
+            TotalityCheck(fullTypeEnv),
+            topLevelLowerableAliases(currentPackage, lets),
+            topLevelPredefAliases(currentPackage, lets)
+          )
+          val (term, state1) = lowerTerm(body, state0)
+
+          LoweredDefBody(
+            state0.intBindings,
+            state0.boolBindings,
+            state0.comparisonBindings,
+            term,
+            state1.pathFacts
+          )
+        }
+
+    def leafPathFactsForTest(
+        currentPackage: PackageName,
+        fullTypeEnv: TypeEnv[Kind.Arg],
+        lets: List[(Bindable, RecursionKind, TypedExpr[Declaration])],
+        name: Bindable
+    ): Option[LeafPathFacts] =
+      lets.reverseIterator
+        .collectFirst { case (n, _, expr) if n == name => expr }
+        .flatMap(collectArgGroupsAndBody)
+        .map { case (typedArgs, body) =>
+          val state0 = initSmtState(
+            typedArgs,
+            TotalityCheck(fullTypeEnv),
+            topLevelLowerableAliases(currentPackage, lets),
+            topLevelPredefAliases(currentPackage, lets)
+          )
+
+          // Mirrors how checkExpr threads the SMT state into a let's body and
+          // a match branch's body. A work list keeps deep bodies off the stack.
+          @annotation.tailrec
+          def walk(
+              todo: List[(TypedExpr[Declaration], SmtBranchState)],
+              leaves: Map[BigInt, Vector[SmtExpr.BoolExpr]]
+          ): Map[BigInt, Vector[SmtExpr.BoolExpr]] =
+            todo match {
+              case Nil                   => leaves
+              case (expr, state) :: rest =>
+                stripExprWrappers(expr) match {
+                  case TypedExpr.Literal(Lit.Integer(leaf), _, _) =>
+                    walk(rest, leaves.updated(BigInt(leaf), state.pathFacts))
+                  case TypedExpr.Let(n, value, in, rec, _) if !rec.isRecursive =>
+                    walk((in, bindLetName(n, value, state)) :: rest, leaves)
+                  case TypedExpr.Match(arg, branches, _) =>
+                    val entryStates =
+                      matchBranchEntryStates(arg, branches, state)((_, st) => st)
+                    val bodies =
+                      branches.toList.zip(entryStates.toList).map {
+                        case (branch, entry) =>
+                          (branch.expr, addBranchGuardFacts(branch.guardNode, entry))
+                      }
+                    walk(bodies ::: rest, leaves)
+                  case _ =>
+                    walk(rest, leaves)
+                }
+            }
+
+          LeafPathFacts(
+            state0.intBindings,
+            state0.boolBindings,
+            state0.comparisonBindings,
+            walk((body, state0) :: Nil, Map.empty)
+          )
+        }
+
     private def bindLetName(
         name: Bindable,
         expr: TypedExpr[Declaration],
         state: SmtBranchState
+    ): SmtBranchState =
+      bindNameGroupsTo((NonEmptyList.one(name), expr) :: Nil, name :: Nil, state)
+
+    // Bind each group's names to the value of its expression. Every
+    // expression is lowered in `state`, so outside the scope of the names
+    // and `shadowed`. Those names then lose any outer binding, so a group
+    // whose expression does not lower gets one fresh symbol rather than an
+    // outer binding its names shadow.
+    private def bindNameGroupsTo(
+        groups: List[(NonEmptyList[Bindable], TypedExpr[Declaration])],
+        shadowed: List[Bindable],
+        state: SmtBranchState
     ): SmtBranchState = {
+      val (loweredRev, state1) =
+        groups.foldLeft(
+          (
+            List.empty[(NonEmptyList[Bindable], Type, Option[LoweredTerm])],
+            state
+          )
+        ) { case ((acc, st), (names, expr)) =>
+          val (term, st1) = lowerTerm(expr, st)
+          ((names, expr.getType, term) :: acc, st1)
+        }
+
+      val removed = groups.flatMap { case (names, _) => names.toList } ::: shadowed
+      loweredRev.reverse.foldLeft(state1.removeBindings(removed)) {
+        case (st, (names, tpe, term)) =>
+          val (value, st1) =
+            term match {
+              case Some(_) => (term, st)
+              case None    => freshTerm(names.head, tpe, st)
+            }
+          value match {
+            case Some(LoweredTerm.IntTerm(e))        =>
+              names.foldLeft(st1)(_.withIntBinding(_, e))
+            case Some(LoweredTerm.BoolTerm(e))       =>
+              names.foldLeft(st1)(_.withBoolBinding(_, e))
+            case Some(LoweredTerm.ComparisonTerm(e)) =>
+              names.foldLeft(st1)(_.withComparisonBinding(_, e))
+            case None                                =>
+              st1
+          }
+      }
+    }
+
+    // `expr` lowered to a term of its sort, if the sort has SMT terms and
+    // the expression lowers.
+    private def lowerTerm(
+        expr: TypedExpr[Declaration],
+        state: SmtBranchState
+    ): (Option[LoweredTerm], SmtBranchState) = {
       val tpe = expr.getType
       if (isIntType(tpe)) {
-        val (intExprOpt, state1) = lowerIntExpr(expr, state)
-        intExprOpt match {
-          case Some(intExpr) => state1.withIntBinding(name, intExpr)
-          case None          =>
-            val (fresh, state2) = ensureIntLocal(name, state1)
-            state2.withIntBinding(name, fresh)
-        }
+        val (t, st) = lowerIntExpr(expr, state)
+        (t.map(LoweredTerm.IntTerm(_)), st)
       } else if (isBoolType(tpe)) {
-        val (boolExprOpt, state1) = lowerBoolExpr(expr, state)
-        boolExprOpt match {
-          case Some(boolExpr) => state1.withBoolBinding(name, boolExpr)
-          case None           =>
-            val (fresh, state2) = ensureBoolLocal(name, state1)
-            state2.withBoolBinding(name, fresh)
-        }
+        val (t, st) = lowerBoolExpr(expr, state)
+        (t.map(LoweredTerm.BoolTerm(_)), st)
       } else if (isComparisonType(tpe)) {
-        val (cmpExprOpt, state1) = lowerComparisonExpr(expr, state)
-        cmpExprOpt match {
-          case Some(cmpExpr) => state1.withComparisonBinding(name, cmpExpr)
-          case None          =>
-            val (fresh, state2) = ensureComparisonLocal(name, state1)
-            state2.withComparisonBinding(name, fresh)
-        }
-      } else state
+        val (t, st) = lowerComparisonExpr(expr, state)
+        (t.map(LoweredTerm.ComparisonTerm(_)), st)
+      } else (None, state)
     }
+
+    // The symbol `name` has, or a fresh one bound to it, when `tpe` has SMT
+    // terms.
+    private def freshTerm(
+        name: Bindable,
+        tpe: Type,
+        state: SmtBranchState
+    ): (Option[LoweredTerm], SmtBranchState) =
+      if (isIntType(tpe)) {
+        val (t, st) = ensureIntLocal(name, state)
+        (Some(LoweredTerm.IntTerm(t)), st)
+      } else if (isBoolType(tpe)) {
+        val (t, st) = ensureBoolLocal(name, state)
+        (Some(LoweredTerm.BoolTerm(t)), st)
+      } else if (isComparisonType(tpe)) {
+        val (t, st) = ensureComparisonLocal(name, state)
+        (Some(LoweredTerm.ComparisonTerm(t)), st)
+      } else (None, state)
 
     @annotation.tailrec
     private def unwrapDeclExpr(
@@ -2488,54 +2996,411 @@ object TypedExprRecursionCheck {
         }
       }
 
-    private def fieldPayloadAllowed(
-        inrec: InDefRecurred,
-        target: RecurTargetItem,
-        proof: TargetProof,
-        fieldType: Type,
-        fieldArgExpr: TypedExpr[Declaration],
-        targetType: Type
-    ): Boolean =
-      // v1 safety rule: exact recursive payloads must use known-smaller names,
-      // and wrapped recursive payloads are rejected conservatively.
-      if (!Type.containsType(fieldType, targetType)) true
-      else if (fieldType.sameAs(targetType))
-        classifyExpr(inrec, target, proof, fieldArgExpr) == Smaller
-      else false
+    // Typed expressions keep type aliases as written (`type CbA = Cb`), so
+    // comparisons of type constants must see through them. Returns a type
+    // whose head is not an alias, or None if the alias can't be expanded
+    // (under-applied, or a cycle, which source conversion already rejects);
+    // callers treat None as unsafe.
+    private def expandAliasHead(
+        typeEnv: TypeEnv[Kind.Arg],
+        t: Type
+    ): Option[Type] = {
+      @annotation.tailrec
+      def loop(t: Type, expanding: Set[Type.Const]): Option[Type] =
+        Type.unapplyAll(t) match {
+          case (Type.TyConst(c), args) =>
+            typeEnv.getTypeAlias(Type.TyConst(c)) match {
+              case Some(alias) =>
+                if (expanding(c)) None
+                else
+                  alias.expandWith(args) match {
+                    case Some(t1) => loop(t1, expanding + c)
+                    case None     => None
+                  }
+              case None => Some(t)
+            }
+          case _ => Some(t)
+        }
 
+      loop(t, Set.empty)
+    }
+
+    // Which type constants may have values that hand out values of a target
+    // type: a target itself, with any type arguments, or a constant one of
+    // whose constructors has a field with such a constant at an output
+    // position. The name alone is not enough: an alias, or a type declared
+    // after a target (`struct Wrap(t: T[Wrap])`), can hide it. A field that
+    // only takes a target in (`struct Handler(h: T -> Int)`) doesn't count.
+    // Function type constants carry no values of their own, and a constant's
+    // type arguments are walked where it is used, by `occurrences`.
+    //
+    // What matters is target values the package being checked can read.
+    // `typeEnv` has the package's own view of its types and imports, and
+    // what its dependencies export, so it expands every alias inference
+    // expands. A type the package can't name the constructors of is opaque
+    // to it: one `typeEnv` doesn't define (a type a dependency keeps
+    // private), and one `typeEnv` has without constructors (an opaque or
+    // external type, or a dependency's type the package didn't import).
+    // Target values come out of an opaque type only through function calls,
+    // which are never classified smaller, so like a type variable of the def
+    // it counts as not containing the target. Type arguments are walked as
+    // usual, so `Lazy[T]` still contains `T`.
+    //
+    // The callback rule asks this at input positions instead, where a caller
+    // hands values to a function `f` that may read the opaque type. That is
+    // still safe. Where the opaque type instantiates a quantifier of `f`,
+    // `f` is parametric in it, so it can only pass the value on at that
+    // type, which the callbacks can't read either. Otherwise the type is in
+    // the type `f` was declared with, which comes from the target's own
+    // structure. Either it was declared before the target's type, so it can
+    // hold a target value only through its type arguments, which are
+    // walked, or it is a type argument of the target's type at a parameter
+    // the type takes as input. Holding the target's type at those same
+    // arguments makes it a recursive occurrence through that parameter,
+    // which the covariance check on recursive types rejects
+    // (`struct O(t: T[O])` when T's parameter is an input). External types
+    // have no constructors and no covariance check: like their declared
+    // variances, they are trusted, as foreign functions are.
+    final class TargetContainment(
+        typeEnv: TypeEnv[Kind.Arg],
+        targetConsts: List[Type.Const]
+    ) {
+      import TargetContainment.{Occurrences, isOutput}
+
+      private val cache = mutable.Map.empty[Type.Const, Boolean]
+
+      private def paramVariance(c: Type.Const, idx: Int): Variance =
+        typeEnv
+          .getType(Type.TyConst(c))
+          .flatMap(_.annotatedTypeParams.lift(idx))
+          .fold(Variance.in)(_._2.variance)
+
+      // The constants and free type variables in `t`, which is at polarity
+      // `v`, at the positions whose polarity `at` accepts. Polarity flips at
+      // function arguments and follows the declared variance of type
+      // parameters, invariant when unknown. A phantom parameter (including
+      // one declared on an external type) is trusted to hold no values.
+      // Variables a `forall` or `exists` inside `t` binds are not free.
+      def occurrences(
+          t: Type,
+          v: Variance,
+          at: Variance => Boolean
+      ): Occurrences = {
+        // a type at a polarity, with the variables bound around it
+        type Item = (Type, Variance, Set[Type.Var])
+
+        @annotation.tailrec
+        def loop(
+            todo: List[Item],
+            consts: List[Type.Const],
+            vars: List[Type.Var],
+            unknown: Boolean
+        ): Occurrences =
+          todo match {
+            case Nil => Occurrences(consts, vars, unknown)
+            case (t1, v1, bound) :: rest =>
+              if (v1 == Variance.Phantom) loop(rest, consts, vars, unknown)
+              else
+                expandAliasHead(typeEnv, t1) match {
+                  case None => loop(rest, consts, vars, true)
+                  case Some(Type.ForAll(binders, in)) =>
+                    val bound1 = bound ++ binders.iterator.map(_._1)
+                    loop((in, v1, bound1) :: rest, consts, vars, unknown)
+                  case Some(Type.Exists(binders, in)) =>
+                    val bound1 = bound ++ binders.iterator.map(_._1)
+                    loop((in, v1, bound1) :: rest, consts, vars, unknown)
+                  case Some(Type.Fun(args, res)) =>
+                    val argItems: List[Item] = args.toList.map((_, -v1, bound))
+                    loop(
+                      argItems ::: ((res, v1, bound) :: rest),
+                      consts,
+                      vars,
+                      unknown
+                    )
+                  case Some(t2) =>
+                    Type.unapplyAll(t2) match {
+                      case (Type.TyConst(c), args) =>
+                        val argItems: List[Item] =
+                          args.zipWithIndex.map { case (arg, idx) =>
+                            (arg, v1 * paramVariance(c, idx), bound)
+                          }
+                        loop(
+                          argItems ::: rest,
+                          if (at(v1)) c :: consts else consts,
+                          vars,
+                          unknown
+                        )
+                      case (Type.TyVar(tv), args) =>
+                        val argItems: List[Item] =
+                          args.map((_, Variance.in, bound))
+                        loop(
+                          argItems ::: rest,
+                          consts,
+                          if (at(v1) && !bound(tv)) tv :: vars else vars,
+                          unknown
+                        )
+                      // $COVERAGE-OFF$ typechecked expressions have no
+                      // metas left
+                      case _ =>
+                        // be conservative about anything unexpected
+                        loop(rest, consts, vars, true)
+                      // $COVERAGE-ON$
+                    }
+                }
+          }
+
+        loop((t, v, Set.empty[Type.Var]) :: Nil, Nil, Nil, false)
+      }
+
+      def mayContain(c: Type.Const): Boolean = {
+        @annotation.tailrec
+        def loop(
+            todo: List[Type.Const],
+            seen: Set[Type.Const]
+        ): Boolean =
+          todo match {
+            case Nil => false
+            case h :: tail =>
+              if (targetConsts.contains(h)) true
+              else if (seen(h)) loop(tail, seen)
+              else {
+                val tc = Type.TyConst(h)
+                // the constants a value of `h` can hand out, or None if we
+                // can't tell
+                val deps: Option[List[Type.Const]] =
+                  tc match {
+                    case Type.FnType(_) => Some(Nil)
+                    case _ =>
+                      typeEnv.getType(tc) match {
+                        case Some(dt) =>
+                          val occs = dt.constructors.flatMap(_.args).map {
+                            param =>
+                              occurrences(param.tpe, Variance.co, isOutput)
+                          }
+                          // $COVERAGE-OFF$ source conversion rejects an alias
+                          // that won't expand
+                          if (occs.exists(_.unknown)) None
+                          // $COVERAGE-ON$
+                          else Some(occs.flatMap(_.consts))
+                        case None =>
+                          typeEnv.getTypeAlias(tc) match {
+                            // $COVERAGE-OFF$ occurrences expands aliases
+                            // before asking, so this is only a fallback
+                            case Some(alias) =>
+                              Some(alias.dependsOn.map(_.tpe))
+                            // $COVERAGE-ON$
+                            // opaque to the package; see above
+                            case None => Some(Nil)
+                          }
+                      }
+                  }
+                deps match {
+                  case Some(ds) => loop(ds ::: tail, seen + h)
+                  case None     => true
+                }
+              }
+          }
+
+        cache.getOrElseUpdate(c, loop(c :: Nil, Set.empty))
+      }
+
+      // Whether a constant that may contain target values occurs in `t`,
+      // which is at polarity `v`, at a position whose polarity `at` accepts.
+      // An alias that won't expand counts as an occurrence.
+      def occursAt(t: Type, v: Variance, at: Variance => Boolean): Boolean = {
+        val occs = occurrences(t, v, at)
+        occs.unknown || occs.consts.exists(mayContain)
+      }
+    }
+
+    object TargetContainment {
+      final case class Occurrences(
+          consts: List[Type.Const],
+          vars: List[Type.Var],
+          unknown: Boolean
+      )
+
+      // where a value of the type is handed in: contravariant or invariant
+      def isInput(v: Variance): Boolean =
+        (v == Variance.Contravariant) || (v == Variance.Invariant)
+
+      // where a value of the type can be read out: covariant or invariant
+      def isOutput(v: Variance): Boolean =
+        (v == Variance.Covariant) || (v == Variance.Invariant)
+    }
+
+    // Which fields may hold target values, in order, and the dangerous
+    // existentials.
+    private final case class RankFields(
+        mayHold: List[Boolean],
+        dangerous: Set[Type.Var]
+    )
+
+    // The constructor-rank rule: in a branch where the target is known to be
+    // constructor C, `D(e1, ..., en)` with D declared before C in the same
+    // type is smaller than the target when every ei whose field may hold
+    // target values is itself smaller. That is the recursive path ordering,
+    // with constructors ordered by declaration, on values with the positions
+    // the def can't read erased (see below): every target value the def can
+    // read from the new value is a strict part of the current one, so the
+    // order is well-founded.
+    //
+    // A field may hold target values the def can read when a type that may
+    // contain them occurs at an output position of the field's type, at the
+    // type arguments `classifyExprAt` gives. That counts the target's type with
+    // any type arguments: through polymorphic recursion, or a constructor
+    // with a field of fixed type (`E(z: T[Int])`), a `T[List[Int]]` value
+    // can hold a `T[Int]`. It counts a type that can hand out the target
+    // (`struct Wrap(w: T[Wrap])`), and `() -> T` or `(T -> Int) -> Int`. It
+    // does not count `T -> Int`, which only takes one in. Other constants
+    // the field's declared type names were declared before the target's type
+    // or in a dependency of its package, so they can't contain it.
+    //
+    // In the recursive call's own argument, a field whose type is a type
+    // variable of the def is opaque to the def: every recursive call runs the
+    // same code, which never reads such a field as a target value, even when
+    // polymorphic recursion puts one there. A smaller function built at a
+    // concrete type could read it, but its type would then need the target's
+    // type at an input position, which the covariance argument in
+    // TargetContainment rules out.
+    //
+    // An existential of D is opaque too, unless a function packed with the
+    // value can turn it into a target value the def reads. With
+    // `D[b](x: b, f: (b, T -> Int) -> Int)` and x := the target,
+    // `f(x, y -> bad(y))` hands the target to a callback whose binder is
+    // smaller. The callback may be hidden in a named type
+    // (`fs: Box[b, T]`, with `Box[a, r](h: (a, r -> Int) -> Int)`), and the
+    // trusted forces read results of thunks, `Lazy` and `Eval`. So an
+    // existential is dangerous when a field that takes it as input outputs
+    // a target-containing type, or a dangerous existential, anywhere. That
+    // is a least fixed point. A field needs a smaller value under the same
+    // condition. `k: b -> Int` outputs neither, so `Step[b](x: b,
+    // k: b -> Int)` keeps x opaque. This is conservative for a consumer
+    // like `Step[s](st: s, out: s -> r)` whose result is a plain value
+    // holding the target: the def never reads that as smaller. But it can
+    // read some results (a thunk's, or a curried function's that the
+    // callback rule applies), and this walk doesn't tell them apart.
+    //
+    // Existentials are matched by name in the instantiated field types,
+    // where `occurrences` skips variables a `forall` or `exists` in the
+    // field binds. `ConstructorFn.openAt` names them apart from the type
+    // arguments, so they don't merge with the def's type variables or an
+    // enclosing constructor's existentials.
+    private def rankFieldsMayHoldTarget(
+        containment: TargetContainment,
+        existentials: Set[Type.Var],
+        fieldTypes: List[Type]
+    ): RankFields = {
+      import TargetContainment.{isInput, isOutput}
+
+      // what one field can do with target values and existentials
+      final case class FieldFacts(
+          outputsTarget: Boolean,
+          outputVars: List[Type.Var],
+          consumed: Set[Type.Var]
+      )
+
+      val fields: List[FieldFacts] =
+        fieldTypes.map { fieldType =>
+          val out = containment.occurrences(fieldType, Variance.co, isOutput)
+          val in = containment.occurrences(fieldType, Variance.co, isInput)
+          FieldFacts(
+            out.unknown || out.consts.exists(containment.mayContain),
+            out.vars.filter(existentials),
+            in.vars.iterator.filter(existentials).toSet
+          )
+        }
+
+      def handsOut(field: FieldFacts, dangerous: Set[Type.Var]): Boolean =
+        field.outputsTarget || field.outputVars.exists(dangerous)
+
+      // grows by at least one existential per step, so it stops
+      @annotation.tailrec
+      def dangerousFrom(dangerous: Set[Type.Var]): Set[Type.Var] = {
+        val next =
+          fields.foldLeft(dangerous) { (acc, field) =>
+            if (handsOut(field, dangerous)) acc ++ field.consumed else acc
+          }
+        if (next.size == dangerous.size) dangerous else dangerousFrom(next)
+      }
+
+      val dangerous = dangerousFrom(Set.empty)
+      RankFields(fields.map(handsOut(_, dangerous)), dangerous)
+    }
+
+    // `argType` is the type `arg`'s fields are read at; see classifyExprAt.
+    // When it isn't an application of the owner type (a field type whose
+    // head is a type variable or an `exists`, or a parameter declared with
+    // `exists`), `arg`'s own type is used.
     private def classifyConstructorRankArg(
         inrec: InDefRecurred,
         target: RecurTargetItem,
         proof: TargetProof,
         currentCtor: KnownCtor,
-        arg: TypedExpr[Declaration]
+        arg: TypedExpr[Declaration],
+        argType: Type
     ): ArgLexOrder = {
-      val typeEnv = inrec.inRec.totalityCheck.inEnv
-      val targetType = targetItemType(inrec, target)
+      val types = inrec.inRec.types
+      // A `forall` is stripped: a let-generalized `n = None` has type
+      // `forall a. Option[a]`, and by parametricity a value of that type
+      // holds nothing at the positions of `a`, which then count as type
+      // variables, which TargetContainment treats as opaque.
+      def typeArgsOf(
+          owner: DefinedType[Kind.Arg],
+          t: Type
+      ): Option[List[Type]] =
+        expandAliasHead(types.typeEnv, Type.liftUniversals(t)._2)
+          .flatMap(owner.extractTypeArgs)
       val maybeSmaller =
         for {
           argCtorApp <- constructorAppFromArgExpr(arg)
-          currentMeta <- constructorMeta(typeEnv, currentCtor)
-          nextMeta <- constructorMeta(typeEnv, argCtorApp.ctor)
+          currentMeta <- constructorMeta(types.typeEnv, currentCtor)
+          nextMeta <- constructorMeta(types.typeEnv, argCtorApp.ctor)
           if currentMeta.owner.toTypeConst == nextMeta.owner.toTypeConst
-          targetArgs <- currentMeta.owner.extractTypeArgs(targetType)
+          targetArgs <- typeArgsOf(currentMeta.owner, argType)
+            .orElse(typeArgsOf(currentMeta.owner, arg.getType))
           if nextMeta.index < currentMeta.index
-          fieldTypes <- nextMeta.owner.instantiateConstructorFieldTypes(
+          paramSub = nextMeta.owner.typeParams.iterator
+            .zip(targetArgs.iterator)
+            .map { case (param, arg) => (param: Type.Var) -> arg }
+            .toMap
+          // targetArgs may name an enclosing constructor's existentials, so
+          // this constructor's own are renamed apart: otherwise the two
+          // would merge and the verdict would depend on their names
+          (existentials, fieldTypes) = ConstructorFn.openAt(
             nextMeta.ctor,
+            paramSub,
             targetArgs
           )
           if fieldTypes.lengthCompare(argCtorApp.args.length) == 0
-          if fieldTypes.iterator
+          rankFields = rankFieldsMayHoldTarget(
+            types.containment(currentMeta.owner.toTypeConst :: Nil),
+            existentials.iterator.map(_._1: Type.Var).toSet,
+            fieldTypes
+          )
+          // A field that may hold target values needs a smaller value. The
+          // value is read at the field's type: that is how whatever reads
+          // this constructor reads its fields. But a dangerous existential
+          // in the field's type stands for whatever type the value was
+          // packed at, which a function packed with it can read, so then
+          // the value is read at its own type. That is conservative for the
+          // rest of such a field's type: a type variable of the def beside
+          // the existential (`x: T[w, b]`) loses its opacity too.
+          if rankFields.mayHold.iterator
+            .zip(fieldTypes.iterator)
             .zip(argCtorApp.args.iterator)
-            .forall { case (fieldType, fieldArg) =>
-              fieldPayloadAllowed(
-                inrec,
-                target,
-                proof,
-                fieldType,
-                fieldArg,
-                targetType
-              )
+            .forall { case ((mayHold, fieldType), fieldArg) =>
+              !mayHold || {
+                val payloadType =
+                  if (
+                    Type
+                      .freeBoundTyVars(fieldType :: Nil)
+                      .exists(rankFields.dangerous)
+                  ) fieldArg.getType
+                  else fieldType
+                classifyExprAt(inrec, target, proof, fieldArg, payloadType) ==
+                  Smaller
+              }
             }
         } yield Smaller
 
@@ -2664,9 +3529,33 @@ object TypedExprRecursionCheck {
         target: RecurTargetItem,
         proof: TargetProof,
         arg: TypedExpr[Declaration]
+    ): ArgLexOrder =
+      classifyExprAt(inrec, target, proof, arg, arg.getType)
+
+    // The constructor-rank rule reads a constructor application's fields at
+    // `argType`, the type whatever later matches on the value reads it at:
+    //   - the recursive call's own argument: the target's declared type (see
+    //     classifyStructuralArg);
+    //   - a payload in a constructor's field: that field's type, as the
+    //     enclosing value is read. So `D(E(t))` with `D(y: T[T[Int]])` reads
+    //     `E(t)` as a `T[T[Int]]`, whose field holds a `T[Int]`. If the
+    //     field's type has a dangerous existential, the payload's own type
+    //     instead: with `K[b](x: T[b], f: (b, T[w] -> Int) -> Int)`, `f` reads
+    //     `x`'s contents at the type `b` was packed at;
+    //   - a let-bound value or a match scrutinee: its own type, which is how
+    //     the current call reads it. That is conservative when the value is
+    //     then passed to the recursive call under polymorphic recursion
+    //     (`u = E(t); g(u)` with `def g(t: T[a])`), which would read it at
+    //     the declared type.
+    private def classifyExprAt(
+        inrec: InDefRecurred,
+        target: RecurTargetItem,
+        proof: TargetProof,
+        arg: TypedExpr[Declaration],
+        argType: Type
     ): ArgLexOrder = {
       localNameOf(arg)
-        .flatMap(proof.relationOf(target, _))
+        .flatMap(proof.relationOf(_))
         .map {
           case ProvenRel.Equal   => Equal
           case ProvenRel.Smaller => Smaller
@@ -2681,50 +3570,62 @@ object TypedExprRecursionCheck {
         .orElse(classifyEvalForceArg(inrec, target, proof, arg))
         .orElse(
           proof.currentCtorIfEqual.map(
-            classifyConstructorRankArg(inrec, target, proof, _, arg)
+            classifyConstructorRankArg(inrec, target, proof, _, arg, argType)
           )
         )
         .getOrElse(Other)
     }
 
+    // `name = expr`: expr is classified in the outer scope, then `name` loses
+    // what was known about the name it shadows.
     private def extendProofWithExpr(
         inrec: InDefRecurred,
         target: RecurTargetItem,
         proof: TargetProof,
         name: Bindable,
         expr: TypedExpr[Declaration]
-    ): TargetProof =
+    ): TargetProof = {
+      val inner = proof.without(name :: Nil)
       classifyExpr(inrec, target, proof, expr) match {
-        case Equal   => proof.withFact(name, ProvenRel.Equal)
-        case Smaller => proof.withFact(name, ProvenRel.Smaller)
-        case Other   => proof
+        case Equal   => inner.withFact(name, ProvenRel.Equal)
+        case Smaller => inner.withFact(name, ProvenRel.Smaller)
+        case Other   => inner
       }
+    }
 
+    // `name` is bound to a strict child of `expr`'s value: expr is
+    // classified with `outer`, the proof where it is evaluated, and the fact
+    // about name goes in `inner`, the proof where name is bound.
     private def extendProofWithStrictChildExpr(
         inrec: InDefRecurred,
         target: RecurTargetItem,
-        proof: TargetProof,
+        outer: TargetProof,
+        inner: TargetProof,
         name: Bindable,
         expr: TypedExpr[Declaration]
     ): TargetProof =
-      classifyExpr(inrec, target, proof, expr) match {
+      classifyExpr(inrec, target, outer, expr) match {
         case Equal | Smaller =>
-          proof.withFact(name, ProvenRel.Smaller)
+          inner.withFact(name, ProvenRel.Smaller)
         case Other =>
-          proof
+          inner
       }
 
+    // `match scrutinee: case pattern`: the scrutinee is classified in the
+    // outer scope, then the pattern's names lose what was known about the
+    // names they shadow.
     private def extendProofWithPattern(
         inrec: InDefRecurred,
         target: RecurTargetItem,
         proof: TargetProof,
         scrutinee: TypedExpr[Declaration],
         pattern: TypedPattern
-    ): TargetProof =
+    ): TargetProof = {
+      val inner = proof.without(pattern.names)
       classifyExpr(inrec, target, proof, scrutinee) match {
         case Equal =>
           val knownCtor = knownCtorFromTypedPart(pattern)
-          proof
+          inner
             .withFacts(wholeValueAliases(pattern), ProvenRel.Equal)
             .withFacts(pattern.substructures, ProvenRel.Smaller)
             .copy(
@@ -2734,21 +3635,36 @@ object TypedExprRecursionCheck {
               currentCtorIfEqual = knownCtor.orElse(proof.currentCtorIfEqual)
             )
         case Smaller =>
-          proof
+          inner
             .withFacts(wholeValueAliases(pattern), ProvenRel.Smaller)
             .withFacts(pattern.substructures, ProvenRel.Smaller)
         case Other   =>
-          proof
+          inner
       }
+    }
 
+    // The recursive call's own argument is read at the target's declared
+    // type, not its own: the next call runs the same code, which reads a
+    // field whose type is a type variable of the def as that variable,
+    // whatever polymorphic recursion instantiates it with. Payloads nested
+    // inside it are read at their fields' types (see classifyExprAt).
     private def classifyStructuralArg(
         inrec: InDefRecurred,
         target: RecurTargetItem,
         proof: TargetProof,
         arg: TypedExpr[Declaration]
-    ): LexStep = {
-      LexStep(classifyExpr(inrec, target, proof, arg), None, None)
-    }
+    ): LexStep =
+      LexStep(
+        classifyExprAt(
+          inrec,
+          target,
+          proof,
+          arg,
+          targetItemType(inrec, target)
+        ),
+        None,
+        None
+      )
 
     private def intObligationError(
         fnname: Bindable,
@@ -2811,9 +3727,12 @@ object TypedExprRecursionCheck {
       }
     }
 
+    // currInt is the target's value at recur entry, not whatever its name is
+    // bound to at the call, which a let or pattern may have rebound.
     private def classifyIntArg(
         fnname: Bindable,
         target: RecurTargetItem,
+        currInt: SmtExpr.IntExpr,
         arg: TypedExpr[Declaration],
         state: SmtBranchState,
         region: Region
@@ -2825,68 +3744,40 @@ object TypedExprRecursionCheck {
           (LexStep(Other, Some(err), None), state1)
         case None      =>
           val argInt = argOpt.get
-          val (currInt, state2) = ensureIntLocal(target.paramName, state1)
           val nonNegGoal = SmtExpr.Gte(argInt, SmtExpr.IntConst(BigInt(0)))
           val lessGoal = SmtExpr.Lt(argInt, currInt)
-          val nonNegProof = prove(nonNegGoal, state2)
-          nonNegProof match {
+
+          // A step that does not decrease: Equal when the argument is the
+          // target's value at entry, so a later target must decrease, else
+          // Other. Only a decreasing Int needs a lower bound, so an Equal
+          // step need not be >= 0. `goal` is the obligation that failed,
+          // reported if no later target decreases.
+          def notSmaller(
+              goal: SmtExpr.BoolExpr,
+              failed: ProofOutcome.Failed
+          ): (LexStep, SmtBranchState) = {
+            val err =
+              intObligationError(fnname, target, goal, state1, failed, region)
+            // argInt == currInt is the target's own value, not just a name
+            // that may have been rebound
+            def provedEqual: Boolean =
+              prove(SmtExpr.EqInt(argInt, currInt), state1) ==
+                ProofOutcome.Proved
+            val isEqual = (argInt == currInt) || provedEqual
+            if (isEqual) (LexStep(Equal, None, Some(err)), state1)
+            else (LexStep(Other, Some(err), None), state1)
+          }
+
+          prove(nonNegGoal, state1) match {
             case ProofOutcome.Proved =>
-              val lessProof = prove(lessGoal, state2)
-              lessProof match {
+              prove(lessGoal, state1) match {
                 case ProofOutcome.Proved =>
-                  (LexStep(Smaller, None, None), state2)
+                  (LexStep(Smaller, None, None), state1)
                 case failedLess: ProofOutcome.Failed =>
-                  val sameName = localNameOf(arg).contains(target.paramName)
-                  if (sameName) {
-                    val deferredErr =
-                      intObligationError(
-                        fnname,
-                        target,
-                        lessGoal,
-                        state2,
-                        failedLess,
-                        region
-                      )
-                    (LexStep(Equal, None, Some(deferredErr)), state2)
-                  } else {
-                    val equalGoal = SmtExpr.EqInt(argInt, currInt)
-                    prove(equalGoal, state2) match {
-                      case ProofOutcome.Proved =>
-                        val deferredErr =
-                          intObligationError(
-                            fnname,
-                            target,
-                            lessGoal,
-                            state2,
-                            failedLess,
-                            region
-                          )
-                        (LexStep(Equal, None, Some(deferredErr)), state2)
-                      case _ =>
-                        val immediateErr =
-                          intObligationError(
-                            fnname,
-                            target,
-                            lessGoal,
-                            state2,
-                            failedLess,
-                            region
-                          )
-                        (LexStep(Other, Some(immediateErr), None), state2)
-                    }
-                  }
+                  notSmaller(lessGoal, failedLess)
               }
             case failedNonNeg: ProofOutcome.Failed =>
-              val err =
-                intObligationError(
-                  fnname,
-                  target,
-                  nonNegGoal,
-                  state2,
-                  failedNonNeg,
-                  region
-                )
-              (LexStep(Other, Some(err), None), state2)
+              notSmaller(nonNegGoal, failedNonNeg)
           }
       }
     }
@@ -2929,7 +3820,14 @@ object TypedExprRecursionCheck {
             val step =
               if (isIntType(targetItemType(inrec, targetItem))) {
                 val (intStep, smt1) =
-                  classifyIntArg(fnname, targetItem, argExpr, smtState, region)
+                  classifyIntArg(
+                    fnname,
+                    targetItem,
+                    targetIntSymbol(inrec, targetItem),
+                    argExpr,
+                    smtState,
+                    region
+                  )
                 smtState = smt1
                 intStep
               } else
@@ -3139,16 +4037,59 @@ object TypedExprRecursionCheck {
         bs: Iterable[Bindable],
         region: Region
     ): St[Unit] =
-      for {
-        state <- getSt
-        _ <- toSt(checkForIllegalBinds(state, bs, region)(unitValid))
-        _ <- (state match {
-          case id @ InDef(_, _, _, _, _, _, _, _, _) =>
-            setSt(bs.foldLeft(id)(_.addLocal(_)))
-          case _                                =>
-            unitSt
-        })
-      } yield ()
+      getSt.flatMap { state =>
+        toSt(checkForIllegalBinds(state, bs, region)(unitValid))
+      }
+
+    // Check `in`, the scope of a binder of `names`. In it those names are
+    // locals, so a recur on one of them is not a recur on a parameter it
+    // shadows (see getRecurTarget). When `in` ends they go out of scope,
+    // and localScope gets back exactly what it was, which still has the
+    // names of the binders around this one. Scope is lexical, so a later
+    // recur outside `in` names whatever binds the name there.
+    //
+    // So localScope always holds the binders around the current expression
+    // that were opened before the recur match. Only getRecurTarget reads
+    // it, in InDef, and the state never goes back to InDef once the recur
+    // match starts, so binders opened after that are not tracked. A scope
+    // opened in InDef is closed in whichever state `in` ends in: InDef, or
+    // InDefRecurred when the recur match is inside the scope, where the
+    // scope lives in inRec.
+    private def withLocals[A](names: Iterable[Bindable])(in: St[A]): St[A] =
+      if (names.isEmpty) in
+      else
+        getSt.flatMap {
+          case id @ InDef(_, _, _, _, _, _, _, _, outerScope) =>
+            setSt(id.withLocalScope(outerScope ++ names)) *>
+              in.flatMap { a =>
+                getSt.flatMap {
+                  case idEnd @ InDef(_, _, _, _, _, _, _, _, _) =>
+                    setSt(idEnd.withLocalScope(outerScope)).as(a)
+                  case irEnd @ InDefRecurred(inRec, _, _, _, _) =>
+                    setSt(
+                      irEnd.copy(inRec = inRec.withLocalScope(outerScope))
+                    ).as(a)
+                  // $COVERAGE-OFF$ this should be unreachable: every recur
+                  // branch ends back in InDefRecurred (see endBranch), and
+                  // TopLevel never becomes InDef
+                  case unexpected                               =>
+                    sys.error(
+                      s"invariant violation: a scope opened in InDef ended in $unexpected"
+                    )
+                  // $COVERAGE-ON$
+                }
+              }
+          case _                                              =>
+            in
+        }
+
+    // A binder of `names` whose scope is `in`: report names that shadow a
+    // def, then check `in` with the names local.
+    private def bindingNames[A](
+        names: Iterable[Bindable],
+        region: Region
+    )(in: St[A]): St[A] =
+      checkForIllegalBindsSt(names, region) *> withLocals(names)(in)
 
     private def argsOnDefName(
         currentPackage: PackageName,
@@ -3249,27 +4190,51 @@ object TypedExprRecursionCheck {
           onMissing(notRecur)
       }
 
-    private def unionNames[A](newNames: Iterable[Bindable])(in: St[A]): St[A] =
-      withTemporaryRecurBranchProofs(
-        in,
-        notRecur => sys.error(s"called setNames on $notRecur with names: $newNames")
-      ) { proofs =>
-        // Single-target recursion keeps the old behavior where lambda args
-        // from reachable substructures are also considered recursive args.
-        proofs.tail match {
-          case Nil    =>
-            NonEmptyList.one(
-              proofs.head.withFacts(newNames, ProvenRel.Smaller)
-            )
-          case _ :: _ =>
-            proofs
-        }
+    // Single-target recursion keeps the old behavior where lambda args
+    // from reachable substructures are also considered recursive args.
+    // With several targets we do not know which target the reachable
+    // function came from, so the new binders get no facts at all.
+    private def smallerIfSingleTarget(
+        proofs: NonEmptyList[TargetProof],
+        newNames: Iterable[Bindable]
+    ): NonEmptyList[TargetProof] =
+      proofs.tail match {
+        case Nil    =>
+          NonEmptyList.one(proofs.head.withFacts(newNames, ProvenRel.Smaller))
+        case _ :: _ =>
+          proofs
       }
+
+    // The new names are fresh binders: any facts about shadowed names with the
+    // same spelling (structural or SMT) must be dropped before adding new ones.
+    private def unionNames[A](newNames: Iterable[Bindable])(in: St[A]): St[A] = {
+      val withProofs =
+        withTemporaryRecurBranchProofs(
+          in,
+          notRecur => sys.error(s"called setNames on $notRecur with names: $newNames")
+        ) { proofs =>
+          smallerIfSingleTarget(proofs.map(_.without(newNames)), newNames)
+        }
+
+      withTemporaryRecurBranchSmtState(withProofs, _ => withProofs)(
+        _.removeBindings(newNames)
+      )
+    }
 
     private def filterNames[A](newNames: Iterable[Bindable])(in: St[A]): St[A] =
       withTemporaryRecurBranchProofs(in, _ => in) { proofs =>
         proofs.map(_.without(newNames))
       }
+
+    // Check `in` with `newNames` bound to values nothing is known about: the
+    // proofs and the SMT state drop what they knew about the outer names
+    // with the same spelling.
+    private def withShadowingNames[A](newNames: List[Bindable])(in: St[A]): St[A] = {
+      val withProofs = filterNames(newNames)(in)
+      withTemporaryRecurBranchSmtState(withProofs, _ => withProofs)(
+        _.removeBindings(newNames)
+      )
+    }
 
     private def withTemporaryExprBindingProofs[A](
         name: Bindable,
@@ -3281,7 +4246,7 @@ object TypedExprRecursionCheck {
             inrec.target
               .zip(proofs0)
               .map { case (targetItem, proof) =>
-                extendProofWithExpr(inrec, targetItem, proof.without(name :: Nil), name, expr)
+                extendProofWithExpr(inrec, targetItem, proof, name, expr)
               }
           }
         case _ =>
@@ -3301,7 +4266,7 @@ object TypedExprRecursionCheck {
                 extendProofWithPattern(
                   inrec,
                   targetItem,
-                  proof.without(pattern.names),
+                  proof,
                   scrutinee,
                   pattern
                 )
@@ -3319,9 +4284,23 @@ object TypedExprRecursionCheck {
         region: Region
     )(
         updateProofs: NonEmptyList[TargetProof] => NonEmptyList[TargetProof]
+    ): St[Unit] =
+      bindingNames(args.toList.map(_._1), region)(
+        withLambdaBinders(args, checkExpr(currentPackage, body, wrappers))(
+          updateProofs
+        )
+      )
+
+    // Check a lambda body with its binders in scope: facts about any shadowed
+    // names are dropped from the proofs and the SMT state, then updateProofs
+    // may add facts about the new binders.
+    private def withLambdaBinders(
+        args: NonEmptyList[(Bindable, Type)],
+        bareBodyCheck: St[Unit]
+    )(
+        updateProofs: NonEmptyList[TargetProof] => NonEmptyList[TargetProof]
     ): St[Unit] = {
       val newBinds = args.toList.map(_._1)
-      val bareBodyCheck = checkExpr(currentPackage, body, wrappers)
       val bodyCheck =
         withTemporaryRecurBranchProofs(
           bareBodyCheck,
@@ -3330,16 +4309,15 @@ object TypedExprRecursionCheck {
           updateProofs(proofs.map(_.without(newBinds)))
         }
 
-      checkForIllegalBindsSt(newBinds, region) *>
-        withTemporaryRecurBranchSmtState(
-          bodyCheck,
-          _ => bodyCheck
-        ) { smtState =>
-          args.foldLeft(smtState.removeBindings(newBinds)) {
-            case (st, (name, tpe)) =>
-              bindSymbolForType(name, tpe, st)
-          }
+      withTemporaryRecurBranchSmtState(
+        bodyCheck,
+        _ => bodyCheck
+      ) { smtState =>
+        args.foldLeft(smtState.removeBindings(newBinds)) {
+          case (st, (name, tpe)) =>
+            bindSymbolForType(name, tpe, st)
         }
+      }
     }
 
     private def checkReachableLambdaBody(
@@ -3357,13 +4335,14 @@ object TypedExprRecursionCheck {
           val branch = branches.head
           val newBinds = branch.pattern.names.toList
           checkExpr(currentPackage, arg, wrappers) *>
-            checkForIllegalBindsSt(newBinds, tag.region) *>
-            unionNames(newBinds)(
-              checkReachableLambdaBody(
-                currentPackage,
-                branch.expr,
-                wrappers,
-                lambdaTag
+            bindingNames(newBinds, tag.region)(
+              unionNames(newBinds)(
+                checkReachableLambdaBody(
+                  currentPackage,
+                  branch.expr,
+                  wrappers,
+                  lambdaTag
+                )
               )
             )
         case _ =>
@@ -3388,10 +4367,96 @@ object TypedExprRecursionCheck {
           None
       }
 
+    /*
+     * The callback rule treats the binders of lambdas passed to a reachable
+     * function f as smaller than the recur target. That is sound only when
+     * every value f can hand to those binders was built by f itself (from its
+     * closure, which predates the target). Recursive types are covariant, so a
+     * field type never takes values of the target type as input; but once f
+     * is used at a type with a quantifier, or at an instantiation (possibly
+     * laundered through a let annotation) that accepts values which may
+     * contain target values, the caller can pass the target itself in and f
+     * can pass it straight back, e.g. f: forall a. (a, a -> Int) -> Int.
+     *
+     * The call is an exchange between the caller and f, and its type at this
+     * call is the instantiated function type `(A1, ..., An) -> R`, where the
+     * As are the arguments of every group of a curried call and R is the
+     * result. The caller hands values to f at the input (negative) positions
+     * of that type, and only there:
+     *   - the arguments themselves, and whatever the callbacks return to f;
+     *   - inputs inside the result. f may return a callback, or a function
+     *     that calls one, and the caller can then apply it to anything, e.g.
+     *     `f: forall a. (a -> Int) -> Box[a -> Int]` then `h(target)`.
+     * So we require that no type which may contain values of a target type
+     * is at an input position of `(A1, ..., An) -> R`. Output positions are
+     * fine: what f hands out, to a callback or to the caller, was built by f
+     * or by a callback, and a callback's binders still see only what f
+     * hands them. The types at the call already reflect how the caller
+     * instantiated f's quantifiers.
+     * A named type in R counts only if it can hand out a target value, so
+     * one that only takes the target in, like `struct Handler(h: T -> Int)`,
+     * is allowed at an output position of R, though f could fill it with a
+     * callback. That is safe because such a type names T, so it was declared
+     * after T and is not in the field types f's type comes from. It reaches R
+     * only through a quantifier of f or a type argument of the target. A
+     * callback that builds it for f takes f's callback as input, which puts
+     * T at an input position of the call. As a type argument it would recur
+     * through T's parameter at an input position, which the covariance check
+     * on recursive types rejects.
+     * For example `forall r. (T -> r) -> r` is accepted at r := Int. At
+     * r := (T, Int) it is rejected: a callback could return the target to f,
+     * and the types at the call alone don't show that f is parametric in r.
+     * At r := T -> Int it is also rejected, though f, being parametric in r,
+     * could only return what a callback returned, not the callback itself.
+     *
+     * Quantifiers left in the argument types are looked through. A forall in
+     * an input position is instantiated by f (as in the existential encoding
+     * `forall res. (forall b. (Box[b], b -> a) -> res) -> res`), and one in
+     * an output position is instantiated by a callback, at a later call that
+     * gets its own check. Values whose type is a type variable can never be
+     * used where a target type is required, so variables are harmless. An
+     * existential is the exception f could see through, when f is packed
+     * with the value and knows what it is. A value of existential type from
+     * a pattern is part of a value at most as large as the target, unless
+     * the constructor-rank rule put a larger one there, which it does only
+     * when no function packed with it takes the existential and outputs a
+     * target-containing value (see rankFieldsMayHoldTarget). So such an f
+     * can't turn it into a target value here.
+     */
+    private def reachableCallbackRuleApplies(
+        inrec: InDefRecurred,
+        argTypes: List[Type],
+        resultType: Type
+    ): Boolean = {
+      val typeEnv = inrec.inRec.types.typeEnv
+
+      val targetConsts: List[Type.Const] =
+        inrec.target.toList
+          .traverse { targetItem =>
+            expandAliasHead(typeEnv, targetItemType(inrec, targetItem))
+              .map(Type.unapplyAll(_)._1)
+              .collect { case Type.TyConst(c) => c }
+          }
+          .getOrElse(Nil)
+
+      val containment = inrec.inRec.types.containment(targetConsts)
+
+      // the caller hands a value in at this position of the call's type
+      def unsafe(t: Type, v: Variance): Boolean =
+        containment.occursAt(t, v, TargetContainment.isInput)
+
+      // the input positions of `(A1, ..., An) -> R`
+      targetConsts.nonEmpty &&
+      !argTypes.exists(unsafe(_, Variance.contra)) &&
+      !unsafe(resultType, Variance.co)
+    }
+
+    // `resultType` is the type of the whole application `fn(args)`
     private def checkApply(
         currentPackage: PackageName,
         fn: TypedExpr[Declaration],
         args: NonEmptyList[TypedExpr[Declaration]],
+        resultType: Type,
         region: Region,
         wrappers: WrapperScope
     ): St[Unit] =
@@ -3414,24 +4479,28 @@ object TypedExprRecursionCheck {
                   body,
                   wrappers,
                   lambdaTag.region
-                ) { proofs =>
-                  val updated =
-                    inrec.target.toList
-                      .zip(proofs.toList)
-                      .map { case (targetItem, proof) =>
-                        extendProofWithStrictChildExpr(
-                          inrec,
-                          targetItem,
-                          proof,
-                          binderName,
-                          evalArg
-                        )
-                      }
-                  NonEmptyList.fromListUnsafe(updated)
+                ) { innerProofs =>
+                  // evalArg is evaluated here, at the call, so it is
+                  // classified with the proofs at the call, not the
+                  // lambda's: the binder may shadow a name in it
+                  inrec.target
+                    .zip(proofsPerTarget.zip(innerProofs))
+                    .map { case (targetItem, (callProof, innerProof)) =>
+                      extendProofWithStrictChildExpr(
+                        inrec,
+                        targetItem,
+                        callProof,
+                        innerProof,
+                        binderName,
+                        evalArg
+                      )
+                    }
                 }
             case None =>
               argsOnDefName(currentPackage, fn, NonEmptyList.one(args)) match {
                 case Some((nm, groups)) =>
+                  // every argument group of a curried call
+                  val allArgs = groups.iterator.flatMap(_.iterator).toList
                   if (nm == irb.defname) {
                     val targetArgsV: Res[NonEmptyList[TypedExpr[Declaration]]] =
                       inrec.target.traverse { targetItem =>
@@ -3441,7 +4510,6 @@ object TypedExprRecursionCheck {
                           .toValidNec(RecursionCheck.NotEnoughRecurArgs(nm, region))
                       }
 
-                    val allArgs = groups.iterator.flatMap(_.iterator).toList
                     toSt(targetArgsV).flatMap { targetArgs =>
                       recurAllowedByLexOrder(
                         irb.defname,
@@ -3459,20 +4527,33 @@ object TypedExprRecursionCheck {
                       )
                   } else if (irb.defNamesContain(nm)) {
                     failSt(RecursionCheck.InvalidRecursion(nm, region))
-                  } else if (smallerNamesFromProofs(proofsPerTarget).contains(nm)) {
-                    // we are calling a reachable function. Any lambda args are new names:
-                    args.parTraverse_[St, Unit] {
+                  } else if (
+                    smallerNamesFromProofs(proofsPerTarget).contains(nm) &&
+                    reachableCallbackRuleApplies(
+                      inrec,
+                      allArgs.map(_.getType),
+                      resultType
+                    )
+                  ) {
+                    // we are calling a reachable function. Any lambda args are new names
+                    // that may only see values the reachable function builds itself
+                    // (see reachableCallbackRuleApplies), so they are smaller.
+                    // Every argument group of a curried call is checked.
+                    allArgs.parTraverse_[St, Unit] {
                       case argExpr =>
                         asAnnotatedLambda(argExpr) match {
                           case Some(TypedExpr.AnnotatedLambda(lambdaArgs, body, lambdaTag)) =>
                             val names1 = lambdaArgs.toList.map(_._1)
-                            unionNames(names1)(
-                              checkReachableLambdaBody(
-                                currentPackage,
-                                body,
-                                wrappers,
-                                lambdaTag
-                              )
+                            bindingNames(names1, lambdaTag.region)(
+                              withLambdaBinders(
+                                lambdaArgs,
+                                checkReachableLambdaBody(
+                                  currentPackage,
+                                  body,
+                                  wrappers,
+                                  lambdaTag
+                                )
+                              )(smallerIfSingleTarget(_, names1))
                             )
                           case None =>
                             localOrLocalPackageGlobalNameOf(
@@ -3482,17 +4563,20 @@ object TypedExprRecursionCheck {
                               case Some(fnname) if irb.defname == fnname =>
                                 val asLambda = irb.inDef.asLambda(argExpr.tag.region)
                                 val names1 = asLambda.args.toList.map(_._1)
-                                unionNames(names1)(
+                                withLambdaBinders(
+                                  asLambda.args,
                                   checkExpr(currentPackage, asLambda.expr, wrappers)
-                                )
+                                )(smallerIfSingleTarget(_, names1))
                               case _ =>
                                 checkExpr(currentPackage, argExpr, wrappers)
                             }
                         }
                     }
                   } else {
-                    // not a recursive call
-                    setSt(irb.noteCalledName(nm)) *> args.parTraverse_(
+                    // not a recursive call, or a call to a reachable function
+                    // whose type could hand its callbacks values chosen by the caller.
+                    // Every argument group of a curried call is checked.
+                    setSt(irb.noteCalledName(nm)) *> allArgs.parTraverse_(
                       checkExpr(currentPackage, _, wrappers)
                     )
                   }
@@ -3548,8 +4632,15 @@ object TypedExprRecursionCheck {
           }
         case TypedExpr.Global(_, _, _, _) =>
           unitSt
-        case TypedExpr.App(fn, args, _, _) =>
-          checkApply(currentPackage, fn, args, expr.tag.region, wrappers)
+        case TypedExpr.App(fn, args, resultType, _) =>
+          checkApply(
+            currentPackage,
+            fn,
+            args,
+            resultType,
+            expr.tag.region,
+            wrappers
+          )
         case TypedExpr.Let(arg, ex, in, rec, tag) =>
           if (isDefLike(rec, tag)) {
             val fromSource =
@@ -3558,13 +4649,34 @@ object TypedExprRecursionCheck {
                   Some(normalizedDefArgs(defstmt.args))
                 case _                          => None
               }
+            // In `in`, arg is the new def: a `recur arg` there can't name
+            // a parameter it shadows, and facts about the shadowed name
+            // are dropped. checkDef already reports arg shadowing an outer
+            // def. The def's own body is checked by checkDef in a state
+            // of its own.
+            val inCheck = withLocals(arg :: Nil)(
+              withShadowingNames(arg :: Nil)(
+                checkExpr(currentPackage, in, wrappers)
+              )
+            )
             getSt.flatMap { state =>
+              // A def inside another def inherits that def's aliases (see
+              // checkDef). These empty maps are used only by a def that
+              // is not inside any def, such as one in a top-level value,
+              // where state is TopLevel. Fewer aliases only make the SMT
+              // lowering reject more, never accept more.
               val checkedDef =
-                checkDef(currentPackage, state, arg, ex, fromSource)
+                checkDef(
+                  currentPackage,
+                  state,
+                  arg,
+                  ex,
+                  fromSource,
+                  Map.empty,
+                  Map.empty
+                )
               val checkedIn =
-                Validated.fromEither(
-                  checkExpr(currentPackage, in, wrappers).run(state).value
-                ).map(_._1)
+                Validated.fromEither(inCheck.run(state).value).map(_._1)
 
               (checkedDef *> checkedIn) match {
                 case Validated.Valid(nextState) =>
@@ -3574,9 +4686,13 @@ object TypedExprRecursionCheck {
               }
             }
           } else {
+            // The let is not recursive, so its scope is `in`, not `ex`:
+            // in ex, arg still names what it shadows.
             val inCheck =
-              withTemporaryExprBindingProofs(arg, ex)(
-                checkExpr(currentPackage, in, wrappers)
+              withLocals(arg :: Nil)(
+                withTemporaryExprBindingProofs(arg, ex)(
+                  checkExpr(currentPackage, in, wrappers)
+                )
               )
             checkForIllegalBindsSt(arg :: Nil, tag.region) *>
               checkExpr(currentPackage, ex, wrappers) *>
@@ -3592,7 +4708,9 @@ object TypedExprRecursionCheck {
           val checkArgs = loopArgs.parTraverse_ { case (_, argExpr) =>
             checkExpr(currentPackage, argExpr, wrappers)
           }
-          val bodyCheck = filterNames(newBinds)(checkExpr(currentPackage, body, wrappers))
+          // the loop's names are bound in its body, not in its arguments
+          val bodyCheck =
+            withLocals(newBinds)(filterNames(newBinds)(checkExpr(currentPackage, body, wrappers)))
           checkForIllegalBindsSt(newBinds, expr.tag.region) *>
             checkArgs *>
             withTemporaryRecurBranchSmtState(
@@ -3643,10 +4761,16 @@ object TypedExprRecursionCheck {
                       unitSt
                   }
 
+                // The guard pattern's names shadow outer names in the inner
+                // guard and the body. As for a branch pattern, drop the
+                // shadowed names' facts and derive new ones from the guard's
+                // scrutinee. addPatternFactsAndBindings rebinds them for SMT.
                 checkExpr(currentPackage, argExpr, wrappers) *>
-                  checkForIllegalBindsSt(pattern.names, guard.patternRegion) *>
-                  innerGuardCheck *>
-                  bodyWithGuardFacts
+                  bindingNames(pattern.names, guard.patternRegion)(
+                    withTemporaryPatternProofs(argExpr, pattern)(
+                      innerGuardCheck *> bodyWithGuardFacts
+                    )
+                  )
               case None                                      =>
                 bodyCheck
             }
@@ -3657,56 +4781,35 @@ object TypedExprRecursionCheck {
               // the arg can't use state, but cases introduce new bindings:
               val argRes = checkExpr(currentPackage, arg, wrappers)
               val optRes = getSt.flatMap { state =>
-                val (fallthroughFacts, fallthroughSymbols) =
+                // each branch starts from the SMT state before the match
+                val entryStates: List[Option[SmtBranchState]] =
                   state match {
                     case InRecurBranch(_, _, _, smtState) =>
-                      val analyzed =
-                        matchFallthroughFacts(arg, branches, smtState)
-                      (analyzed.facts, Some(analyzed.symbolState))
+                      matchBranchEntryStates(arg, branches, smtState)((_, st) => st)
+                        .toList
+                        .map(Some(_))
                     case _                                  =>
-                      (
-                        branches.map(_ -> (SmtExpr.BoolConst.True: SmtExpr.BoolExpr)),
-                        None
-                      )
+                      branches.toList.map(_ => None)
                   }
 
-                val branchFacts = fallthroughFacts.toList
-                branchFacts.zipWithIndex.parTraverse_ {
-                  case ((branch, fallthroughFact), idx) =>
-                    val priorBranches = branchFacts.take(idx).map(_._1)
+                branches.toList.zip(entryStates).parTraverse_ {
+                  case (branch, entryState) =>
                     val branchExprCheck = checkBranchGuardAndExpr(branch)
-                    val withFallthroughContext =
-                      withTemporaryRecurBranchSmtState(
-                        branchExprCheck,
-                        _ => branchExprCheck
-                      ) { smtState =>
-                        addPathFactIfNonTrivial(fallthroughFact, smtState)
+                    val withEntryState =
+                      entryState.fold(branchExprCheck) { entry =>
+                        withTemporaryRecurBranchSmtState(
+                          branchExprCheck,
+                          _ => branchExprCheck
+                        )(_ => entry)
                       }
-                    val withSubsumedGuardContext =
-                      withTemporaryRecurBranchSmtState(
-                        withFallthroughContext,
-                        _ => withFallthroughContext
-                      ) { smtState =>
-                        addSubsumedGuardFallthroughFacts(
-                          priorBranches,
-                          branch.pattern,
-                          smtState
-                        )
-                      }
-                    val withPatternContext =
-                      withTemporaryRecurBranchSmtState(
-                        withSubsumedGuardContext,
-                        _ => withSubsumedGuardContext
-                      ) { smtState =>
-                        val smtState0 =
-                          fallthroughSymbols.fold(smtState)(mergeSymbolState(_, smtState))
-                        addPatternFactsAndBindings(arg, branch.pattern, smtState0)
-                      }
-                    checkForIllegalBindsSt(branch.pattern.names, tag.region) *>
+                    // a branch's pattern names are bound in its guard and
+                    // body, not in the later branches
+                    bindingNames(branch.pattern.names, tag.region)(
                       withTemporaryPatternProofs(
                         arg,
                         branch.pattern
-                      )(withPatternContext)
+                      )(withEntryState)
+                    )
                 }
               }
               argRes *> optRes
@@ -3719,60 +4822,39 @@ object TypedExprRecursionCheck {
                 case ir @ InDef(_, defname, typedArgs, sourceArgs, _, _, _, _, locals) =>
                   toSt(getRecurTarget(defname, sourceArgs, typedArgs, recur, locals)).flatMap {
                     target =>
-                      val sourcePatterns = recur.cases.get.map(_.pattern)
+                      val sourcePatterns = recur.cases.get.map(_.pattern).toList.toVector
                       val inrec = ir.setRecur(target, recur)
-                      // Same order and length as `branches`.
-                      val fallthroughAnalyzed =
-                        matchFallthroughFacts(arg, branches, initBranchSmtState(inrec))
-                      val fallthroughFacts = fallthroughAnalyzed.facts
-                      val fallthroughSymbols = fallthroughAnalyzed.symbolState
+                      // Same order and length as `branches`. The source
+                      // patterns' whole-value aliases of the targets are bound
+                      // before the earlier branches' guards are read.
+                      val entryStates =
+                        matchBranchEntryStates(arg, branches, inrec.entrySmtState) {
+                          (idx, st) =>
+                            sourcePatterns
+                              .lift(idx)
+                              .fold(st)(bindSourcePatternAliases(inrec, _, st))
+                        }
 
                       // on all these branches, use the same parent state
                       def beginBranch(
-                          matchArg: TypedExpr[Declaration],
-                          sourcePat: Pattern.Parsed,
                           compiledPat: Pattern[(PackageName, Identifier.Constructor), Type],
-                          fallthroughFact: SmtExpr.BoolExpr,
-                          priorBranches: List[TypedExpr.Branch[Declaration]]
+                          entryState: SmtBranchState
                       ): St[Unit] =
                         getSt.flatMap {
                           case ir @ InDef(_, _, _, _, _, _, _, _, _) =>
                             val rec = ir.setRecur(target, recur)
-                            setSt(rec) *> beginBranch(
-                              matchArg,
-                              sourcePat,
-                              compiledPat,
-                              fallthroughFact,
-                              priorBranches
-                            )
+                            setSt(rec) *> beginBranch(compiledPat, entryState)
                           case irr @ InDefRecurred(_, _, _, _, _) =>
-                            val proofs =
-                              proofsByTargetFromTyped(irr.target, compiledPat)
-                            val smtState0 =
-                              addPatternFactsAndBindings(
-                                matchArg,
-                                compiledPat,
-                                mergeSymbolState(
-                                  fallthroughSymbols,
-                                  initBranchSmtState(irr)
-                                )
-                              )
-                            val smtState1 =
-                              addSubsumedGuardFallthroughFacts(
-                                priorBranches,
-                                compiledPat,
-                                smtState0
-                              )
-                            val smtState2 =
-                              addPathFactIfNonTrivial(fallthroughFact, smtState1)
-                            val smtState =
-                              bindSourcePatternAliases(irr, sourcePat, smtState2)
                             setSt(
                               InRecurBranch(
                                 irr,
                                 compiledPat,
-                                proofs,
-                                smtState
+                                proofsByTargetFromTyped(
+                                  irr.target,
+                                  irr.targetIsTuple,
+                                  compiledPat
+                                ),
+                                entryState
                               )
                             )
                           case illegal =>
@@ -3791,20 +4873,15 @@ object TypedExprRecursionCheck {
                           // $COVERAGE-ON$
                         }
 
-                      val recurBranchData = fallthroughFacts.zip(sourcePatterns).toList
-                      recurBranchData.zipWithIndex.parTraverse_ {
-                        case (((branch, fallthroughFact), sourcePat), idx) =>
-                          val priorBranches =
-                            recurBranchData.take(idx).map(_._1._1)
+                      branches.toList.zip(entryStates.toList).parTraverse_ {
+                        case (branch, entryState) =>
+                          // The branches run after the recur, where
+                          // localScope is no longer read (a second recur
+                          // is an error), so their names need not be
+                          // made local.
                           for {
                             _ <- checkForIllegalBindsSt(branch.pattern.names, tag.region)
-                            _ <- beginBranch(
-                              arg,
-                              sourcePat,
-                              branch.pattern,
-                              fallthroughFact,
-                              priorBranches
-                            )
+                            _ <- beginBranch(branch.pattern, entryState)
                             _ <- checkBranchGuardAndExpr(branch)
                             _ <- endBranch
                           } yield ()
@@ -3923,8 +5000,8 @@ object TypedExprRecursionCheck {
         fnname: Bindable,
         expr: TypedExpr[Declaration],
         sourceArgPatterns: Option[NonEmptyList[NonEmptyList[Pattern.Parsed]]],
-        topLevelLowerableAliases: TopLevelLowerableAliases = Map.empty,
-        topLevelPredefAliases: TopLevelPredefAliases = Map.empty
+        topLevelLowerableAliases: TopLevelLowerableAliases,
+        topLevelPredefAliases: TopLevelPredefAliases
     ): Res[Unit] =
       collectArgGroupsAndBody(expr) match {
         case None =>
@@ -3944,12 +5021,12 @@ object TypedExprRecursionCheck {
               case TopLevel(_)           =>
                 topLevelPredefAliases
             }
-          val inheritedTotalityCheck =
+          val inheritedTypes =
             state match {
               case inDefState: InDefState =>
-                inDefState.inDef.totalityCheck
+                inDefState.inDef.types
               case top: TopLevel         =>
-                top.totalityCheck
+                top.types
             }
           val sourceArgs = sourceArgsForDef(sourceArgPatterns, typedArgs)
           val nameArgs = sourceArgs.toList.flatMap(_.patternNames)
@@ -3960,7 +5037,7 @@ object TypedExprRecursionCheck {
             inheritedLowerableAliases,
             expr.getType,
             inheritedPredefAliases,
-            inheritedTotalityCheck
+            inheritedTypes
           )
           checkForIllegalBinds(state, fnname :: nameArgs, body.tag.region) {
             // We start the body checker in `InDef`, and a successful run must
@@ -3992,20 +5069,20 @@ object TypedExprRecursionCheck {
         sourceArgs: Option[NonEmptyList[NonEmptyList[Pattern.Parsed]]],
         topLevelLowerableAliases: TopLevelLowerableAliases,
         topLevelPredefAliases: TopLevelPredefAliases,
-        totalityCheck: TotalityCheck
+        types: TypeContext
     ): Res[Unit] = {
       val shouldCheckAsDef = sourceArgs.nonEmpty || rec.isRecursive
       if (shouldCheckAsDef)
         checkDef(
           currentPackage,
-          TopLevel(totalityCheck),
+          TopLevel(types),
           name,
           expr,
           sourceArgs,
           topLevelLowerableAliases,
           topLevelPredefAliases
         )
-      else checkExprV(currentPackage, TopLevel(totalityCheck), expr)
+      else checkExprV(currentPackage, TopLevel(types), expr)
     }
   }
 }

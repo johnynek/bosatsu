@@ -41,11 +41,18 @@ from Bosatsu/Example/Json/Github/Workflows/Util import (
   sbt_cache_fetch_step,
   timeout_minutes_default,
   verify_graalvm_native_image_pin_cmd,
+  sbt_remote_cache_env,
 )
+
+build_assembly_step = Step {
+  name: Set("build assembly"),
+  run: Set("sbt \"cli/assembly\""),
+  env: Set(sbt_remote_cache_env),
+}
 
 emit_c_suite_step = Step {
   name: Set("link and run tests emitted from compiled package bundles"),
-  run: Set('python3 scripts/test_emit_c.py --jar cli/target/scala-*/bosatsu-cli-assembly-*.jar --cc-conf ".bosatsuc/$(./bosatsuj version -g)/cc_conf.json"'),
+  run: Set('python3 scripts/test_emit_c.py --jar target/out/jvm/scala-*/compiler-cli/bosatsu-cli-assembly-*.jar --cc-conf ".bosatsuc/$(./bosatsuj version -g)/cc_conf.json"'),
 }
 
 struct WorkflowJobsTest(
@@ -195,8 +202,9 @@ workflow =
           *test_java_matrix_bootstrap_steps,
           Step {
             name: Set("run JVM tests"),
+            env: Set(sbt_remote_cache_env),
             run: Set(cat_lines([
-              "sbt \"coreJVM/testOnly * -- --log=failure; cli/testOnly * -- --log=failure; doc; paradox\"",
+              "sbt \"coreJVM/test; cli/test; doc; paradox\"",
               "./test_cli.sh",
               "if ! command -v protoc >/dev/null 2>&1; then",
               "  sudo apt-get update",
@@ -234,6 +242,7 @@ workflow =
           },
           Step {
             name: Set("run tree-sitter and differential parser checks"),
+            env: Set(sbt_remote_cache_env),
             run: Set("./scripts/test_tree_sitter.sh"),
           },
         ],
@@ -265,7 +274,7 @@ workflow =
               `python-version`: Set(python_version_matrix),
             }),
           },
-          Step { name: Set("build assembly"), run: Set("sbt \"cli/assembly\"") },
+          build_assembly_step,
           Step { name: Set("generate python code"), run: Set(transpile_python_cmd) },
           Step { name: Set("run python tests"), run: Set(run_python_tests_cmd) },
         ],
@@ -284,17 +293,18 @@ workflow =
           *java_matrix_bootstrap_steps,
           Step {
             name: Set("run coreJS tests"),
+            env: Set(sbt_remote_cache_env),
             run: Set(cat_lines([
-              "sbt \"coreJS/testOnly * -- --log=failure; jsapiJS/testOnly * -- --log=failure\"",
-              "sbt \"jsuiJS/testOnly * -- --log=failure\"",
+              "sbt \"coreJS/test; jsapiJS/test\"",
+              "sbt \"jsuiJS/test\"",
               "",
             ])),
           },
           Step {
             name: Set("verify jsui browser bundle"),
+            env: Set(sbt_remote_cache_env),
             run: Set(cat_lines([
-              "export NODE_OPTIONS=--openssl-legacy-provider",
-              "sbt \"jsuiJS/fullOptJS::webpack\"",
+              "sbt \"jsuiJS/fullLinkJS\"",
               "",
             ])),
           },
@@ -330,16 +340,20 @@ workflow =
           *java_matrix_bootstrap_steps,
           Step {
             name: Set("verify graalvm native image pin"),
+            env: Set(sbt_remote_cache_env),
             run: Set(verify_graalvm_native_image_pin_cmd),
           },
           Step {
             name: Set("build native image"),
             run: Set(cat_lines([
               "sbt \"cli/nativeImage\"",
-              "cp cli/target/native-image/bosatsu-cli bosatsu",
+              "cp target/out/jvm/scala-*/compiler-cli/native-image/bosatsu-cli bosatsu",
               "",
             ])),
-            env: Set(StepEnv { `BOSATSU_NATIVE_IMAGE_THREADS`: Set("2") }),
+            env: Set(StepEnv {
+              `BOSATSU_NATIVE_IMAGE_THREADS`: Set("2"),
+              ..sbt_remote_cache_env
+            }),
           },
           run_bosatsu_tests_step,
         ],
@@ -352,6 +366,7 @@ workflow =
           *java_matrix_bootstrap_steps,
           Step {
             name: Set("build node"),
+            env: Set(sbt_remote_cache_env),
             run: Set(cat_lines([
               "sbt \"cliJSJS/fullOptJS\"",
               "",
@@ -389,7 +404,7 @@ workflow =
         java_strategy_17,
         [
           *c_build_bootstrap_steps,
-          Step { name: Set("build assembly"), run: Set("sbt \"cli/assembly\"") },
+          build_assembly_step,
           Step {
             name: Set("install vendored c runtime"),
             run: Set(install_vendored_c_runtime_cmd),
@@ -425,7 +440,7 @@ workflow =
         java_strategy_17,
         [
           *c_build_bootstrap_steps,
-          Step { name: Set("build assembly"), run: Set("sbt \"cli/assembly\"") },
+          build_assembly_step,
           Step {
             name: Set("run c sanitizer checks"),
             run: Set("./scripts/test_c_sanitizers.sh"),
@@ -439,7 +454,7 @@ workflow =
         java_strategy_17,
         [
           *c_build_bootstrap_steps,
-          Step { name: Set("build assembly"), run: Set("sbt \"cli/assembly\"") },
+          build_assembly_step,
           Step {
             name: Set("install c toolchain and valgrind"),
             run: Set("sudo apt-get update && sudo apt install -y valgrind"),
@@ -457,7 +472,7 @@ workflow =
         java_strategy_17,
         [
           *c_build_bootstrap_steps,
-          Step { name: Set("build assembly"), run: Set("sbt \"cli/assembly\"") },
+          build_assembly_step,
           Step {
             name: Set("install vendored c runtime"),
             run: Set(install_vendored_c_runtime_cmd),
@@ -476,7 +491,7 @@ workflow =
         runner_ubuntu_latest,
         [
           *java_matrix_bootstrap_steps,
-          Step { name: Set("build assembly"), run: Set("sbt \"cli/assembly\"") },
+          build_assembly_step,
           Step {
             name: Set("dry run bosatsu publish"),
             run: Set(run_publish_bosatsu_libs),

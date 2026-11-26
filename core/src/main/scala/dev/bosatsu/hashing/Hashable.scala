@@ -1,6 +1,7 @@
 package dev.bosatsu.hashing
 
 import cats.Foldable
+import dev.bosatsu.Bytes
 import java.nio.charset.StandardCharsets
 import scala.compiletime.{constValue, erasedValue, summonInline}
 import scala.deriving.Mirror
@@ -106,6 +107,8 @@ object Hashable extends LowPriorityHashableInstances {
   }
   // $COVERAGE-ON$
 
+  // Kept as Array[Byte], not Bytes: callers pass fresh `getBytes` results or
+  // a read-only view, and hashing only borrows them for this call.
   private def addBytes[B](
       bytes: Array[Byte],
       algo: Algo[B]
@@ -347,11 +350,13 @@ object Hashable extends LowPriorityHashableInstances {
       addBytes(a.getBytes(Utf8), algo)(hasher)
   }
 
-  given Hashable[Array[Byte]] with {
-    def addHash[B](a: Array[Byte], algo: Algo[B])(
+  // Content hashes are paired with their values in Hashed, so only immutable
+  // bytes get an instance: mutating an array would leave its hash stale.
+  given Hashable[Bytes] with {
+    def addHash[B](a: Bytes, algo: Algo[B])(
         hasher: algo.Hasher
     ): algo.Hasher =
-      addBytes(a, algo)(hasher)
+      addBytes(a.unsafeReadOnlyView, algo)(hasher)
   }
 
   given [A, B](using sourceAlgo: Algo[A]): Hashable[Hashed[A, B]] with {

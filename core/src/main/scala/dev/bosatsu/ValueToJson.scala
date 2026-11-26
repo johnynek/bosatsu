@@ -962,7 +962,11 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                         else
                           Right(
                             ExternalValue(
-                              PredefImpl.BytesValue(data, 0, data.length)
+                              PredefImpl.BytesValue(
+                                Bytes.unsafeFromArray(data),
+                                0,
+                                data.length
+                              )
                             )
                           )
                     }

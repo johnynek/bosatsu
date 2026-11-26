@@ -374,7 +374,7 @@ class CompilePackagesCommandTest extends FileCommandFixtures {
         raw <- IO.fromTry(ProtoConverter.interfaceToProto(facade))
         lib = proto.Library(name = "facade", exportedIfaces = List(raw),
           descriptor = Some(proto.LibDescriptor(version = Some(proto.Version(minor = 1L)))))
-        _ <- IOPlatformIO.writeBytes(root.resolve("facade.bosatsu_lib"), lib.toByteArray)
+        _ <- IOPlatformIO.writeBytes(root.resolve("facade.bosatsu_lib"), Bytes.fromMessage(lib))
         _ <- write(root, "Client.bosatsu", "package Client\nfrom Facade import item\nmain = add(item, 1)\n")
         _ <- write(root, "Owner.bosatsu", "package Owner\nexport Payload\ntype Payload = Int\n")
         ownerGroup <- compile(runner, root, "owner", List("Owner"), Nil)
@@ -484,7 +484,7 @@ class CompilePackagesCommandTest extends FileCommandFixtures {
         x <- IOPlatformIO.readInterfaceBundle(root.resolve("x.sig"))
         library = proto.Library(name = "facade", exportedIfaces = x.interfaces,
           descriptor = Some(proto.LibDescriptor(version = Some(proto.Version(minor = 1L)))))
-        _ <- IOPlatformIO.writeBytes(root.resolve("x.bosatsu_lib"), library.toByteArray)
+        _ <- IOPlatformIO.writeBytes(root.resolve("x.bosatsu_lib"), Bytes.fromMessage(library))
         libArgs = List("check", "--input", "Client.bosatsu", "--input", "Y.bosatsu",
           "--pub_dep", "x.bosatsu_lib", "--cache_dir", "lib-cache")
         fromLibrary <- runner.run(root, libArgs)

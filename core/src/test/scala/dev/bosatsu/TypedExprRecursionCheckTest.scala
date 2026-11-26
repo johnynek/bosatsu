@@ -4,7 +4,7 @@ import cats.Show
 import cats.data.{NonEmptyList, Validated}
 import cats.data.Ior
 import IorMethods.IorExtension
-import dev.bosatsu.rankn.Type
+import dev.bosatsu.rankn.{Type, TypeEnv}
 import scala.concurrent.duration.DurationInt
 import scala.util.Try
 
@@ -148,6 +148,59 @@ class TypedExprRecursionCheckTest extends munit.FunSuite with ParTest {
         }
     }
 
+  // Type checks full packages, with `package` headers and imports, together:
+  // the errors, and how they render.
+  private def packageErrorsOf(
+      sources: NonEmptyList[String]
+  ): (List[PackageError], String) = {
+    val parsed = sources.zipWithIndex.map { case (source, idx) =>
+      (
+        (s"<test $idx>", LocationMap(source)),
+        Parser.unsafeParse(Package.parser, source)
+      )
+    }
+    given Show[String] = Show.fromToString
+    TestUtils
+      .typeCheckParsedInferred(parsed, Nil, "<predef>", CompileOptions.Default)
+      .strictToValidated match {
+      case Validated.Valid(_)      => (Nil, "")
+      case Validated.Invalid(errs) =>
+        val sourceMap = parsed.toList.map { case ((path, lm), pack) =>
+          pack.name -> (lm, path)
+        }.toMap
+        val rendered = errs.toList
+          .map(_.message(sourceMap, LocationMap.Colorize.None))
+          .mkString("\n-----\n")
+        (errs.toList, rendered)
+    }
+  }
+
+  private def recursionErrorsOfPackages(
+      sources: NonEmptyList[String]
+  ): Either[String, Unit] =
+    packageErrorsOf(sources) match {
+      case (Nil, _)            => Right(())
+      case (errs, rendered) =>
+        val onlyRecursion = errs.forall {
+          case _: PackageError.RecursionError => true
+          case _                              => false
+        }
+        if (onlyRecursion) Left(rendered)
+        else fail(s"expected only recursion errors, got:\n$rendered")
+    }
+
+  private def allowedPackages(first: String, rest: String*): Unit =
+    recursionErrorsOfPackages(NonEmptyList(first, rest.toList)) match {
+      case Right(_)    => ()
+      case Left(errs) => fail(s"expected success, got errors:\n$errs")
+    }
+
+  private def disallowedPackages(first: String, rest: String*): Unit =
+    recursionErrorsOfPackages(NonEmptyList(first, rest.toList)) match {
+      case Right(_) => fail("expected recursion-check failure")
+      case Left(_)  => ()
+    }
+
   private def typedLetsOf(
       source: String
   ): (
@@ -226,6 +279,28 @@ def len(lst):
   recur lst:
     case []: Zero
     case [_, *tail]: Succ(len(tail))
+""")
+  }
+
+  test("recur in the value of a local `p as n = value` binding is allowed") {
+    // source conversion used to copy the value under the pattern, so the
+    // checker saw two recurs on the argument
+    allowed("""#
+def f(xs: List[Int]) -> List[Int]:
+  [*_] as xs = recur xs:
+    case []: []
+    case [_, *t]: f(t)
+  xs
+""")
+
+    allowed("""#
+enum Nat: Zero, Succ(prev: Nat)
+
+def len(lst: List[Int]) -> Nat:
+  ((Zero | Succ(_)) as n) = recur lst:
+    case []: Zero
+    case [_, *tail]: Succ(len(tail))
+  n
 """)
   }
 
@@ -369,6 +444,813 @@ def bad(v: T) -> T:
     case Z:
       Z
 """)
+  }
+
+  test("constructor-rank payloads at the target's type with other arguments must be smaller") {
+    // E's field has a fixed type, so the T[List[Int]] value E(t) holds the
+    // T[Int] target: bad(C(1)) -> bad(D(E(C(1)))) -> bad(C(1)) -> ...
+    disallowed("""#
+enum T[x]:
+  E(z: T[Int])
+  D(y: T[List[x]])
+  C(v: x)
+
+def bad(t: T[Int]) -> Int:
+  loop t:
+    case C(_): bad(D(E(t)))
+    case D(E(z)): bad(z)
+    case D(_): 0
+    case E(_): 0
+
+main = bad(C(1))
+""")
+
+    // through an existential and polymorphic recursion:
+    // bad(C(1)) -> bad(D(C(1))) -> bad(C(1)) -> ...
+    disallowed("""#
+enum T[a]:
+  D[b](x: T[b])
+  C(v: a)
+
+def bad[a](t: T[a]) -> Int:
+  loop t:
+    case C(_): bad(D(t))
+    case D(x): bad(x)
+
+main = bad(C(1))
+""")
+
+    // Conservative: no T[String] can hold a T[Int] here, but the field's
+    // type alone can't tell that apart from E(z: T[Int]) above, where a
+    // T[List[Int]] holds the target. Every T counts.
+    disallowed("""#
+enum T[x]:
+  E(z: T[String])
+  C(v: x)
+
+def step(t: T[Int]) -> Int:
+  recur t:
+    case C(_): step(E(C("s"))).add(1)
+    case E(_): 0
+""")
+
+    // a nested datatype: the T[List[a]] payload is never smaller, and the
+    // list nesting grows on every step
+    disallowed("""#
+enum T[a]:
+  L(v: a)
+  D(x: T[List[a]])
+  C(t: T[a])
+
+def bad[a](t: T[a]) -> Int:
+  loop t:
+    case L(_): 0
+    case D(x): bad(x)
+    case C(L(v)): bad(D(C(L([v]))))
+    case C(_): 0
+
+main = bad(C(L(1)))
+""")
+  }
+
+  test("constructor-rank payloads of types that contain the target must be smaller") {
+    // Wrap is declared after T and contains it
+    disallowed("""#
+enum T[x]:
+  D(v: x)
+  C
+
+struct Wrap(w: T[Wrap])
+
+def bad(t: T[Wrap]) -> Int:
+  loop t:
+    case C: bad(D(Wrap(t)))
+    case D(Wrap(w)): bad(w)
+
+main = bad(C)
+""")
+
+    // so does one that hands the target to a callback: k gives the
+    // callback t back, bad(C) -> k(cb) -> cb(C) -> bad(C) -> ...
+    disallowed("""#
+enum T[x]:
+  D(v: x)
+  C
+
+struct Cont(k: (T[Cont] -> Int) -> Int)
+
+def bad(t: T[Cont]) -> Int:
+  recur t:
+    case C: bad(D(Cont(cb -> cb(t)))).add(1)
+    case D(Cont(k)): k(y -> bad(y))
+
+main = bad(C)
+""")
+
+    // an alias declared after T hides it
+    disallowed("""#
+enum T[x]:
+  E(z: T[T[Int]])
+  D(v: x)
+  C
+
+type TI = T[Int]
+
+def bad(t: T[TI]) -> Int:
+  loop t:
+    case C: bad(D(E(t)))
+    case D(E(z)): bad(z)
+    case D(_): 0
+    case E(_): 0
+
+main = bad(C)
+""")
+  }
+
+  test("constructor-rank payloads of other types may be smaller values") {
+    // a wrapped payload is fine when it is already smaller
+    allowed("""#
+enum T:
+  Z
+  A(xs: List[T])
+  B(xs: List[T])
+
+def step(v: T) -> Int:
+  recur v:
+    case B(xs): step(A(xs)).add(1)
+    case A([x, *_]): step(x)
+    case A([]): 0
+    case Z: 0
+""")
+
+    // and so is a nested-type payload, here with polymorphic recursion
+    allowed("""#
+enum T[a]:
+  L(v: a)
+  D(x: T[List[a]])
+  C(t: T[List[a]])
+
+def depth[a](t: T[a]) -> Int:
+  recur t:
+    case L(_): 0
+    case C(x): depth(D(x)).add(1)
+    case D(x): depth(x)
+""")
+
+    // a field whose type is a type variable of the def is never read as a
+    // target value, even when polymorphic recursion puts one there
+    allowed("""#
+enum T[a]:
+  D(x: a)
+  C(t: T[a])
+
+def wrap[a](t: T[a]) -> Int:
+  recur t:
+    case C(_): wrap(D(t)).add(1)
+    case D(_): 0
+""")
+
+    // nor is an existential field
+    allowed("""#
+enum T:
+  D[b](x: b)
+  C
+
+def wrap(t: T) -> Int:
+  recur t:
+    case C: wrap(D(t)).add(1)
+    case D(_): 0
+""")
+  }
+
+  test("constructor-rank existentials another field takes as input must be smaller") {
+    // f knows what b is, so it can hand x, the target, to a callback:
+    // bad(C(g)) -> bad(D(C(g), g)) -> g(C(g), cb) -> bad(C(g)) -> ...
+    disallowed("""#
+enum T:
+  D[b](x: b, f: (b, T -> Int) -> Int)
+  C(g: forall a. (a, a -> Int) -> Int)
+
+def bad(t: T) -> Int:
+  recur t:
+    case C(g): bad(D(t, g))
+    case D(x, f): f(x, y -> bad(y))
+
+main = bad(C((z, cb) -> cb(z)))
+""")
+
+    // a dangerous existential needs a smaller value wherever it is output:
+    // in a list, bad(C(g)) -> bad(D([C(g)], g)) -> g(C(g), cb) -> ...
+    disallowed("""#
+enum T:
+  D[b](ys: List[b], f: (b, T -> Int) -> Int)
+  C(g: forall a. (a, a -> Int) -> Int)
+
+def bad(t: T) -> Int:
+  recur t:
+    case C(g): bad(D([t], g))
+    case D(ys, f):
+      match ys:
+        case [x, *_]: f(x, y -> bad(y))
+        case []: 0
+
+main = bad(C((z, cb) -> cb(z)))
+""")
+
+    // or returned by a thunk
+    disallowed("""#
+enum T:
+  D[b](th: () -> b, f: (b, T -> Int) -> Int)
+  C(g: forall a. (a, a -> Int) -> Int)
+
+def bad(t: T) -> Int:
+  recur t:
+    case C(g): bad(D(() -> t, g))
+    case D(th, f): f(th(), y -> bad(y))
+
+main = bad(C((z, cb) -> cb(z)))
+""")
+
+    // the callback can be hidden in a named type:
+    // bad(C(g)) -> bad(D(C(g), g)) -> h(C(g), cb) -> bad(C(g)) -> ...
+    disallowed("""#
+struct Box[a, r](h: (a, r -> Int) -> Int)
+
+enum T:
+  D[b](x: b, fs: Box[b, T])
+  C(g: forall a. Box[a, a])
+
+def bad(t: T) -> Int:
+  recur t:
+    case C(g): bad(D(t, g))
+    case D(x, Box(h)): h(x, y -> bad(y))
+
+main = bad(C(Box((z, cb) -> cb(z))))
+""")
+
+    // or behind a thunk, whose result the trusted force reads as smaller
+    disallowed("""#
+struct Box[a, r](h: (a, r -> Int) -> Int)
+
+enum T:
+  D[b](x: b, th: () -> Box[b, T])
+  C(g: forall a. () -> Box[a, a])
+
+def bad(t: T) -> Int:
+  recur t:
+    case C(g): bad(D(t, g))
+    case D(x, th):
+      match th(()):
+        case Box(h): h(x, y -> bad(y))
+
+main = bad(C(() -> Box((z, cb) -> cb(z))))
+""")
+
+    // or in the target's own type at another argument. The checker
+    // accepted this one before this rule, and it loops.
+    disallowed("""#
+enum T[w]:
+  E(h: (w, T[Int] -> Int) -> Int)
+  D[b](x: b, fs: T[b])
+  C(g: forall a. (a, a -> Int) -> Int)
+
+def bad(t: T[Int]) -> Int:
+  recur t:
+    case C(g): bad(D(t, E(g)))
+    case D(x, E(h)): h(x, y -> bad(y))
+    case _: 0
+
+main = bad(C((z, cb) -> cb(z)))
+""")
+
+    // Conservative: out returns a value holding the target, which the def
+    // can't read as smaller, but a result can't be told apart from one it
+    // can read, such as a thunk's, so st needs a smaller value too
+    disallowed("""#
+enum M[r]:
+  Done(n: Int)
+  Step[s](st: s, out: s -> r)
+  Start(n: Int, out: Int -> r)
+
+struct Res(m: M[Int])
+
+def run(m: M[Res]) -> Int:
+  loop m:
+    case Start(n, out): run(Step(n.add(1), out))
+    case Step(_, _): 1
+    case Done(n): n
+""")
+
+    // through a chain: f1 turns b into c, which f2 hands to a callback
+    disallowed("""#
+enum T:
+  D[b, c](x: b, f1: b -> c, f2: (c, T -> Int) -> Int)
+  C(g: forall a. (a, a -> Int) -> Int, i: forall a. a -> a)
+
+def bad(t: T) -> Int:
+  recur t:
+    case C(g, i): bad(D(t, i, g))
+    case D(x, f1, f2): f2(f1(x), y -> bad(y))
+
+main = bad(C((z, cb) -> cb(z), z -> z))
+""")
+  }
+
+  test("constructor-rank existentials only consumed by fields that hand out nothing take any value") {
+    // k takes the existential but returns an Int, so x stays opaque
+    allowed("""#
+enum State:
+  Done(n: Int)
+  Step[b](x: b, k: b -> Int)
+  Start(n: Int)
+
+def run(s: State) -> Int:
+  loop s:
+    case Start(n): run(Step(n.add(1), x -> x.mul(2)))
+    case Step(x, k): run(Done(k(x)))
+    case Done(n): n
+""")
+
+    // and with several consumers and a list payload
+    allowed("""#
+enum State:
+  Done(n: Int)
+  Step[b](x: b, show: b -> String, k: b -> Int)
+  Start(n: Int)
+
+def run(s: State) -> Int:
+  loop s:
+    case Start(n): run(Step([n, n], _ -> "list", xs -> xs.foldl_List(0, add)))
+    case Step(x, _, k): run(Done(k(x)))
+    case Done(n): n
+""")
+  }
+
+  test("constructor-rank existentials are not confused with binders of the same name") {
+    // g's `forall b` binds its own b, so g takes nothing of type Lo's b.
+    // Renaming the binder must not change whether this is accepted.
+    allowed("""#
+enum T[w]:
+  Lo[b](x: b, f: (b, w -> Int) -> Int, g: forall b. b -> b)
+  Hi[b](x: b, f: (b, w -> Int) -> Int)
+
+struct Wrap(t: T[Int])
+
+def bad(t: T[Wrap]) -> Int:
+  loop t:
+    case Hi(x, f): bad(Lo(x, f, z -> z))
+    case Lo(_, _, _): 0
+""")
+  }
+
+  test("constructor-rank sees the target in nested, let-bound and matched constructors") {
+    // E(t) is a T[T[Int]] here, so its field holds t, a T[Int]:
+    // bad(C(0)) -> bad(D(E(C(0)))) -> bad(C(0)) -> ...
+    disallowed("""#
+enum T[w]:
+  E(z: w)
+  D(y: T[T[Int]])
+  C(n: Int)
+
+def bad(t: T[Int]) -> Int:
+  loop t:
+    case C(_): bad(D(E(t)))
+    case D(E(z)): bad(z)
+    case _: 0
+
+main = bad(C(0))
+""")
+
+    // so does a let-bound value. The checker accepted this one before this
+    // rule, and it loops
+    disallowed("""#
+enum T[w]:
+  E(z: w)
+  C(n: Int)
+
+def bad(t: T[Int]) -> Int:
+  loop t:
+    case C(_):
+      u: T[T[Int]] = E(t)
+      match u:
+        case E(z): bad(z)
+        case _: 0
+    case _: 0
+
+main = bad(C(0))
+""")
+
+    // and a match scrutinee, which the checker also accepted before, and
+    // which loops
+    disallowed("""#
+enum T[w]:
+  E(z: w)
+  C(n: Int)
+
+def bad(t: T[Int]) -> Int:
+  loop t:
+    case C(_):
+      match E((t, 1)):
+        case E((z, _)): bad(z)
+        case _: 0
+    case _: 0
+
+main = bad(C(0))
+""")
+  }
+
+  test("constructor-rank reads a let-generalized constructor") {
+    // n has type forall a. Option[a], which holds nothing at a
+    allowed("""#
+def f(o: Option[Int]) -> Int:
+  loop o:
+    case Some(_):
+      n = None
+      f(n)
+    case None: 0
+""")
+
+    allowed("""#
+def len(xs: List[Int]) -> Int:
+  recur xs:
+    case []: 0
+    case [_, *tl]:
+      e = []
+      len(e).add(len(tl)).add(1)
+""")
+  }
+
+  test("constructor-rank reads a payload at its field's type") {
+    // The next call reads B's field as a T[a], so E(t)'s field is an
+    // opaque a there, though E(t) has type T[T[a]] here
+    allowed("""#
+enum T[w]:
+  E(z: w)
+  B(x: T[w])
+  C(n: Int)
+
+def g(t: T[a]) -> Int:
+  loop t:
+    case C(_): g(B(E(t)))
+    case _: 0
+""")
+
+    // but not when the field's type has a dangerous existential: f was
+    // packed at the real b, so it hands x's contents back as a target.
+    // g(C(h)) -> g(K(E(C(h)), h)) -> h(C(h), cb) -> g(C(h)) -> ...
+    disallowed("""#
+enum T[w]:
+  E(z: w)
+  K[b](x: T[b], f: (b, T[w] -> Int) -> Int)
+  C(h: forall q. (q, q -> Int) -> Int)
+
+def g(t: T[a]) -> Int:
+  recur t:
+    case E(_): 0
+    case K(x, f):
+      match x:
+        case E(z): f(z, y -> g(y))
+        case _: 0
+    case C(h): g(K(E(t), h))
+
+main = g(C((z, k) -> k(z)))
+""")
+
+    // the same through a let-bound value
+    disallowed("""#
+enum T[w]:
+  E(z: w)
+  K[b](x: T[b], f: (b, T[w] -> Int) -> Int)
+  C(h: forall q. (q, q -> Int) -> Int)
+
+def g(t: T[a]) -> Int:
+  recur t:
+    case E(_): 0
+    case K(x, f):
+      match x:
+        case E(z): f(z, y -> g(y))
+        case _: 0
+    case C(h):
+      u = K(E(t), h)
+      g(u)
+
+main = g(C((z, k) -> k(z)))
+""")
+
+    // and through a match scrutinee, which loops within one call
+    disallowed("""#
+enum T[w]:
+  E(z: w)
+  K[b](x: T[b], f: (b, T[w] -> Int) -> Int)
+  C(h: forall q. (q, q -> Int) -> Int)
+
+def g(t: T[a]) -> Int:
+  recur t:
+    case C(h):
+      match K(E(t), h):
+        case K(x, f):
+          match x:
+            case E(z): f(z, y -> g(y))
+            case _: 0
+        case _: 0
+    case _: 0
+
+main = g(C((z, k) -> k(z)))
+""")
+
+    // An enclosing constructor's existential is opaque in its fields' types,
+    // and an inner constructor's existentials are named apart from it. Here
+    // O's b is opaque, so K(E(t), h)'s y is a T[b] holding nothing the def
+    // can read. K's own b is dangerous, but it is a different variable, so
+    // the verdict must not depend on what O names its existential.
+    allowed("""#
+enum T[w]:
+  E(z: w)
+  K[b](y: T[w], f: (b, T[Int] -> Int) -> Int)
+  O[b](x: T[b])
+  C(n: Int, h: forall q. (q, T[Int] -> Int) -> Int)
+
+def g(t: T[Int]) -> Int:
+  loop t:
+    case C(_, h): g(O(K(E(t), h)))
+    case _: 0
+""")
+
+    allowed("""#
+enum T[w]:
+  E(z: w)
+  K[b](y: T[w], f: (b, T[Int] -> Int) -> Int)
+  O[c](x: T[c])
+  C(n: Int, h: forall q. (q, T[Int] -> Int) -> Int)
+
+def g(t: T[Int]) -> Int:
+  loop t:
+    case C(_, h): g(O(K(E(t), h)))
+    case _: 0
+""")
+
+    // the same with the target directly in K's field of type w := O's b
+    allowed("""#
+enum T[w]:
+  E(z: w)
+  K[b](y: w, f: (b, T[Int] -> Int) -> Int)
+  O[b](x: T[b])
+  C(n: Int, h: forall q. (q, T[Int] -> Int) -> Int)
+
+def g(t: T[Int]) -> Int:
+  loop t:
+    case C(_, h): g(O(K(t, h)))
+    case _: 0
+""")
+
+    allowed("""#
+enum T[w]:
+  E(z: w)
+  K[b](y: w, f: (b, T[Int] -> Int) -> Int)
+  O[c](x: T[c])
+  C(n: Int, h: forall q. (q, T[Int] -> Int) -> Int)
+
+def g(t: T[Int]) -> Int:
+  loop t:
+    case C(_, h): g(O(K(t, h)))
+    case _: 0
+""")
+
+    // Conservative: x mixes a type variable of the def (at w) with K's
+    // dangerous b (at v), so P(t, s) is read at its own type, and its l
+    // holds the target, though the next call reads l as an opaque a and f
+    // only gets r
+    disallowed("""#
+enum T[w, v]:
+  P(l: w, r: v)
+  K[b](x: T[w, b], f: (b, T[Int, Int] -> Int) -> Int)
+  C(h: forall q. (q, q -> Int) -> Int, s: T[Int, Int])
+
+def g(t: T[a, Int]) -> Int:
+  recur t:
+    case C(h, s): g(K(P(t, s), h))
+    case K(x, f):
+      match x:
+        case P(_, r): f(r, y -> g(y))
+        case _: 0
+    case P(_, _): 0
+""")
+
+    // Conservative: conv makes b dangerous by returning a plain T, which
+    // the def can't read as smaller, so E(t) is read at its own type
+    disallowed("""#
+enum T[w]:
+  E(z: w)
+  K[b](x: T[b], conv: b -> T[Int])
+  C(c: forall q. q -> T[Int])
+
+def g(t: T[a]) -> Int:
+  loop t:
+    case E(_): 0
+    case K(_, _): 1
+    case C(c): g(K(E(t), c))
+""")
+
+    // A dangerous existential field still takes a payload that is smaller
+    // at its own type: A(1) holds no T
+    allowed("""#
+enum T:
+  A(n: Int)
+  D[b](x: b, f: (b, T -> Int) -> Int)
+  C(g: forall q. (q, q -> Int) -> Int)
+
+def ok(t: T) -> Int:
+  recur t:
+    case C(g): ok(D(A(1), g))
+    case D(x, f): f(x, y -> ok(y))
+    case A(n): n
+""")
+
+    // Conservative: a let-bound value is read at its own type, as the
+    // current call would read it, though the next call reads it as a T[a]
+    disallowed("""#
+enum T[w]:
+  E(z: w)
+  C(n: Int)
+
+def g(t: T[a]) -> Int:
+  loop t:
+    case C(_):
+      u = E(t)
+      g(u)
+    case E(_): 0
+""")
+  }
+
+  test("constructor-rank payload functions that can return the target must be smaller") {
+    // the thunk hands back t: bad(C(1)) -> bad(E(_ -> C(1))) -> bad(C(1))
+    disallowed("""#
+enum T[x]:
+  E(th: Unit -> T[Int])
+  C(v: x)
+
+def bad(t: T[Int]) -> Int:
+  loop t:
+    case C(_): bad(E(_ -> t))
+    case E(th): bad(th(()))
+
+main = bad(C(1))
+""")
+  }
+
+  test("constructor-rank payload functions that only take the target take any value") {
+    // a T[Int] -> Int can't hand out a T, so its value needn't be smaller
+    allowed("""#
+enum T[x]:
+  D(v: x)
+  C(n: Int)
+
+def step(t: T[T[Int] -> Int]) -> Int:
+  recur t:
+    case C(n): step(D(_ -> n)).add(1)
+    case D(_): 0
+""")
+
+    // nor can a type declared after T whose field only takes a T
+    allowed("""#
+enum T[x]:
+  D(v: x)
+  C(n: Int)
+
+struct Handler(h: T[Int] -> Int)
+
+def step(t: T[Handler]) -> Int:
+  recur t:
+    case C(n): step(D(Handler(_ -> n))).add(1)
+    case D(_): 0
+""")
+  }
+
+  test("constructor-rank fields of types the package can't see take any value") {
+    // Foo is private to RankDepA, so RankDepB's type environment doesn't
+    // have it. It was declared before T, so it can't hold a T.
+    allowedPackages(
+      """package RankDepA
+
+export T()
+
+struct Foo(i: Int)
+
+enum T:
+  D(f: Foo)
+  C(n: Int)
+""",
+      """package RankDepB
+
+from RankDepA import T, D, C
+
+def mk(t: T) -> T:
+  match t:
+    case D(f): D(f)
+    case C(_): t
+
+def step(t: T) -> Int:
+  recur t:
+    case C(_):
+      match mk(t):
+        case D(f): step(D(f)).add(1)
+        case C(_): 0
+    case D(_): 0
+"""
+    )
+  }
+
+  test("constructor-rank type arguments the package can't see are opaque") {
+    // the target's type comes from a dependency, and Foo's field Bar is
+    // private to it, so this package can't read a T out of a Foo
+    allowedPackages(
+      """package RankOpaqueA
+
+export T(), mk_foo, Foo()
+
+struct Bar(i: Int)
+struct Foo(b: Bar)
+
+enum T[x]:
+  D(v: x)
+  C(n: Int)
+
+def mk_foo(i: Int) -> Foo: Foo(Bar(i))
+""",
+      """package RankOpaqueB
+
+from RankOpaqueA import T, D, C, mk_foo, Foo
+
+def step(t: T[Foo]) -> Int:
+  recur t:
+    case C(n): step(D(mk_foo(n))).add(1)
+    case D(_): 0
+"""
+    )
+  }
+
+  test("constructor-rank payloads through a dependency's alias must be smaller") {
+    // TI = T[Int] comes into bad's inferred type through `same` without
+    // being imported, and inference expands it: t has type T[T[Int]], and
+    // the payload E(t) is a T[Int] that holds the target:
+    // bad(C) -> bad(D(E(C))) -> bad(C) -> ...
+    disallowedPackages(
+      """package AliasDepA
+
+export T(), TI, same
+
+enum T[x]:
+  E(z: T[T[Int]])
+  D(v: x)
+  C
+
+type TI = T[Int]
+
+def same(_: T[TI], _: T[TI]) -> Int: 0
+""",
+      """package AliasDepB
+
+from AliasDepA import T, E, D, C, same
+
+def bad(t) -> Int:
+  n = same(t, t)
+  recur t:
+    case C: bad(D(E(t))).add(n)
+    case D(E(z)): bad(z)
+    case D(_): 0
+    case E(_): 0
+
+main = bad(C)
+"""
+    )
+  }
+
+  test("constructor-rank reads the definition of an imported type") {
+    // Wrap is imported with its constructor, so its definition, which holds
+    // a T, must be what the check sees: bad(C) -> bad(D(Wrap(C))) -> ...
+    disallowedPackages(
+      """package WrapDepA
+
+export T(), Wrap()
+
+enum T[x]:
+  D(v: x)
+  C
+
+struct Wrap(w: T[Wrap])
+""",
+      """package WrapDepB
+
+from WrapDepA import T, D, C, Wrap
+
+def bad(t: T[Wrap]) -> Int:
+  loop t:
+    case C: bad(D(Wrap(t)))
+    case D(Wrap(w)): bad(w)
+
+main = bad(C)
+"""
+    )
   }
 
   test("recur does not use constructor-rank rule when current constructor is ambiguous") {
@@ -1133,6 +2015,54 @@ def step(t: Tree) -> Eval[Tree]:
     )
   }
 
+  test("Eval.flat_map's argument is read outside its lambda, even when the binder shadows it") {
+    val evalPack = PackageName.parts("Bosatsu", "Eval")
+    val header = """#
+external type Eval[a: +*]
+external def done[a](a: a) -> Eval[a]
+external def flat_map[a, b](e: Eval[a], fn: a -> Eval[b]) -> Eval[b]
+
+enum Tree:
+  Leaf
+  Node(next: Eval[Tree])
+"""
+    allowed(
+      header + """
+def walk(t: Tree) -> Eval[Int]:
+  recur t:
+    case Leaf: done(0)
+    case Node(x): flat_map(x, x -> walk(x))
+""",
+      evalPack
+    )
+
+    // walk(t) -> walk(t) -> ...: the outer x is not smaller, so neither is
+    // the binder
+    disallowedWithMessage(
+      header + """
+def walk(t: Tree) -> Eval[Int]:
+  recur t:
+    case Leaf: done(0)
+    case Node(_):
+      x = done(t)
+      flat_map(x, x -> walk(x))
+""",
+      evalPack
+    )(msg => assert(msg.contains("not lexicographically smaller"), msg))
+
+    // walk(t) -> walk(t) -> ...: the inner binder shadows the smaller x,
+    // but is bound to t
+    disallowedWithMessage(
+      header + """
+def walk(t: Tree) -> Eval[Int]:
+  recur t:
+    case Leaf: done(0)
+    case Node(x): flat_map(x, _ -> flat_map(done(t), x -> walk(x)))
+""",
+      evalPack
+    )(msg => assert(msg.contains("not lexicographically smaller"), msg))
+  }
+
   test("Int recursion rejects non-decreasing recursive calls") {
     disallowedWithMessage("""#
 def bad(i: Int) -> Int:
@@ -1248,6 +2178,155 @@ def bad(i: Int) -> Int:
   recur i:
     case _ if cmp_Int(i, 0) matches GT:
       bad(i.div(0).add(i.mod_Int(0)))
+    case _:
+      i
+""")
+  }
+
+  // Bosatsu's 5.mod_Int(-3) is -1, while SMT-LIB's (mod 5 (- 3)) is 2: so
+  // here bad(5) calls bad(5) forever, but reading mod_Int as SMT-LIB mod
+  // makes the argument look like it decreases.
+  test("Int recursion uses Bosatsu's mod_Int for a negative divisor") {
+    disallowed("""#
+def bad(i: Int) -> Int:
+  loop i:
+    case _ if cmp_Int(i, 2) matches GT:
+      bad(i.sub(i.mod_Int(-3)).sub(1))
+    case _:
+      i
+""")
+    // i.mod_Int(-3) is in [-2, 0], so this decreases, and stays >= 0
+    allowed("""#
+def good(i: Int) -> Int:
+  loop i:
+    case _ if cmp_Int(i, 2) matches GT:
+      good(i.add(i.mod_Int(-3)).sub(1))
+    case _:
+      i
+""")
+  }
+
+  // Bosatsu's 5.div(-3) is -2, while SMT-LIB's (div 5 (- 3)) is -1: here
+  // i.add(i.div(-3).mul(3)) is Bosatsu's i.mod_Int(-3), in [-2, 0], so bad(5)
+  // calls bad(5) forever, but with SMT-LIB div it is in [0, 2].
+  test("Int recursion uses Bosatsu's div for a negative divisor") {
+    disallowed("""#
+def bad(i: Int) -> Int:
+  loop i:
+    case _ if cmp_Int(i, 3) matches GT:
+      bad(i.sub(i.add(i.div(-3).mul(3))).sub(1))
+    case _:
+      i
+""")
+    // i.div(-2) is -ceil(i / 2), so this is floor(i / 2)
+    allowed("""#
+def good(i: Int) -> Int:
+  loop i:
+    case _ if cmp_Int(i, 0) matches GT:
+      good(i.add(i.div(-2)))
+    case _:
+      i
+""")
+  }
+
+  // Each def below does not terminate, and each was accepted while the
+  // lowering got the meaning of a match or a binding wrong.
+
+  // bad(6) calls bad(6): the first branch is taken. Lowering the second
+  // branch's condition as "the first branch misses" made the first branch
+  // unreachable, so next looked like i - 1.
+  test("Int recursion lowers overlapping match branches in order") {
+    disallowed("""#
+def bad(i: Int) -> Int:
+  loop i:
+    case _ if cmp_Int(i, 0) matches GT:
+      next = match i:
+        case _ if cmp_Int(i, 5) matches GT: i
+        case _ if cmp_Int(i, 0) matches GT: i.sub(1)
+        case _: 0
+      bad(next)
+    case _:
+      i
+""")
+    allowed("""#
+def good(i: Int) -> Int:
+  loop i:
+    case _ if cmp_Int(i, 0) matches GT:
+      next = match i:
+        case _ if cmp_Int(i, 5) matches GT: i.sub(5)
+        case _ if cmp_Int(i, 0) matches GT: i.sub(1)
+        case _: 0
+      good(next)
+    case _:
+      i
+""")
+  }
+
+  // bad(1, 0) calls bad(1, 0): the guard's y is i + 10, which is not less
+  // than 5. The guard was lowered before the pattern bound y, so it read
+  // the argument y, which is.
+  test("Int recursion lowers a guard with the names its pattern binds") {
+    disallowed("""#
+def bad(i: Int, y: Int) -> Int:
+  loop i:
+    case _ if and((cmp_Int(i, 0) matches GT), (cmp_Int(y, 5) matches LT)):
+      next = match i.add(10):
+        case y if cmp_Int(y, 5) matches LT: i.sub(1)
+        case _: i
+      bad(next, y)
+    case _:
+      i
+""")
+  }
+
+  // bad(5, 100) calls bad(100, 5), which calls bad(5, 100). The j bound
+  // inside the argument of add leaked out, so bad's first argument looked
+  // like i - 1.
+  test("Int recursion keeps a let's binding inside the let") {
+    disallowed("""#
+def bad(i: Int, j: Int) -> Int:
+  loop i:
+    case _ if cmp_Int(i, 0) matches GT:
+      k = add((
+          j = i.sub(1)
+          j
+        ), 0)
+      bad(j, i.add(k.mul(0)))
+    case _:
+      i
+""")
+  }
+
+  // bad(5, 100) calls bad(99, 100) forever: the i in the branch is j. The
+  // tuple pattern's i got no binding, so it read the argument i.
+  test("Int recursion does not read a name bound inside a struct pattern as the outer name") {
+    disallowed("""#
+def bad(i: Int, j: Int) -> Int:
+  loop i:
+    case _ if cmp_Int(i, 0) matches GT:
+      next = match (j, 0):
+        case (i, _): i.sub(1)
+      bad(next, j)
+    case _:
+      i
+""")
+  }
+
+  // bad(1, 0) calls bad(10, 11), then bad(20, 21), and so on: j = bump(j) is
+  // 10 more than i. The second j does not lower, and it kept the first j's
+  // value, i.
+  test("Int recursion gives a binding that does not lower a fresh symbol") {
+    disallowed("""#
+def bump(i: Int) -> Int:
+  f = x -> x.add(10)
+  f(i)
+
+def bad(i: Int, j: Int) -> Int:
+  loop i:
+    case _ if cmp_Int(i, 0) matches GT:
+      j = i
+      j = bump(j)
+      bad(j.sub(1), j)
     case _:
       i
 """)
@@ -1464,9 +2543,11 @@ def f(opt: Int, y: Int) -> Int:
         other
     }
 
+    // a single package: its types and Predef's are all in env
     TypedExprRecursionCheck.checkLets(
       pack,
       env,
+      TypeEnv.empty,
       rewrittenLets,
       TypedExprRecursionCheck.topLevelDefArgs(stmts)
     ) match {
@@ -1522,7 +2603,9 @@ def walk(stack: List[Either]) -> Int:
 """)
   }
 
-  test("loop uses disjunctive union-derived guard facts for Int recursion proofs") {
+  // A union binds s by its first arm that matches, Pair(s, _), so falling
+  // through says idx >= x, and nothing about y.
+  test("loop uses the union arm that binds the names for Int recursion proofs") {
     allowed("""#
 enum Duo:
   Pair(left: Int, right: Int)
@@ -1533,10 +2616,37 @@ def walk(idx: Int, node: Duo) -> Int:
       idx
     case (_, (Pair(s, _) | Pair(_, s))) if cmp_Int(idx, s) matches LT:
       idx
-    case (_, Pair(x, y)) if cmp_Int(x.add(y), 1) matches GT | EQ:
+    case (_, Pair(x, y)) if cmp_Int(x, 1) matches GT | EQ:
       walk(idx.sub(1), Pair(x, y))
     case _:
       idx
+""")
+  }
+
+  test("a union's later arms give no subsumed guard fact") {
+    // bad(3, Pair(1, 0)) -> bad(3, Pair(1, 0)) -> ...: the first arm always
+    // binds s to x, but the guard being false was also read as y >= 1
+    disallowed("""#
+enum Duo:
+  Pair(left: Int, right: Int)
+
+def bad(idx: Int, node: Duo) -> Int:
+  loop (idx, node):
+    case (_, (Pair(s, _) | Pair(_, s))) if cmp_Int(s, 1) matches LT: idx
+    case (_, Pair(x, y)) if cmp_Int(idx, y) matches GT | EQ:
+      bad(idx.sub(y), Pair(x, y))
+    case _: idx
+""")
+  }
+
+  test("a union arm that can match but does not align gives no subsumed guard fact") {
+    // bad(0, 5) -> bad(0, 5) -> ...: the arm (0, a) binds a to i, but only
+    // the arm (a, _) aligned, so the guard being false was read as j >= 1
+    disallowed("""#
+def bad(j: Int, i: Int) -> Int:
+  loop (j, i):
+    case (0, a) | (a, _) if cmp_Int(a, 1) matches LT: 0
+    case (b, _): bad(mul(b, 0), i)
 """)
   }
 
@@ -1751,11 +2861,697 @@ def walk(idx: Int, stack: List[Node]) -> Int:
 """)
   }
 
+  // A let, pattern or guard may rebind a loop target's name. The target's
+  // value is still its value at loop entry, and an earlier guard that reads
+  // an outer name is about that outer name.
+
+  test("an Int obligation compares with the target at entry, not a let that rebinds it") {
+    // bad(1) -> bad(10) -> bad(19) -> ...: the obligation took the target
+    // to be the rebound i, i + 10, so sub(i, 1) looked smaller
+    disallowed("""#
+def bad(i: Int) -> Int:
+  loop i:
+    case _ if cmp_Int(i, 0) matches GT:
+      i = add(i, 10)
+      bad(sub(i, 1))
+    case _: i
+""")
+  }
+
+  test("an Int obligation compares with the target at entry, not a pattern that rebinds it") {
+    // bad(1) -> bad(10) -> bad(19) -> ...: the nested pattern rebinds i to
+    // i + 10
+    disallowed("""#
+def bad(i: Int) -> Int:
+  loop i:
+    case _ if cmp_Int(i, 0) matches GT:
+      match add(i, 10):
+        case i if cmp_Int(i, 0) matches GT: bad(sub(i, 1))
+        case _: 0
+    case _: i
+""")
+  }
+
+  test("a rebound target name is not an equal lexicographic Int argument") {
+    // bad(1, 1) -> bad(11, 0) -> bad(10, 1) -> bad(20, 0) -> ...: passing the
+    // rebound i as the first argument was taken as passing the target
+    // unchanged, so the smaller j made the call decrease
+    disallowed("""#
+def bad(i: Int, j: Int) -> Int:
+  loop (i, j):
+    case _ if cmp_Int(i, 0) matches GT:
+      match cmp_Int(j, 0):
+        case GT:
+          i = add(i, 10)
+          bad(i, sub(j, 1))
+        case _: bad(sub(i, 1), 1)
+    case _: i
+""")
+  }
+
+  test("tuple loop aliases that swap the target names bind the entry values") {
+    // bad(1, 1) -> bad(0, 6) -> bad(5, 5) -> bad(4, 10) -> bad(9, 9) -> ...:
+    // binding j to the first target and then i to the second, read by name,
+    // made both names the same fresh value
+    disallowed("""#
+def bad(i: Int, j: Int) -> Int:
+  loop (i, j):
+    case (j, i) if cmp_Int(i, 0) matches GT: bad(sub(i, 1), add(j, 5))
+    case _: 0
+""")
+  }
+
+  test("tuple loop aliases that swap the target names still prove decreasing calls") {
+    allowed("""#
+def count(i: Int, j: Int) -> Int:
+  loop (i, j):
+    case (j, i) if cmp_Int(j, 0) matches GT: count(sub(j, 1), i)
+    case _: 0
+""")
+  }
+
+  test("a loop pattern that rebinds the target name to the target keeps Int proofs") {
+    allowed("""#
+def count(i: Int) -> Int:
+  loop i:
+    case i if cmp_Int(i, 0) matches GT: count(sub(i, 1))
+    case _: 0
+""")
+  }
+
+  test("a structural target name rebound by a loop pattern is not the target") {
+    // bad(Zero, 1) -> bad(1, 0) -> bad(0, 2) -> bad(2, 1) -> bad(1, 3) ->
+    // bad(0, 5) -> bad(5, 4) -> ...: in the second branch n is the second
+    // argument, but was taken as the first, unchanged
+    disallowed("""#
+enum Nat: Zero, Succ(prev: Nat)
+
+def bad(n: Nat, m: Nat) -> Nat:
+  loop (n, m):
+    case (Succ(a), m): bad(a, Succ(Succ(m)))
+    case (Zero, n):
+      match n:
+        case Succ(p): bad(n, p)
+        case Zero: Zero
+""")
+  }
+
+  test("a structural target name rebound by a guard pattern is not the target") {
+    // bad(Zero, 1) -> bad(1, 0) -> bad(0, 2) -> bad(2, 1) -> ...: the guard
+    // binds n to the second argument, which was taken as the first, unchanged
+    disallowed("""#
+enum Nat: Zero, Succ(prev: Nat)
+
+def bad(n: Nat, m: Nat) -> Nat:
+  loop (n, m):
+    case (Succ(a), m): bad(a, Succ(Succ(m)))
+    case (Zero, Succ(p)) if Succ(Succ(p)) matches Succ(n): bad(n, p)
+    case _: Zero
+""")
+  }
+
+  test("a structural target matched into a pattern that rebinds its name stays smaller") {
+    allowed("""#
+enum Nat: Zero, Succ(prev: Nat)
+
+def count(n: Nat) -> Int:
+  loop n:
+    case Zero: 0
+    case Succ(_):
+      match n:
+        case Succ(n): count(n)
+        case Zero: 0
+""")
+  }
+
+  test("subsumed guard facts skip a guard about an outer name the pattern rebinds") {
+    // bad(0, 5) -> bad(-1, 5) -> ...: the first guard is about the argument
+    // m, but was read as the second pattern's m, i, giving i >= 1
+    disallowed("""#
+def bad(i: Int, m: Int) -> Int:
+  loop i:
+    case _:
+      mm = m
+      match i:
+        case _ if cmp_Int(m, 1) matches LT: 0
+        case m: bad(sub(i, 1), add(mm, mul(m, 0)))
+""")
+  }
+
+  test("an earlier guard about a name the pattern rebinds to the same value gives a fact") {
+    allowed("""#
+def count(m: Int, i: Int) -> Int:
+  loop (m, i):
+    case (_, 0) if cmp_Int(m, 1) matches LT: 0
+    case (m, 0): count(sub(m, 1), 0)
+    case _: 0
+""")
+  }
+
+  test("a guard name bound by a list search gives no subsumed guard fact") {
+    // bad(3, [(5, 1), (0, 0)]) -> bad(3, ...) -> ...: x is the first pair's
+    // first item, 5, and y the first item of the first pair ending in 0, 0,
+    // but the guard being false was read as y >= 1
+    disallowed("""#
+def bad(idx: Int, xs: List[(Int, Int)]) -> Int:
+  loop idx:
+    case _:
+      match xs:
+        case [*_, (x, _), *_] if cmp_Int(x, 1) matches LT: 0
+        case [*_, (y, 0), *_] if cmp_Int(idx, y) matches GT | EQ:
+          bad(sub(idx, y), xs)
+        case _: 0
+""")
+  }
+
+  test("a nested def drops the facts of the name it shadows") {
+    // g(Node(_ -> Node(_ -> Leaf))) -> g(t) -> ...: the inner next returns t,
+    // but kept the outer next's fact that it is smaller than t
+    disallowed("""#
+enum T: Leaf, Node(next: Unit -> T)
+
+def g(t: T) -> Int:
+  loop t:
+    case Leaf: 0
+    case Node(next):
+      match next(()):
+        case Leaf: 0
+        case _:
+          def next(u: Unit) -> T:
+            match u:
+              case (): t
+          g(next(()))
+""")
+  }
+
+  test("a nested def that shadows a parameter before the recur is not the recur target") {
+    // `loop th` matches the nested def, so g() is Go(orig) and k is the
+    // original th: bad(f) -> bad(f) -> ...
+    disallowed("""#
+enum S:
+  Stop
+  Go(k: () -> S)
+
+def bad(th: () -> S) -> Int:
+  orig = th
+  def th() -> S: Go(orig)
+  loop th:
+    case g:
+      match g():
+        case Go(k): bad(k)
+        case Stop: 0
+""")
+
+    // and as one name of a tuple target
+    disallowed("""#
+enum S:
+  Stop
+  Go(k: () -> S)
+
+def bad(n: Int, th: () -> S) -> Int:
+  orig = th
+  def th() -> S: Go(orig)
+  loop (th, n):
+    case (g, _):
+      match g():
+        case Go(k): bad(n.add(1), k)
+        case Stop: n
+""")
+
+    // a nested def may still shadow a parameter that is not the target
+    allowed("""#
+enum S:
+  Stop
+  Go(k: () -> S)
+
+def walk(th: () -> S, alt: () -> S) -> Int:
+  base = alt
+  def alt() -> S: base()
+  loop th:
+    case g:
+      match g():
+        case Go(k): walk(k, alt)
+        case Stop: 0
+""")
+  }
+
+  private def assertRecurNotOnArg(msg: String): Unit =
+    assert(msg.contains("recur not on an argument"), msg)
+
+  test("a let's value is outside the let's scope, so it can recur on the name the let shadows") {
+    allowed("""#
+def f(xs: List[Int]) -> List[Int]:
+  xs = recur xs:
+    case []: []
+    case [_, *t]: f(t)
+  xs
+""")
+  }
+
+  test("a let's name shadows the parameter in the let's body") {
+    // f([1]) -> xs is [1, 1] -> f([1]) -> ...: t is the original xs
+    disallowedWithMessage("""#
+def f(xs: List[Int]) -> List[Int]:
+  xs = [1, *xs]
+  loop xs:
+    case []: []
+    case [_, *t]: f(t)
+""")(assertRecurNotOnArg)
+  }
+
+  test("a binder whose scope has ended does not block a later loop on the parameter") {
+    // the nested def's scope ends with the match branch
+    allowed("""#
+enum S:
+  Stop
+  Go(k: () -> S)
+
+def f(th: () -> S) -> Int:
+  x = match th:
+    case _:
+      def th() -> S: Stop
+      match th():
+        case Stop: 0
+        case Go(_): 1
+  loop th:
+    case g:
+      match g():
+        case Go(k): f(k)
+        case Stop: x
+""")
+
+    // a let
+    allowed("""#
+def f(xs: List[Int]) -> Int:
+  n = match xs:
+    case _:
+      xs = [1]
+      match xs:
+        case []: 0
+        case _: 1
+  loop xs:
+    case []: n
+    case [_, *t]: f(t)
+""")
+
+    // a match pattern
+    allowed("""#
+def f(xs: List[Int]) -> Int:
+  n = match ([1], 2):
+    case (xs, m): match xs:
+      case []: m
+      case _: 1
+  loop xs:
+    case []: n
+    case [_, *t]: f(t)
+""")
+
+    // a match guard pattern
+    allowed("""#
+def f(xs: List[Int]) -> Int:
+  n = match 1:
+    case _ if ([1], 2) matches (xs, m): match xs:
+      case []: m
+      case _: 1
+    case _: 0
+  loop xs:
+    case []: n
+    case [_, *t]: f(t)
+""")
+
+    // a lambda: `xs <- ...` binds xs in a lambda around the rest of the
+    // branch
+    allowed("""#
+def use_list(x: Int, fn: List[Int] -> Int) -> Int: fn([x])
+
+def f(xs: List[Int]) -> Int:
+  n = match xs:
+    case _:
+      xs <- use_list(1)
+      match xs:
+        case []: 0
+        case _: 1
+  loop xs:
+    case []: n
+    case [_, *t]: f(t)
+""")
+
+    // a pattern of an earlier branch of the same match
+    allowed("""#
+enum S:
+  Stop
+  Go(k: () -> S)
+
+def f(th: () -> S) -> Int:
+  match th():
+    case Go(th):
+      match th():
+        case Stop: 0
+        case Go(_): 1
+    case Stop:
+      loop th:
+        case g:
+          match g():
+            case Go(k): f(k)
+            case Stop: 1
+""")
+  }
+
+  test("a binder whose scope encloses a loop still shadows the parameter") {
+    // bad(p): th is () -> Go(p), so k is p and bad(p) -> bad(p) -> ...
+    // The nested def's scope ends before the loop, but the let's does not.
+    disallowedWithMessage("""#
+enum S:
+  Stop
+  Go(k: () -> S)
+
+def bad(th: () -> S) -> Int:
+  orig = th
+  th = () -> Go(orig)
+  x = match th:
+    case _:
+      def th() -> S: Stop
+      match th():
+        case Stop: 0
+        case Go(_): 1
+  loop th:
+    case g:
+      match g():
+        case Go(k): bad(k)
+        case Stop: x
+""")(assertRecurNotOnArg)
+
+    // a match pattern
+    disallowedWithMessage("""#
+enum S:
+  Stop
+  Go(k: () -> S)
+
+def bad(th: () -> S) -> Int:
+  orig = th
+  wrapped = () -> Go(orig)
+  match wrapped:
+    case th:
+      loop th:
+        case g:
+          match g():
+            case Go(k): bad(k)
+            case Stop: 0
+""")(assertRecurNotOnArg)
+
+    // a match guard pattern: bad(() -> Stop) -> bad(orig) -> ...
+    disallowedWithMessage("""#
+enum S:
+  Stop
+  Go(k: () -> S)
+
+def bad(th: () -> S) -> Int:
+  orig = th
+  wrapped = () -> Go(orig)
+  match th():
+    case Stop if wrapped matches th:
+      loop th:
+        case g:
+          match g():
+            case Go(k): bad(k)
+            case Stop: 0
+    case _: 0
+""")(assertRecurNotOnArg)
+
+    // a lambda: `th <- ...` binds th in a lambda around the rest
+    disallowedWithMessage("""#
+enum S:
+  Stop
+  Go(k: () -> S)
+
+def apply_to(th: () -> S, fn: (() -> S) -> Int) -> Int: fn(th)
+
+def bad(th: () -> S) -> Int:
+  orig = th
+  th <- apply_to(() -> Go(orig))
+  loop th:
+    case g:
+      match g():
+        case Go(k): bad(k)
+        case Stop: 0
+""")(assertRecurNotOnArg)
+  }
+
+  test("subsumed loop guard facts skip a guard about an outer name the pattern rebinds") {
+    // bad(0, 5) -> bad(-1, 5) -> ...: as above, in the loop match itself
+    disallowed("""#
+def bad(i: Int, m: Int) -> Int:
+  loop i:
+    case _ if cmp_Int(m, 1) matches LT: 0
+    case m: bad(sub(i, 1), add(5, mul(m, 0)))
+""")
+  }
+
+  test("an Int target passed unchanged before a smaller target need not be non-negative") {
+    allowed("""#
+def f(n: Int, xs: List[Int]) -> Int:
+  loop (n, xs):
+    case (_, []): n
+    case (_, [_, *t]): f(n, t)
+""")
+  }
+
+  test("an earlier Int target that changes is not an equal lexicographic step") {
+    // bad(0, []) -> bad(-1, [1]) -> bad(-1, []) -> bad(-2, [1]) -> ...: n
+    // goes down without a lower bound
+    disallowed("""#
+def bad(n: Int, xs: List[Int]) -> Int:
+  loop (n, xs):
+    case (_, []): bad(n.sub(1), [1])
+    case (_, [_, *t]): bad(n, t)
+""")
+    // bad(0, []) -> bad(1, [1]) -> bad(1, []) -> bad(2, [1]) -> ...
+    disallowed("""#
+def bad(n: Int, xs: List[Int]) -> Int:
+  loop (n, xs):
+    case (_, []): bad(n.add(1), [1])
+    case (_, [_, *t]): bad(n, t)
+""")
+  }
+
+  test("literal parts of a tuple loop pattern give facts") {
+    allowed("""#
+def f(i: Int, j: Int) -> Int:
+  loop (i, j):
+    case (_, _) if cmp_Int(i, 0) matches LT: 0
+    case (0, _): j
+    case (_, _): f(i.sub(1), j)
+""")
+  }
+
+  test("an earlier tuple branch's miss reads its part names as the targets") {
+    allowed("""#
+def f(i: Int, j: Int) -> Int:
+  loop (i, j):
+    case (a, _) if cmp_Int(a, 0) matches LT: 0
+    case (0, _): j
+    case (_, _): f(i.sub(1), j)
+""")
+  }
+
+  test("a literal part of a tuple pattern is a fact about its own item") {
+    // bad(0, 1) -> bad(0, 1) -> ...: the literal is about j, not i
+    disallowed("""#
+def bad(i: Int, j: Int) -> Int:
+  loop (i, j):
+    case (_, _) if cmp_Int(i, 0) matches LT: 0
+    case (_, 0): j
+    case (_, _): bad(i.div(2), j)
+""")
+  }
+
+  test("a tuple pattern with a part that does not lower gives no miss") {
+    // bad(0, [1]) -> bad(0, [1]) -> ...: (0, [1]) misses (0, []) though
+    // i is 0
+    disallowed("""#
+def bad(i: Int, xs: List[Int]) -> Int:
+  loop (i, xs):
+    case (_, _) if cmp_Int(i, 0) matches LT: 0
+    case (0, []): 0
+    case (_, _): bad(i.div(2), xs)
+""")
+  }
+
+  test("names in a tuple pattern part bind the matched tuple's items") {
+    allowed("""#
+def count(i: Int, j: Int) -> Int:
+  loop i:
+    case _ if cmp_Int(i, 0) matches GT:
+      match (j, i):
+        case (_, k): count(sub(k, 1), j)
+    case _: j
+""")
+  }
+
+  test("tuple pattern names that swap the matched names bind the outer values") {
+    // bad(1, 3) -> bad(2, 6) -> bad(5, 7) -> bad(6, 10) -> ...: in the
+    // inner match i is the outer j
+    disallowed("""#
+def bad(i: Int, j: Int) -> Int:
+  loop i:
+    case _ if cmp_Int(i, 0) matches GT:
+      match (j, i):
+        case (i, j): bad(sub(i, 1), add(j, 5))
+    case _: 0
+""")
+  }
+
+  test("earlier branch misses about a name a struct pattern bound give facts") {
+    allowed("""#
+struct P(a: Int)
+
+def f(n: Int, p: P) -> Int:
+  loop n:
+    case _ if cmp_Int(n, 10) matches GT:
+      P(k) = p
+      match k:
+        case 0: 0
+        case _ if cmp_Int(k, 0) matches LT: 0
+        case _ if cmp_Int(k, n) matches LT: f(n.sub(k), p)
+        case _: 0
+    case _: 0
+""")
+    // the first pattern rebinds k to the scrutinee k, and the later guard
+    // reads the outer k
+    allowed("""#
+struct P(a: Int)
+
+def f(n: Int, p: P) -> Int:
+  loop n:
+    case _ if cmp_Int(n, 10) matches GT:
+      P(k) = p
+      match k:
+        case k if cmp_Int(k, 1) matches LT: 0
+        case _ if cmp_Int(k, n) matches LT: f(n.sub(k), p)
+        case _: 0
+    case _: 0
+""")
+    // the same in the loop match itself
+    allowed("""#
+struct P(a: Int)
+
+def f(n: Int, p: P) -> Int:
+  P(k) = p
+  loop n:
+    case 0: 0
+    case _ if cmp_Int(k, 1) matches LT: 0
+    case _ if cmp_Int(n, k) matches LT: n
+    case _: f(n.sub(k), p)
+""")
+  }
+
+  test("a name a struct pattern bound that may not be positive does not decrease") {
+    // bad(11, P(-1)) -> bad(12, P(-1)) -> ...
+    disallowed("""#
+struct P(a: Int)
+
+def bad(n: Int, p: P) -> Int:
+  loop n:
+    case _ if cmp_Int(n, 10) matches GT:
+      P(k) = p
+      match k:
+        case 0: 0
+        case _ if cmp_Int(k, n) matches LT: bad(n.sub(k), p)
+        case _: 0
+    case _: 0
+""")
+  }
+
+  test("an earlier miss about an unbound outer name says nothing of a pattern name") {
+    // bad(11, P(5), -1) -> bad(12, P(5), -1) -> ...: the first guard is
+    // about the k of P(k), and the second pattern's k is q
+    disallowed("""#
+struct P(a: Int)
+
+def bad(n: Int, p: P, q: Int) -> Int:
+  loop n:
+    case _ if cmp_Int(n, 10) matches GT:
+      P(k) = p
+      match q:
+        case _ if cmp_Int(k, 1) matches LT: 0
+        case k if cmp_Int(k, n) matches LT: bad(n.sub(k), p, q)
+        case _: 0
+    case _: 0
+""")
+  }
+
+  test("a name an earlier branch binds is not the outer name a later guard reads") {
+    // bad(11, P(-1), 5) -> bad(12, P(-1), 5) -> ...: the first pattern's
+    // k is q, and the second guard is about the k of P(k)
+    disallowed("""#
+struct P(a: Int)
+
+def bad(n: Int, p: P, q: Int) -> Int:
+  loop n:
+    case _ if cmp_Int(n, 10) matches GT:
+      P(k) = p
+      match q:
+        case k if cmp_Int(k, 1) matches LT: 0
+        case _ if cmp_Int(k, n) matches LT: bad(n.sub(k), p, q)
+        case _: 0
+    case _: 0
+""")
+  }
+
+  test("a name an earlier guard pattern binds is not the outer name a later guard reads") {
+    // bad(11, P(-1), 5) -> bad(12, P(-1), 5) -> ...: the first guard's k
+    // is q, and the second guard is about the k of P(k)
+    disallowed("""#
+struct P(a: Int)
+
+def bad(n: Int, p: P, q: Int) -> Int:
+  loop n:
+    case _ if cmp_Int(n, 10) matches GT:
+      P(k) = p
+      match q:
+        case _ if q matches k if cmp_Int(k, 1) matches LT: 0
+        case _ if cmp_Int(k, n) matches LT: bad(n.sub(k), p, q)
+        case _: 0
+    case _: 0
+""")
+  }
+
   test("recur target must be argument name or tuple of names") {
     disallowed("""#
 def invalid_target(x, y):
   recur (x, 1):
     case (_, _): invalid_target(x, y)
+""")
+  }
+
+  test("a one-name tuple target matches a 1-tuple") {
+    // (ys,) binds ys to xs itself, not to a part of it: bad(xs) -> bad(xs)
+    disallowed("""#
+def bad(xs: List[Int]) -> Int:
+  recur (xs,):
+    case (ys,): bad(ys).add(1)
+""")
+
+    disallowed("""#
+def bad(xs: List[Int]) -> Int:
+  loop (xs,):
+    case (ys,): bad(ys)
+""")
+
+    // the parts of the 1-tuple pattern are matched against the target
+    allowed("""#
+def len(xs: List[Int]) -> Int:
+  recur (xs,):
+    case ([],): 0
+    case ([_, *tl],): len(tl).add(1)
+""")
+
+    // and k names the Int target, so the guard bounds it
+    allowed("""#
+def count(i: Int) -> Int:
+  loop (i,):
+    case (k,) if cmp_Int(k, 0) matches GT: count(k.sub(1))
+    case _: 0
 """)
   }
 
@@ -1832,6 +3628,596 @@ main: Int = loop(Item(1))
 """)
   }
 
+  test("reachable continuation callbacks are smaller for monomorphic fields") {
+    allowed("""#
+enum Cont:
+  Item(a: Int)
+  Next(use: (Cont -> Int) -> Int)
+
+def loop(box: Cont) -> Int:
+  recur box:
+    case Item(a): a
+    case Next(cont_fn): cont_fn(cont -> loop(cont))
+
+main = loop(Next(k -> k(Next(k2 -> k2(Item(41)).add(1)))))
+""")
+
+    // a curried reachable function still gets the callback rule in every group
+    allowed("""#
+enum Cont:
+  Item(a: Int)
+  Next(use: (Cont -> Int) -> Int -> Int)
+
+def loop(box: Cont) -> Int:
+  recur box:
+    case Item(a): a
+    case Next(cont_fn): cont_fn(cont -> loop(cont))(0)
+
+main = loop(Item(1))
+""")
+
+    // the callback param type does not depend on the caller's choice of r
+    allowed("""#
+enum Cont:
+  Item(a: Int)
+  Next(use: forall r. (Cont -> r) -> r)
+
+def loop(box: Cont) -> Int:
+  recur box:
+    case Item(a): a
+    case Next(cont_fn): cont_fn(cont -> loop(cont))
+
+main = loop(Next(k -> k(Item(1))))
+""")
+  }
+
+  test("callbacks of rank-n reachable functions are not smaller") {
+    // the caller picks a := Cb and the field function hands c straight back
+    disallowed("""#
+struct Cb(f: forall a. (a, a -> Int) -> Int)
+
+def bad(c: Cb) -> Int:
+  recur c:
+    case Cb(f): f(c, x -> bad(x))
+
+main = bad(Cb((a, k) -> k(a)))
+""")
+
+    disallowed("""#
+struct Cb(f: forall a. (a, a -> Int) -> Int)
+
+def bad(c: Cb) -> Int:
+  recur c:
+    case Cb(f): f(c, bad)
+
+main = bad(Cb((a, k) -> k(a)))
+""")
+
+    // Church numerals: fold(s, z) applies s to z
+    disallowed("""#
+struct Nat(fold: forall r. (r -> r, r) -> r)
+
+one = Nat((s, z) -> s(z))
+
+def bad(n: Nat) -> Nat:
+  recur n:
+    case Nat(fold): fold(x -> bad(x), n)
+
+main = bad(one)
+""")
+
+    // instantiating the field through an annotated let does not hide it
+    disallowed("""#
+struct Cb(f: forall a. (a, a -> Int) -> Int)
+
+def bad(c: Cb) -> Int:
+  recur c:
+    case Cb(f):
+      h: (Cb, Cb -> Int) -> Int = f
+      h(c, x -> bad(x))
+
+main = bad(Cb((a, k) -> k(a)))
+""")
+
+    // nor does wrapping the target in another type
+    disallowed("""#
+struct Cb(f: forall a. (a, a -> Int) -> Int)
+
+def bad(c: Cb) -> Int:
+  recur c:
+    case Cb(f):
+      h: ((Cb, Int), ((Cb, Int)) -> Int) -> Int = f
+      h((c, 0), ((x, _)) -> bad(x))
+
+main = bad(Cb((a, k) -> k(a)))
+""")
+
+    // or in a type defined later that contains it
+    disallowed("""#
+struct Cb(f: forall a. (a, a -> Int) -> Int)
+struct Wrap(c: Cb)
+
+def bad(c: Cb) -> Int:
+  recur c:
+    case Cb(f):
+      h: (Wrap, Wrap -> Int) -> Int = f
+      h(Wrap(c), Wrap(x) -> bad(x))
+
+main = bad(Cb((a, k) -> k(a)))
+""")
+  }
+
+  test("type aliases do not hide the target from the callback rule") {
+    // alias on the recur target's type
+    disallowed("""#
+struct Cb(f: forall a. (a, a -> Int) -> Int)
+type CbA = Cb
+
+def bad(c: CbA) -> Int:
+  recur c:
+    case Cb(f):
+      c1: Cb = c
+      f(c1, x -> bad(x))
+
+main = bad(Cb((a, k) -> k(a)))
+""")
+
+    // alias on the argument passed in
+    disallowed("""#
+struct Cb(f: forall a. (a, a -> Int) -> Int)
+type CbA = Cb
+
+def bad(c: Cb) -> Int:
+  recur c:
+    case Cb(f):
+      c1: CbA = c
+      f(c1, x -> bad(x))
+
+main = bad(Cb((a, k) -> k(a)))
+""")
+
+    // alias inside the field of a type that wraps the target
+    disallowed("""#
+struct Cb(f: forall a. (a, a -> Int) -> Int)
+type CbA = Cb
+struct Wrap(c: CbA)
+
+def bad(c: Cb) -> Int:
+  recur c:
+    case Cb(f):
+      h: (Wrap, Wrap -> Int) -> Int = f
+      h(Wrap(c), Wrap(x) -> bad(x))
+
+main = bad(Cb((a, k) -> k(a)))
+""")
+
+    // alias hiding a function type that returns the target
+    disallowed("""#
+struct Cb(f: forall a. (a, a -> Int) -> Int)
+type Th = Unit -> Cb
+
+def bad(c: Cb) -> Int:
+  recur c:
+    case Cb(f):
+      t: Th = _ -> c
+      h: (Th, Th -> Int) -> Int = f
+      h(t, th -> bad(th(())))
+
+main = bad(Cb((a, k) -> k(a)))
+""")
+  }
+
+  test("existentially encoded continuations keep the callback rule") {
+    // the field function picks b, and is parametric in res
+    allowed("""#
+enum Box[a: +*]:
+  Item(a: a)
+  Next(fn: forall res. (forall b. (Box[b], b -> a) -> res) -> res)
+
+def loop[a](box: Box[a]) -> a:
+  recur box:
+    case Item(a): a
+    case Next(cont): cont((bx, fn) -> fn(loop(bx)))
+
+main = loop(Item(1))
+""")
+  }
+
+  test("a reachable function may not hand a callback back to the caller") {
+    // f returns the callback in a Box, and the caller applies it to the
+    // target: bad(s) -> h(s) -> bad(s) -> ...
+    disallowed("""#
+struct Box[a](get: a)
+
+enum S:
+  Done
+  More(f: forall a. (a -> Int) -> Box[a -> Int])
+
+def bad(s: S) -> Int:
+  recur s:
+    case Done: 0
+    case More(f):
+      Box(h) = f(y -> bad(y))
+      h(s)
+
+main = bad(More(k -> Box(k)))
+""")
+
+    // the same with the def passed by name and a tuple result
+    disallowed("""#
+enum S:
+  Done
+  More(f: forall a. (a -> Int) -> (a -> Int, Int))
+
+def bad(s: S) -> Int:
+  recur s:
+    case Done: 0
+    case More(f):
+      (h, _) = f(bad)
+      h(s)
+
+main = bad(More(k -> (k, 0)))
+""")
+
+    // or a partial application whose remaining argument is the target. Type
+    // checking eta-expands `h` to `_a -> f(cb)(_a)`, so the arguments already
+    // show the target; a Box or tuple result is not eta-expanded
+    disallowed("""#
+enum S:
+  Done
+  More(f: forall a. (a -> Int) -> a -> Int)
+
+def bad(s: S) -> Int:
+  recur s:
+    case Done: 0
+    case More(f):
+      h = f(y -> bad(y))
+      h(s)
+
+main = bad(More(k -> k))
+""")
+
+    // Conservative: f is parametric in r, so the Box it returns is one the
+    // callback built, and this terminates. But the call's types match the
+    // first example's, where f returns the callback itself, so it is
+    // rejected too
+    disallowed("""#
+struct Box[a](get: a)
+
+enum S:
+  Done
+  More(f: forall r. (S -> r) -> r)
+
+def bad(s: S) -> Int:
+  recur s:
+    case Done: 0
+    case More(f):
+      Box(h) = f(y -> Box((z: S) -> match z:
+        case Done: bad(y)
+        case More(_): 1))
+      h(Done)
+
+main = bad(More(k -> k(Done)))
+""")
+  }
+
+  test("a reachable function's result may hold the target type at output positions") {
+    // the Cont in the result is one f built
+    allowed("""#
+enum Cont:
+  Item(a: Int)
+  Next(use: (Cont -> Int) -> (Int, Cont))
+
+def loop(box: Cont) -> Int:
+  recur box:
+    case Item(a): a
+    case Next(cont_fn):
+      (n, _) = cont_fn(cont -> loop(cont))
+      n
+
+main = loop(Item(1))
+""")
+
+    // a function result that takes only values the target can't be in
+    allowed("""#
+enum Cont:
+  Item(a: Int)
+  Next(use: (Cont -> Int) -> Int -> Int)
+
+def loop(box: Cont) -> Int:
+  recur box:
+    case Item(a): a
+    case Next(cont_fn):
+      h = cont_fn(cont -> loop(cont))
+      h(0)
+
+main = loop(Item(1))
+""")
+  }
+
+  test("types a package can't see are opaque to the callback rule") {
+    // Inner is private to its package, so CbDepB and CbDepD can't read it:
+    // no target value they could recur on comes out of an Outer
+    val outer = """package CbDepA
+
+export Outer()
+
+struct Inner(i: Int)
+struct Outer(n: Inner)
+"""
+    allowedPackages(
+      outer,
+      """package CbDepB
+
+from CbDepA import Outer
+
+enum Cont:
+  Item(a: Int)
+  Next(use: (Cont -> Int) -> (Outer -> Int, Int))
+
+def loop(box: Cont) -> Int:
+  recur box:
+    case Item(a): a
+    case Next(cont_fn):
+      (_, n) = cont_fn(cont -> loop(cont))
+      n
+"""
+    )
+
+    // the same with the target declared in the dependency
+    allowedPackages(
+      """package CbDepC
+
+export Outer(), Cont()
+
+struct Inner(i: Int)
+struct Outer(n: Inner)
+
+enum Cont:
+  Item(a: Int)
+  Next(use: (Cont -> Int) -> (Outer -> Int, Int))
+""",
+      """package CbDepD
+
+from CbDepC import Outer, Cont, Item, Next
+
+def loop(box: Cont) -> Int:
+  recur box:
+    case Item(a): a
+    case Next(cont_fn):
+      (_, n) = cont_fn(cont -> loop(cont))
+      n
+"""
+    )
+  }
+
+  test("a type that wraps the target can't reach an input position of the callback rule") {
+    // The callback rule treats an opaque type at an input position as
+    // harmless. Handing g the target wrapped in O, which g can unwrap,
+    // would loop, but O recurs through T's parameter, which g takes as
+    // input, so the covariance check on recursive types rejects O.
+    val (errs, rendered) = packageErrorsOf(
+      NonEmptyList.of(
+        """package OpaqueInA
+
+export T(), O, wrap, unwrap
+
+enum T[x]:
+  Done
+  More(g: x -> (T[x] -> Int) -> Int)
+
+struct O(t: T[O])
+
+def wrap(t: T[O]) -> O: O(t)
+
+def unwrap(o: O) -> T[O]:
+  O(t) = o
+  t
+""",
+        """package OpaqueInB
+
+from OpaqueInA import T, Done, More, O, wrap, unwrap
+
+def bad(t: T[O]) -> Int:
+  recur t:
+    case Done: 0
+    case More(g): g(wrap(t))(y -> bad(y))
+
+main = bad(More(o -> k -> k(unwrap(o))))
+"""
+      )
+    )
+    assert(
+      errs.exists {
+        case _: PackageError.KindInferenceError => true
+        case _                                  => false
+      },
+      s"expected the covariance check to reject O, got:\n$rendered"
+    )
+  }
+
+  test("curried calls check every argument group") {
+    disallowed("""#
+def konst(a: Int) -> Int -> Int: _ -> a
+
+def bad(n: List[Int]) -> Int:
+  recur n:
+    case []: 0
+    case [_, *_]: konst(bad(n))(0)
+
+main = bad([1])
+""")
+
+    disallowed("""#
+struct Box(f: Int -> Int -> Int)
+
+def bad(b: Box) -> Int:
+  recur b:
+    case Box(f): f(bad(b))(0)
+
+main = bad(Box(x -> _ -> x))
+""")
+  }
+
+  test("reachable callback binders drop facts about shadowed names") {
+    // with several targets the callback binder y gets no facts, so it must
+    // not inherit `y` from the pattern
+    disallowed("""#
+def len(xs: List[Int]) -> Int:
+  recur xs:
+    case []: 0
+    case [_, *t]: len(t).add(1)
+
+struct A(f: (List[Int] -> Int) -> Int)
+
+def bad(a: A, b: List[Int]) -> Int:
+  recur (a, b):
+    case (_, []): 0
+    case (A(f), [_, *y]): f(y -> bad(a, y)).add(len(y))
+
+main = bad(A(k -> k([1, 2])), [0])
+""")
+
+    // nor may a pattern-lambda binder
+    disallowed("""#
+def len(xs: List[Int]) -> Int:
+  recur xs:
+    case []: 0
+    case [_, *t]: len(t).add(1)
+
+struct Box(xs: List[Int])
+struct A(f: (Box -> Int) -> Int)
+
+def bad(a: A, b: List[Int]) -> Int:
+  recur (a, b):
+    case (_, []): 0
+    case (A(f), [_, *y]): f(Box(y) -> bad(a, y)).add(len(y))
+
+main = bad(A(k -> k(Box([1, 2]))), [0])
+""")
+
+    // nor may it inherit SMT facts about the let-bound n. The callback
+    // returns Bool, so the callback rule applies here.
+    disallowed("""#
+struct A(f: (Int -> Bool) -> Int)
+
+def bad(a: A, i: Int) -> Int:
+  recur (a, i):
+    case (A(f), i):
+      if i.cmp_Int(0) matches GT:
+        n = i.sub(1)
+        f(n -> bad(a, n).eq_Int(0)).add(n)
+      else:
+        0
+
+main = bad(A(k -> 1 if k(5) else 0), 1)
+""")
+
+    // here the callback returns Int, one of the targets, so the rule does not
+    // apply and the binder is checked like any other lambda binder
+    disallowed("""#
+struct A(f: (Int -> Int) -> Int)
+
+def bad(a: A, i: Int) -> Int:
+  recur (a, i):
+    case (A(f), i):
+      if i.cmp_Int(0) matches GT:
+        n = i.sub(1)
+        f(n -> bad(a, n)).add(n)
+      else:
+        0
+
+main = bad(A(k -> k(5)), 1)
+""")
+  }
+
+  test("match-guard pattern names drop facts about shadowed names") {
+    // the guard rebinds y to the whole list, so y is no longer smaller
+    disallowed("""#
+def bad(xs: List[Int]) -> Int:
+  recur xs:
+    case [_, *y] if (y, xs) matches (_, y): bad(y).add(1)
+    case _: 0
+
+main = bad([1])
+""")
+
+    disallowed("""#
+def bad(xs: List[Int]) -> Int:
+  recur xs:
+    case [x, *y] if [x, *y] matches y: bad(y).add(1)
+    case _: 0
+
+main = bad([1])
+""")
+
+    // the recursive call is in the inner guard, where y is also rebound
+    disallowed("""#
+def bad(xs: List[Int]) -> Int:
+  recur xs:
+    case [x, *y] if [x, *y] matches y if bad(y) matches 0: 1
+    case _: 0
+
+main = bad([1])
+""")
+
+    // a guard in a nested, non-recur match
+    disallowed("""#
+def bad(xs: List[Int]) -> Int:
+  recur xs:
+    case [x, *y]:
+      match x:
+        case _ if [x, *y] matches y: bad(y).add(1)
+    case _: 0
+
+main = bad([1])
+""")
+
+    // with several targets the rebound y must not keep its Smaller fact
+    disallowed("""#
+def bad(xs: List[Int], n: Int) -> Int:
+  recur (xs, n):
+    case ([x, *y], _) if ([0, x, *y], n) matches (y, _): bad(y, n).add(1)
+    case _: 0
+
+main = bad([1], 0)
+""")
+  }
+
+  test("match-guard pattern names get facts from the guard scrutinee") {
+    allowed("""#
+def good(xs: List[Int]) -> Int:
+  recur xs:
+    case [_, *y] if y matches [_, *z]: good(z).add(1)
+    case [_, *y]: good(y)
+    case _: 0
+
+main = good([1, 2, 3])
+""")
+  }
+
+  test("reachable callback binders may not shadow the def") {
+    disallowedWithMessage("""#
+enum Cont:
+  Item(a: Int)
+  Next(use: (Cont -> Int) -> Int)
+
+def get(c: Cont) -> Int:
+  match c:
+    case Item(a): a
+    case Next(_): 0
+
+def loop(box: Cont) -> Int:
+  recur box:
+    case Item(a): a
+    case Next(cont_fn): cont_fn(loop -> get(loop))
+
+main = loop(Item(1))
+""") { msg =>
+      assert(clue(msg).contains("illegal shadowing on: loop"))
+    }
+  }
+
   test("def loop remains a legal function name") {
     allowed("""#
 def loop(x): x
@@ -1843,64 +4229,85 @@ main = loop(1)
     assertEquals(Try(Platform.onJvm(sys.error("boom"))).isFailure, Platform.isJvm)
   }
 
+  // Coverage instrumentation adds stack depth during normalization. Keep
+  // this value large enough to stress recursion-check traversal without
+  // making coverage CI non-deterministically overflow.
+  private val largeListSize = 128
+
   Platform.onJvm(
     test("large list literals do not overflow recursion checker stack") {
-      // Coverage instrumentation adds stack depth during normalization.
-      // Keep this value large enough to stress recursion-check traversal
-      // without making coverage CI non-deterministically overflow.
-      val n = 128
-      val items = List.fill(n)("\"x\"").mkString(", ")
-      val source = s"""#
+      val items = List.fill(largeListSize)("\"x\"").mkString(", ")
+      recursionCheckOnSmallStack(s"""#
 vals: List[String] = [$items]
 main = vals
-"""
-
-      val (fullTypeEnv, lets, stmts) = typedLetsOf(source)
-      val topLevelDefs = TypedExprRecursionCheck.topLevelDefArgs(stmts)
-      var failure: Option[Throwable] = None
-      var result: Option[TypedExprRecursionCheck.Res[Unit]] = None
-
-      val thread = new Thread(
-        null,
-        new Runnable {
-          def run(): Unit =
-            try {
-              result = Some(
-                TypedExprRecursionCheck.checkLets(
-                  pack,
-                  fullTypeEnv,
-                  lets,
-                  topLevelDefs
-                )
-              )
-            } catch {
-              case t: Throwable =>
-                failure = Some(t)
-            }
-        },
-        "typed-recursion-check-small-stack",
-        96L * 1024L
-      )
-
-      thread.start()
-      thread.join()
-
-      failure match {
-        case Some(_: StackOverflowError) =>
-          fail("recursion checker overflowed on a large list literal")
-        case Some(other) =>
-          throw other
-        case None =>
-          result match {
-            case Some(Validated.Valid(_)) => ()
-            case Some(Validated.Invalid(errs)) =>
-              fail(
-                s"expected recursion checker success, got:\n${errs.iterator.mkString("\n")}"
-              )
-            case None =>
-              fail("recursion checker thread did not produce a result")
-          }
-        }
+""")
     }
   )
+
+  Platform.onJvm(
+    test("a large list literal scrutinee in a recur branch does not overflow the stack") {
+      val items = List.fill(largeListSize)("1").mkString(", ")
+      recursionCheckOnSmallStack(s"""#
+def count(n: Int) -> Int:
+  loop n:
+    case _ if cmp_Int(n, 0) matches GT:
+      match [$items]:
+        case []: 0
+        case _: count(n.sub(1))
+    case _: 0
+""")
+    }
+  )
+
+  // Runs the recursion check on `source`, which it accepts, in a thread
+  // with a small stack.
+  private def recursionCheckOnSmallStack(source: String): Unit = {
+    val (fullTypeEnv, lets, stmts) = typedLetsOf(source)
+    val topLevelDefs = TypedExprRecursionCheck.topLevelDefArgs(stmts)
+    var failure: Option[Throwable] = None
+    var result: Option[TypedExprRecursionCheck.Res[Unit]] = None
+
+    val thread = new Thread(
+      null,
+      new Runnable {
+        def run(): Unit =
+          try {
+            result = Some(
+              TypedExprRecursionCheck.checkLets(
+                pack,
+                fullTypeEnv,
+                TypeEnv.empty,
+                lets,
+                topLevelDefs
+              )
+            )
+          } catch {
+            case t: Throwable =>
+              failure = Some(t)
+          }
+      },
+      "typed-recursion-check-small-stack",
+      96L * 1024L
+    )
+
+    thread.start()
+    thread.join()
+
+    failure match {
+      case Some(_: StackOverflowError) =>
+        fail("recursion checker overflowed on a large list literal")
+      case Some(other) =>
+        throw other
+      case None =>
+        result match {
+          case Some(Validated.Valid(_)) => ()
+          case Some(Validated.Invalid(errs)) =>
+            fail(
+              s"expected recursion checker success, got:\n${errs.iterator.mkString("\n")}"
+            )
+          case None =>
+            fail("recursion checker thread did not produce a result")
+        }
+    }
+  }
 }

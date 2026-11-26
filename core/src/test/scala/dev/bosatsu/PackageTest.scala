@@ -4,6 +4,7 @@ import cats.{Id, Show}
 import cats.data.{NonEmptyList, Validated, ValidatedNel}
 
 import IorMethods.IorExtension
+import rankn.TypeEnv
 
 class PackageTest extends munit.FunSuite with ParTest {
 
@@ -745,5 +746,64 @@ def wrap(value: Shared) -> Shared:
       )
       assertEquals(PackageMap.predefCompiled.exposedDepPackages, Nil)
     })
+  }
+
+  test("exportedTypeEnv keeps constructors only for types exported with them") {
+    val shapes = parse("""
+package Shapes
+export Open(), Hidden, mk_hidden
+
+struct Open(a: Int)
+
+enum Hidden:
+  HiddenA
+  HiddenB(x: Int)
+
+def mk_hidden(x: Int) -> Hidden: HiddenB(x)
+""")
+    val shapesName = PackageName.parts("Shapes")
+    val open = TypeName(Identifier.Constructor("Open"))
+    val hidden = TypeName(Identifier.Constructor("Hidden"))
+
+    def check(label: String, te: TypeEnv[Kind.Arg]): Unit = {
+      assertEquals(
+        te.getType(shapesName, open).map(_.constructors.map(_.name)),
+        Some(List(Identifier.Constructor("Open"))),
+        s"$label: a type exported with () keeps its constructors"
+      )
+      assert(
+        te.getConstructor(shapesName, Identifier.Constructor("Open")).isDefined,
+        s"$label: the exported constructor is in the env"
+      )
+      assertEquals(
+        te.getType(shapesName, hidden).map(_.constructors),
+        Some(Nil),
+        s"$label: an opaque export has no constructors"
+      )
+      List("HiddenA", "HiddenB").foreach { c =>
+        assertEquals(
+          te.getConstructor(shapesName, Identifier.Constructor(c)),
+          None,
+          s"$label: private constructor $c does not leak"
+        )
+      }
+    }
+
+    valid(resolveThenInfer(List(shapes)).map { pmap =>
+      val pack = pmap.toMap(shapesName)
+      val iface = pack.toIface
+      check("typed package", pack.exportedTypeEnv)
+      check("interface", iface.exportedTypeEnv)
+      check("canonical interface", PackageSignatures.canonical(iface).exportedTypeEnv)
+    })
+
+    // Predef exports List() so dependents see its constructors
+    val predefEnv = Package.interfaceOf(PackageMap.predefCompiled).exportedTypeEnv
+    assertEquals(
+      predefEnv
+        .getType(PackageName.PredefName, TypeName(Identifier.Constructor("List")))
+        .map(_.constructors.map(_.name.asString)),
+      Some(List("EmptyList", "NonEmptyList"))
+    )
   }
 }

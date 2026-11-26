@@ -14,7 +14,7 @@ import java.nio.file.{Files, Path}
 class VerifyToolchainCommandTest extends FileCommandFixtures {
   test("atomic document reporting uses staged publication without a file runner") {
     directory.use { root =>
-      val platform = new IOPlatformIO
+      val platform = new IOPlatformIO(CompilerBuildInfo.constant)
       val target = root.resolve("stamp")
       val blocked = root.resolve("directory")
       for {

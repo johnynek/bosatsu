@@ -4,7 +4,14 @@ import cats.data.Chain
 import cats.data.Validated
 import cats.effect.{IO, Resource}
 import cats.parse.{Parser => P}
-import dev.bosatsu.{MemoryMain, Package, Parser, Test, rankn}
+import dev.bosatsu.{
+  CompilerBuildInfo,
+  MemoryMain,
+  Package,
+  Parser,
+  Test,
+  rankn
+}
 import dev.bosatsu.tool.{Output, ShowEdn}
 import org.typelevel.paiges.Doc
 import org.scalajs.dom.window.localStorage
@@ -13,7 +20,6 @@ import Action.Cmd
 
 object Store {
   private type ErrorOr[A] = Either[Throwable, A]
-  val memoryMain = MemoryMain[ErrorOr]
   private val toolPrefix = List("tool")
   private val webDemoPackageName = "WebDemo"
   private val webDemoPath = Chain("root", webDemoPackageName)
@@ -99,6 +105,32 @@ object Store {
         (args, handler)
     }
 
+  def stateSetter(st: State): IO[Unit] =
+    IO.blocking {
+      localStorage.setItem("state", State.stateToJsonString(st))
+    }
+
+  def initialState: IO[State] =
+    IO.blocking(localStorage.getItem("state")).flatMap { init =>
+      if (init == null) IO.pure(State.Init)
+      else
+        (State.stringToState(init) match {
+          case Right(s)  => IO.pure(s)
+          case Left(err) =>
+            IO.println(s"could not deserialize:\n\n$init\n\n$err")
+              .as(State.Init)
+        })
+    }
+}
+
+/** The playground's compiler and ff4s store. The app passes the generated
+  * `BuildInfo`; tests pass `CompilerBuildInfo.constant`.
+  */
+final class Store(buildInfo: CompilerBuildInfo) {
+  import Store._
+
+  val memoryMain = MemoryMain.withBuildInfo[ErrorOr](buildInfo)
+
   def run(cmd: Cmd, str: String): IO[String] = IO.blocking {
     val start = System.currentTimeMillis()
     println(s"starting $cmd: $start")
@@ -120,23 +152,6 @@ object Store {
     println(s"finished $cmd in ${end - start}ms")
     res
   }
-
-  def stateSetter(st: State): IO[Unit] =
-    IO.blocking {
-      localStorage.setItem("state", State.stateToJsonString(st))
-    }
-
-  def initialState: IO[State] =
-    IO.blocking(localStorage.getItem("state")).flatMap { init =>
-      if (init == null) IO.pure(State.Init)
-      else
-        (State.stringToState(init) match {
-          case Right(s)  => IO.pure(s)
-          case Left(err) =>
-            IO.println(s"could not deserialize:\n\n$init\n\n$err")
-              .as(State.Init)
-        })
-    }
 
   val value: Resource[IO, ff4s.Store[IO, State, Action]] =
     for {

@@ -2,7 +2,7 @@ package dev.bosatsu.cruntime
 
 import cats.syntax.all._
 import com.monovore.decline.{Argument, Opts}
-import dev.bosatsu.{BuildInfo, Parser, PlatformIO}
+import dev.bosatsu.{Parser, PlatformIO}
 import dev.bosatsu.hashing.{Algo, HashValue}
 import dev.bosatsu.tool.{CliException, Output}
 import org.typelevel.paiges.Doc
@@ -11,7 +11,7 @@ object Command {
   private val defaultRepo = "johnynek/bosatsu"
 
   def opts[F[_], P](platformIO: PlatformIO[F, P]): Opts[F[Output[P]]] = {
-    import platformIO.{moduleIOMonad, pathArg, showPath}
+    import platformIO.{buildInfo, moduleIOMonad, pathArg, showPath}
 
     implicit val hashArg: Argument[Algo.WithAlgo[HashValue]] =
       Parser.argFromParser(
@@ -61,9 +61,9 @@ object Command {
         .orElse(
           Opts(
             platformIO.getOrError(
-              BuildInfo.gitHeadCommit,
+              buildInfo.gitHeadCommit,
               CliException.Basic(
-                s"compiler version ${BuildInfo.version} was built without a git-sha; pass --git_sha"
+                s"compiler version ${buildInfo.version} was built without a git-sha; pass --git_sha"
               )
             )
           )
@@ -105,21 +105,21 @@ object Command {
         .map(_.getOrElse("release"))
 
     def parseBuildHash: F[Option[Algo.WithAlgo[HashValue]]] =
-      if (BuildInfo.cRuntimeArchiveHash.isEmpty)
+      if (buildInfo.cRuntimeArchiveHash.isEmpty)
         moduleIOMonad.pure(None)
       else
-        Algo.parseIdent.parseAll(BuildInfo.cRuntimeArchiveHash) match {
+        Algo.parseIdent.parseAll(buildInfo.cRuntimeArchiveHash) match {
           case Right(value) => moduleIOMonad.pure(Some(value))
           case Left(_)      =>
             moduleIOMonad.raiseError(
               CliException.Basic(
-                s"invalid BOSATSU_C_RUNTIME_HASH in build: ${BuildInfo.cRuntimeArchiveHash}"
+                s"invalid BOSATSU_C_RUNTIME_HASH in build: ${buildInfo.cRuntimeArchiveHash}"
               )
             )
         }
 
     def defaultArchiveUrl(gitSha: String): String =
-      s"https://github.com/$defaultRepo/releases/download/v${BuildInfo.version}/bosatsu-c-runtime-${gitSha}.tar.gz"
+      s"https://github.com/$defaultRepo/releases/download/v${buildInfo.version}/bosatsu-c-runtime-${gitSha}.tar.gz"
 
     def archivePathForUrl(root: P, url: String, gitSha: String): P = {
       val fileName =

@@ -25,7 +25,7 @@ class ParametricPathCommandsTest extends munit.FunSuite {
 
   // Adapt the in-memory filesystem without changing its effects or file keys.
   private val platform: PlatformIO[F, Path] = new PlatformIO[F, Path] {
-    export memory.{moduleIOMonad, parallelF, canPromiseF, withEC, writeStdout, writeError,
+    export memory.{buildInfo, moduleIOMonad, parallelF, canPromiseF, withEC, writeStdout, writeError,
       readStdinBytes, writeStdoutBytes, system, systemStdout, env, hostOs, hostArch,
       gitShaHead, println, errorln}
     type FileKey = memory.FileKey
@@ -59,7 +59,7 @@ class ParametricPathCommandsTest extends munit.FunSuite {
     def writeFileSetAtomic(files: List[(Path, Bytes)]) =
       memory.writeFileSetAtomic(files.map { case (p, bytes) => p.parts -> bytes })
     def writeInterfaces(ifaces: List[Package.Interface], p: Path) = memory.writeInterfaces(ifaces, p.parts)
-    def writeBytes(p: Path, bytes: Array[Byte]) = memory.writeBytes(p.parts, bytes)
+    def writeBytes(p: Path, bytes: Bytes) = memory.writeBytes(p.parts, bytes)
     def writeLibrary(lib: proto.Library, p: Path) =
       memory.writeLibrary(lib, p.parts)
     def writePackages(packs: List[Package.Compiled], p: Path) = memory.writePackages(packs, p.parts)
@@ -127,8 +127,8 @@ class ParametricPathCommandsTest extends munit.FunSuite {
       ))
         .report(platform).runS(MemoryMain.State.empty)
     )
-    assertEquals(checked(platform.readBytes(first).runA(state)).toList, List[Byte](0, 1, -1))
-    assertEquals(checked(platform.readBytes(second).runA(state)).toList, List[Byte](2))
+    assertEquals(checked(platform.readBytes(first).runA(state)).copyToArray.toList, List[Byte](0, 1, -1))
+    assertEquals(checked(platform.readBytes(second).runA(state)).copyToArray.toList, List[Byte](2))
   }
 
   test("a missing selector is compared and displayed through platform contracts") {

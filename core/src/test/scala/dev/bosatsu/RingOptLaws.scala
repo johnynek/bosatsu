@@ -274,6 +274,19 @@ class RingOptLaws extends munit.ScalaCheckSuite {
     }
   }
 
+  test("opCounts counts a Neg under an Add as part of one subtraction") {
+    // as Int arithmetic is emitted: x + -y and -y + x are each one sub, and
+    // every other Neg is a 0 - x
+    val x: Expr[Int] = Symbol(0)
+    val y: Expr[Int] = Symbol(1)
+    assertEquals(Expr.opCounts(Add(x, Neg(y))), Expr.OpCounts(0, 1, 0))
+    assertEquals(Expr.opCounts(Add(Neg(x), y)), Expr.OpCounts(0, 1, 0))
+    // only one Neg of an Add: -x + -y is (0 - x) - y
+    assertEquals(Expr.opCounts(Add(Neg(x), Neg(y))), Expr.OpCounts(0, 1, 1))
+    assertEquals(Expr.opCounts(Neg(Add(x, y))), Expr.OpCounts(0, 1, 1))
+    assertEquals(Expr.opCounts(Mult(x, Neg(y))), Expr.OpCounts(1, 0, 1))
+  }
+
   property("costOf(opCounts(e)) == cost(e)") {
     forAll { (e: Expr[BigInt], w: Weights) =>
       val counts = Expr.opCounts(e)
@@ -1632,9 +1645,10 @@ class RingOptLaws extends munit.ScalaCheckSuite {
   }
 
   property("multIsBetter law") {
-    def law(e: Expr[Int], c0: Int, w: Weights) = {
-      // don't let replicateAdd get giant
-      val c = BigInt(c0 & 0xff) * (if (c0 < 0) -1 else 1)
+    // multIsBetter(e, c) must tell whether e.bestEffortConstMult(c) costs
+    // no more than replicateAdd(c, e) (ties may go either way), since
+    // constMult uses it to pick the cheaper of the two.
+    def lawConst(e: Expr[Int], c: BigInt, w: Weights): Unit =
       if (w.multIsBetter(e, c)) {
         assert(
           w.cost(e.bestEffortConstMult(c)) <= w.cost(Expr.replicateAdd(c, e))
@@ -1651,7 +1665,10 @@ class RingOptLaws extends munit.ScalaCheckSuite {
           show"c = $c, e.bestEffortConstMult(c)=${e.bestEffortConstMult(c)}, replicateAdd=${Expr.replicateAdd(c, e)}"
         )
       }
-    }
+
+    def law(e: Expr[Int], c0: Int, w: Weights): Unit =
+      // don't let replicateAdd get giant
+      lawConst(e, BigInt(c0 & 0xff) * (if (c0 < 0) -1 else 1), w)
 
     val regressions: List[(Expr[Int], Int, Weights)] =
       (
@@ -1662,11 +1679,96 @@ class RingOptLaws extends munit.ScalaCheckSuite {
         Add(Zero, Neg(Symbol(0))),
         -2032106750,
         Weights(16, 8, 8)
+      ) :: (
+        // c = -2: bestEffortConstMult strips all four Negs, giving
+        // [-1] * -2 (cost 7), but replicateAdd costs 9
+        Neg(Neg(Neg(Neg(Symbol(-1))))),
+        -2033039358,
+        Weights(7, 3, 1)
+      ) :: (
+        // c = 2: bestEffortConstMult moves the Neg onto the literal,
+        // giving [0] * -2 (cost 6), but replicateAdd costs 7
+        Neg(Symbol(0)),
+        2,
+        Weights(6, 3, 2)
       ) ::
         Nil
 
     regressions.foreach { case (e, c0, w) => law(e, c0, w) }
-    forAll((e: Expr[Int], c0: Int, w: Weights) => law(e, c0, w))
+    // With arbCost, multThreshold is 3 or 4, so multIsBetter only compares
+    // costs (instead of always multiplying) when |c| is 2 or 3, and the
+    // costs are only close when e is small. The forAll over arbitrary Ints
+    // below lands there in well under 1% of cases, so a bug in that
+    // comparison showed up only as a rare CI failure (#2531). Check that
+    // corner exhaustively: every Weights arbCost can generate, every c in
+    // -5..5, and up to three Negs around a few small expressions.
+    val smallBases: List[Expr[Int]] =
+      List(
+        Zero,
+        One,
+        Integer(-2),
+        Symbol(0),
+        Add(Symbol(0), Symbol(1)),
+        Add(Symbol(0), Neg(Symbol(1))),
+        Mult(Symbol(0), Symbol(1)),
+        Mult(Symbol(0), Integer(-2))
+      )
+    val smallExprs = smallBases.flatMap(b => List.iterate(b, 4)(Neg(_)))
+    for {
+      add <- 1 to 10
+      mult <- (add + 1) to (2 * add + 1)
+      neg <- 1 to add
+      c <- -5 to 5
+      e <- smallExprs
+    } {
+      val w = Weights(mult = mult, add = add, neg = neg)
+      try lawConst(e, BigInt(c), w)
+      catch {
+        case err: munit.FailException =>
+          fail(show"e = $e, c = $c, w = $w", err)
+      }
+    }
+
+    val wideProp =
+      forAll((e: Expr[Int], c0: Int, w: Weights) => law(e, c0, w))
+
+    // The sweep covers only a few shapes, so also sample random small
+    // expressions, with |c| mostly 2 or 3. On its own this caught the #2531
+    // bug in only about 19 runs of 20, hence the sweep.
+    val smallProp = forAll(
+      Gen.choose(0, 3).flatMap(depth => genExpr(Gen.choose(-3, 3), depth)),
+      Gen.frequency((3, Gen.oneOf(-3, -2, 2, 3)), (1, Gen.choose(-5, 5))),
+      Arbitrary.arbitrary[Weights]
+    )((e: Expr[Int], c: Int, w: Weights) => lawConst(e, BigInt(c), w))
+
+    Prop.all(wideProp, smallProp)
+  }
+
+  test("constMult moves an outer Neg onto the literal") {
+    // -[0] + -[0] is (0 - [0]) - [0], which costs 5 here; [0] * -2 costs 4
+    val w = Weights(mult = 4, add = 3, neg = 2)
+    val e: Expr[Int] = Neg(Symbol(0))
+    val res = w.constMult(e, BigInt(2))
+    assertEquals(res, Mult(Symbol(0), Integer(-2)))
+    assertEquals(w.cost(res), 4L)
+  }
+
+  test("negating a long sum or difference takes polynomial time") {
+    // saveNeg and cheapNeg of an Add each use both of them on its operands,
+    // so unless each node keeps its results, the work doubles with each
+    // term: with 40 terms none of these would finish
+    val terms = (1 to 40).toList.map(i => Symbol(BigInt(i)): Expr[BigInt])
+    val diff = terms.reduceLeft((acc, t) => Add(acc, Neg(t)))
+    val sum = terms.reduceLeft((acc, t) => Add(acc, t))
+    val w = Weights(mult = 2, add = 1, neg = 1)
+
+    List(diff, sum).foreach { e =>
+      val value = Expr.toValue(e)
+      assertEquals(Expr.toValue(e.normalizeNeg), -value)
+      assertEquals(e.saveNeg.map(Expr.toValue(_)).getOrElse(-value), -value)
+      assertEquals(Expr.toValue(normalize(e, w)), value)
+      assertEquals(Expr.toValue(normalize(Neg(e), w)), -value)
+    }
   }
 
   property("Stack.toValue is the same as Expr.toValue and maybeBigInt") {

@@ -3,8 +3,9 @@ package dev.bosatsu
 import cats.{Eq}
 import cats.data.{NonEmptyList, ValidatedNec}
 import cats.syntax.all._
-import dev.bosatsu.rankn.Type
-import dev.bosatsu.rankn.TypeEnv
+import dev.bosatsu.graph.Toposort
+import dev.bosatsu.rankn.{ConstructorFn, Type, TypeEnv}
+import scala.collection.mutable
 import Identifier.Constructor
 
 object Inhabitedness {
@@ -56,22 +57,68 @@ object Inhabitedness {
   // Keep quantifier expansion finite and fast in adversarial inputs.
   private val MaxQuantifierVars = 10
 
-  def check(t: Type, env: TypeEnv[Kind.Arg]): Result[State] = {
-    val an = Analyzer(env)
-    an.validateType(t).andThen(_ => an.checkType(t, Map.empty, Set.empty).validNec)
+  // Regular data types reach finitely many `dataKey`s, but polymorphic
+  // recursion such as `T[a] = C(T[List[a]])` reaches new ones forever, and
+  // `T[a] = C(T[(a, a)])` doubles the key's size at each step. One check
+  // solves at most `MaxDataTypeKeys` keys, each of at most
+  // `MaxDataTypeKeySize` nodes counted as a tree, and the others are Unknown.
+  // That is safe because a key past a limit drops out of the equations and
+  // is read as Unknown, that is, as either answer. Every rule gives a lower
+  // and an upper bound that hold whatever value such a read has (Unknown
+  // under a function argument bounds the other way round), so a definite
+  // answer computed from it is right.
+  private val MaxDataTypeKeys = 1000
+  private val MaxDataTypeKeySize = 256
+
+  // A component whose keys read each other under function arguments is
+  // solved by a depth-first search instead (see `Solver`). That search can
+  // follow up to (keys)! paths, so it expands at most `MaxSearchVisits` keys
+  // per component and follows paths of at most `MaxSearchDepth` keys,
+  // answering Unknown past either. Within the search, an Unknown sub-answer
+  // can only turn other answers into Unknown.
+  private val MaxSearchVisits = 10000
+  private val MaxSearchDepth = 32
+
+  /** How `checkType` reads the answer for a data type's `dataKey`. Under a
+    * function argument it reads through `contravariant`, so a reader can
+    * tell which keys are read where a larger answer gives a smaller result.
+    */
+  private trait DataStates {
+    def stateOf(key: Type): State
+    def contravariant: DataStates
   }
+
+  /** Checks against one TypeEnv. Creating one computes the env's kind map,
+    * which sorts every defined type, so reuse it for all the checks against
+    * the same env (TotalityCheck makes one per package).
+    */
+  final class Checker(env: TypeEnv[Kind.Arg]) {
+    private val an = Analyzer(env)
+
+    def check(t: Type): Result[State] =
+      an.validateType(t).andThen { _ =>
+        an.checkType(t, Map.empty, an.newSolver()).validNec
+      }
+
+    def checkMatch(
+        scrutinee: Type,
+        pattern: Pattern[(PackageName, Constructor), Type]
+    ): Result[State] =
+      an.validateType(scrutinee) *>
+        an.validatePattern(pattern).as(
+          an.checkPattern(scrutinee, pattern, Map.empty, an.newSolver())
+        )
+  }
+
+  def check(t: Type, env: TypeEnv[Kind.Arg]): Result[State] =
+    new Checker(env).check(t)
 
   def checkMatch(
       scrutinee: Type,
       pattern: Pattern[(PackageName, Constructor), Type],
       env: TypeEnv[Kind.Arg]
-  ): Result[State] = {
-    val an = Analyzer(env)
-    an.validateType(scrutinee) *>
-      an.validatePattern(pattern).as(
-        an.checkPattern(scrutinee, pattern, Map.empty, Set.empty)
-      )
-  }
+  ): Result[State] =
+    new Checker(env).checkMatch(scrutinee, pattern)
 
   private final case class Analyzer(env: TypeEnv[Kind.Arg]) {
     import Error._
@@ -187,10 +234,596 @@ object Inhabitedness {
       }
     }
 
+    // Data types are least fixed points, so whether a data type has a value
+    // is the least solution of a system with one equation per data type the
+    // check reaches: `D[args]` is the `or` over D's constructors of the
+    // `exists` over their existentials of the `and` of their fields.
+    //
+    // The unknowns of that system are `dataKey`s. A key replaces each free
+    // variable that has an Inhabited (Uninhabited) state with the variable
+    // `$inhabited` (`$uninhabited`), which always has that state. Invariant:
+    // a key and the type it came from are inhabited or not together, under
+    // every assignment of types to variables that agrees with the states.
+    // Variables are only ever read through their state, so swapping one for
+    // another with the same state changes nothing. So a key is a closed
+    // equation: `expand` unfolds it knowing only the markers' states, and two
+    // types with the same key share one unknown.
+    //
+    // Keys never mention a variable that has a state by name, so a binder
+    // opened later can't be confused with an older one by reusing its name.
+    // That is why the binders of quantifiers inside field types need no
+    // renaming: `normalize` names them apart from their body's free
+    // variables, so the outer variable they shadow in `varState` can't occur
+    // in the body. Keying by state also keeps the keys of a regular data type
+    // finite: with `Step[a](t: T[a])`, renamed existentials would otherwise
+    // give T[a], T[b], T[c], ... forever.
+    //
+    // A variable without a state keeps its name and is Unknown. Only
+    // constructor fields with an undeclared variable produce one:
+    // `validateType` rejects free variables in the checked type and in
+    // pattern annotations. Names parsed from source or made by
+    // `alignBinders` can't start with `$`, so they never match a marker.
+    private val inhabitedMarker: Type.Var.Bound = Type.Var.Bound("$inhabited")
+    private val uninhabitedMarker: Type.Var.Bound =
+      Type.Var.Bound("$uninhabited")
+    private val markerStates: Map[Type.Var.Bound, State] =
+      Map(inhabitedMarker -> Inhabited, uninhabitedMarker -> Uninhabited)
+
+    private def dataKey(
+        t: Type,
+        varState: Map[Type.Var.Bound, State]
+    ): Type =
+      if (varState.isEmpty) t
+      else {
+        val sub: Map[Type.Var, Type] =
+          Type
+            .freeBoundTyVars(t :: Nil)
+            .iterator
+            .flatMap { b =>
+              varState.get(b) match {
+                case Some(Inhabited) =>
+                  Some((b: Type.Var) -> Type.TyVar(inhabitedMarker))
+                case Some(Uninhabited) =>
+                  Some((b: Type.Var) -> Type.TyVar(uninhabitedMarker))
+                case Some(Unknown) | None => None
+              }
+            }
+            .toMap
+
+        if (sub.isEmpty) t
+        else Type.substituteVar(t, sub).normalize
+      }
+
+    /** One unfolding of the data type `key`, a `dataKey`, reading the data
+      * types in its fields through `dataState`.
+      *
+      * It asks `dataState` for the same keys, in the same positions, whatever
+      * `dataState` answers: every rule evaluates all of its parts.
+      * `Solver.solveFrom` relies on that.
+      */
+    private def expand(key: Type, dataState: DataStates): State = {
+      val (on, args) = Type.unapplyAll(key)
+      on match {
+        case tc @ Type.TyConst(_) =>
+          env.getType(tc) match {
+            case Some(dt)
+                if dt.typeParams.lengthCompare(args.length) == 0 &&
+                  dt.constructors.nonEmpty =>
+              val paramSub: Map[Type.Var, Type] =
+                dt.typeParams.iterator
+                  .zip(args.iterator)
+                  .map { case (v, arg) => (v: Type.Var) -> arg }
+                  .toMap
+
+              State.orStates(dt.constructors.map { cfn =>
+                // Evaluating the existentials with `varState ++ assignment`
+                // would capture an outer variable of the same name, so
+                // openAt renames them apart. Keys never name a variable
+                // that has a state, so no other names need avoiding.
+                val (exists, fields) = ConstructorFn.openAt(cfn, paramSub, args)
+                evaluateQuantifier(
+                  exists,
+                  vs => State.andStates(fields.map(checkType(_, vs, dataState))),
+                  isForAll = false,
+                  markerStates
+                )
+              })
+            case _ => Unknown
+          }
+        case _ => Unknown
+      }
+    }
+
+    // Whether `t` has at most `limit` nodes counted as a tree: a shared
+    // subterm counts once per occurrence, as it does for every walk over a
+    // key. Stops counting at `limit`.
+    private def sizeAtMost(t: Type, limit: Int): Boolean = {
+      val todo = mutable.ArrayBuffer(t)
+      var count = 0
+      while (todo.nonEmpty && (count <= limit)) {
+        count += 1
+        todo.remove(todo.length - 1) match {
+          case Type.TyApply(on, arg) => (todo += on += arg): Unit
+          case Type.ForAll(_, in)    => (todo += in): Unit
+          case Type.Exists(_, in)    => (todo += in): Unit
+          case _                     => ()
+        }
+      }
+      count <= limit
+    }
+
+    // The other types of the env that each type's constructors mention.
+    // Types outside the env are never keys (`checkType` answers Unknown for
+    // them), so they are left out.
+    private lazy val definitionUses: Map[Type.Const, List[Type.Const]] = {
+      val defined: Set[Type.Const] =
+        env.allDefinedTypes.iterator.map(dt => dt.toTypeConst: Type.Const).toSet
+      env.allDefinedTypes.iterator.map { dt =>
+        val c: Type.Const = dt.toTypeConst
+        c -> dt.constructors
+          .flatMap(_.typeConstants)
+          .distinct
+          .filter(u => (u != c) && defined(u))
+      }.toMap
+    }
+
+    // The type constructor of a data-type key.
+    private def keyHead(key: Type): Option[Type.Const] =
+      Type.unapplyAll(key)._1 match {
+        case Type.TyConst(c) => Some(c)
+        // $COVERAGE-OFF$ a key is a defined type applied to arguments
+        case _               => None
+        // $COVERAGE-ON$
+      }
+
+    // The type constructor at the head of `t`, as `Type.rootConst` finds it
+    // under applications and quantifiers, with the number of arguments it is
+    // applied to. A quantifier doesn't stop a type being applied:
+    // `forall y. Wr[y]` applied to `a` is `forall y. Wr[y, a]`.
+    private def appliedHead(t: Type): Option[(Type.TyConst, Int)] = {
+      @annotation.tailrec
+      def loop(t: Type, applied: Int): Option[(Type.TyConst, Int)] =
+        t match {
+          case tc @ Type.TyConst(_)           => Some((tc, applied))
+          case Type.TyApply(on, _)            => loop(on, applied + 1)
+          case Type.ForAll(_, in)             => loop(in, applied)
+          case Type.Exists(_, in)             => loop(in, applied)
+          case Type.TyVar(_) | Type.TyMeta(_) => None
+        }
+      loop(t, 0)
+    }
+
+    /** The levels of the types that a component's keys reach. A type's level
+      * is above the level of every type it uses, so a key's fixed point
+      * encloses those of the types its type uses.
+      *
+      * A type uses the other types of the env that its constructors mention.
+      * A key also makes its type use each type of the env that it passes as
+      * an argument of a higher kind: a type constructor short of arguments,
+      * even under a quantifier, as in `forall y. Wr[y]`. A key's argument is
+      * applied only at a higher-kinded parameter, and only such an argument
+      * is short of arguments, so this counts every type a key applies. With
+      * `enum RF[f]: R1(r: RF[f]), R2(g: f[RF[f]] -> Never)`, RF's
+      * constructors apply Neg in the key RF[Neg], which reads Neg[RF[Neg]]:
+      * Neg applied to RF[Neg]'s own fixed point. RF's definition doesn't
+      * mention Neg, so without that use the two could get the same level, or
+      * Neg the higher one. A key's arguments of kind `*` are types, not
+      * functions its definition applies, so they add no use.
+      *
+      * Uses can form a cycle. A hand-built env can have mutually recursive
+      * types, or a type that recurs through a higher-kinded argument, such as
+      * G in `struct G[a](h: RF[G] -> a)`, which the kind check rejects. A
+      * kind-checked program can have a cycle too. With
+      * `struct T[f: +* -> *, a](v: f[a])`, the key `T[T[Option], a]` makes T
+      * use itself. With `struct Q[a](t: T[Option, a])`, the key `T[Q, a]`
+      * makes T and Q use each other. The types on a cycle, and the types
+      * that use them, get no level, so their component is Unknown. A key
+      * made by applying an argument is not its type's own recursion, and
+      * without an order between the types the search could assume such a key
+      * empty where induction on values doesn't hold. That costs precision
+      * only for components read under function arguments whose keys pass
+      * such arguments.
+      */
+    private def componentLevels(keys: List[Type]): Map[Type.Const, Int] = {
+      val keyUses = mutable.HashMap.empty[Type.Const, Set[Type.Const]]
+      keys.foreach { key =>
+        val (on, args) = Type.unapplyAll(key)
+        on match {
+          case Type.TyConst(head) =>
+            val applied = args.iterator.flatMap { arg =>
+              appliedHead(arg).flatMap { case (tc, argCount) =>
+                env.getType(tc) match {
+                  case Some(dt) if dt.typeParams.lengthCompare(argCount) > 0 =>
+                    Some(tc.tpe)
+                  case _ => None
+                }
+              }
+            }
+            if (applied.hasNext)
+              keyUses(head) = keyUses.getOrElse(head, Set.empty) ++ applied
+          // $COVERAGE-OFF$ a key is a defined type applied to arguments
+          case _ => ()
+          // $COVERAGE-ON$
+        }
+      }
+
+      // A definition's mention of its own type is its recursion, so
+      // `definitionUses` leaves it out. A key passing its own type, partly
+      // applied, as in `T[T[Option], a]`, is not its recursion: that use
+      // stays, and the cycle costs the type its level.
+      def uses(c: Type.Const): List[Type.Const] =
+        keyUses.get(c) match {
+          case Some(more) => (definitionUses.getOrElse(c, Nil) ++ more).distinct
+          case None       => definitionUses.getOrElse(c, Nil)
+        }
+
+      // Sort only the types the keys reach, so that every use stays inside
+      // the sorted graph: `Toposort` gives a use outside it a depth but no
+      // layer. A type's depth depends only on the types it reaches.
+      val reached = mutable.LinkedHashSet.empty[Type.Const]
+      val todo = mutable.ArrayBuffer.from(keys.flatMap(keyHead(_)))
+      while (todo.nonEmpty) {
+        val c = todo.remove(todo.length - 1)
+        if (reached.add(c)) (todo ++= uses(c)): Unit
+      }
+      Toposort
+        .sort(reached)(uses)
+        .layers
+        .iterator
+        .zipWithIndex
+        .flatMap { case (layer, level) => layer.iterator.map(_ -> level) }
+        .toMap
+    }
+
+    def newSolver(): Solver = new Solver
+
+    /** Solves, on demand, the data-type equations that one check reaches.
+      *
+      * `stateOf(key)` finds the keys reachable from `key`, noting which reads
+      * are contravariant (under an odd number of function arguments).
+      * Tarjan's algorithm splits the keys into strongly connected components.
+      * It is iterative, so a long chain of keys can't overflow the stack.
+      * Components come out dependencies first, so each one is solved after
+      * every key it reads from outside itself.
+      *
+      * Uninhabited < Unknown < Inhabited is the interval order on (surely
+      * inhabited, possibly inhabited). Every rule is monotone in it, except
+      * `Fun`, which is antitone in its arguments. So a component that reads
+      * its own keys only covariantly has equations monotone in its own keys.
+      * Kleene iteration from Uninhabited (no values yet) then reaches the
+      * least fixed point, and each key changes at most twice.
+      *
+      * That least fixed point, with the keys outside the component fixed,
+      * is what the data types mean. Each key stands for every type that
+      * agrees with it on variable states (see `dataKey`), and data types are
+      * least fixed points of their unfoldings, which is what `expand`
+      * computes. For a monotone system, solving all its equations at once
+      * gives the same least fixed point as solving them one at a time
+      * (Bekic's lemma).
+      *
+      * A component that reads one of its own keys contravariantly can't be
+      * iterated from the bottom: that can settle on a fixed point that is not
+      * the least one. Bosatsu accepts such components. With
+      * `enum E[x, y]: C1(v: y), C2(f: x -> Never)` and
+      * `struct D(w: E[E[D, Y], D])`, D occurs covariantly in its own
+      * definition (under two contravariant parameters). Yet D,
+      * `E[E[D, Y], D]` and `E[D, Y]` read each other contravariantly.
+      *
+      * When every cycle in such a component passes an even number of
+      * function arguments (`parityConsistent`), each key occurs covariantly
+      * in its own unfolding. That is the condition (`Model.cov`) under which
+      * `lean_proofs/LeanProofs/Inhabitedness.lean` proves the older
+      * depth-first search sound, so the component is solved by that search
+      * (`searchComponent`), with its fixed points nested by type level.
+      *
+      * `KindFormula` requires every occurrence of a type in its own
+      * definition to be covariant (`Constraint.RecursiveView`), so every
+      * cycle of a checked environment should be even. An odd cycle, as in
+      * `struct Liar(f: Liar -> Never)`, which `KindFormula` rejects, means the
+      * environment skipped that check (a hand-built `TypeEnv`). The solver
+      * answers Unknown for it instead of relying on `KindFormula`.
+      *
+      * Keys reached after `MaxDataTypeKeys` are Unknown.
+      *
+      * Keys are looked up by `Type`'s structural equality and hashing.
+      * `Order[Type]` gives the same equality but compares large keys far
+      * more slowly.
+      */
+    final class Solver extends DataStates {
+      private val solved = mutable.HashMap.empty[Type, State]
+      private var keysLeft = MaxDataTypeKeys
+
+      def stateOf(key: Type): State =
+        solved.get(key) match {
+          case Some(s) => s
+          case None =>
+            solveFrom(key)
+            solved.getOrElse(key, Unknown)
+        }
+
+      // Solved answers are final, so where a key is read doesn't matter.
+      def contravariant: DataStates = this
+
+      // One key being solved by `solveFrom`. `succ` are the keys `expand` reads,
+      // `co` the ones it reads covariantly and `contra` the ones it reads
+      // contravariantly (a key can be in both). `discovered` is what `expand`
+      // answered while finding them, which is exact when `succ` is empty.
+      private final class Node(
+          val key: Type,
+          val index: Int,
+          val stackPos: Int,
+          val succ: List[Type],
+          val co: Set[Type],
+          val contra: Set[Type],
+          val discovered: State
+      ) {
+        var lowLink: Int = index
+        var onStack: Boolean = true
+        var inComponent: Boolean = false
+        // While its component is solved, the current approximation; after,
+        // the answer.
+        var state: State = Uninhabited
+        var readers: List[Node] = Nil
+        var queued: Boolean = false
+        // 0 or 1 once `parityConsistent` has labelled it, else -1.
+        var parity: Int = -1
+      }
+
+      private def solveFrom(root: Type): Unit = {
+        // One table holds everything about a key, so each step looks a key
+        // up once: a lookup that hits compares the keys structurally.
+        val nodes = mutable.HashMap.empty[Type, Node]
+        val stack = mutable.ArrayBuffer.empty[Node]
+        // The nodes being visited, innermost last, each with the successors it
+        // has not visited yet.
+        val frames = mutable.ArrayBuffer.empty[(Node, List[Type])]
+
+        def enter(key: Type): Unit =
+          if (keysLeft <= 0) solved(key) = Unknown
+          else {
+            keysLeft -= 1
+            val found = mutable.HashSet.empty[Type]
+            val succ = List.newBuilder[Type]
+            val co = mutable.HashSet.empty[Type]
+            val contra = mutable.HashSet.empty[Type]
+            final class Reads(covariant: Boolean) extends DataStates {
+              def stateOf(k: Type): State = {
+                if (found.add(k)) (succ += k): Unit
+                if (covariant) (co += k): Unit
+                else (contra += k): Unit
+                Uninhabited
+              }
+              lazy val contravariant: DataStates = new Reads(!covariant)
+            }
+            // `expand` reads the same keys in the same positions whatever it
+            // is told, so these are the keys it depends on.
+            val discovered = expand(key, new Reads(covariant = true))
+            val node = new Node(
+              key,
+              nodes.size,
+              stack.length,
+              succ.result(),
+              co.toSet,
+              contra.toSet,
+              discovered
+            )
+            nodes(key) = node
+            stack += node
+            frames += ((node, node.succ))
+          }
+
+        enter(root)
+        while (frames.nonEmpty) {
+          val (node, rest) = frames.last
+          rest match {
+            case next :: tail =>
+              frames(frames.length - 1) = (node, tail)
+              nodes.get(next) match {
+                case Some(n) =>
+                  // A visited key that is off the stack is in a finished
+                  // component.
+                  if (n.onStack) node.lowLink = node.lowLink.min(n.index)
+                case None =>
+                  if (!solved.contains(next)) enter(next)
+              }
+            case Nil =>
+              frames.remove(frames.length - 1): Unit
+              frames.lastOption.foreach { case (parent, _) =>
+                parent.lowLink = parent.lowLink.min(node.lowLink)
+              }
+              if (node.lowLink == node.index) {
+                // `node` is the first node of its component that was visited,
+                // and the component is `node` and everything above it.
+                val component = NonEmptyList(
+                  node,
+                  stack.iterator.drop(node.stackPos + 1).toList
+                )
+                stack.dropRightInPlace(stack.length - node.stackPos): Unit
+                component.toList.foreach(_.onStack = false)
+                solveComponent(component, nodes)
+              }
+          }
+        }
+      }
+
+      private def solveComponent(
+          component: NonEmptyList[Node],
+          nodes: mutable.HashMap[Type, Node]
+      ): Unit = {
+        component.toList.foreach(_.inComponent = true)
+        def member(k: Type): Option[Node] =
+          nodes.get(k).filter(_.inComponent)
+
+        if (component.tail.isEmpty && component.head.succ.isEmpty)
+          component.head.state = component.head.discovered
+        else if (component.exists(_.contra.exists(member(_).nonEmpty))) {
+          if (parityConsistent(component, member))
+            searchComponent(component, member, nodes)
+          else component.toList.foreach(_.state = Unknown)
+        } else {
+          component.toList.foreach { n =>
+            n.succ.foreach { k =>
+              member(k).foreach(m => m.readers = n :: m.readers)
+            }
+          }
+          // Nodes outside the component are finished, so their state is
+          // their answer. Tarjan's order finished every key the component
+          // reads from outside it.
+          val read: DataStates = new DataStates {
+            def stateOf(k: Type): State =
+              nodes.get(k) match {
+                case Some(n) => n.state
+                case None    => solved.getOrElse(k, Unknown)
+              }
+            def contravariant: DataStates = this
+          }
+
+          val queue = mutable.ArrayDeque.from(component.toList)
+          component.toList.foreach(_.queued = true)
+          while (queue.nonEmpty) {
+            val n = queue.removeHead()
+            n.queued = false
+            val next = expand(n.key, read)
+            // Values only rise, because the component is monotone; taking
+            // rises alone also bounds the loop by construction.
+            val rises =
+              (next != n.state) &&
+                ((n.state == Uninhabited) || (next == Inhabited))
+            if (rises) {
+              n.state = next
+              n.readers.foreach { r =>
+                // The equations only rise, so an Inhabited key is done.
+                if (!r.queued && (r.state != Inhabited)) {
+                  r.queued = true
+                  (queue += r): Unit
+                }
+              }
+            }
+          }
+        }
+
+        component.toList.foreach { n =>
+          n.inComponent = false
+          solved(n.key) = n.state
+        }
+      }
+
+      // Whether the component's keys can be labelled 0 or 1 so that a
+      // covariant read keeps the label and a contravariant read flips it,
+      // that is, whether every cycle in it passes an even number of function
+      // arguments. Expected to hold whenever `KindFormula` checked the
+      // environment (see `Solver`), but checked here rather than assumed.
+      private def parityConsistent(
+          component: NonEmptyList[Node],
+          member: Type => Option[Node]
+      ): Boolean = {
+        // The component is strongly connected, so this reaches all of it.
+        val start = component.head
+        start.parity = 0
+        val todo = mutable.ArrayBuffer(start)
+        var consistent = true
+        while (consistent && todo.nonEmpty) {
+          val n = todo.remove(todo.length - 1)
+          def label(k: Type, flip: Int): Unit =
+            member(k).foreach { m =>
+              val want = n.parity ^ flip
+              if (m.parity < 0) {
+                m.parity = want
+                (todo += m): Unit
+              } else if (m.parity != want) consistent = false
+            }
+          n.co.foreach(label(_, 0))
+          n.contra.foreach(label(_, 1))
+        }
+        consistent
+      }
+
+      // The search that `lean_proofs/LeanProofs/Inhabitedness.lean` models as
+      // `check`, with levels that the model doesn't have (see below): expand
+      // a key with the keys on the current path assumed empty, so a key met
+      // again on the path is Uninhabited. Each key of
+      // the component is its own root. Keys outside the component are
+      // finished and don't depend on it, so their answers are the same under
+      // any assumption about its keys.
+      //
+      // Assuming a key empty while expanding it is induction on its values
+      // (`Model.discharge`). That holds for a key met again through its own
+      // type's recursion, not for a key of a type that a later type wraps.
+      // With `struct Neg[a](f: a -> Never)` and
+      // `enum R: R1(r: R), R2(g: Neg[R] -> Never)`, R has no values, so
+      // `R -> Never` holds `absurd` and Neg[R] has a value. But assuming
+      // Neg[R] empty while expanding it made R2 buildable, so R inhabited
+      // and Neg[R] empty.
+      //
+      // Neg[R] is Neg applied to R's answer: R's fixed point is the outer
+      // one. So the search nests fixed points by type level
+      // (`componentLevels`): entering a key keeps only the assumptions about
+      // keys at its level or above. A key of a lower level is then solved
+      // afresh, as a function of the outer assumptions. A key of a higher
+      // level is solved without the assumptions made about lower keys on
+      // the way to it.
+      //
+      // Suppose the search meets key K, of type U, again with no key above
+      // U's level in between, so K is still assumed. A key reads the keys
+      // its constructors make and the keys among its arguments. Its
+      // constructors name only its own type and lower types, and apply only
+      // lower types, since a higher-kinded argument counts as a use. So
+      // between the two K's only U's constructors make keys of type U, and a
+      // key among arguments was made earlier on the path or is part of K.
+      // K therefore came back through U's own recursion, where induction on
+      // values holds. `parityConsistent` makes each key covariant in its own
+      // unfolding (`Model.cov`).
+      private def searchComponent(
+          component: NonEmptyList[Node],
+          member: Type => Option[Node],
+          nodes: mutable.HashMap[Type, Node]
+      ): Unit = {
+        val typeLevels = componentLevels(component.toList.map(_.key))
+        val levels: Map[Type, Int] =
+          component.iterator
+            .flatMap(n => keyHead(n.key).flatMap(typeLevels.get).map(n.key -> _))
+            .toMap
+
+        var visitsLeft = MaxSearchVisits
+
+        // `depth` counts the keys being searched, and bounds the stack
+        def search(key: Type, path: Set[Type], depth: Int): State = {
+          val level = levels.getOrElse(key, 0)
+          val assumed = path.filter(k => levels.getOrElse(k, 0) >= level)
+          if (assumed(key)) Uninhabited
+          else if ((visitsLeft <= 0) || (depth >= MaxSearchDepth)) Unknown
+          else {
+            visitsLeft -= 1
+            val path1 = assumed + key
+            val read: DataStates = new DataStates {
+              def stateOf(k: Type): State =
+                member(k) match {
+                  case Some(_) => search(k, path1, depth + 1)
+                  case None =>
+                    nodes.get(k) match {
+                      case Some(n) => n.state
+                      case None    => solved.getOrElse(k, Unknown)
+                    }
+                }
+              def contravariant: DataStates = this
+            }
+            expand(key, read)
+          }
+        }
+
+        // a key without a level has a type on a cycle of uses, or one that
+        // uses such a type (see `componentLevels`)
+        if (levels.size < component.length)
+          component.toList.foreach(_.state = Unknown)
+        else
+          component.toList.foreach(n => n.state = search(n.key, Set.empty, 0))
+      }
+    }
+
     def checkType(
         t: Type,
         varState: Map[Type.Var.Bound, State],
-        seen: Set[Type]
+        dataState: DataStates
     ): State = {
       val norm = t.normalize
 
@@ -198,20 +831,21 @@ object Inhabitedness {
         case Type.ForAll(vars, in) =>
           evaluateQuantifier(
             vars.toList,
-            vs => checkType(in, vs, seen),
+            vs => checkType(in, vs, dataState),
             isForAll = true,
             varState
           )
         case Type.Exists(vars, in) =>
           evaluateQuantifier(
             vars.toList,
-            vs => checkType(in, vs, seen),
+            vs => checkType(in, vs, dataState),
             isForAll = false,
             varState
           )
         case Type.Fun(args, res) =>
-          val resultState = checkType(res, varState, seen)
-          val argStates = args.map(checkType(_, varState, seen))
+          val resultState = checkType(res, varState, dataState)
+          val argStates =
+            args.map(checkType(_, varState, dataState.contravariant))
           if ((resultState == Uninhabited) && argStates.forall(_ == Inhabited))
             Uninhabited
           else if ((resultState == Inhabited) || argStates.contains_(Uninhabited))
@@ -222,52 +856,12 @@ object Inhabitedness {
         case Type.TyVar(_: Type.Var.Skolem) | Type.TyMeta(_) =>
           Unknown
         case _ =>
-          val (on, args) = Type.unapplyAll(norm)
-          on match {
+          Type.unapplyAll(norm)._1 match {
             case tc @ Type.TyConst(_) =>
-              val cons = tc.tpe.toDefined
-              if (alwaysInhabited(cons)) Inhabited
-              else {
-                env.getType(tc) match {
-                  case None => Unknown
-                  case Some(dt) =>
-                    // `norm` is already the fully-applied normalized type for this branch;
-                    // use it as the cycle-detection key directly.
-                    val root = norm
-                    if (seen(root)) Uninhabited
-                    else {
-                      val params = dt.typeParams
-                      if (params.lengthCompare(args.length) != 0) Unknown
-                      else {
-                        val paramSub: Map[Type.Var, Type] =
-                          params.iterator
-                            .zip(args.iterator)
-                            .map { case (v, arg) => (v: Type.Var) -> arg }
-                            .toMap
-
-                        val seen1 = seen + root
-                        val constructorStates =
-                          dt.constructors.map { cfn =>
-                            val argTypes =
-                              cfn.args.map(arg => Type.substituteVar(arg.tpe, paramSub))
-                            evaluateQuantifier(
-                              cfn.exists.map { case (b, ka) => (b, ka.kind) },
-                              vs => {
-                                State.andStates(
-                                  argTypes.map(tpe => checkType(tpe, vs, seen1))
-                                )
-                              },
-                              isForAll = false,
-                              varState
-                            )
-                          }
-
-                        if (constructorStates.isEmpty) Unknown
-                        else State.orStates(constructorStates)
-                      }
-                    }
-                }
-              }
+              if (alwaysInhabited(tc.tpe.toDefined)) Inhabited
+              else if (env.getType(tc).isEmpty) Unknown
+              else if (!sizeAtMost(norm, MaxDataTypeKeySize)) Unknown
+              else dataState.stateOf(dataKey(norm, varState))
             case _ => Unknown
           }
       }
@@ -307,7 +901,7 @@ object Inhabitedness {
         scrutinee: Type,
         pattern: Pattern[(PackageName, Constructor), Type],
         varState: Map[Type.Var.Bound, State],
-        seen: Set[Type]
+        dataState: DataStates
     ): State = {
       val scrutineeNorm = scrutinee.normalize
 
@@ -315,29 +909,29 @@ object Inhabitedness {
         case Type.ForAll(vars, in) =>
           evaluateQuantifier(
             vars.toList,
-            vs => checkPattern(in, pattern, vs, seen),
+            vs => checkPattern(in, pattern, vs, dataState),
             isForAll = true,
             varState
           )
         case Type.Exists(vars, in) =>
           evaluateQuantifier(
             vars.toList,
-            vs => checkPattern(in, pattern, vs, seen),
+            vs => checkPattern(in, pattern, vs, dataState),
             isForAll = false,
             varState
           )
         case _ =>
           pattern match {
             case Pattern.WildCard | Pattern.Var(_) =>
-              checkType(scrutineeNorm, varState, seen)
+              checkType(scrutineeNorm, varState, dataState)
             case Pattern.Named(_, pat) =>
-              checkPattern(scrutineeNorm, pat, varState, seen)
+              checkPattern(scrutineeNorm, pat, varState, dataState)
             case Pattern.Annotation(pat, tpe) =>
               if (definitelyDisjoint(scrutineeNorm, tpe)) Uninhabited
               else {
-                val scrState = checkType(scrutineeNorm, varState, seen)
-                lazy val annState = checkType(tpe, varState, seen)
-                lazy val patState = checkPattern(tpe, pat, varState, seen)
+                val scrState = checkType(scrutineeNorm, varState, dataState)
+                lazy val annState = checkType(tpe, varState, dataState)
+                lazy val patState = checkPattern(tpe, pat, varState, dataState)
 
                 if (
                   (scrState == Uninhabited) || (annState == Uninhabited) || (patState == Uninhabited)
@@ -350,7 +944,7 @@ object Inhabitedness {
               }
             case Pattern.Union(head, rest) =>
               State.orStates(
-                (head :: rest.toList).map(checkPattern(scrutineeNorm, _, varState, seen))
+                (head :: rest.toList).map(checkPattern(scrutineeNorm, _, varState, dataState))
               )
             case Pattern.Literal(lit)      =>
               if (scrutineeNorm.sameAs(Type.getTypeOf(lit))) Inhabited
@@ -361,14 +955,14 @@ object Inhabitedness {
             case lp @ Pattern.ListPat(_) =>
               Pattern.ListPat.toPositionalStruct(lp, EmptyListCons, NonEmptyListCons) match {
                 case Right(asStruct) =>
-                  checkPattern(scrutineeNorm, asStruct, varState, seen)
+                  checkPattern(scrutineeNorm, asStruct, varState, dataState)
                 case Left((_, suffix)) =>
                   // Prefix-glob list patterns (for example: `*_, p1, p2`) do not
                   // lower to a simple cons spine. We still know they require a list
                   // scrutinee and each explicit item in the suffix to be matchable
                   // against the list element type. We use that to prove definite
                   // `Uninhabited` cases; otherwise we stay conservative with `Unknown`.
-                  checkType(scrutineeNorm, varState, seen) match {
+                  checkType(scrutineeNorm, varState, dataState) match {
                     case Uninhabited => Uninhabited
                     case scrState =>
                       listElementType(scrutineeNorm) match {
@@ -376,7 +970,7 @@ object Inhabitedness {
                         case Some(itemType) =>
                           val itemStates =
                             suffix.toList.collect { case Pattern.ListPart.Item(itemPat) =>
-                              checkPattern(itemType, itemPat, varState, seen)
+                              checkPattern(itemType, itemPat, varState, dataState)
                             }
                           if (itemStates.contains(Uninhabited)) Uninhabited
                           else if ((scrState == Inhabited) && itemStates.forall(_ == Inhabited))
@@ -404,16 +998,19 @@ object Inhabitedness {
                             .map { case (v, arg) => (v: Type.Var) -> arg }
                             .toMap
 
-                        val fieldTypes =
-                          cfn.args.map(arg => Type.substituteVar(arg.tpe, paramSub))
+                        // Annotation types in `params` need no avoiding:
+                        // `validatePattern` rejects free variables in them,
+                        // so they can't refer to an outer variable.
+                        val (exists, fieldTypes) =
+                          ConstructorFn.openAt(cfn, paramSub, scrArgs)
                         evaluateQuantifier(
-                          cfn.exists.map { case (b, ka) => (b, ka.kind) },
+                          exists,
                           vs => {
                             State.andStates(
                               fieldTypes.iterator
                                 .zip(params.iterator)
                                 .map { case (fieldType, pat) =>
-                                  checkPattern(fieldType, pat, vs, seen)
+                                  checkPattern(fieldType, pat, vs, dataState)
                                 }
                                 .toList
                             )

@@ -5,7 +5,7 @@ import cats.collections.HashMap
 import cats.effect.{IO, Resource}
 import cats.implicits._
 import cats.effect.unsafe.implicits.global
-import java.io.{ByteArrayOutputStream, File, PrintStream}
+import java.io.{ByteArrayInputStream, ByteArrayOutputStream, File, InputStream, PrintStream}
 import java.nio.file.{Files, Path, Paths}
 import java.util.Comparator
 import org.scalacheck.Gen
@@ -63,13 +63,23 @@ class IOPlatformIOTest extends munit.ScalaCheckSuite {
     forAll { (values: List[Byte]) =>
       val output = new ByteArrayOutputStream()
       val stream = new PrintStream(output)
-      val platform = new IOPlatformIO {
+      val platform = new IOPlatformIO(CompilerBuildInfo.constant) {
         override protected def stdout: PrintStream = stream
       }
       try {
         platform.writeStdoutBytes(Bytes.copyFromArray(values.toArray)).unsafeRunSync()
         assertEquals(output.toByteArray.toList, values)
       } finally stream.close()
+    }
+  }
+
+  property("binary stdin is read as exact bytes") {
+    forAll { (values: List[Byte]) =>
+      val input = new ByteArrayInputStream(values.toArray)
+      val platform = new IOPlatformIO(CompilerBuildInfo.constant) {
+        override protected def stdin: InputStream = input
+      }
+      assertEquals(platform.readStdinBytes.unsafeRunSync().copyToArray.toList, values)
     }
   }
 

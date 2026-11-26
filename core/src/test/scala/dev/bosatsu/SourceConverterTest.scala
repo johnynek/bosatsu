@@ -608,6 +608,202 @@ else:
     )
   }
 
+  test("a local `p as n = value` binding converts value once and matches p against it") {
+    // the value is bound once to a fresh synthetic name, each name aliases
+    // it, and p is matched against it, rather than against a second copy of
+    // value inside the scope of n
+    val n = Identifier.Name("n")
+    val m = Identifier.Name("m")
+    val nr = RecursionKind.NonRecursive
+    val valueSrc = "[1, *n]"
+
+    // the body of `def main(n): ...`, where n is an argument
+    def mainBody(code: String): Expr[Declaration] =
+      mainExpr(code) match {
+        case Expr.Lambda(_, body, _) => body
+        case other => fail(s"expected a lambda, got: $other")
+      }
+
+    val value = mainBody(s"""def main(n):
+  $valueSrc""").eraseTags
+
+    def bindingMain(binding: String): String =
+      s"""def main(n):
+  $binding = $valueSrc
+  t"""
+
+    def isFresh(v: Bindable): Boolean = Identifier.isSynthetic(v)
+
+    mainBody(bindingMain("[*t] as n")).eraseTags match {
+      case Expr.Let(
+            v,
+            rhs,
+            Expr.Let(
+              `n`,
+              Expr.Local(v1, _),
+              Expr.Match(Expr.Local(v2, _), _, _),
+              `nr`,
+              _
+            ),
+            `nr`,
+            _
+          ) if isFresh(v) && v1 == v && v2 == v =>
+        assertEquals(rhs, value)
+      case other => fail(s"unexpected desugaring: $other")
+    }
+
+    // a name under a name aliases the same value
+    mainBody(bindingMain("(([*t] as m) as n)")).eraseTags match {
+      case Expr.Let(
+            v,
+            rhs,
+            Expr.Let(
+              `n`,
+              Expr.Local(v1, _),
+              Expr.Let(
+                `m`,
+                Expr.Local(v2, _),
+                Expr.Match(Expr.Local(v3, _), _, _),
+                `nr`,
+                _
+              ),
+              `nr`,
+              _
+            ),
+            `nr`,
+            _
+          ) if isFresh(v) && List(v1, v2, v3).forall(_ == v) =>
+        assertEquals(rhs, value)
+      case other => fail(s"unexpected desugaring: $other")
+    }
+
+    // an annotation over the name annotates the value n is bound to
+    mainBody(bindingMain("(([*t] as n): List[Int])")).eraseTags match {
+      case Expr.Let(
+            v,
+            Expr.Annotation(rhs, _, _),
+            Expr.Let(
+              `n`,
+              Expr.Local(v1, _),
+              Expr.Match(Expr.Local(v2, _), _, _),
+              `nr`,
+              _
+            ),
+            `nr`,
+            _
+          ) if isFresh(v) && v1 == v && v2 == v =>
+        assertEquals(rhs, value)
+      case other => fail(s"unexpected desugaring: $other")
+    }
+
+    // an annotation under the name annotates what p matches, as in a match
+    // branch, so n keeps the value's own type
+    mainBody(bindingMain("(([*t]: List[Int]) as n)")).eraseTags match {
+      case Expr.Let(
+            v,
+            rhs,
+            Expr.Let(
+              `n`,
+              Expr.Local(v1, _),
+              Expr.Match(
+                Expr.Annotation(Expr.Local(v2, _), _, _),
+                _,
+                _
+              ),
+              `nr`,
+              _
+            ),
+            `nr`,
+            _
+          ) if isFresh(v) && v1 == v && v2 == v =>
+        assertEquals(rhs, value)
+      case other => fail(s"unexpected desugaring: $other")
+    }
+
+    // a name under an annotation under a name: the annotated value gets a
+    // second fresh name, so the inner binding doesn't shadow the outer one
+    mainBody(bindingMain("((([*t] as m): List[Int]) as n)")).eraseTags match {
+      case Expr.Let(
+            v,
+            rhs,
+            Expr.Let(
+              `n`,
+              Expr.Local(v1, _),
+              Expr.Let(
+                w,
+                Expr.Annotation(Expr.Local(v2, _), _, _),
+                Expr.Let(
+                  `m`,
+                  Expr.Local(w1, _),
+                  Expr.Match(Expr.Local(w2, _), _, _),
+                  `nr`,
+                  _
+                ),
+                `nr`,
+                _
+              ),
+              `nr`,
+              _
+            ),
+            `nr`,
+            _
+          )
+          if isFresh(v) && isFresh(w) && v != w &&
+            v1 == v && v2 == v && w1 == w && w2 == w =>
+        assertEquals(rhs, value)
+      case other => fail(s"unexpected desugaring: $other")
+    }
+
+    // however deeply names and annotations alternate, and across a chain of
+    // such bindings, each synthetic binder has its own name, so none
+    // shadows another
+    def syntheticLets(e: Expr[Unit]): List[Bindable] =
+      e match {
+        case Expr.Let(arg, ex, in, _, _) =>
+          (if (isFresh(arg)) arg :: Nil else Nil) :::
+            syntheticLets(ex) ::: syntheticLets(in)
+        case Expr.Annotation(ex, _, _)   => syntheticLets(ex)
+        case Expr.Generic(_, in)         => syntheticLets(in)
+        case Expr.App(fn, args, _)       =>
+          (fn :: args.toList).flatMap(syntheticLets)
+        case Expr.Lambda(_, body, _)     => syntheticLets(body)
+        case Expr.MatchExpr(_, arg, branches, _) =>
+          syntheticLets(arg) ::: branches.toList.flatMap(b =>
+            syntheticLets(b.expr)
+          )
+        case Expr.Local(_, _) | Expr.Global(_, _, _) | Expr.Literal(_, _) =>
+          Nil
+      }
+
+    val chain = mainBody("""def main(n):
+  (((((([*t]: List[Int]) as y): List[Int]) as z): List[Int]) as x) = [1, *n]
+  ((([*u] as m): List[Int]) as k) = [2, *x]
+  [*w] as j = [3, *k]
+  (t, y, z, u, m, w, j)""").eraseTags
+    val binders = syntheticLets(chain)
+    // three levels in the first binding, two in the second, one in the third
+    assertEquals(binders.length, 6, binders)
+    assertEquals(binders.distinct.length, 6, binders)
+
+    // errors about what p matches point at the value
+    val code = bindingMain("[*t] as n")
+    val valueStart = code.indexOf(valueSrc)
+    mainBody(code) match {
+      case Expr.Let(
+            _,
+            _,
+            Expr.Let(_, _, Expr.Match(Expr.Local(_, tag), _, _), _, _),
+            _,
+            _
+          ) =>
+        assertEquals(
+          tag.region,
+          Region(valueStart, valueStart + valueSrc.length)
+        )
+      case other => fail(s"unexpected desugaring: $other")
+    }
+  }
+
   test("zero-arg defs desugar to explicit unit-pattern defs") {
     assertMainDesugarsAs(
       """def later():

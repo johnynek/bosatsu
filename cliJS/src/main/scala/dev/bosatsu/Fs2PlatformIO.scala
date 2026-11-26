@@ -39,6 +39,7 @@ private object Unlink extends js.Function1[String, js.Promise[Unit]] {
 }
 
 class Fs2PlatformIO private[dev] (
+    val buildInfo: CompilerBuildInfo,
     injectedDocumentWriteOps: Option[Fs2PlatformIO.DocumentWriteOps]
 ) extends PlatformIO[IO, Path] {
   private lazy val documentWriteOps =
@@ -248,8 +249,8 @@ class Fs2PlatformIO private[dev] (
   def readUtf8(p: Path): IO[String] =
     FilesIO.readUtf8(p).compile.string
 
-  def readBytes(p: Path): IO[Array[Byte]] =
-    FilesIO.readAll(p).compile.to(Array)
+  def readBytes(p: Path): IO[Bytes] =
+    FilesIO.readAll(p).compile.to(Array).map(Bytes.unsafeFromArray(_))
 
   def fsDataType(p: Path): IO[Option[PlatformIO.FSDataType]] =
     FilesIO
@@ -460,39 +461,18 @@ class Fs2PlatformIO private[dev] (
 
   private lazy val nodeFs = global.require("fs")
 
-  private def nodeBufferToBytes(buffer: js.Dynamic): Array[Byte] = {
-    val length = buffer.length.asInstanceOf[Int]
-    val out = new Array[Byte](length)
-    var idx = 0
-    while (idx < length) {
-      out(idx) = (buffer(idx).asInstanceOf[Int] & 0xff).toByte
-      idx += 1
-    }
-    out
-  }
-
-  private def bytesToUint8Array(bytes: Array[Byte]): Uint8Array = {
-    val out = new Uint8Array(bytes.length)
-    var idx = 0
-    while (idx < bytes.length) {
-      out(idx) = (bytes(idx) & 0xff).toShort
-      idx += 1
-    }
-    out
-  }
-
   def writeStdout(doc: Doc): IO[Unit] =
     onParts(doc)(part => IO.print(part))
 
   def writeError(doc: Doc): IO[Unit] =
     onParts(doc)(part => IO.consoleForIO.error(part))
 
-  def readStdinBytes: IO[Array[Byte]] =
-    IO.blocking(nodeBufferToBytes(nodeFs.readFileSync(0)))
+  def readStdinBytes: IO[Bytes] =
+    IO.blocking(JsBytes.fromUint8Array(nodeFs.readFileSync(0).asInstanceOf[Uint8Array]))
 
   def writeStdoutBytes(bytes: Bytes): IO[Unit] =
     IO.blocking {
-      val _ = nodeFs.writeFileSync(1, bytesToUint8Array(bytes.unsafeReadOnlyView))
+      val _ = nodeFs.writeFileSync(1, JsBytes.toUint8Array(bytes))
       ()
     }
 
@@ -519,9 +499,9 @@ class Fs2PlatformIO private[dev] (
     IO.fromTry(ProtoConverter.packagesToProto(packages))
       .flatMap(write(_, path))
 
-  def writeBytes(path: Path, bytes: Array[Byte]): IO[Unit] =
+  def writeBytes(path: Path, bytes: Bytes): IO[Unit] =
     FilesIO
-      .writeAll(path)(fs2.Stream.chunk(fs2.Chunk.array(bytes)))
+      .writeAll(path)(fs2.Stream.chunk(fs2.Chunk.array(bytes.unsafeReadOnlyView)))
       .compile
       .drain
 
@@ -529,12 +509,16 @@ class Fs2PlatformIO private[dev] (
     write(lib, path)
 }
 
-object Fs2PlatformIO extends Fs2PlatformIO(None) {
+/** A Node platform with the fixed `CompilerBuildInfo.constant`, for tests and
+  * for helpers that don't need build info. The cliJS entry point,
+  * `tool.Fs2Module`, passes this build's real info.
+  */
+object Fs2PlatformIO extends Fs2PlatformIO(CompilerBuildInfo.constant, None) {
   private[dev] final case class DocumentWriteOps(
       createParentDirectories: Path => IO[Unit],
       resolveDestination: Path => IO[Path],
       stagedFile: Path => Resource[IO, Path],
-      writeStaged: (Path, Array[Byte]) => IO[Unit],
+      writeStaged: (Path, Bytes) => IO[Unit],
       needsInstall: (Path, Path) => IO[Boolean],
       replace: (Path, Path) => IO[Boolean],
       remove: Path => IO[Unit]
@@ -575,7 +559,10 @@ object Fs2PlatformIO extends Fs2PlatformIO(None) {
         .map(_ / "document")
     },
     writeStaged = (path, bytes) =>
-      Files[IO].writeAll(path)(fs2.Stream.chunk(fs2.Chunk.array(bytes))).compile.drain,
+      Files[IO]
+        .writeAll(path)(fs2.Stream.chunk(fs2.Chunk.array(bytes.unsafeReadOnlyView)))
+        .compile
+        .drain,
     needsInstall = shouldInstall,
     replace = (source, target) =>
       shouldInstall(source, target).flatMap {
@@ -591,7 +578,7 @@ object Fs2PlatformIO extends Fs2PlatformIO(None) {
   )
 
   private[dev] def withDocumentWriteOps(ops: DocumentWriteOps): Fs2PlatformIO =
-    new Fs2PlatformIO(Some(ops))
+    new Fs2PlatformIO(buildInfo, Some(ops))
 
   private final case class PendingFile(
       destination: Path,
@@ -626,7 +613,7 @@ object Fs2PlatformIO extends Fs2PlatformIO(None) {
 
         staged.use { pending =>
           pending.traverse_ { file =>
-            ops.writeStaged(file.staged, file.bytes.unsafeReadOnlyView)
+            ops.writeStaged(file.staged, file.bytes)
           } *> pending.traverse(file =>
             ops.needsInstall(file.staged, file.destination)
           ).flatMap { shouldInstall =>
