@@ -1,7 +1,8 @@
 package dev.bosatsu.smt
 
-import org.scalacheck.Prop
+import org.scalacheck.{Gen, Prop}
 import org.scalacheck.Prop.{forAll, propBoolean}
+import org.scalacheck.rng.Seed
 
 import IntDecide.{Reason, Result}
 import LinearBoundsGens.{byZeroChoices, evalBool}
@@ -94,6 +95,30 @@ class IntDecideLawsTest extends munit.ScalaCheckSuite {
           (r != Reason.UnverifiedCounterexample) :| s"unverified counterexample\n${describe(facts, goal)}"
       }
     }
+  }
+
+  property("a goal that fails at a point where every fact holds is refuted") {
+    forAll(refutableCaseGen) { case (facts, goal, _) =>
+      implies(goal, facts) match {
+        case Result.Refuted(m) => realCounterexample(m, facts, goal)
+        case other             =>
+          Prop.falsified :| s"expected a counterexample, got $other\n${describe(facts, goal)}"
+      }
+    }
+  }
+
+  property("a goal built to follow from the facts is proved") {
+    forAll(provableCaseGen) { case (facts, goal) =>
+      val res = implies(goal, facts)
+      (res == Result.Proved) :| s"got $res\n${describe(facts, goal)}"
+    }
+  }
+
+  test("the provable cases mostly need more than the fast path") {
+    // so the property above checks the search, not just pathImplies
+    val cases = (0 until 300).flatMap(i => provableCaseGen(Gen.Parameters.default, Seed(i.toLong)))
+    val slow = cases.count { case (facts, goal) => !pathImplies(goal, facts) }
+    assert(slow * 2 >= cases.size, s"only $slow of ${cases.size} need the search")
   }
 
   property("adding facts never stops a proof") {

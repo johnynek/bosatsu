@@ -1,6 +1,7 @@
 package dev.bosatsu.smt
 
-import scala.collection.immutable.SortedMap
+import cats.syntax.all.*
+import scala.collection.immutable.{IntMap, SortedMap}
 import scala.collection.mutable
 
 import SmtExpr.*
@@ -149,12 +150,6 @@ object IntDecide {
   private def refutes(model: Model, goal: BoolExpr, facts: Vector[BoolExpr]): Boolean =
     facts.forall(evalBool(_, model).contains(true)) && evalBool(goal, model).contains(false)
 
-  // Both sequences evaluated left to right, None as soon as one is.
-  private def evalAll[A](es: Vector[A])(fn: A => Option[BigInt]): Option[Vector[BigInt]] =
-    es.foldLeft(Option(Vector.empty[BigInt])) { (acc, e) =>
-      acc.flatMap(vs => fn(e).map(vs :+ _))
-    }
-
   // Euclidean division for d != 0: n == d * q + r with 0 <= r < |d|.
   private def euclid(n: BigInt, d: BigInt): (BigInt, BigInt) = {
     val r = n.mod(d.abs)
@@ -164,24 +159,32 @@ object IntDecide {
   /** The value of `e` at the model with SMT-LIB semantics, or None if it
     * depends on division by zero, an uninterpreted function, or `+`, `-` or
     * `*` with no arguments.
+    *
+    * Bosatsu's `n.div(0) == 0` and `n.mod_Int(0) == n` aren't SMT-LIB's, which
+    * leaves `div` and `mod` by zero unspecified, and they don't need to be
+    * here: `SmtExpr.bosatsuDiv` and `bosatsuMod` test the divisor for zero
+    * with an `ite` and give those values themselves, so the `Div` and `Mod`
+    * they build are only reached with a nonzero divisor. A `Div` or `Mod` by
+    * zero can only come from a term built some other way, and since its value
+    * isn't defined, it has none here.
     */
   private[smt] def evalInt(e: IntExpr, model: Model): Option[BigInt] =
     e match {
       case IntConst(n)   => Some(n)
       case Var(name)     => Some(model.ints.getOrElse(name, BigInt(0)))
       case Add(args)     =>
-        if (args.isEmpty) None else evalAll(args)(evalInt(_, model)).map(_.sum)
+        if (args.isEmpty) None else args.traverse(evalInt(_, model)).map(_.sum)
       case Sub(args)     =>
         if (args.isEmpty) None
-        else evalAll(args)(evalInt(_, model)).map(vs => vs.tail.foldLeft(vs.head)(_ - _))
+        else args.traverse(evalInt(_, model)).map(vs => vs.tail.foldLeft(vs.head)(_ - _))
       case Mul(args)     =>
-        if (args.isEmpty) None else evalAll(args)(evalInt(_, model)).map(_.product)
+        if (args.isEmpty) None else args.traverse(evalInt(_, model)).map(_.product)
       case Div(n, d)     =>
-        evalInt(n, model).zip(evalInt(d, model)).flatMap { case (nv, dv) =>
+        (evalInt(n, model), evalInt(d, model)).tupled.flatMap { case (nv, dv) =>
           if (dv == 0) None else Some(euclid(nv, dv)._1)
         }
       case Mod(n, d)     =>
-        evalInt(n, model).zip(evalInt(d, model)).flatMap { case (nv, dv) =>
+        (evalInt(n, model), evalInt(d, model)).tupled.flatMap { case (nv, dv) =>
           if (dv == 0) None else Some(euclid(nv, dv)._2)
         }
       case Ite(c, t, f)  =>
@@ -194,13 +197,11 @@ object IntDecide {
     */
   private[smt] def evalBool(e: BoolExpr, model: Model): Option[Boolean] = {
     def cmp(l: IntExpr, r: IntExpr)(fn: (BigInt, BigInt) => Boolean): Option[Boolean] =
-      evalInt(l, model).zip(evalInt(r, model)).map(fn.tupled)
+      (evalInt(l, model), evalInt(r, model)).mapN(fn)
     def both(l: BoolExpr, r: BoolExpr)(fn: (Boolean, Boolean) => Boolean): Option[Boolean] =
-      evalBool(l, model).zip(evalBool(r, model)).map(fn.tupled)
+      (evalBool(l, model), evalBool(r, model)).mapN(fn)
     def bools(args: Vector[BoolExpr]): Option[Vector[Boolean]] =
-      args.foldLeft(Option(Vector.empty[Boolean])) { (acc, a) =>
-        acc.flatMap(vs => evalBool(a, model).map(vs :+ _))
-      }
+      args.traverse(evalBool(_, model))
 
     e match {
       case BoolConst(b)  => Some(b)
@@ -511,7 +512,7 @@ object IntDecide {
     /** The named variables at the values found; those not found are 0 or
       * false, which the search also assumed.
       */
-    def model(ints: SortedMap[Int, BigInt], bools: Map[Int, Boolean]): Model =
+    def model(ints: IntMap[BigInt], bools: IntMap[Boolean]): Model =
       Model(
         SortedMap.from(intIds.iterator.map { case (name, v) =>
           (name, ints.getOrElse(v, BigInt(0)))
@@ -526,7 +527,7 @@ object IntDecide {
     enum Outcome derives CanEqual {
       // values for the Int variables of the constraints and the Bool
       // variables that were assigned; any others are 0 and false
-      case Sat(ints: SortedMap[Int, BigInt], bools: Map[Int, Boolean])
+      case Sat(ints: IntMap[BigInt], bools: IntMap[Boolean])
       case Unsat
       case GaveUp
     }
@@ -541,9 +542,9 @@ object IntDecide {
   private final class Search(budget: Omega.Budget) {
     import Search.Outcome
 
-    def run(f: Nnf): Outcome = node(f :: Nil, Vector.empty, Map.empty, Vector.empty)
+    def run(f: Nnf): Outcome = node(f :: Nil, Vector.empty, IntMap.empty, Vector.empty)
 
-    private def holds(f: Nnf, ints: SortedMap[Int, BigInt], bools: Map[Int, Boolean]): Boolean = {
+    private def holds(f: Nnf, ints: IntMap[BigInt], bools: IntMap[Boolean]): Boolean = {
       val _ = budget.spend(1)
       f match {
         case Nnf.Atom(c)       => c.holds(v => ints.getOrElse(v, BigInt(0)))
@@ -560,9 +561,9 @@ object IntDecide {
     private def absorb(
         todo: List[Nnf],
         atoms: Vector[Omega.Constraint],
-        bools: Map[Int, Boolean],
+        bools: IntMap[Boolean],
         disjs: Vector[List[Nnf]]
-    ): Option[(Vector[Omega.Constraint], Map[Int, Boolean], Vector[List[Nnf]])] =
+    ): Option[(Vector[Omega.Constraint], IntMap[Boolean], Vector[List[Nnf]])] =
       todo match {
         case Nnf.Atom(c) :: rest          => absorb(rest, atoms :+ c, bools, disjs)
         case Nnf.Lit(v, value) :: rest    =>
@@ -597,7 +598,7 @@ object IntDecide {
     private def node(
         todo: List[Nnf],
         atoms0: Vector[Omega.Constraint],
-        bools0: Map[Int, Boolean],
+        bools0: IntMap[Boolean],
         disjs0: Vector[List[Nnf]]
     ): Outcome =
       if (!budget.spend(1)) Outcome.GaveUp

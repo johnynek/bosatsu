@@ -1,5 +1,7 @@
 package dev.bosatsu.smt
 
+import cats.syntax.all.*
+
 /** Reads the obligations in core/src/test/resources/int_obligations: one per
   * line, as
   *
@@ -64,14 +66,10 @@ object IntObligationReader {
       }
 
     private def ints(args: Vector[SExpr]): Either[String, Vector[IntExpr]] =
-      args.foldLeft(Right(Vector.empty): Either[String, Vector[IntExpr]]) { (acc, a) =>
-        acc.flatMap(xs => int(a).map(xs :+ _))
-      }
+      args.traverse(int)
 
     private def boolArgs(args: Vector[SExpr]): Either[String, Vector[BoolExpr]] =
-      args.foldLeft(Right(Vector.empty): Either[String, Vector[BoolExpr]]) { (acc, a) =>
-        acc.flatMap(xs => bool(a).map(xs :+ _))
-      }
+      args.traverse(bool)
 
     private def cmp(a: SExpr, b: SExpr)(mk: (IntExpr, IntExpr) => BoolExpr): Either[String, BoolExpr] =
       for { x <- int(a); y <- int(b) } yield mk(x, y)
@@ -111,24 +109,18 @@ object IntObligationReader {
               SExpr.List(Vector(SExpr.Atom("goal"), goal))
             )
           ) =>
-        val sorts = vars.map {
+        val declsE: Either[String, Vector[(String, SExpr)]] = vars.traverse {
           case SExpr.List(Vector(SExpr.Atom(name), sort)) => Right((unquote(name), sort))
           case other                                      => Left(s"not a declaration: $other")
         }
-        sorts.collectFirst { case Left(err) => err } match {
-          case Some(err) => Left(err)
-          case None      =>
-            val decls = sorts.collect { case Right(d) => d }
-            val ints = decls.collect { case (n, s) if s == atom("Int") => n }
-            val bools = decls.collect { case (n, s) if s == atom("Bool") => n }
-            val terms = new Terms(ints.toSet, bools.toSet)
-            for {
-              fs <- facts.foldLeft(Right(Vector.empty): Either[String, Vector[BoolExpr]]) { (acc, f) =>
-                acc.flatMap(xs => terms.bool(f).map(xs :+ _))
-              }
-              g <- terms.bool(goal)
-            } yield Obligation(ints, bools, fs, g)
-        }
+        for {
+          decls <- declsE
+          ints = decls.collect { case (n, s) if s == atom("Int") => n }
+          bools = decls.collect { case (n, s) if s == atom("Bool") => n }
+          terms = new Terms(ints.toSet, bools.toSet)
+          fs <- facts.traverse(terms.bool)
+          g <- terms.bool(goal)
+        } yield Obligation(ints, bools, fs, g)
       case other => Left(s"not an obligation: $other")
     }
 
@@ -136,8 +128,6 @@ object IntObligationReader {
     SExprParser.parseAll(text) match {
       case Left(err)    => Left(err.message)
       case Right(exprs) =>
-        exprs.foldLeft(Right(Vector.empty): Either[String, Vector[Obligation]]) { (acc, e) =>
-          acc.flatMap(os => obligation(e).map(os :+ _))
-        }
+        exprs.traverse(obligation)
     }
 }

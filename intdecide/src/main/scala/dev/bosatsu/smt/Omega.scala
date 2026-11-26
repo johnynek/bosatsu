@@ -1,6 +1,7 @@
 package dev.bosatsu.smt
 
-import scala.collection.immutable.SortedMap
+import cats.syntax.all.*
+import scala.collection.immutable.IntMap
 
 /** Decides whether a conjunction of linear equalities and inequalities over
   * the integers has a solution, and finds one when it does. This is Pugh's
@@ -57,7 +58,7 @@ private[smt] object Omega {
     *     b.eval(env)))`, and the result doesn't mention `v` unless `b` does
     *   - `a == b` exactly when `a.eval(env) == b.eval(env)` for every `env`
     */
-  final case class Form private (const: BigInt, coeffs: SortedMap[Int, BigInt])
+  final case class Form private (const: BigInt, coeffs: IntMap[BigInt])
       derives CanEqual {
 
     /** The value at env. */
@@ -82,7 +83,7 @@ private[smt] object Omega {
 
     def *(k: BigInt): Form =
       if (k == 0) Form.zero
-      else new Form(const * k, coeffs.map { case (v, c) => (v, c * k) })
+      else new Form(const * k, coeffs.transform((_, c) => c * k))
 
     def unary_- : Form = this * Form.minusOne
 
@@ -103,23 +104,23 @@ private[smt] object Omega {
     // Every coefficient and the constant divided by g, which divides all of
     // them; the coefficients stay nonzero.
     private[Omega] def divideExactly(g: BigInt): Form =
-      new Form(const / g, coeffs.map { case (v, c) => (v, c / g) })
+      new Form(const / g, coeffs.transform((_, c) => c / g))
 
     // The coefficients divided by g, which divides all of them, and the
     // constant rounded down.
     private[Omega] def divideFloor(g: BigInt): Form =
-      new Form(floorDiv(const, g), coeffs.map { case (v, c) => (v, c / g) })
+      new Form(floorDiv(const, g), coeffs.transform((_, c) => c / g))
   }
 
   object Form {
     private[Omega] val zeroInt: BigInt = BigInt(0)
     private[Omega] val minusOne: BigInt = BigInt(-1)
 
-    val zero: Form = new Form(zeroInt, SortedMap.empty)
+    val zero: Form = new Form(zeroInt, IntMap.empty)
 
-    def constant(c: BigInt): Form = new Form(c, SortedMap.empty)
+    def constant(c: BigInt): Form = new Form(c, IntMap.empty)
 
-    def variable(v: Int): Form = new Form(zeroInt, SortedMap(v -> BigInt(1)))
+    def variable(v: Int): Form = new Form(zeroInt, IntMap.singleton(v, BigInt(1)))
 
     /** The canonical Form for `const + sum(c * v)`, adding the coefficients
       * of repeated variables and dropping zeros.
@@ -130,7 +131,7 @@ private[smt] object Omega {
       }
 
     // coeffs must already have no zero coefficient, as those of a Form
-    private[Omega] def fromCanonical(const: BigInt, coeffs: SortedMap[Int, BigInt]): Form =
+    private[Omega] def fromCanonical(const: BigInt, coeffs: IntMap[BigInt]): Form =
       new Form(const, coeffs)
   }
 
@@ -160,7 +161,7 @@ private[smt] object Omega {
     /** `model` gives a value to every variable of the constraints, and they
       * all hold there.
       */
-    case Sat(model: SortedMap[Int, BigInt])
+    case Sat(model: IntMap[BigInt])
 
     /** No integer values make every constraint hold. */
     case Unsat
@@ -229,12 +230,12 @@ private[smt] object Omega {
     solveProblem(eqs, geqs, budget) match {
       case Result.Sat(model) =>
         // the internal variables are no business of the caller
-        Result.Sat(SortedMap.from(vars.iterator.map(v => (v, model.getOrElse(v, Form.zeroInt)))))
+        Result.Sat(IntMap.from(vars.iterator.map(v => (v, model.getOrElse(v, Form.zeroInt)))))
       case other => other
     }
   }
 
-  private def withZeros(model: SortedMap[Int, BigInt], vars: Iterable[Int]): SortedMap[Int, BigInt] =
+  private def withZeros(model: IntMap[BigInt], vars: Iterable[Int]): IntMap[BigInt] =
     vars.foldLeft(model) { (acc, v) =>
       if (acc.contains(v)) acc else acc.updated(v, Form.zeroInt)
     }
@@ -260,19 +261,15 @@ private[smt] object Omega {
   // Each equality divided by the gcd of its coefficients, and those without
   // variables dropped. None if one can't hold.
   private def normalizeEqs(eqs: List[Form]): Option[List[Form]] =
-    eqs
-      .foldLeft(Option(List.empty[Form])) { (acc, e) =>
-        acc.flatMap { done =>
-          if (e.isConstant) {
-            if (e.const == 0) Some(done) else None
-          } else {
-            val g = gcdOf(e)
-            if (e.const % g != 0) None
-            else Some(e.divideExactly(g) :: done)
-          }
-        }
+    eqs.traverseFilter { e =>
+      if (e.isConstant) {
+        if (e.const == 0) Some(None) else None
+      } else {
+        val g = gcdOf(e)
+        if (e.const % g != 0) None
+        else Some(Some(e.divideExactly(g)))
       }
-      .map(_.reverse)
+    }
 
   private def eliminateEq(
       e: Form,
@@ -280,7 +277,9 @@ private[smt] object Omega {
       geqs: List[Form],
       budget: Budget
   ): Result =
-    e.coeffs.find { case (_, a) => a.abs == 1 } match {
+    // the smallest variable with one, so the choice doesn't depend on the
+    // map's iteration order
+    e.coeffs.iterator.filter { case (_, a) => a.abs == 1 }.minByOption(_._1) match {
       case Some((x, a)) =>
         // a * x + r == 0 with a == 1 or -1, so x == -a * r
         val definition = e.without(x) * (-a)
@@ -334,8 +333,8 @@ private[smt] object Omega {
   // coefficients only the tightest kept, in the order they first appear.
   // `f >= 0` and `-f >= 0` mean `f == 0`.
   private def normalizeGeqs(geqs: List[Form]): Geqs = {
-    type Coeffs = SortedMap[Int, BigInt]
-    def negate(k: Coeffs): Coeffs = k.map { case (v, c) => (v, -c) }
+    type Coeffs = IntMap[BigInt]
+    def negate(k: Coeffs): Coeffs = k.transform((_, c) => -c)
 
     // the smallest constant for each set of coefficients
     var tightest = Map.empty[Coeffs, BigInt]
@@ -387,7 +386,7 @@ private[smt] object Omega {
   // Projects a variable out of inequalities, all normalized and none
   // constant.
   private def eliminateVar(geqs: List[Form], budget: Budget): Result =
-    if (geqs.isEmpty) Result.Sat(SortedMap.empty)
+    if (geqs.isEmpty) Result.Sat(IntMap.empty)
     else {
       val vars = geqs.iterator.flatMap(_.vars).toVector.distinct.sorted
       def lowers(x: Int): List[Form] = geqs.filter(_.coeff(x) > 0)
@@ -417,7 +416,7 @@ private[smt] object Omega {
   // The value of x from its bounds at m: the largest lower bound, else the
   // smallest upper bound, else 0. When there is an integer between every
   // pair of bounds at m, it is in all of them.
-  private def placeVar(x: Int, bounds: List[Form], m: SortedMap[Int, BigInt]): SortedMap[Int, BigInt] = {
+  private def placeVar(x: Int, bounds: List[Form], m: IntMap[BigInt]): IntMap[BigInt] = {
     val m1 = withZeros(m, bounds.iterator.flatMap(_.vars).filter(_ != x).toList)
     // a * x + rest >= 0 is x >= ceil(-rest / a) for a > 0 and
     // x <= floor(rest / -a) for a < 0

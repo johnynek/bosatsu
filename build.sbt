@@ -513,8 +513,8 @@ lazy val protoJs = proto.js
 lazy val protoJVM = proto.jvm
 
 // Decides the Int obligations of the recursion check. Pure Scala with no
-// dependency on the rest of the compiler; z3 is only used by its tests in
-// core, to check that the two agree.
+// dependency on the rest of the compiler (only cats, which core uses too); z3
+// is only used by its tests in core, to check that the two agree.
 lazy val intdecide =
   crossProject(JSPlatform, JVMPlatform)
     .crossType(CrossType.Pure)
@@ -531,6 +531,7 @@ lazy val intdecide =
       Compile / doc / sources := Seq.empty,
       libraryDependencies ++=
         Seq(
+          cats.value,
           scalaCheck.value % Test,
           munit.value % Test,
           munitScalaCheck.value % Test

@@ -2,7 +2,7 @@ package dev.bosatsu.smt
 
 import org.scalacheck.{Gen, Prop}
 import org.scalacheck.Prop.{forAll, propBoolean}
-import scala.collection.immutable.SortedMap
+import scala.collection.immutable.IntMap
 
 import Omega.{Constraint, Form, Result}
 
@@ -145,7 +145,7 @@ class OmegaLawsTest extends munit.ScalaCheckSuite {
     val slab = List(Constraint.Geq(f), Constraint.Geq((-f).plus(BigInt(1))))
     assertEquals(Omega.solve(slab, Omega.Budget(10)), Result.GaveUp)
     // with room, the first splinter, a * x == b * y, has x == y == 0
-    assertEquals(solve(slab), Result.Sat(SortedMap(0 -> BigInt(0), 1 -> BigInt(0))))
+    assertEquals(solve(slab), Result.Sat(IntMap(0 -> BigInt(0), 1 -> BigInt(0))))
   }
 
   // ---------------------------------------------------------------------------
@@ -202,6 +202,6 @@ class OmegaLawsTest extends munit.ScalaCheckSuite {
   test("constant constraints") {
     assertEquals(solve(List(Constraint.Geq(Form.constant(BigInt(-1))))), Result.Unsat)
     assertEquals(solve(List(Constraint.Eq(Form.constant(BigInt(1))))), Result.Unsat)
-    assertEquals(solve(Nil), Result.Sat(SortedMap.empty))
+    assertEquals(solve(Nil), Result.Sat(IntMap.empty))
   }
 }
