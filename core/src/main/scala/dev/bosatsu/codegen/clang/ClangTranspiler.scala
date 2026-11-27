@@ -761,7 +761,7 @@ case object ClangTranspiler extends Transpiler {
       )
     tpe match {
       case Type.TyConst(ProgMain) =>
-        Right(Code.Ident("bsts_Bosatsu_Prog_run_main"))
+        Right(RuntimeIdent("bsts_Bosatsu_Prog_run_main"))
       case notMain =>
         Left(
           s"unknown type for main: ${Type.fullyResolvedDocument.document(notMain).render(80)}"
