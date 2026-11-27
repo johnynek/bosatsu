@@ -4,7 +4,7 @@ import cats.Show
 import cats.data.NonEmptyList
 import cats.syntax.all._
 import com.monovore.decline.Opts
-import dev.bosatsu.{Identifier, Kind, Package, PackageMap, PackageName, Par, PlatformIO, Region, TypeName}
+import dev.bosatsu.{Identifier, Kind, Package, PackageMap, PackageName, Par, PlatformIO, Region, ReservedPackage, TypeName}
 import dev.bosatsu.codegen.CompilationSource
 import dev.bosatsu.codegen.clang.{ClangGen, ClangTranspiler}
 import dev.bosatsu.rankn.Type
@@ -22,8 +22,8 @@ object EmitCCommand {
       wrapperName: TypeName,
       resultType: Type
   ): Boolean = {
-    val owner = PackageName.parts("Bosatsu", "Prog")
-    val progName = TypeName("Prog")
+    val owner = ReservedPackage.Prog.name
+    val progName = ReservedPackage.Prog.typeName("Prog")
     val progType = Type.const(owner, progName)
     val argsType = Type.TyApply(Type.ListType, Type.StrType)
 
@@ -49,10 +49,18 @@ object EmitCCommand {
   }
 
   private def supportsNativeProgTest(packages: PackageMap.Compiled): Boolean =
-    supportsNativeProgWrapper(packages, TypeName("ProgTest"), Type.TestType)
+    supportsNativeProgWrapper(
+      packages,
+      ReservedPackage.Prog.typeName("ProgTest"),
+      Type.TestType
+    )
 
   private def supportsNativeProgMain(packages: PackageMap.Compiled): Boolean =
-    supportsNativeProgWrapper(packages, TypeName("Main"), Type.IntType)
+    supportsNativeProgWrapper(
+      packages,
+      ReservedPackage.Prog.typeName("Main"),
+      Type.IntType
+    )
 
   private def declaredExternals[P](
       gen: ClangGen[Unit],

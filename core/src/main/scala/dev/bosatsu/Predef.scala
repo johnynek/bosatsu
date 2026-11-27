@@ -1,6 +1,15 @@
 package dev.bosatsu
 
 import cats.data.NonEmptyList
+import dev.bosatsu.ReservedPackage.{
+  Array as ArrayPackage,
+  Eval as EvalPackage,
+  Float64 as Float64Package,
+  Int64 as Int64Package,
+  IoBytes as IoBytesPackage,
+  Lazy as LazyPackage,
+  Prog as ProgPackage
+}
 import java.io.{
   BufferedInputStream,
   BufferedOutputStream,
@@ -55,622 +64,546 @@ object Predef {
   val predefString: String =
     loadFileInCompile(PredefName.source)
 
-  private def predefPackageName: PackageName =
-    PackageName.PredefName
-  private def arrayPackageName: PackageName =
-    PackageName.parts("Bosatsu", "Collection", "Array")
-  private def float64PackageName: PackageName =
-    PackageName.parts("Bosatsu", "Num", "Float64")
-  private def int64PackageName: PackageName =
-    PackageName.parts("Bosatsu", "Num", "Int64")
-  private def progPackageName: PackageName =
-    PackageName.parts("Bosatsu", "Prog")
-  private def ioBytesPackageName: PackageName =
-    PackageName.parts("Bosatsu", "IO", "Bytes")
-  private def ioCorePackageName: PackageName =
-    PackageName.parts("Bosatsu", "IO", "Core")
-  private def lazyPackageName: PackageName =
-    PackageName.parts("Bosatsu", "Lazy")
-  private def evalPackageName: PackageName =
-    PackageName.parts("Bosatsu", "Eval")
-
   private def addIoBytesExternals(externals: Externals): Externals =
     externals
       .add(
-        ioBytesPackageName,
-        "empty_Bytes",
+        IoBytesPackage.external("empty_Bytes"),
         FfiCall.Const(PredefImpl.emptyBytes)
       )
       .add(
-        ioBytesPackageName,
-        "from_List_Int",
+        IoBytesPackage.external("from_List_Int"),
         FfiCall.Fn1(PredefImpl.from_List_Int(_))
       )
       .add(
-        ioBytesPackageName,
-        "from_Array_Int",
+        IoBytesPackage.external("from_Array_Int"),
         FfiCall.Fn1(PredefImpl.from_Array_Int(_))
       )
       .add(
-        ioBytesPackageName,
-        "to_List_Int",
+        IoBytesPackage.external("to_List_Int"),
         FfiCall.Fn1(PredefImpl.to_List_Int(_))
       )
       .add(
-        ioBytesPackageName,
-        "to_Array_Int",
+        IoBytesPackage.external("to_Array_Int"),
         FfiCall.Fn1(PredefImpl.to_Array_Int(_))
       )
       .add(
-        ioBytesPackageName,
-        "size_Bytes",
+        IoBytesPackage.external("size_Bytes"),
         FfiCall.Fn1(PredefImpl.size_Bytes(_))
       )
       .add(
-        ioBytesPackageName,
-        "get_map_Bytes",
+        IoBytesPackage.external("get_map_Bytes"),
         FfiCall.Fn4(PredefImpl.get_map_Bytes(_, _, _, _))
       )
       .add(
-        ioBytesPackageName,
-        "get_or_Bytes",
+        IoBytesPackage.external("get_or_Bytes"),
         FfiCall.Fn3(PredefImpl.get_or_Bytes(_, _, _))
       )
       .add(
-        ioBytesPackageName,
-        "foldl_Bytes",
+        IoBytesPackage.external("foldl_Bytes"),
         FfiCall.Fn3(PredefImpl.foldl_Bytes(_, _, _))
       )
       .add(
-        ioBytesPackageName,
-        "concat_all_Bytes",
+        IoBytesPackage.external("concat_all_Bytes"),
         FfiCall.Fn1(PredefImpl.concat_all_Bytes(_))
       )
       .add(
-        ioBytesPackageName,
-        "slice_Bytes",
+        IoBytesPackage.external("slice_Bytes"),
         FfiCall.Fn3(PredefImpl.slice_Bytes(_, _, _))
       )
       .add(
-        ioBytesPackageName,
-        "starts_with_Bytes",
+        IoBytesPackage.external("starts_with_Bytes"),
         FfiCall.Fn2(PredefImpl.starts_with_Bytes(_, _))
       )
       .add(
-        ioBytesPackageName,
-        "ends_with_Bytes",
+        IoBytesPackage.external("ends_with_Bytes"),
         FfiCall.Fn2(PredefImpl.ends_with_Bytes(_, _))
       )
       .add(
-        ioBytesPackageName,
-        "find_Bytes",
+        IoBytesPackage.external("find_Bytes"),
         FfiCall.Fn3(PredefImpl.find_Bytes(_, _, _))
       )
       .add(
-        ioBytesPackageName,
-        "utf8_bytes_from_String",
+        IoBytesPackage.external("utf8_bytes_from_String"),
         FfiCall.Fn1(PredefImpl.utf8_bytes_from_String(_))
       )
       .add(
-        ioBytesPackageName,
-        "utf8_bytes_to_String",
+        IoBytesPackage.external("utf8_bytes_to_String"),
         FfiCall.Fn1(PredefImpl.utf8_bytes_to_String(_))
       )
       .add(
-        ioBytesPackageName,
-        "utf8_Char_at",
+        IoBytesPackage.external("utf8_Char_at"),
         FfiCall.Fn2(PredefImpl.utf8_Char_at(_, _))
       )
 
   private def addIoCoreExternals(externals: Externals): Externals =
-    PredefIoCorePlatform.addIoCoreExternals(externals, ioCorePackageName)
+    PredefIoCorePlatform.addIoCoreExternals(externals)
 
   val evalExternals: Externals =
     addIoCoreExternals(
       addIoBytesExternals(
         Externals.empty
-      .add(predefPackageName, "add", FfiCall.Fn2(PredefImpl.add(_, _)))
-      .add(predefPackageName, "addf", FfiCall.Fn2(PredefImpl.addf(_, _)))
-      .add(predefPackageName, "div", FfiCall.Fn2(PredefImpl.div(_, _)))
-      .add(predefPackageName, "div_mod", FfiCall.Fn2(PredefImpl.div_mod(_, _)))
-      .add(predefPackageName, "divf", FfiCall.Fn2(PredefImpl.divf(_, _)))
-      .add(predefPackageName, "sub", FfiCall.Fn2(PredefImpl.sub(_, _)))
-      .add(predefPackageName, "subf", FfiCall.Fn2(PredefImpl.subf(_, _)))
-      .add(predefPackageName, "mul", FfiCall.Fn2(PredefImpl.mul(_, _)))
-      .add(predefPackageName, "mulf", FfiCall.Fn2(PredefImpl.mulf(_, _)))
-      .add(predefPackageName, "eq_Int", FfiCall.Fn2(PredefImpl.eq_Int(_, _)))
+      .add(PredefName.external("add"), FfiCall.Fn2(PredefImpl.add(_, _)))
+      .add(PredefName.external("addf"), FfiCall.Fn2(PredefImpl.addf(_, _)))
+      .add(PredefName.external("div"), FfiCall.Fn2(PredefImpl.div(_, _)))
       .add(
-        predefPackageName,
-        "cmp_Int",
+        PredefName.external("div_mod"),
+        FfiCall.Fn2(PredefImpl.div_mod(_, _))
+      )
+      .add(PredefName.external("divf"), FfiCall.Fn2(PredefImpl.divf(_, _)))
+      .add(PredefName.external("sub"), FfiCall.Fn2(PredefImpl.sub(_, _)))
+      .add(PredefName.external("subf"), FfiCall.Fn2(PredefImpl.subf(_, _)))
+      .add(PredefName.external("mul"), FfiCall.Fn2(PredefImpl.mul(_, _)))
+      .add(PredefName.external("mulf"), FfiCall.Fn2(PredefImpl.mulf(_, _)))
+      .add(PredefName.external("eq_Int"), FfiCall.Fn2(PredefImpl.eq_Int(_, _)))
+      .add(
+        PredefName.external("cmp_Int"),
         FfiCall.Fn2(PredefImpl.cmp_Int(_, _))
       )
       .add(
-        predefPackageName,
-        "cmp_Float64",
+        PredefName.external("cmp_Float64"),
         FfiCall.Fn2(PredefImpl.cmp_Float64(_, _))
       )
       .add(
-        predefPackageName,
-        "eq_Float64",
+        PredefName.external("eq_Float64"),
         FfiCall.Fn2(PredefImpl.eq_Float64(_, _))
       )
       .add(
-        predefPackageName,
-        "gcd_Int",
+        PredefName.external("gcd_Int"),
         FfiCall.Fn2(PredefImpl.gcd_Int(_, _))
       )
       .add(
-        predefPackageName,
-        "mod_Int",
+        PredefName.external("mod_Int"),
         FfiCall.Fn2(PredefImpl.mod_Int(_, _))
       )
       .add(
-        predefPackageName,
-        "shift_right_Int",
+        PredefName.external("shift_right_Int"),
         FfiCall.Fn2(PredefImpl.shift_right_Int(_, _))
       )
       .add(
-        predefPackageName,
-        "shift_left_Int",
+        PredefName.external("shift_left_Int"),
         FfiCall.Fn2(PredefImpl.shift_left_Int(_, _))
       )
-      .add(predefPackageName, "and_Int", FfiCall.Fn2(PredefImpl.and_Int(_, _)))
-      .add(predefPackageName, "or_Int", FfiCall.Fn2(PredefImpl.or_Int(_, _)))
-      .add(predefPackageName, "xor_Int", FfiCall.Fn2(PredefImpl.xor_Int(_, _)))
-      .add(predefPackageName, "not_Int", FfiCall.Fn1(PredefImpl.not_Int(_)))
       .add(
-        predefPackageName,
-        "popcount_Int",
+        PredefName.external("and_Int"),
+        FfiCall.Fn2(PredefImpl.and_Int(_, _))
+      )
+      .add(PredefName.external("or_Int"), FfiCall.Fn2(PredefImpl.or_Int(_, _)))
+      .add(
+        PredefName.external("xor_Int"),
+        FfiCall.Fn2(PredefImpl.xor_Int(_, _))
+      )
+      .add(PredefName.external("not_Int"), FfiCall.Fn1(PredefImpl.not_Int(_)))
+      .add(
+        PredefName.external("popcount_Int"),
         FfiCall.Fn1(PredefImpl.popcount_Int(_))
       )
       .add(
-        predefPackageName,
-        "int_to_String",
+        PredefName.external("int_to_String"),
         FfiCall.Fn1(PredefImpl.int_to_String(_))
       )
       .add(
-        predefPackageName,
-        "string_to_Int",
+        PredefName.external("string_to_Int"),
         FfiCall.Fn1(PredefImpl.string_to_Int(_))
       )
-      .add(predefPackageName, "trace", FfiCall.Fn2(PredefImpl.trace(_, _)))
+      .add(PredefName.external("trace"), FfiCall.Fn2(PredefImpl.trace(_, _)))
       .add(
-        predefPackageName,
-        "cmp_String",
+        PredefName.external("cmp_String"),
         FfiCall.Fn2(PredefImpl.cmp_String(_, _))
       )
       .add(
-        predefPackageName,
-        "concat_String",
+        PredefName.external("concat_String"),
         FfiCall.Fn1(PredefImpl.concat_String(_))
       )
       .add(
-        predefPackageName,
-        "char_to_String",
+        PredefName.external("char_to_String"),
         FfiCall.Fn1(PredefImpl.char_to_String(_))
       )
       .add(
-        predefPackageName,
-        "char_to_Int",
+        PredefName.external("char_to_Int"),
         FfiCall.Fn1(PredefImpl.char_to_Int(_))
       )
       .add(
-        predefPackageName,
-        "cmp_Char",
+        PredefName.external("cmp_Char"),
         FfiCall.Fn2(PredefImpl.cmp_Char(_, _))
       )
       .add(
-        predefPackageName,
-        "eq_Char",
+        PredefName.external("eq_Char"),
         FfiCall.Fn2(PredefImpl.eq_Char(_, _))
       )
       .add(
-        predefPackageName,
-        "char_List_to_String",
+        PredefName.external("char_List_to_String"),
         FfiCall.Fn1(PredefImpl.char_List_to_String(_))
       )
       .add(
-        predefPackageName,
-        "int_to_Char",
+        PredefName.external("int_to_Char"),
         FfiCall.Fn1(PredefImpl.int_to_Char(_))
       )
       .add(
-        predefPackageName,
-        "partition_String",
+        PredefName.external("partition_String"),
         FfiCall.Fn2(PredefImpl.partitionString(_, _))
       )
       .add(
-        predefPackageName,
-        "rpartition_String",
+        PredefName.external("rpartition_String"),
         FfiCall.Fn2(PredefImpl.rightPartitionString(_, _))
       )
       .add(
-        predefPackageName,
-        "uncons_String",
+        PredefName.external("uncons_String"),
         FfiCall.Fn1(PredefImpl.uncons_String(_))
       )
       .add(
-        predefPackageName,
-        "tail_or_empty_String",
+        PredefName.external("tail_or_empty_String"),
         FfiCall.Fn1(PredefImpl.tail_or_empty_String(_))
       )
       .add(
-        arrayPackageName,
-        "empty_Array",
+        ArrayPackage.external("empty_Array"),
         FfiCall.Const(PredefImpl.emptyArray)
       )
       .add(
-        arrayPackageName,
-        "tabulate_Array",
+        ArrayPackage.external("tabulate_Array"),
         FfiCall.Fn2(PredefImpl.tabulate_Array(_, _))
       )
       .add(
-        arrayPackageName,
-        "from_List_Array",
+        ArrayPackage.external("from_List_Array"),
         FfiCall.Fn1(PredefImpl.from_List_Array(_))
       )
       .add(
-        arrayPackageName,
-        "to_List_Array",
+        ArrayPackage.external("to_List_Array"),
         FfiCall.Fn1(PredefImpl.to_List_Array(_))
       )
       .add(
-        arrayPackageName,
-        "size_Array",
+        ArrayPackage.external("size_Array"),
         FfiCall.Fn1(PredefImpl.size_Array(_))
       )
       .add(
-        arrayPackageName,
-        "get_map_Array",
+        ArrayPackage.external("get_map_Array"),
         FfiCall.Fn4(PredefImpl.get_map_Array(_, _, _, _))
       )
       .add(
-        arrayPackageName,
-        "get_or_Array",
+        ArrayPackage.external("get_or_Array"),
         FfiCall.Fn3(PredefImpl.get_or_Array(_, _, _))
       )
       .add(
-        arrayPackageName,
-        "foldl_with_index_Array",
+        ArrayPackage.external("foldl_with_index_Array"),
         FfiCall.Fn3(PredefImpl.foldl_with_index_Array(_, _, _))
       )
       .add(
-        arrayPackageName,
-        "foldl_Array",
+        ArrayPackage.external("foldl_Array"),
         FfiCall.Fn3(PredefImpl.foldl_Array(_, _, _))
       )
       .add(
-        arrayPackageName,
-        "foldr_Array",
+        ArrayPackage.external("foldr_Array"),
         FfiCall.Fn3(PredefImpl.foldr_Array(_, _, _))
       )
       .add(
-        arrayPackageName,
-        "map_Array",
+        ArrayPackage.external("map_Array"),
         FfiCall.Fn2(PredefImpl.map_Array(_, _))
       )
       .add(
-        arrayPackageName,
-        "map_with_index_Array",
+        ArrayPackage.external("map_with_index_Array"),
         FfiCall.Fn2(PredefImpl.map_with_index_Array(_, _))
       )
       .add(
-        arrayPackageName,
-        "filter_Array",
+        ArrayPackage.external("filter_Array"),
         FfiCall.Fn2(PredefImpl.filter_Array(_, _))
       )
       .add(
-        arrayPackageName,
-        "flat_map_Array",
+        ArrayPackage.external("flat_map_Array"),
         FfiCall.Fn2(PredefImpl.flat_map_Array(_, _))
       )
       .add(
-        arrayPackageName,
-        "zip_map_Array",
+        ArrayPackage.external("zip_map_Array"),
         FfiCall.Fn3(PredefImpl.zip_map_Array(_, _, _))
       )
       .add(
-        arrayPackageName,
-        "zip_foldl_Array",
+        ArrayPackage.external("zip_foldl_Array"),
         FfiCall.Fn4(PredefImpl.zip_foldl_Array(_, _, _, _))
       )
       .add(
-        arrayPackageName,
-        "zip_sumf_Array",
+        ArrayPackage.external("zip_sumf_Array"),
         FfiCall.Fn3(PredefImpl.zip_sumf_Array(_, _, _))
       )
       .add(
-        arrayPackageName,
-        "sumf_Array",
+        ArrayPackage.external("sumf_Array"),
         FfiCall.Fn1(PredefImpl.sumf_Array(_))
       )
       .add(
-        arrayPackageName,
-        "sumsqf_Array",
+        ArrayPackage.external("sumsqf_Array"),
         FfiCall.Fn1(PredefImpl.sumsqf_Array(_))
       )
       .add(
-        arrayPackageName,
-        "dotf_Array",
+        ArrayPackage.external("dotf_Array"),
         FfiCall.Fn2(PredefImpl.dotf_Array(_, _))
       )
       .add(
-        arrayPackageName,
-        "set_or_self_Array",
+        ArrayPackage.external("set_or_self_Array"),
         FfiCall.Fn3(PredefImpl.set_or_self_Array(_, _, _))
       )
       .add(
-        arrayPackageName,
-        "sort_Array",
+        ArrayPackage.external("sort_Array"),
         FfiCall.Fn2(PredefImpl.sort_Array(_, _))
       )
       .add(
-        arrayPackageName,
-        "concat_all_Array",
+        ArrayPackage.external("concat_all_Array"),
         FfiCall.Fn1(PredefImpl.concat_all_Array(_))
       )
       .add(
-        arrayPackageName,
-        "slice_Array",
+        ArrayPackage.external("slice_Array"),
         FfiCall.Fn3(PredefImpl.slice_Array(_, _, _))
       )
       .add(
-        arrayPackageName,
-        "char_Array_to_String",
+        ArrayPackage.external("char_Array_to_String"),
         FfiCall.Fn1(PredefImpl.char_Array_to_String(_))
       )
-      .add(float64PackageName, "abs", FfiCall.Fn1(PredefImpl.abs_Float64(_)))
-      .add(float64PackageName, "acos", FfiCall.Fn1(PredefImpl.acos_Float64(_)))
-      .add(float64PackageName, "asin", FfiCall.Fn1(PredefImpl.asin_Float64(_)))
-      .add(float64PackageName, "atan", FfiCall.Fn1(PredefImpl.atan_Float64(_)))
       .add(
-        float64PackageName,
-        "atan2",
+        Float64Package.external("abs"),
+        FfiCall.Fn1(PredefImpl.abs_Float64(_))
+      )
+      .add(
+        Float64Package.external("acos"),
+        FfiCall.Fn1(PredefImpl.acos_Float64(_))
+      )
+      .add(
+        Float64Package.external("asin"),
+        FfiCall.Fn1(PredefImpl.asin_Float64(_))
+      )
+      .add(
+        Float64Package.external("atan"),
+        FfiCall.Fn1(PredefImpl.atan_Float64(_))
+      )
+      .add(
+        Float64Package.external("atan2"),
         FfiCall.Fn2(PredefImpl.atan2_Float64(_, _))
       )
-      .add(float64PackageName, "ceil", FfiCall.Fn1(PredefImpl.ceil_Float64(_)))
-      .add(float64PackageName, "cos", FfiCall.Fn1(PredefImpl.cos_Float64(_)))
-      .add(float64PackageName, "cosh", FfiCall.Fn1(PredefImpl.cosh_Float64(_)))
-      .add(float64PackageName, "exp", FfiCall.Fn1(PredefImpl.exp_Float64(_)))
       .add(
-        float64PackageName,
-        "floor",
+        Float64Package.external("ceil"),
+        FfiCall.Fn1(PredefImpl.ceil_Float64(_))
+      )
+      .add(
+        Float64Package.external("cos"),
+        FfiCall.Fn1(PredefImpl.cos_Float64(_))
+      )
+      .add(
+        Float64Package.external("cosh"),
+        FfiCall.Fn1(PredefImpl.cosh_Float64(_))
+      )
+      .add(
+        Float64Package.external("exp"),
+        FfiCall.Fn1(PredefImpl.exp_Float64(_))
+      )
+      .add(
+        Float64Package.external("floor"),
         FfiCall.Fn1(PredefImpl.floor_Float64(_))
       )
       .add(
-        float64PackageName,
-        "hypot",
+        Float64Package.external("hypot"),
         FfiCall.Fn2(PredefImpl.hypot_Float64(_, _))
       )
-      .add(float64PackageName, "log", FfiCall.Fn1(PredefImpl.log_Float64(_)))
       .add(
-        float64PackageName,
-        "log10",
+        Float64Package.external("log"),
+        FfiCall.Fn1(PredefImpl.log_Float64(_))
+      )
+      .add(
+        Float64Package.external("log10"),
         FfiCall.Fn1(PredefImpl.log10_Float64(_))
       )
-      .add(float64PackageName, "pow", FfiCall.Fn2(PredefImpl.pow_Float64(_, _)))
-      .add(float64PackageName, "sin", FfiCall.Fn1(PredefImpl.sin_Float64(_)))
-      .add(float64PackageName, "sinh", FfiCall.Fn1(PredefImpl.sinh_Float64(_)))
-      .add(float64PackageName, "sqrt", FfiCall.Fn1(PredefImpl.sqrt_Float64(_)))
-      .add(float64PackageName, "tan", FfiCall.Fn1(PredefImpl.tan_Float64(_)))
-      .add(float64PackageName, "tanh", FfiCall.Fn1(PredefImpl.tanh_Float64(_)))
       .add(
-        float64PackageName,
-        "copy_sign",
+        Float64Package.external("pow"),
+        FfiCall.Fn2(PredefImpl.pow_Float64(_, _))
+      )
+      .add(
+        Float64Package.external("sin"),
+        FfiCall.Fn1(PredefImpl.sin_Float64(_))
+      )
+      .add(
+        Float64Package.external("sinh"),
+        FfiCall.Fn1(PredefImpl.sinh_Float64(_))
+      )
+      .add(
+        Float64Package.external("sqrt"),
+        FfiCall.Fn1(PredefImpl.sqrt_Float64(_))
+      )
+      .add(
+        Float64Package.external("tan"),
+        FfiCall.Fn1(PredefImpl.tan_Float64(_))
+      )
+      .add(
+        Float64Package.external("tanh"),
+        FfiCall.Fn1(PredefImpl.tanh_Float64(_))
+      )
+      .add(
+        Float64Package.external("copy_sign"),
         FfiCall.Fn2(PredefImpl.copySign_Float64(_, _))
       )
       .add(
-        float64PackageName,
-        "is_nan",
+        Float64Package.external("is_nan"),
         FfiCall.Fn1(PredefImpl.isNaN_Float64(_))
       )
       .add(
-        float64PackageName,
-        "is_infinite",
+        Float64Package.external("is_infinite"),
         FfiCall.Fn1(PredefImpl.isInfinite_Float64(_))
       )
       .add(
-        float64PackageName,
-        "float64_to_String",
+        Float64Package.external("float64_to_String"),
         FfiCall.Fn1(PredefImpl.float64_to_String(_))
       )
       .add(
-        float64PackageName,
-        "string_to_Float64",
+        Float64Package.external("string_to_Float64"),
         FfiCall.Fn1(PredefImpl.string_to_Float64(_))
       )
       .add(
-        float64PackageName,
-        "int_bits_to_Float64",
+        Float64Package.external("int_bits_to_Float64"),
         FfiCall.Fn1(PredefImpl.int_bits_to_Float64(_))
       )
       .add(
-        float64PackageName,
-        "float64_bits_to_Int",
+        Float64Package.external("float64_bits_to_Int"),
         FfiCall.Fn1(PredefImpl.float64_bits_to_Int(_))
       )
       .add(
-        float64PackageName,
-        "float32_bits_to_Float64",
+        Float64Package.external("float32_bits_to_Float64"),
         FfiCall.Fn1(PredefImpl.float32_bits_to_Float64(_))
       )
       .add(
-        float64PackageName,
-        "float64_to_float32_bits",
+        Float64Package.external("float64_to_float32_bits"),
         FfiCall.Fn1(PredefImpl.float64_to_float32_bits(_))
       )
       .add(
-        float64PackageName,
-        "float64_to_Int",
+        Float64Package.external("float64_to_Int"),
         FfiCall.Fn1(PredefImpl.float64_to_Int(_))
       )
       .add(
-        float64PackageName,
-        "int_to_Float64",
+        Float64Package.external("int_to_Float64"),
         FfiCall.Fn1(PredefImpl.int_to_Float64(_))
       )
-      .add(int64PackageName, "min_i64", FfiCall.Const(PredefImpl.min_i64))
-      .add(int64PackageName, "max_i64", FfiCall.Const(PredefImpl.max_i64))
+      .add(Int64Package.external("min_i64"), FfiCall.Const(PredefImpl.min_i64))
+      .add(Int64Package.external("max_i64"), FfiCall.Const(PredefImpl.max_i64))
       .add(
-        int64PackageName,
-        "int_to_Int64",
+        Int64Package.external("int_to_Int64"),
         FfiCall.Fn1(PredefImpl.int_to_Int64(_))
       )
       .add(
-        int64PackageName,
-        "int_low_bits_to_Int64",
+        Int64Package.external("int_low_bits_to_Int64"),
         FfiCall.Fn1(PredefImpl.int_low_bits_to_Int64(_))
       )
       .add(
-        int64PackageName,
-        "int64_to_Int",
+        Int64Package.external("int64_to_Int"),
         FfiCall.Fn1(PredefImpl.int64_to_Int(_))
       )
       .add(
-        int64PackageName,
-        "int64_to_Float64",
+        Int64Package.external("int64_to_Float64"),
         FfiCall.Fn1(PredefImpl.int64_to_Float64(_))
       )
       .add(
-        int64PackageName,
-        "float64_to_Int64",
+        Int64Package.external("float64_to_Int64"),
         FfiCall.Fn1(PredefImpl.float64_to_Int64(_))
       )
       .add(
-        int64PackageName,
-        "add_Int64",
+        Int64Package.external("add_Int64"),
         FfiCall.Fn2(PredefImpl.add_Int64(_, _))
       )
       .add(
-        int64PackageName,
-        "sub_Int64",
+        Int64Package.external("sub_Int64"),
         FfiCall.Fn2(PredefImpl.sub_Int64(_, _))
       )
       .add(
-        int64PackageName,
-        "mul_Int64",
+        Int64Package.external("mul_Int64"),
         FfiCall.Fn2(PredefImpl.mul_Int64(_, _))
       )
       .add(
-        int64PackageName,
-        "div_Int64",
+        Int64Package.external("div_Int64"),
         FfiCall.Fn2(PredefImpl.div_Int64(_, _))
       )
       .add(
-        int64PackageName,
-        "mod_Int64",
+        Int64Package.external("mod_Int64"),
         FfiCall.Fn2(PredefImpl.mod_Int64(_, _))
       )
       .add(
-        int64PackageName,
-        "and_Int64",
+        Int64Package.external("and_Int64"),
         FfiCall.Fn2(PredefImpl.and_Int64(_, _))
       )
       .add(
-        int64PackageName,
-        "or_Int64",
+        Int64Package.external("or_Int64"),
         FfiCall.Fn2(PredefImpl.or_Int64(_, _))
       )
       .add(
-        int64PackageName,
-        "xor_Int64",
+        Int64Package.external("xor_Int64"),
         FfiCall.Fn2(PredefImpl.xor_Int64(_, _))
       )
       .add(
-        int64PackageName,
-        "not_Int64",
+        Int64Package.external("not_Int64"),
         FfiCall.Fn1(PredefImpl.not_Int64(_))
       )
       .add(
-        int64PackageName,
-        "shift_left_Int64",
+        Int64Package.external("shift_left_Int64"),
         FfiCall.Fn2(PredefImpl.shift_left_Int64(_, _))
       )
       .add(
-        int64PackageName,
-        "shift_right_Int64",
+        Int64Package.external("shift_right_Int64"),
         FfiCall.Fn2(PredefImpl.shift_right_Int64(_, _))
       )
       .add(
-        int64PackageName,
-        "shift_right_unsigned_Int64",
+        Int64Package.external("shift_right_unsigned_Int64"),
         FfiCall.Fn2(PredefImpl.shift_right_unsigned_Int64(_, _))
       )
       .add(
-        int64PackageName,
-        "popcount_Int64",
+        Int64Package.external("popcount_Int64"),
         FfiCall.Fn1(PredefImpl.popcount_Int64(_))
       )
       .add(
-        int64PackageName,
-        "eq_Int64",
+        Int64Package.external("eq_Int64"),
         FfiCall.Fn2(PredefImpl.eq_Int64(_, _))
       )
       .add(
-        int64PackageName,
-        "cmp_Int64",
+        Int64Package.external("cmp_Int64"),
         FfiCall.Fn2(PredefImpl.cmp_Int64(_, _))
       )
-      .add(lazyPackageName, "lazy", FfiCall.Fn1(PredefImpl.lazy_Lazy(_)))
+      .add(LazyPackage.external("lazy"), FfiCall.Fn1(PredefImpl.lazy_Lazy(_)))
       .add(
-        lazyPackageName,
-        "get_Lazy",
+        LazyPackage.external("get_Lazy"),
         FfiCall.Fn1(PredefImpl.get_Lazy(_))
       )
       .add(
-        evalPackageName,
-        "eval_loop",
+        EvalPackage.external("eval_loop"),
         FfiCall.Fn1(PredefImpl.eval_loop_Eval(_))
       )
-      .add(progPackageName, "pure", FfiCall.Fn1(PredefImpl.prog_pure(_)))
+      .add(ProgPackage.external("pure"), FfiCall.Fn1(PredefImpl.prog_pure(_)))
       .add(
-        progPackageName,
-        "raise_error",
+        ProgPackage.external("raise_error"),
         FfiCall.Fn1(PredefImpl.prog_raise_error(_))
       )
       .add(
-        progPackageName,
-        "flat_map",
+        ProgPackage.external("flat_map"),
         FfiCall.Fn2(PredefImpl.prog_flat_map(_, _))
       )
       .add(
-        progPackageName,
-        "recover",
+        ProgPackage.external("recover"),
         FfiCall.Fn2(PredefImpl.prog_recover(_, _))
       )
       .add(
-        progPackageName,
-        "observe",
+        ProgPackage.external("observe"),
         FfiCall.Fn1(PredefImpl.prog_observe(_))
       )
       .add(
-        progPackageName,
-        "new_var",
+        ProgPackage.external("new_var"),
         FfiCall.Fn1(PredefImpl.prog_new_var(_))
       )
       .add(
-        progPackageName,
-        "update",
+        ProgPackage.external("update"),
         FfiCall.Fn2(PredefImpl.prog_var_update(_, _))
       )
       .add(
-        progPackageName,
-        "set",
+        ProgPackage.external("set"),
         FfiCall.Fn2(PredefImpl.prog_var_set(_, _))
       )
       .add(
-        progPackageName,
-        "get",
+        ProgPackage.external("get"),
         FfiCall.Fn1(PredefImpl.prog_var_get(_))
       )
       .add(
-        progPackageName,
-        "swap",
+        ProgPackage.external("swap"),
         FfiCall.Fn2(PredefImpl.prog_var_swap(_, _))
       )
       .add(
-        progPackageName,
-        "apply_fix",
+        ProgPackage.external("apply_fix"),
         FfiCall.Fn2(PredefImpl.prog_apply_fix(_, _))
       )
       )

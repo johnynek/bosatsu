@@ -12,6 +12,7 @@ import dev.bosatsu.{
   Identifier,
   Parser,
   PredefName,
+  ReservedPackage,
   TypeParser,
   Require,
   Variance
@@ -1711,8 +1712,8 @@ object Type {
   val ProgTestType: Type.TyConst =
     TyConst(
       Const.Defined(
-        PackageName.parts("Bosatsu", "Prog"),
-        TypeName("ProgTest")
+        ReservedPackage.Prog.name,
+        ReservedPackage.Prog.typeName("ProgTest")
       )
     )
   val UnitType: Type.TyConst =

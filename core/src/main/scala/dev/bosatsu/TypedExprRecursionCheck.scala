@@ -242,15 +242,15 @@ object TypedExprRecursionCheck {
     private val nonEmptyListKnownCtor =
       KnownCtor(PackageName.PredefName, PredefNames.NonEmptyList)
     private val unitCtorName = PredefNames.Unit
-    private val lazyPackageName = PackageName.parts("Bosatsu", "Lazy")
-    private val getLazyName = Identifier.Name("get_Lazy")
+    private val lazyPackageName = ReservedPackage.Lazy.name
+    private val getLazyName = ReservedPackage.Lazy.value("get_Lazy")
     private val lazyTypeConst =
-      Type.Const.Defined(lazyPackageName, TypeName("Lazy"))
-    private val evalPackageName = PackageName.parts("Bosatsu", "Eval")
-    private val evalName = Identifier.Name("eval")
-    private val flatMapName = Identifier.Name("flat_map")
+      Type.Const.Defined(lazyPackageName, ReservedPackage.Lazy.typeName("Lazy"))
+    private val evalPackageName = ReservedPackage.Eval.name
+    private val evalName = ReservedPackage.Eval.value("eval")
+    private val flatMapName = ReservedPackage.Eval.value("flat_map")
     private val evalTypeConst =
-      Type.Const.Defined(evalPackageName, TypeName("Eval"))
+      Type.Const.Defined(evalPackageName, ReservedPackage.Eval.typeName("Eval"))
 
     case class SmtBranchState(
         intBindings: Map[Bindable, SmtExpr.IntExpr],

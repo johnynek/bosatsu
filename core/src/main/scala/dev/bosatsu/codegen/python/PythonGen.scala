@@ -11,7 +11,8 @@ import dev.bosatsu.{
   Lit,
   Matchless,
   Par,
-  Parser
+  Parser,
+  ReservedPackage
 }
 import dev.bosatsu.codegen.{CompilationNamespace, CompilationSource, Idents}
 import dev.bosatsu.rankn.Type
@@ -775,10 +776,8 @@ object PythonGen {
 
     object PredefExternal {
       private val predefPackage: PackageName = PackageName.PredefName
-      private val arrayPackage: PackageName =
-        PackageName.parts("Bosatsu", "Collection", "Array")
-      private val float64Package: PackageName =
-        PackageName.parts("Bosatsu", "Num", "Float64")
+      private val arrayPackage: PackageName = ReservedPackage.Array.name
+      private val float64Package: PackageName = ReservedPackage.Float64.name
       private val pyStringCmpHelperKey = "py_string_cmp_helper"
 
       private def cmpExpr(
@@ -3207,7 +3206,7 @@ object PythonGen {
         ns: CompilationNamespace[K]
     ) {
       private type InlineSlots = Option[Vector[Expression]]
-      private val int64Package = PackageName.parts("Bosatsu", "Num", "Int64")
+      private val int64Package = ReservedPackage.Int64.name
 
       private def mathModule: Env[Code.Ident] =
         Env.importLiteral(NonEmptyList.one(Code.Ident("math")))
@@ -3234,7 +3233,10 @@ object PythonGen {
           }
 
       private def boxInt64(expr: Code.Expression): Env[Code.Expression] =
-        remap(int64Package, Identifier.Name("int_low_bits_to_Int64")).flatMap {
+        remap(
+          int64Package,
+          ReservedPackage.Int64.value("int_low_bits_to_Int64")
+        ).flatMap {
           case Some(vl) =>
             applyExternalFn(vl, expr)
           case None =>
@@ -3242,7 +3244,10 @@ object PythonGen {
         }
 
       private def unboxInt64(expr: Code.Expression): Env[Code.Expression] =
-        remap(int64Package, Identifier.Name("int64_to_Int")).flatMap {
+        remap(
+          int64Package,
+          ReservedPackage.Int64.value("int64_to_Int")
+        ).flatMap {
           case Some(vl) =>
             applyExternalFn(vl, expr)
           case None =>

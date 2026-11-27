@@ -44,9 +44,9 @@ import dev.bosatsu.{
   Par,
   MatchlessFromTypedExpr,
   PlatformIO,
+  ReservedPackage,
   TypeValidator,
   ValueToJson,
-  TypeName,
   PredefImpl,
   Predef => BosatsuPredef
 }
@@ -1750,8 +1750,8 @@ object Command {
     val progMainType: Type =
       Type.TyConst(
         Type.Const.Defined(
-          PackageName.parts("Bosatsu", "Prog"),
-          TypeName("Main")
+          ReservedPackage.Prog.name,
+          ReservedPackage.Prog.typeName("Main")
         )
       )
 
