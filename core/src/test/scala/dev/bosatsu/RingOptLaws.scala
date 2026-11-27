@@ -308,6 +308,26 @@ class RingOptLaws extends munit.ScalaCheckSuite {
     assertEquals(normE.basicNorm, normE)
   }
 
+  test("basicNorm doesn't add nodes to make an outer Neg a subtraction") {
+    // normalizeNeg of the sum is -1 + (((-1 + -s1) * c) + -s2): none of its
+    // Negs cost anything, but it has two more nodes than the sum, one more
+    // than e. So basicNorm keeps the outer Neg and pays for it.
+    val s1: Expr[BigInt] = Symbol(
+      BigInt("-136986847679222521559335955164150220267943530701161303195")
+    )
+    val s2: Expr[BigInt] = Symbol(BigInt("-947144815820145469"))
+    val c: Expr[BigInt] = Integer(BigInt("5194961577378835761"))
+    val e: Expr[BigInt] = Neg(Add(Mult(Add(s1, One), c), Add(One, s2)))
+    val w = Weights(mult = 13, add = 9, neg = 3)
+
+    val normE = e.basicNorm
+    assertEquals(Expr.toValue(normE), Expr.toValue(e))
+    assert(normE.graphSize <= e.graphSize, show"normE=$normE, e=$e")
+    assert(w.cost(normE) <= w.cost(e), show"normE=$normE, e=$e")
+    assertEquals(Expr.opCounts(normE), Expr.OpCounts(1, 3, 1))
+    assertEquals(normE.basicNorm, normE)
+  }
+
   test("opCounts counts a Neg under an Add as part of one subtraction") {
     // as Int arithmetic is emitted: x + -y and -y + x are each one sub, and
     // every other Neg is a 0 - x
