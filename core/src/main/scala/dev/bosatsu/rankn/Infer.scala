@@ -959,13 +959,19 @@ object Infer {
       }
 
     /*
-     * Invariant: r2 needs to be in weak prenex form
+     * Check (a1s => r1) <:< (a2s => r2).
+     *
+     * r2 is usually a Rho in weak prenex form, and then the result coercion
+     * is pushed into the function. But callers that check against a type they
+     * have not skolemized, such as an annotation on an application or the
+     * widest branch type of a match, can pass a function type whose result
+     * still has a forall: Int -> (forall a. a -> a).
      */
     def subsCheckFn(
         a1s: NonEmptyList[Type],
         r1: Type,
         a2s: NonEmptyList[Type],
-        r2: Type.Rho,
+        r2: Type,
         left: Region,
         right: Region,
         direction: Error.Direction
@@ -991,10 +997,21 @@ object Infer {
               if (same) a2 else a1
             }
         }
-        // r2 is already in weak-prenex form
-        cores <- subsCheckRho(r1, r2, left, right, direction)
-        ks <- checkedKinds
-      } yield TypedExpr.coerceFn(outArgs, r2, cores, ks)
+        coerce <- r2 match {
+          case rhoR2: Type.Rho =>
+            for {
+              cores <- subsCheckRho(r1, rhoR2, left, right, direction)
+              ks <- checkedKinds
+            } yield TypedExpr.coerceFn(outArgs, rhoR2, cores, ks)
+          case sigmaR2 =>
+            // Skolemize the forall in the result (DEEP-SKOL), as we do for
+            // a covariant type argument, then widen the whole function.
+            for {
+              _ <- subsCheck(r1, sigmaR2, left, right, direction)
+              ks <- checkedKinds
+            } yield TypedExpr.coerceRho(Type.Fun(outArgs, sigmaR2), ks)
+        }
+      } yield coerce
 
     /*
      * If t <:< rho then coerce to rho
@@ -1120,36 +1137,21 @@ object Infer {
             }
           case (rho1, Type.Fun(a2, r2)) =>
             // Rule FUN
-            for {
-              (a1, r1) <- unifyFnRho(a2.length, rho1, left, right, direction)
-              // since rho is in weak prenex form, and Fun is covariant on r2, we know
-              // r2 is in weak-prenex form and a rho type
-              rhor2 <- assertRho(
-                r2,
-                s"subsCheckRho2($t, $rho, $left, $right), line 619",
-                right
-              )
-              coerce <- subsCheckFn(a1, r1, a2, rhor2, left, right, direction)
-            } yield coerce
+            unifyFnRho(a2.length, rho1, left, right, direction).flatMap {
+              case (a1, r1) =>
+                subsCheckFn(a1, r1, a2, r2, left, right, direction)
+            }
           case (Type.Fun(a1, r1), rho2) =>
             // Rule FUN
-            for {
-              (a2, r2) <- unifyFnRho(
-                a1.length,
-                rho2,
-                right,
-                left,
-                direction.flip
-              )
-              // since rho is in weak prenex form, and Fun is covariant on r2, we know
-              // r2 is in weak-prenex form
-              rhor2 <- assertRho(
-                r2,
-                s"subsCheckRho2($t, $rho, $left, $right), line 628",
-                right
-              )
-              coerce <- subsCheckFn(a1, r1, a2, rhor2, left, right, direction)
-            } yield coerce
+            unifyFnRho(
+              a1.length,
+              rho2,
+              right,
+              left,
+              direction.flip
+            ).flatMap { case (a2, r2) =>
+              subsCheckFn(a1, r1, a2, r2, left, right, direction)
+            }
           case (rho1: (Type.Leaf | Type.TyApply), ta @ Type.TyApply(l2, r2)) =>
             for {
               (kl, kr) <- validateKinds(ta, right)

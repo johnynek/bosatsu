@@ -485,14 +485,27 @@ object MatchlessGlobalInlining {
             case None =>
               global
           }
-        case _ =>
-          loop(ex) match {
-            case ch: Matchless.CheapExpr[K] => ch
-            case notCheap                   =>
-              throw new IllegalStateException(
-                s"expected cheap expression during Matchless global inlining, found: $notCheap"
-              )
-          }
+        case Matchless.GetEnumElement(arg, variant, index, size) =>
+          foldKnownCheap(
+            Matchless.GetEnumElement(loopCheap(arg), variant, index, size)
+          )
+        case Matchless.GetStructElement(arg, index, size) =>
+          foldKnownCheap(Matchless.GetStructElement(loopCheap(arg), index, size))
+        case Matchless.Local(_) | Matchless.ClosureSlot(_) |
+            Matchless.LocalAnon(_) | Matchless.LocalAnonMut(_) |
+            Matchless.Literal(_) | Matchless.LitInt64(_) =>
+          ex
+      }
+
+    // A projection in a cheap position can only be replaced by a known value
+    // that is itself cheap. A known constructor application is a value, but
+    // it allocates, so the projection stays.
+    def foldKnownCheap(
+        rewritten: Matchless.CheapExpr[K]
+    ): Matchless.CheapExpr[K] =
+      knownSummaryValue(rewritten, Set.empty) match {
+        case Some(cheap: Matchless.CheapExpr[K]) => loopCheap(cheap)
+        case _                                   => rewritten
       }
 
     def loopBool(ex: Matchless.BoolExpr[K]): Matchless.BoolExpr[K] =

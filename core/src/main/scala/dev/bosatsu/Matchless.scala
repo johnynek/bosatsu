@@ -3285,15 +3285,30 @@ object Matchless {
           false
       })
 
+    // A projection in a cheap position can only be replaced by a known value
+    // that is itself cheap. A known constructor application is a value, but
+    // it allocates, so the projection stays.
     def recurExprCheap(ex: CheapExpr[A], env: KnownEnv): CheapExpr[A] =
-      recurExpr(ex, env) match {
-        case ch: CheapExpr[A] => ch
-        case notCheap         =>
-          // $COVERAGE-OFF$
-          throw new IllegalStateException(
-            s"expected cheap expression while simplifying known Matchless conditions, found: $notCheap"
+      ex match {
+        case GetEnumElement(arg, variant, index, size) =>
+          foldKnownCheap(
+            GetEnumElement(recurExprCheap(arg, env), variant, index, size),
+            env
           )
-        // $COVERAGE-ON$
+        case GetStructElement(arg, index, size) =>
+          foldKnownCheap(
+            GetStructElement(recurExprCheap(arg, env), index, size),
+            env
+          )
+        case Local(_) | ClosureSlot(_) | LocalAnon(_) | LocalAnonMut(_) |
+            Global(_, _, _) | Literal(_) | LitInt64(_) =>
+          ex
+      }
+
+    def foldKnownCheap(rewritten: CheapExpr[A], env: KnownEnv): CheapExpr[A] =
+      knownValue(rewritten, env, Set.empty, Set.empty) match {
+        case Some(cheap: CheapExpr[A]) => recurExprCheap(cheap, env)
+        case _                         => rewritten
       }
 
     def recurBool(ex: BoolExpr[A], env: KnownEnv): BoolExpr[A] =
@@ -7606,53 +7621,74 @@ object Matchless {
         // $COVERAGE-ON$
       }
 
-    // Expand all top-level unions in the row's pattern vector.
-    // returns at liast as many rows as it takes in
-    def expandRows(rows: List[MatchRow]): List[MatchRow] = {
-      def expandPats(
-          pats: List[Pattern[(PackageName, Constructor), Type]]
-      ): NonEmptyList[List[Pattern[(PackageName, Constructor), Type]]] =
-        pats match {
-          case Nil       => NonEmptyList(Nil, Nil)
-          case p :: tail =>
-            for {
-              p1 <- Pattern.flatten(p)
-              rest <- expandPats(tail)
-            } yield p1 :: rest
-        }
-
-      rows.flatMap { row =>
-        expandPats(row.pats).toList.map(ps => row.copy(pats = ps))
+    // Peel one column's pattern and split its top-level unions. Each union
+    // alternative is peeled in turn, since it can carry its own binder, as in
+    // `(A as y) | (B as y)`. Every returned pattern is WildCard, Literal or
+    // PositionalStruct, paired with the bindings of the occurrence that
+    // choosing it makes, in source order.
+    def peelAlternatives(
+        p: Pattern[(PackageName, Constructor), Type],
+        occ: CheapExpr[B],
+        inlined: Option[InlinedStructRoot]
+    ): NonEmptyList[
+      (List[(Bindable, Expr[B])], Pattern[(PackageName, Constructor), Type])
+    ] = {
+      val (binds, core) = peelPattern(p, occ, inlined)
+      core match {
+        case union @ Pattern.Union(_, _) =>
+          Pattern.flatten(union).flatMap { alt =>
+            peelAlternatives(alt, occ, inlined).map { case (altBinds, altCore) =>
+              (binds ::: altBinds, altCore)
+            }
+          }
+        case _ =>
+          NonEmptyList.one((binds, core))
       }
     }
 
-    // Normalize a row by collapsing aliases into bindings and simplifying
-    // patterns, without changing the left-to-right match semantics.
-    // Invariant: row.pats.length == occs.length.
+    // Normalize a row by collapsing aliases into bindings, simplifying
+    // patterns, and splitting top-level unions into one row per alternative,
+    // without changing the left-to-right match semantics: the rows for the
+    // earlier alternatives come first, and an earlier column varies slowest.
+    // Invariant: row.pats.length == occs.length, and every returned row has
+    // that length too.
     def normalizeRow(
         row: MatchRow,
         occs: List[CheapExpr[B]],
         rootOcc: CheapExpr[B],
         inlinedRoot: Option[InlinedStructRoot]
-    ): MatchRow = {
-      val (bindsRev, patsRev) =
+    ): NonEmptyList[MatchRow] = {
+      type Choice =
+        (List[(Bindable, Expr[B])], Pattern[(PackageName, Constructor), Type])
+
+      val columns: List[NonEmptyList[Choice]] =
         row.pats.iterator
           .zip(occs.iterator)
-          .foldLeft(
-            (
-              row.binds.reverse,
-              List.empty[Pattern[(PackageName, Constructor), Type]]
-            )
-          ) { case ((bs, acc), (pat, occ)) =>
-            val p1 = normalizePattern(pat)
+          .map { case (pat, occ) =>
             val maybeInlined = rootInlinedForOcc(occ, rootOcc, inlinedRoot)
-            val (moreBinds, core) = peelPattern(p1, occ, maybeInlined)
-            // we prepend in reverse order so this isn't quadratic
-            // otherwise prepending the bs accumulator would be quadratic
-            (moreBinds.reverse ::: bs, core :: acc)
+            peelAlternatives(normalizePattern(pat), occ, maybeInlined)
           }
+          .toList
 
-      row.copy(pats = patsRev.reverse, binds = bindsRev.reverse)
+      def expand(
+          cols: List[NonEmptyList[Choice]]
+      ): NonEmptyList[
+        (List[(Bindable, Expr[B])], List[Pattern[(PackageName, Constructor), Type]])
+      ] =
+        cols match {
+          case Nil         => NonEmptyList.one((Nil, Nil))
+          case col :: rest =>
+            val restRows = expand(rest)
+            col.flatMap { case (binds, pat) =>
+              restRows.map { case (restBinds, pats) =>
+                (binds ::: restBinds, pat :: pats)
+              }
+            }
+        }
+
+      expand(columns).map { case (binds, pats) =>
+        row.copy(pats = pats, binds = row.binds ::: binds)
+      }
     }
 
     // Drop columns that are all wildcards to keep the matrix small.
@@ -7721,8 +7757,8 @@ object Matchless {
         case Pattern.Annotation(_, _) | Pattern.Var(_) | Pattern.Named(_, _) |
             Pattern.StrPat(_) | Pattern.ListPat(_) | Pattern.Union(_, _) =>
           // headSig is only called on rows that have been normalized
-          // (normalizeRow + peelPattern), had unions flattened
-          // (expandRows), and are known to be orthogonal
+          // (normalizeRow, which peels each union alternative and splits
+          // unions into rows), and are known to be orthogonal
           // (isNonOrthogonal == false). These cases should be eliminated
           // before headSig, so reaching them is an invariant violation.
           // $COVERAGE-OFF$
@@ -7891,7 +7927,8 @@ object Matchless {
             // - normalizeRow peels Var/Named/Annotation into bindings/wildcards.
             // - normalizePattern strips Annotation and converts list/string
             //   patterns where possible.
-            // - expandRows flattens Union into separate rows.
+            // - normalizeRow splits Union into separate rows, peeling each
+            //   alternative.
             // - isNonOrthogonal excludes list/string search patterns.
             // Hitting this means the matrix invariants were violated.
             throw new IllegalStateException(
@@ -8526,8 +8563,8 @@ object Matchless {
           mustMatch: Boolean
       ): F[Expr[B]] =
         Defer[F].defer(materializeOccs(occsIn).flatMap { case (occLets, occsMemoed) =>
-          val norm = rowsIn.map(normalizeRow(_, occsMemoed, arg, inlinedRoot))
-          val expanded = expandRows(norm)
+          val expanded =
+            rowsIn.flatMap(normalizeRow(_, occsMemoed, arg, inlinedRoot).toList)
           val (rows, occs) = dropWildColumns(expanded, occsMemoed)
 
           val compiled: F[Expr[B]] =
@@ -8974,26 +9011,6 @@ object Matchless {
     ): Int = {
       case class TaggedRow(row: MatchRow, isFallback: Boolean)
 
-      def expandTaggedRows(rows: List[TaggedRow]): List[TaggedRow] = {
-        def expandPats(
-            pats: List[Pattern[(PackageName, Constructor), Type]]
-        ): NonEmptyList[List[Pattern[(PackageName, Constructor), Type]]] =
-          pats match {
-            case Nil       => NonEmptyList(Nil, Nil)
-            case p :: tail =>
-              for {
-                p1 <- Pattern.flatten(p)
-                rest <- expandPats(tail)
-              } yield p1 :: rest
-          }
-
-        rows.flatMap { tr =>
-          expandPats(tr.row.pats).toList.map(ps =>
-            tr.copy(row = tr.row.copy(pats = ps))
-          )
-        }
-      }
-
       def dropWildColumnsTagged(
           rows: List[TaggedRow],
           occs: List[CheapExpr[B]]
@@ -9093,10 +9110,10 @@ object Matchless {
           occsIn: List[CheapExpr[B]],
           mustMatch: Boolean
       ): Int = {
-        val norm = rowsIn.map(tr =>
-          tr.copy(row = normalizeRow(tr.row, occsIn, dummyMut, None))
-        )
-        val expanded = expandTaggedRows(norm)
+        val expanded = rowsIn.flatMap { tr =>
+          normalizeRow(tr.row, occsIn, dummyMut, None).toList
+            .map(row => tr.copy(row = row))
+        }
         val (rows, occs) = dropWildColumnsTagged(expanded, occsIn)
 
         rows match {
