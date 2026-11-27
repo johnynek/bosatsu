@@ -397,10 +397,40 @@ member edges; the compiler derives those edges from source imports and
 `exposes` declarations and compares them with the map. `imports` names each
 library scope and its declared signature and public-index files. `bindings`
 records caller-relative providers for both local imports and imported
-exposures. A scope is `member`, `library` (with exact name and version), or
-compiler `predef`. Library bindings require an `interface_path` present in
-`--direct-interface`; source-member and Predef bindings name their package
-owner directly.
+exposures. A scope is `member`, `local-signature` (with its `package`),
+`library` (with exact name and version), or compiler `predef`. Library
+bindings require an `interface_path` present in `--direct-interface`;
+source-member and Predef bindings name their package owner directly.
+
+A `local-signature` scope is a package compiled separately from the current
+batch, such as an earlier `compile-packages` output. Its binding names the one
+`--direct-interface` file whose root is that package. The package cannot also
+be a current member. A package found in no declared file, or in more than one,
+is an error (`no directly declared interface contains local package P` or
+`ambiguous local signature P`). Wide signature files still contribute only the
+selected root. A local signature adds only that root's recorded `exposes` to
+the closure. Those exposures need bindings with the `local-signature` scope
+as referrer, and may lead back to a current-batch source owner:
+
+```json
+{
+  "referrer": {"kind": "local-signature", "package": "Local/Facade"},
+  "package": "Local/Types",
+  "provider": {"kind": "local-signature", "package": "Local/Types"},
+  "interface_path": "local/types.sig"
+}
+```
+
+Every consumer resolves its closure from its own roots, not from the binding
+list. Compilation starts from each source's imports and `exposes`. Graph
+validation starts from the declared `dependencies`. Scoped decoding starts from
+each encoded member's imports and public exports. The resolver follows each
+selected provider's public exposures only. Library providers use the
+authenticated public index, local signatures use their recorded exposures, and
+source providers use their header `exposes`. Every non-Predef package it
+reaches needs a binding. An omitted binding fails with its route, for example
+`missing interface binding for Names/Two: member Candidate/Names`. Private
+imports of a source or signature provider never enter a consumer's closure.
 
 The JSON map is input data, not an authentication statement. The command reads
 only declared paths, authenticates the complete reachable library graph
@@ -413,7 +443,23 @@ For each member, at most one release per library name may appear in that
 closure. The rule applies even when signatures are byte-identical or the
 releases export different package names. Members in one batch may select
 different private releases when their closures are disjoint. `--error-unused-interfaces`
-checks the union of files selected by all members.
+checks the union of files selected by all members, including local signature
+files.
+
+A conflict names both owners and their full routes from the consuming member.
+Each route follows declared edges and public exposures and ends at its
+provider. When `Candidate/Equal` imports `Equal/Left` from `equal_left@1.0.0`
+and `Equal/Right` from `equal_right@2.0.0`, and each wrapper exposes its own
+byte-identical `equal_api` release, compilation reports:
+
+```text
+conflicting visible releases for equal_api: member Candidate/Equal sees two releases of library equal_api:
+library equal_api@1.0.0:Equal/Api via member Candidate/Equal -> library equal_left@1.0.0 -> library equal_api@1.0.0 and
+library equal_api@2.0.0:Equal/Api via member Candidate/Equal -> library equal_right@2.0.0 -> library equal_api@2.0.0
+```
+
+(Line breaks added; the diagnostic is one line.) Ambiguous and same-package
+owner diagnostics use the same `owner via route` form.
 
 `validate-graph` keeps local group membership checks and authenticates all
 imported descriptor edges, including private and legacy edges. It also checks
@@ -422,18 +468,50 @@ exact identity and SHA-256, with the dependency path in a mismatch diagnostic.
 Repeated identical core references coalesce. This composition check is
 independent of which imported packages are exposed to a source member.
 
+Graph validation has no source headers. A full-topology group member may add
+an optional `exposes` list beside `package` and `source`:
+
+```json
+{"package": "Candidate/Wrapper", "source": "Wrapper.bosatsu", "exposes": ["Names/One"]}
+```
+
+An absent list means the exposures are unknown. That is an error only when a
+member's closure passes through this source provider
+(`missing public exposure metadata for source provider P`). `[]` is a known
+empty public API. In this example `Candidate/App` imports `Candidate/Wrapper`
+and `Names/Two` from `named_api@2.0.0`, and the wrapper imports `Names/One`
+from `named_api@1.0.0`. With `"exposes": []` validation succeeds, because the
+wrapper uses the first release privately. With `"exposes": ["Names/One"]` it
+fails with
+`... library named_api@1.0.0:Names/One via member Candidate/App -> member Candidate/Wrapper -> library named_api@1.0.0`
+and the direct route to `named_api@2.0.0`. Member `source` strings are
+identities, never paths to read. Old group and group-members files without
+`exposes` still parse.
+
 Scoped compilation writes `Packages.buildRequirements` with
 `scoped_version = 1`, one record per member, each selected caller/package
 binding and owner scope, and a BLAKE3 requirement for each selected imported
 interface, including exposure-only owners. Full implementation hashes remain
 in artifact verification and composition, outside ordinary consumer signature
 inputs. A provider identity change therefore remains visible to decoding even
-when the new provider has identical signature bytes. Existing local compilation
-without mixed inputs keeps the version-0 package-wide requirements format.
-Readers without authenticated imported-owner context retain legacy behavior
-and reject a scoped bundle that names a library binding with
-`scoped package bundle requires unavailable imported provider context`.
-Callers that have checked the imports use
+when the new provider has identical signature bytes. Selected local signature
+owners are recorded the same way: a `local-signature` owner scope and the
+BLAKE3 digest of its canonical public interface. A bundle's own source owners
+stay `member` scopes, and a `member` owner must be a bundle member; a library
+or local signature cannot own a bundle member's package. Each member record
+must read as that member's resolved closure. Every binding's referrer must be
+reachable from the member through owners that the record's other bindings
+select, and the record may name at most one release of each library. The
+scoped decoder recomputes the closure from the encoded imports and exports,
+using the supplied interfaces, before it trusts the recorded bindings. Existing
+local compilation without mixed inputs keeps the version-0 package-wide
+requirements format. Readers without the needed owner context keep legacy
+behavior. They reject a scoped bundle that names a library binding with
+`scoped package bundle requires unavailable imported provider context`, and one
+that names an external local signature with
+`scoped package bundle requires unavailable local signature context`.
+Callers that have checked the imports, and supply each selected owner's
+interface, use
 [`PlatformIO.readPackagesScoped`](../../core/src/main/scala/dev/bosatsu/PlatformIO.scala)
 and [`ProtoConverter.packagesFromProtoScoped`](../../core/src/main/scala/dev/bosatsu/ProtoConverter.scala).
 These checked bindings and decoded member contexts are the boundary handed to
@@ -446,8 +524,18 @@ After assembling the candidate jar, run the offline candidate checks with
 and `python3 scripts/test_bazel_worker.py --jar <candidate-assembly-jar> --inspection-fixtures build/inspection-fixtures`.
 The harness compares standalone, `@params`, warm, cold, and restarted-worker
 compilation and validation, including same-path provider changes and failure
-recovery. `select-interfaces` remains an optional narrowing optimization;
-whole direct signatures work without it.
+recovery. It also covers these cases:
+
+- the equal-signature conflict, which must name both wrapper routes;
+- a consumer of a separately compiled local signature plus a pinned library,
+  under `--error-unused-interfaces`;
+- graph validation with empty and partial bindings;
+- the source-wrapper conflict above: warm success, an in-place change to
+  failure, reordered inputs, a restarted worker, then recovery.
+
+Every failure must leave the previous outputs or stamp in place.
+`select-interfaces` remains an optional narrowing optimization; whole direct
+signatures work without it.
 
 ### Library inspection dependency context
 
@@ -922,7 +1010,7 @@ Change **Complete?** to **Yes** when the implementation has landed and its accep
 | 0j. One-shot worker arguments | Yes | On 0a and 0d, add the `tool bazel-worker @params` dispatcher for file operations. Keep filenames and multiline parameter-file semantics consistent with the standalone CLI. | Run the candidate jar on a params file containing paths with spaces and non-ASCII characters. Compare output bytes, diagnostics and status with the direct invocation. [Issue #2475](https://github.com/johnynek/bosatsu/issues/2475) · [Candidate-jar harness](../../scripts/test_bazel_worker.py) · [Launcher passthrough test](../../scripts/test_launcher_passthrough.sh) · [Worker unit tests](../../cli/src/test/scala/dev/bosatsu/BazelWorkerTest.scala) |
 | 0k. Persistent JSON worker | Yes — [#2484](https://github.com/johnynek/bosatsu/issues/2484) | On 0j, add the `--persistent_worker` entry point over the shared `BazelWorker.Operation` registry and request-scoped runner. Use sequential UTF-8 physical-line framing, immediate response flushes, request-local diagnostics and cleanup, cache-free recomputation, and clean EOF handling. V1 ignores cancellation controls and verbosity, rejects nonempty `sandboxDir`, and does not advertise cancellation or multiplexing. Future inspection and verification operations join the same registry after implementation. | Pass `sbt "cli/test; cli/assembly"`, `python3 scripts/test_bazel_worker.py --jar <resolved-candidate-assembly>`, `./scripts/test_launcher_passthrough.sh` and `./test_cli.sh` on Linux. The harness drives the assembled candidate through direct, @params, warm-worker and restarted-worker paths, including changed bytes, failures, framing and strict interfaces. This local candidate evidence does not replace later Bazel integration qualification. |
 | 0l. Inspect verified imports | Yes | On 0c, add `tool inspect-library` over declared files. Verify artifact digests and name/version. Project each exported interface with its owner and provider identities for its exposure edges. Emit the scoped implementation view and descriptor. [InspectLibraryCommand](../../core/src/main/scala/dev/bosatsu/tool_command/InspectLibraryCommand.scala) · [LibraryInspection](../../core/src/main/scala/dev/bosatsu/tool/LibraryInspection.scala) | Read an existing released library with verified dependencies. Recover scoped exposure edges for an unindexed interface. Check the interface projection is stable across implementation-only changes. Reject a bad hash or incomplete declared dependency context, including a second diamond edge claiming another digest for an already verified name/version. [Projection tests](../../core/src/test/scala/dev/bosatsu/tool/LibraryInspectionProjectionTest.scala) · [Graph tests](../../core/src/test/scala/dev/bosatsu/library/VerifiedLibraryGraphTest.scala) · [Command tests](../../core/src/test/scala/dev/bosatsu/InspectLibraryCommandTest.scala) |
-| 0m. Validate imported scopes | Yes — [#2495](https://github.com/johnynek/bosatsu/issues/2495) | On 0f and 0l, extend structural validation, signature selection and batched compilation to per-member import bindings and the selected toolchain core. Persist the checked bindings in scoped bundle requirements for the 0n decoder boundary. | Accept the Parser diamond and legal private versions, including disjoint member closures in one batch. Reject two visible releases with both paths even when signatures match or package names differ. Coalesce identical core references; reject a conflicting core on a private path. Run `sbt "coreJVM/test; cli/test; coreJS/test; cliJSJS/test; cli/assembly"`, `./test_cli.sh`, and the scoped candidate cases in `scripts/test_bazel_worker.py`. [PackageBindings](../../core/src/main/scala/dev/bosatsu/tool/PackageBindings.scala) · [PackageSignatures tests](../../core/src/test/scala/dev/bosatsu/PackageSignaturesTest.scala) · [Compile tests](../../cli/src/test/scala/dev/bosatsu/CompilePackagesCommandTest.scala) · [Validation tests](../../cli/src/test/scala/dev/bosatsu/ValidateGraphCommandTest.scala) · [Scoped fixtures](../../test_workspace/inspect_library/README.md) · [Candidate worker tests](../../scripts/test_bazel_worker.py) |
+| 0m. Validate imported scopes | Yes — [#2495](https://github.com/johnynek/bosatsu/issues/2495) | On 0f and 0l, extend structural validation, signature selection and batched compilation to per-member import bindings and the selected toolchain core. Resolve each member's complete public closure from its roots through one shared resolver, including separately compiled local signatures and source-wrapper exposures. Persist the checked bindings in scoped bundle requirements. 0n receives `ProtoConverter.packagesFromProtoScoped` and `PlatformIO.readPackagesScoped` as its decoder boundary. | Accept the Parser diamond and legal private versions, including disjoint member closures in one batch. Reject two visible releases with both complete routes even when signatures match or package names differ, including through a source wrapper's exposures. Reject omitted bindings in compilation and graph validation. Compile against a local signature under strict unused checking. Coalesce identical core references; reject a conflicting core on a private path. Run `sbt "coreJVM/test; cli/test; coreJS/test; cliJSJS/test; cli/assembly"`, `./test_cli.sh`, and the scoped candidate cases in `scripts/test_bazel_worker.py`. [PackageBindings](../../core/src/main/scala/dev/bosatsu/tool/PackageBindings.scala) · [Binding tests](../../core/src/test/scala/dev/bosatsu/tool/PackageBindingsTest.scala) · [PackageSignatures tests](../../core/src/test/scala/dev/bosatsu/PackageSignaturesTest.scala) · [Scoped compiler tests](../../core/src/test/scala/dev/bosatsu/tool/CompilerApiScopedTest.scala) · [Decoder tests](../../core/src/test/scala/dev/bosatsu/ProtoConverterTest.scala) · [Graph tests](../../core/src/test/scala/dev/bosatsu/GroupGraphTest.scala) · [Compile tests](../../cli/src/test/scala/dev/bosatsu/CompilePackagesCommandTest.scala) · [Validation tests](../../cli/src/test/scala/dev/bosatsu/ValidateGraphCommandTest.scala) · [Scoped fixtures](../../test_workspace/inspect_library/README.md) · [Candidate worker tests](../../scripts/test_bazel_worker.py) |
 | 0n. Emit C for mixed graphs | No | On 0h, 0i, 0l and 0m, teach both C emission modes to resolve imported implementations and native bindings within their library scopes. | Generate a working program and test using a pinned library. Link and run two private releases exporting the same package and symbol with different signatures. Check both results and diagnose incompatible native bindings. |
 | 0o. Inspect import descriptors | Yes | On 0l, expose file-only descriptor inspection to the repository-host resolver, including legacy hashes and scoped edges. [InspectLibraryCommand](../../core/src/main/scala/dev/bosatsu/tool_command/InspectLibraryCommand.scala) · [Candidate-worker resolver checks](../../scripts/test_bazel_worker.py) | Enumerate both versions in a private-release fixture with their referring edges. From a pinned Parser artifact enumerate its closure, verify child hashes before trusting child descriptors, derive SHA-256 for a BLAKE3-only edge, and reject a tampered child. Repeated inspection yields the same repository inputs and package index. [Serialized graph fixtures](../../test_workspace/inspect_library/README.md) · [Fixture preparation](../../scripts/prepare_inspect_library_fixtures.py) · [Candidate jar checks](../../scripts/test_bazel_worker.py) |
 | 0p. Compiler/core/runtime compatibility | Yes | Add `tool verify-toolchain` against a detached manifest. Verify only requested components, with an additional archive check for jars advertising a runtime hash. | The command and JVM/Scala.js suites cover the manifest schema, exact requested-component reads, core identity/source checks, runtime stamp states and failure-safe stamp publication. `scripts/test_bazel_worker.py` exercises the exact candidate jar for matched compiler-only, binary core, source core and native requests, plus independently mismatched compiler/core/runtime bytes and invalid core/source replacements; each case compares direct and one-shot worker results. |

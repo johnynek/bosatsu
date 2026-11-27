@@ -79,6 +79,13 @@ cold-worker and restarted-worker results. A warm success followed by a scope
 map edit at the same path must reject the conflicting provider, preserve the
 published bundle, and recover after the original binding is restored. Reversed
 source, interface and label order must preserve output bytes and diagnostics.
+The equal-signature conflict must name both routes, through `equal_left` and
+through `equal_right`. The suite reuses `left` and the two `named_api`
+releases for three more checks. First it compiles a consumer against a
+local signature that the candidate jar produced, together with pinned `left`,
+under strict unused checking. Then it validates graphs with missing bindings.
+Last it validates a source wrapper whose public exposure of `named_api` 1.0.0
+conflicts with the consumer's direct `named_api` 2.0.0.
 
 Preparation downloads
 `https://github.com/johnynek/bosatsu/releases/download/v0.0.69/core_alpha-v9.0.1.bosatsu_lib`

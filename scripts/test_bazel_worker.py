@@ -15,6 +15,7 @@ import tempfile
 import time
 import zipfile
 from collections.abc import Callable
+from dataclasses import dataclass
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -1426,6 +1427,28 @@ def member_scope(member: str) -> dict[str, str]:
     return {"kind": "member", "member": member}
 
 
+def local_signature_scope(package: str) -> dict[str, str]:
+    return {"kind": "local-signature", "package": package}
+
+
+@dataclass(frozen=True)
+class MemberProvider:
+    """A current-batch source member providing its own package."""
+
+    member: str
+
+
+@dataclass(frozen=True)
+class LocalSignatureProvider:
+    """A separately compiled local package in one declared interface file."""
+
+    package: str
+    interface_path: str
+
+
+ScopedProvider = tuple[str, str] | MemberProvider | LocalSignatureProvider
+
+
 def inspect_fixture_roots(
     java: str,
     jar: Path,
@@ -1489,10 +1512,19 @@ def write_scoped_inputs(
     scope_map_path: str,
     label_path: str,
     imported: dict[tuple[str, str], dict[str, object]],
-    member_edges: list[tuple[str, str, tuple[str, str]]],
+    member_edges: list[tuple[str, str, ScopedProvider]],
     *,
     reverse: bool = False,
+    omit_bindings: frozenset[tuple[str, str]] = frozenset(),
+    extra_labels: list[tuple[str, str]] | None = None,
 ) -> list[str]:
+    """Write a scope map and label manifest for the given member edges.
+
+    Library targets also receive the exposure bindings their public index
+    requires. `omit_bindings` drops the named (member, package) bindings
+    while keeping their dependency edges, so structural checks can be
+    exercised on incomplete maps.
+    """
     identities = list(imported)
     if reverse:
         identities.reverse()
@@ -1535,24 +1567,40 @@ def write_scoped_inputs(
                 binding_by_key[key] = binding
 
     dependencies: list[dict[str, object]] = []
-    for member, package, identity in member_edges:
-        if identity not in imported:
-            raise AssertionError(f"scope fixture omits member provider {identity!r}")
+    for member, package, target in member_edges:
+        provider: dict[str, object]
+        interface_path: object
+        if isinstance(target, MemberProvider):
+            provider = member_scope(target.member)
+            interface_path = None
+        elif isinstance(target, LocalSignatureProvider):
+            provider = local_signature_scope(target.package)
+            interface_path = target.interface_path
+        else:
+            if target not in imported:
+                raise AssertionError(f"scope fixture omits member provider {target!r}")
+            provider = library_scope(target)
+            interface_path = imported[target]["signature_path"]
         dependencies.append(
             {
                 "from": member_scope(member),
                 "package": package,
-                "to": library_scope(identity),
+                "to": provider,
             }
         )
+        if (member, package) in omit_bindings:
+            continue
         binding_by_key[(member, package)] = {
             "referrer": member_scope(member),
             "package": package,
-            "provider": library_scope(identity),
-            "interface_path": imported[identity]["signature_path"],
+            "provider": provider,
+            "interface_path": interface_path,
         }
 
-    members = list(dict.fromkeys(member for member, _, _ in member_edges))
+    members = list(dict.fromkeys(
+        [member for member, _, _ in member_edges]
+        + [target.member for _, _, target in member_edges if isinstance(target, MemberProvider)]
+    ))
     bindings = list(binding_by_key.values())
     if reverse:
         dependencies.reverse()
@@ -1574,7 +1622,7 @@ def write_scoped_inputs(
     labels = [
         (str(imported[identity]["signature_path"]), str(imported[identity]["label"]))
         for identity in identities
-    ]
+    ] + (extra_labels or [])
     if reverse:
         labels.reverse()
     write_strict_labels(cwd, labels)
@@ -1881,9 +1929,11 @@ def test_scoped_worker(
         }
         equal_source = "scoped sources 雪/EqualApp.bosatsu"
         (cwd / equal_source).write_text(
+            # Equal/Api reaches this member only through the two wrappers'
+            # public exposures, so a release conflict has two wrapper routes.
             "package Candidate/Equal\nfrom Equal/Left import token as left\n"
             "from Equal/Right import token as right\nexport main\n"
-            "exposes Equal/Api\nmain = (left, right)\n",
+            "main = match (left, right):\n  case (_, _): 0\n",
             encoding="utf-8",
         )
         equal_scope = "scoped inputs/equal-scope-map.json"
@@ -1895,7 +1945,6 @@ def test_scoped_worker(
             [
                 ("Candidate/Equal", "Equal/Left", ("equal_left", "1.0.0")),
                 ("Candidate/Equal", "Equal/Right", ("equal_right", "1.0.0")),
-                ("Candidate/Equal", "Equal/Api", ("equal_api", "1.0.0")),
             ],
         )
         equal_args = scoped_compile_command(
@@ -1932,7 +1981,6 @@ def test_scoped_worker(
                 [
                     ("Candidate/Equal", "Equal/Left", ("equal_left", "1.0.0")),
                     ("Candidate/Equal", "Equal/Right", ("equal_right", "2.0.0")),
-                    ("Candidate/Equal", "Equal/Api", ("equal_api", "1.0.0")),
                 ],
             )
             equal_conflict = scoped_compile_command(
@@ -1956,10 +2004,17 @@ def test_scoped_worker(
                 request_fields={"requestId": 605},
             )
             warm_diagnostic = str(warm_failure["output"])
-            if "ambiguous providers for Equal/Api from member Candidate/Equal" not in warm_diagnostic:
-                raise AssertionError(f"equal-signature provider switch was not rejected: {warm_failure!r}")
-            if "equal_api@1.0.0" not in warm_diagnostic or "equal_api@2.0.0" not in warm_diagnostic:
-                raise AssertionError(f"equal-signature conflict omitted both release paths: {warm_failure!r}")
+            for expected in (
+                "conflicting visible releases for equal_api: member Candidate/Equal",
+                "library equal_api@1.0.0:Equal/Api via member Candidate/Equal -> "
+                "library equal_left@1.0.0 -> library equal_api@1.0.0",
+                "library equal_api@2.0.0:Equal/Api via member Candidate/Equal -> "
+                "library equal_right@2.0.0 -> library equal_api@2.0.0",
+            ):
+                if expected not in warm_diagnostic:
+                    raise AssertionError(
+                        f"equal-signature conflict omitted {expected!r}: {warm_failure!r}"
+                    )
             if output_bytes(cwd, equal_outputs) != successful_equal_bytes:
                 raise AssertionError("failed warm scope switch changed previously published outputs")
 
@@ -1971,7 +2026,6 @@ def test_scoped_worker(
                 [
                     ("Candidate/Equal", "Equal/Left", ("equal_left", "1.0.0")),
                     ("Candidate/Equal", "Equal/Right", ("equal_right", "2.0.0")),
-                    ("Candidate/Equal", "Equal/Api", ("equal_api", "1.0.0")),
                 ],
                 reverse=True,
             )
@@ -2025,7 +2079,6 @@ def test_scoped_worker(
                 [
                     ("Candidate/Equal", "Equal/Left", ("equal_left", "1.0.0")),
                     ("Candidate/Equal", "Equal/Right", ("equal_right", "1.0.0")),
-                    ("Candidate/Equal", "Equal/Api", ("equal_api", "1.0.0")),
                 ],
             )
             recovered_args = scoped_compile_command(
@@ -2106,8 +2159,18 @@ def test_scoped_worker(
                 expect_success=False,
                 request_fields={"requestId": 609},
             )
-            if "conflicting visible releases for named_api" not in str(named_failure["output"]):
-                raise AssertionError(f"different-package conflict was not rejected: {named_failure!r}")
+            named_diagnostic = str(named_failure["output"])
+            for expected in (
+                "conflicting visible releases for named_api: member Candidate/Names",
+                "library named_api@1.0.0:Names/One via member Candidate/Names -> "
+                "library named_api@1.0.0",
+                "library named_api@2.0.0:Names/Two via member Candidate/Names -> "
+                "library named_api@2.0.0",
+            ):
+                if expected not in named_diagnostic:
+                    raise AssertionError(
+                        f"different-package conflict omitted {expected!r}: {named_failure!r}"
+                    )
 
     core_context = json.loads(
         (cwd / PRIVATE_CORE_CONTEXT).read_text(encoding="utf-8")
@@ -2177,6 +2240,381 @@ def test_scoped_worker(
         raise AssertionError(f"private-path core mismatch was not rejected: {core_failure!r}")
     if "private_core_conflict 1.0.0 -> bosatsu 2.0.0" not in str(core_failure["output"]):
         raise AssertionError(f"private-path core diagnostic omitted its witness: {core_failure!r}")
+
+
+def write_group_node(
+    cwd: Path,
+    path: str,
+    label: str,
+    members: list[tuple[str, str, list[str] | None]],
+) -> None:
+    """Write a full-topology group; `None` omits a member's exposure metadata."""
+    entries: list[dict[str, object]] = []
+    for package, source, exposes in members:
+        entry: dict[str, object] = {"package": package, "source": source}
+        if exposes is not None:
+            entry["exposes"] = exposes
+        entries.append(entry)
+    node = {
+        "schema_version": 1,
+        "kind": "group",
+        "label": label,
+        "members": entries,
+        "deps": [],
+    }
+    target = cwd / path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(node, ensure_ascii=False), encoding="utf-8")
+
+
+def scoped_validate_command(
+    root: str,
+    scope_map_path: str,
+    dependency_context: str,
+    toolchain_manifest: str,
+    interfaces: list[str],
+    stamp: str,
+) -> list[str]:
+    command = [
+        "validate-graph",
+        "--root",
+        root,
+        "--scope-map",
+        scope_map_path,
+        "--dependency-context",
+        dependency_context,
+        "--toolchain-manifest",
+        toolchain_manifest,
+    ]
+    for interface in interfaces:
+        command.extend(("--direct-interface", interface))
+    command.extend(("--out", stamp))
+    return command
+
+
+def assert_diagnostic(response: dict[str, object], name: str, *expected: str) -> str:
+    diagnostic = str(response["output"])
+    for fragment in expected:
+        if fragment not in diagnostic:
+            raise AssertionError(f"{name} omitted {fragment!r}: {response!r}")
+    return diagnostic
+
+
+def test_scoped_closure_worker(
+    java: str, candidate_jar: Path, work: Path, prepared: Path
+) -> None:
+    """Exercise the shared member-closure resolver through the candidate jar.
+
+    Covers a consumer of a separately compiled local signature under strict
+    unused checking, graph validation with omitted bindings, and a visible
+    release conflict that reaches the member only through a source wrapper's
+    public exposures, across warm, reordered, restarted and recovered runs.
+    """
+    cwd = work / "scoped closure workspace"
+    cwd.mkdir()
+    copy_inspection_fixtures(prepared, cwd)
+    toolchain = "closure inputs/toolchain.json"
+    write_empty_toolchain_manifest(cwd, toolchain)
+    outputs_dir = cwd / "closure outputs 雪"
+    outputs_dir.mkdir(parents=True, exist_ok=True)
+
+    left_identity = ("left", "1.0.0")
+    left_imports = inspect_fixture_roots(
+        java,
+        candidate_jar,
+        cwd,
+        INSPECTION_CONTEXT,
+        "closure left inspection 雪",
+        selected={left_identity},
+    )
+
+    # A separately compiled local signature, produced by the candidate jar.
+    util_source = "closure sources 雪/Util.bosatsu"
+    extra_source = "closure sources 雪/Extra.bosatsu"
+    app_source = "closure sources 雪/LocalApp.bosatsu"
+    for path, text in (
+        (util_source, "package Local/Util\nexport Util(), util\nstruct Util(value: Int)\nutil = Util(1)\n"),
+        (extra_source, "package Local/Extra\nexport extra\nextra = 2\n"),
+        (
+            app_source,
+            "package Candidate/LocalApp\nfrom Local/Util import Util, util\n"
+            "from Left import answer\nexport main\n"
+            "main = match util:\n  case Util(value): add(value, answer)\n",
+        ),
+    ):
+        target = cwd / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+    util_output = "closure local 雪/util"
+    extra_output = "closure local 雪/extra"
+    strict_prepare(java, candidate_jar, cwd, "local util signature", util_output, [util_source], [])
+    strict_prepare(java, candidate_jar, cwd, "local extra signature", extra_output, [extra_source], [])
+    util_sig = f"{util_output}.sig"
+    extra_sig = f"{extra_output}.sig"
+
+    local_scope = "closure inputs/local-scope-map.json"
+    local_edges: list[tuple[str, str, ScopedProvider]] = [
+        ("Candidate/LocalApp", "Local/Util", LocalSignatureProvider("Local/Util", util_sig)),
+        ("Candidate/LocalApp", "Left", left_identity),
+    ]
+    local_labels = [(util_sig, "//local:util")]
+    local_output = "closure outputs 雪/local-app"
+    local_outputs = [f"{local_output}.pkg", f"{local_output}.sig"]
+
+    def local_command(interfaces: list[str]) -> list[str]:
+        return scoped_compile_command(
+            local_output,
+            [app_source],
+            interfaces,
+            local_scope,
+            INSPECTION_CONTEXT,
+            toolchain,
+            STRICT_LABELS,
+        ) + ["--error-unused-interfaces"]
+
+    with PersistentWorker(java, candidate_jar, cwd) as persistent:
+        library_interfaces = write_scoped_inputs(
+            cwd, local_scope, STRICT_LABELS, left_imports, local_edges,
+            extra_labels=local_labels,
+        )
+        compare_command(
+            java,
+            candidate_jar,
+            cwd,
+            persistent,
+            "compile-against-local-signature-and-pinned-library",
+            local_command([util_sig, *library_interfaces]),
+            local_outputs,
+            request_fields={"requestId": 701},
+        )
+        local_bytes = output_bytes(cwd, local_outputs)
+
+        reversed_interfaces = write_scoped_inputs(
+            cwd, local_scope, STRICT_LABELS, left_imports, local_edges,
+            reverse=True, extra_labels=local_labels,
+        )
+        compare_command(
+            java,
+            candidate_jar,
+            cwd,
+            persistent,
+            "compile-against-local-signature-reordered",
+            local_command([*reversed_interfaces, util_sig]),
+            local_outputs,
+            request_fields={"requestId": 702},
+        )
+        if output_bytes(cwd, local_outputs) != local_bytes:
+            raise AssertionError("reordered local-signature inputs changed output bytes")
+
+        # An unbound, separately compiled signature is an unused interface.
+        write_scoped_inputs(
+            cwd, local_scope, STRICT_LABELS, left_imports, local_edges,
+            extra_labels=[*local_labels, (extra_sig, "//local:extra")],
+        )
+        unused = compare_command(
+            java,
+            candidate_jar,
+            cwd,
+            persistent,
+            "strict-rejects-unbound-local-signature",
+            local_command([util_sig, extra_sig, *library_interfaces]),
+            local_outputs,
+            expect_success=False,
+            request_fields={"requestId": 703},
+        )
+        assert_diagnostic(
+            unused, "strict unused local signature", "unused direct interfaces", "//local:extra"
+        )
+        if output_bytes(cwd, local_outputs) != local_bytes:
+            raise AssertionError("strict unused failure changed previously published outputs")
+
+    named_one = ("named_api", "1.0.0")
+    named_two = ("named_api", "2.0.0")
+    named_imports = inspect_fixture_roots(
+        java,
+        candidate_jar,
+        cwd,
+        SCOPED_INSPECTION_CONTEXT,
+        "closure named inspection 雪",
+        selected={named_one, named_two},
+        context_libraries_by_root={named_one: [], named_two: []},
+    )
+    named_interfaces = [
+        str(named_imports[identity]["signature_path"]) for identity in (named_one, named_two)
+    ]
+
+    # Graph validation seeds closures from declared dependencies, so an
+    # incomplete binding list cannot hide a required package.
+    names_node = "closure inputs/names.node.json"
+    write_group_node(cwd, names_node, "//candidate:names", [("Candidate/Names", "Names.bosatsu", None)])
+    names_scope = "closure inputs/names-scope-map.json"
+    names_stamp = "closure outputs 雪/names-validated.stamp"
+    (cwd / names_stamp).write_bytes(b"previous validation\n")
+    names_edges: list[tuple[str, str, ScopedProvider]] = [
+        ("Candidate/Names", "Names/One", named_one),
+        ("Candidate/Names", "Names/Two", named_two),
+    ]
+    names_command = scoped_validate_command(
+        names_node, names_scope, SCOPED_INSPECTION_CONTEXT, toolchain, named_interfaces, names_stamp
+    )
+    with PersistentWorker(java, candidate_jar, cwd) as persistent:
+        for request_id, omitted, expected in (
+            (
+                711,
+                frozenset({("Candidate/Names", "Names/One"), ("Candidate/Names", "Names/Two")}),
+                ("missing interface binding for Names/One: member Candidate/Names",),
+            ),
+            (
+                712,
+                frozenset({("Candidate/Names", "Names/Two")}),
+                ("missing interface binding for Names/Two: member Candidate/Names",),
+            ),
+            (
+                713,
+                frozenset(),
+                (
+                    "conflicting visible releases for named_api: member Candidate/Names",
+                    "library named_api@1.0.0:Names/One via member Candidate/Names -> "
+                    "library named_api@1.0.0",
+                    "library named_api@2.0.0:Names/Two via member Candidate/Names -> "
+                    "library named_api@2.0.0",
+                ),
+            ),
+        ):
+            write_scoped_inputs(
+                cwd, names_scope, STRICT_LABELS, named_imports, names_edges,
+                omit_bindings=omitted,
+            )
+            failure = compare_command(
+                java,
+                candidate_jar,
+                cwd,
+                persistent,
+                f"validate-names-request-{request_id}",
+                names_command,
+                [names_stamp],
+                expect_success=False,
+                request_fields={"requestId": request_id},
+            )
+            assert_diagnostic(failure, f"names validation {request_id}", *expected)
+            if (cwd / names_stamp).read_bytes() != b"previous validation\n":
+                raise AssertionError("failed names validation replaced the previous stamp")
+
+    # App reaches named_api@1 only if the source wrapper publicly exposes it.
+    wrapped_node = "closure inputs/wrapped.node.json"
+    wrapped_scope = "closure inputs/wrapped-scope-map.json"
+    wrapped_stamp = "closure outputs 雪/wrapped-validated.stamp"
+    wrapped_edges: list[tuple[str, str, ScopedProvider]] = [
+        ("Candidate/App", "Candidate/Wrapper", MemberProvider("Candidate/Wrapper")),
+        ("Candidate/App", "Names/Two", named_two),
+        ("Candidate/Wrapper", "Names/One", named_one),
+    ]
+
+    def write_wrapped(wrapper_exposes: list[str], *, reverse: bool = False) -> None:
+        members = [
+            ("Candidate/App", "App.bosatsu", []),
+            ("Candidate/Wrapper", "Wrapper.bosatsu", wrapper_exposes),
+        ]
+        if reverse:
+            members.reverse()
+        write_group_node(cwd, wrapped_node, "//candidate:wrapped", members)
+        write_scoped_inputs(
+            cwd, wrapped_scope, STRICT_LABELS, named_imports, wrapped_edges, reverse=reverse
+        )
+
+    wrapped_command = scoped_validate_command(
+        wrapped_node, wrapped_scope, SCOPED_INSPECTION_CONTEXT, toolchain, named_interfaces,
+        wrapped_stamp,
+    )
+    reversed_wrapped_command = scoped_validate_command(
+        wrapped_node, wrapped_scope, SCOPED_INSPECTION_CONTEXT, toolchain,
+        list(reversed(named_interfaces)), wrapped_stamp,
+    )
+    wrapped_expected = (
+        "conflicting visible releases for named_api: member Candidate/App",
+        "library named_api@1.0.0:Names/One via member Candidate/App -> "
+        "member Candidate/Wrapper -> library named_api@1.0.0",
+        "library named_api@2.0.0:Names/Two via member Candidate/App -> "
+        "library named_api@2.0.0",
+    )
+    with PersistentWorker(java, candidate_jar, cwd) as warm_worker:
+        write_wrapped([])
+        compare_command(
+            java,
+            candidate_jar,
+            cwd,
+            warm_worker,
+            "validate-source-wrapper-private-release",
+            wrapped_command,
+            [wrapped_stamp],
+            request_fields={"requestId": 721},
+        )
+        success_stamp = (cwd / wrapped_stamp).read_bytes()
+
+        write_wrapped(["Names/One"])
+        warm_failure = compare_command(
+            java,
+            candidate_jar,
+            cwd,
+            warm_worker,
+            "warm-source-wrapper-exposes-conflicting-release",
+            wrapped_command,
+            [wrapped_stamp],
+            expect_success=False,
+            request_fields={"requestId": 722},
+        )
+        warm_diagnostic = assert_diagnostic(
+            warm_failure, "source wrapper visible conflict", *wrapped_expected
+        )
+        if (cwd / wrapped_stamp).read_bytes() != success_stamp:
+            raise AssertionError("failed wrapper validation replaced the previous stamp")
+
+        write_wrapped(["Names/One"], reverse=True)
+        reordered = compare_command(
+            java,
+            candidate_jar,
+            cwd,
+            warm_worker,
+            "source-wrapper-conflict-reordered-inputs",
+            reversed_wrapped_command,
+            [wrapped_stamp],
+            expect_success=False,
+            request_fields={"requestId": 723},
+        )
+        if reordered["output"] != warm_diagnostic:
+            raise AssertionError("reordering wrapper members, edges, or interfaces changed diagnostics")
+
+        write_wrapped(["Names/One"])
+        with PersistentWorker(java, candidate_jar, cwd) as restarted_worker:
+            restarted = compare_command(
+                java,
+                candidate_jar,
+                cwd,
+                restarted_worker,
+                "restarted-source-wrapper-conflict",
+                wrapped_command,
+                [wrapped_stamp],
+                expect_success=False,
+                request_fields={"requestId": 724},
+            )
+        if restarted["output"] != warm_diagnostic:
+            raise AssertionError("warm, cold, and restarted wrapper diagnostics differ")
+        if (cwd / wrapped_stamp).read_bytes() != success_stamp:
+            raise AssertionError("restarted wrapper failure replaced the previous stamp")
+
+        write_wrapped([])
+        compare_command(
+            java,
+            candidate_jar,
+            cwd,
+            warm_worker,
+            "source-wrapper-recovery-after-conflict",
+            wrapped_command,
+            [wrapped_stamp],
+            request_fields={"requestId": 725},
+        )
+        if (cwd / wrapped_stamp).read_bytes() != success_stamp:
+            raise AssertionError("recovered wrapper validation differed from the original stamp")
 
 
 def write_strict_sources(cwd: Path) -> None:
@@ -3573,6 +4011,7 @@ def main() -> None:
         test_bosatsuj(java, jar, work)
         test_library_inspection(java, jar, work, inspection_fixtures)
         test_scoped_worker(java, jar, work, inspection_fixtures)
+        test_scoped_closure_worker(java, jar, work, inspection_fixtures)
     print("candidate jar Bazel worker and library inspection acceptance passed")
 
 
