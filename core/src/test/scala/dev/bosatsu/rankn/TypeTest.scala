@@ -720,6 +720,103 @@ class TypeTest extends munit.ScalaCheckSuite {
     }
   }
 
+  test("hoistQuantifiersCovariantDeep hoists existentials and universals") {
+    val a = Type.Var.Bound("a")
+    val b = Type.Var.Bound("b")
+    val kindOfFn: Type => Option[Kind] = {
+      case tc: Type.TyConst if Type.FnType.unapply(tc).exists(_._2 == 1) =>
+        Some(Kind(Kind.Type.contra, Kind.Type.co))
+      case _ => None
+    }
+    def assertHoists(tpe: Type, expected: Type) = {
+      val hoisted = Type.hoistQuantifiersCovariantDeep(tpe, kindOfFn)
+      assert(
+        hoisted.sameAs(expected),
+        s"expected ${expected.show}, got ${hoisted.show}"
+      )
+    }
+    val listB = Type.apply1(Type.ListType, Type.TyVar(b))
+
+    // Int -> Int -> exists b. List[b]
+    assertHoists(
+      Type.Fun(
+        Type.IntType,
+        Type.Fun(Type.IntType, Type.exists(List(b -> Kind.Type), listB))
+      ),
+      Type.exists(
+        List(b -> Kind.Type),
+        Type.Fun(Type.IntType, Type.Fun(Type.IntType, listB))
+      )
+    )
+
+    // Int -> forall a. a -> exists b. List[b]
+    // universals stay outside existentials
+    assertHoists(
+      Type.Fun(
+        Type.IntType,
+        Type.forAll(
+          List(a -> Kind.Type),
+          Type.Fun(Type.TyVar(a), Type.exists(List(b -> Kind.Type), listB))
+        )
+      ),
+      Type.quantify(
+        List(a -> Kind.Type),
+        List(b -> Kind.Type),
+        Type.Fun(Type.IntType, Type.Fun(Type.TyVar(a), listB))
+      )
+    )
+
+    // a hoisted existential past a free use of the same name is renamed:
+    // b -> Int -> exists b. List[b]
+    val capture = Type.Fun(
+      Type.TyVar(b),
+      Type.Fun(Type.IntType, Type.exists(List(b -> Kind.Type), listB))
+    )
+    val captureHoisted = Type.hoistQuantifiersCovariantDeep(capture, kindOfFn)
+    Type.splitQuantifiers(captureHoisted) match {
+      case (Nil, (b1, _) :: Nil, in) =>
+        assert(b1 =!= b, captureHoisted.show)
+        assert(
+          in.sameAs(
+            Type.Fun(
+              Type.TyVar(b),
+              Type.Fun(
+                Type.IntType,
+                Type.apply1(Type.ListType, Type.TyVar(b1))
+              )
+            )
+          ),
+          captureHoisted.show
+        )
+      case _ =>
+        fail(s"expected one hoisted existential, got ${captureHoisted.show}")
+    }
+
+    // contravariant arguments are left alone
+    val contra = Type.Fun(
+      Type.Fun(Type.IntType, Type.exists(List(b -> Kind.Type), listB)),
+      Type.IntType
+    )
+    assertHoists(contra, contra)
+  }
+
+  test("hoistQuantifiersCovariantDeep is idempotent") {
+    val kindOfFn: Type => Option[Kind] = {
+      case tc: Type.TyConst if Type.FnType.unapply(tc).exists(_._2 == 1) =>
+        Some(Kind(Kind.Type.contra, Kind.Type.co))
+      case _ => None
+    }
+
+    forAll(NTypeGen.genDepth03) { t =>
+      val hoisted = Type.hoistQuantifiersCovariantDeep(t, kindOfFn)
+      val again = Type.hoistQuantifiersCovariantDeep(hoisted, kindOfFn)
+      assert(
+        again.sameAs(hoisted),
+        s"expected ${hoisted.show}, got ${again.show}"
+      )
+    }
+  }
+
   test("hoist and pushDown round-trip to hoist normal form") {
     val kindOfFn: Type => Option[Kind] = {
       case tc: Type.TyConst if Type.FnType.unapply(tc).exists(_._2 == 1) =>

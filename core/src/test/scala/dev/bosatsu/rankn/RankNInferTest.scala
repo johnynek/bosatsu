@@ -1693,6 +1693,116 @@ main = ap2(_ -> _ -> _ -> 1)
 """)
   }
 
+  test("argument checked against an existential result keeps a valid type") {
+    // checking `_ -> [1]` against `Int -> exists b. List[b]` solves b to Int,
+    // so the lambda keeps `List[Int]` inside and an annotation hides the
+    // witness as `exists b. Int -> List[b]`, the parameter's weak-prenex form
+    parseProgram(
+      """#
+def ap(_: Int -> (exists b. List[b])) -> Int: 1
+
+main = ap(_ -> [1])
+""",
+      "Int"
+    )
+
+    parseProgram(
+      """#
+def ap(_: Int -> (Int -> (exists b. List[b]))) -> Int: 1
+
+main = ap(_ -> _ -> [1])
+""",
+      "Int"
+    )
+
+    parseProgram(
+      """#
+def ap(f: Int -> (exists b. (b, b -> Int))) -> Int:
+  match f(1):
+    case (x, g): g(x)
+
+main = ap(_ -> (1, x -> add(x, 1)))
+""",
+      "Int"
+    )
+
+    parseProgramIllTyped("""#
+def ap(_: Int -> (exists b. List[b])) -> Int: 1
+
+main = ap(_ -> 1)
+""")
+
+    parseProgramIllTyped("""#
+def ap(_: Int -> (Int -> (exists b. List[b]))) -> Int: 1
+
+main = ap(_ -> [1])
+""")
+
+    parseProgramIllTyped("""#
+def ap(_: Int -> (exists b. (b, b -> Int))) -> Int: 1
+
+main = ap(_ -> (1, (_: String) -> 0))
+""")
+  }
+
+  test("existential results validate with other kinds of witnesses") {
+    // one existential solved, one left free
+    parseProgram(
+      """#
+def ap(_: Int -> (exists a, b. (List[a], List[b]))) -> Int: 1
+
+main = ap(_ -> ([], [1]))
+""",
+      "Int"
+    )
+
+    // the lambda's own type, Int -> Int, does not mention the existential
+    parseProgram(
+      """#
+def ap(_: Int -> (exists b. b)) -> Int: 1
+
+main = ap(_ -> 1)
+""",
+      "Int"
+    )
+
+    // the witness is the argument's universally quantified type
+    parseProgram(
+      """#
+def ap(_: forall a. a -> (exists b. List[b])) -> Int: 1
+
+main = ap(x -> [x])
+""",
+      "Int"
+    )
+
+    // the witness is a type parameter of the enclosing def
+    parseProgram(
+      """#
+def ap[a](_: a, f: Int -> (exists b. (b, b -> a))) -> a:
+  match f(1):
+    case (y, g): g(y)
+
+def use[a](x: a) -> a: ap(x, _ -> (x, y -> y))
+""",
+      "forall a. a -> a"
+    )
+
+    // the match repacks the pattern's existential, so the lambda has the
+    // type `(exists a. Box[a]) -> exists b. b` without a witness
+    parseProgram(
+      """#
+struct Box(a)
+
+def ap(_: (exists a. Box[a]) -> (exists b. b)) -> Int: 1
+
+main = ap(e -> match e:
+  case Box(x): x)
+""",
+      "Int"
+    )
+  }
+
   test("ForAll as function arg") {
     parseProgram(
       """#
