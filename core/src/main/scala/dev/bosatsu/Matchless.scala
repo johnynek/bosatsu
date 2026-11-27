@@ -7404,12 +7404,25 @@ object Matchless {
         }
     }
 
+    type Pat = Pattern[(PackageName, Constructor), Type]
+
+    // The patterns of a normalized matrix row. normalizeRow peels binders
+    // and annotations off each column and splits its unions, and
+    // isNonOrthogonal keeps string and list searches out of the matrix.
+    // A match on a Pat only knows the type argument of a struct pattern up
+    // to its bound, so it is a wildcard here.
+    type HeadPat =
+      Pattern.WildCard.type | Pattern.Literal |
+        Pattern.PositionalStruct[(PackageName, Constructor), ? <: Type]
+
     // A row in the pattern matrix: patterns for each occurrence,
     // a right-hand side, and the bindings accumulated so far.
     // pats may be empty after all columns are specialized away; in that
     // case the row is a total match for the remaining occurrences.
-    case class MatchRow(
-        pats: List[Pattern[(PackageName, Constructor), Type]],
+    // P is Pat for a row as built or specialized, and HeadPat once
+    // normalizeRow has normalized it.
+    case class MatchRow[+P](
+        pats: List[P],
         guard: Option[Expr[B]],
         rhs: Expr[B],
         binds: List[(Bindable, Expr[B])]
@@ -7417,14 +7430,11 @@ object Matchless {
       // Replace exactly one column's pattern with a new list of patterns.
       // We always patch with count == 1 because each column represents a
       // single occurrence; specialization removes or expands that one column.
-      def patchPats(
-          colIdx: Int,
-          pats1: List[Pattern[(PackageName, Constructor), Type]]
-      ): MatchRow =
+      def patchPats[P1 >: P](colIdx: Int, pats1: List[P1]): MatchRow[P1] =
         copy(pats = pats.patch(colIdx, pats1, 1))
     }
     object MatchRow {
-      def fromBranch(branch: MatchBranch): MatchRow =
+      def fromBranch(branch: MatchBranch): MatchRow[Pat] =
         MatchRow(branch.pattern :: Nil, branch.boolGuard, branch.rhs, Nil)
     }
 
@@ -7496,13 +7506,14 @@ object Matchless {
     // Pull off aliases and bindings that capture the whole occurrence.
     // This keeps the matrix focused on refutable structure.
     // Return patterns are normalized and never Named/Var/Annotation.
-    // For matrix compilation, the remaining cases are:
-    // WildCard, Literal, PositionalStruct, or Union.
     def peelPattern(
-        p: Pattern[(PackageName, Constructor), Type],
+        p: Pat,
         occ: CheapExpr[B],
         inlined: Option[InlinedStructRoot]
-    ): (List[(Bindable, Expr[B])], Pattern[(PackageName, Constructor), Type]) =
+    ): (
+        List[(Bindable, Expr[B])],
+        HeadPat | Pattern.Union[(PackageName, Constructor), ? <: Type]
+    ) =
       p match {
         case Pattern.Named(v, inner) =>
           val (bs, core) = peelPattern(inner, occ, inlined)
@@ -7511,9 +7522,14 @@ object Matchless {
           ((v, bindOccurrenceValue(occ, inlined)) :: Nil, Pattern.WildCard)
         case Pattern.Annotation(inner, _) =>
           peelPattern(inner, occ, inlined)
-        case Pattern.WildCard | Pattern.Literal(_) |
-            Pattern.PositionalStruct(_, _) | Pattern.Union(_, _) =>
-          (Nil, p)
+        case Pattern.WildCard =>
+          (Nil, Pattern.WildCard)
+        case lit @ Pattern.Literal(_) =>
+          (Nil, lit)
+        case struct @ Pattern.PositionalStruct(_, _) =>
+          (Nil, struct)
+        case union @ Pattern.Union(_, _) =>
+          (Nil, union)
         case Pattern.StrPat(_) | Pattern.ListPat(_) =>
           // normalizePattern converts orthogonal list/string patterns into
           // PositionalStruct/Literal/WildCard, and isNonOrthogonal filters out
@@ -7531,12 +7547,10 @@ object Matchless {
     // PositionalStruct, paired with the bindings of the occurrence that
     // choosing it makes, in source order.
     def peelAlternatives(
-        p: Pattern[(PackageName, Constructor), Type],
+        p: Pat,
         occ: CheapExpr[B],
         inlined: Option[InlinedStructRoot]
-    ): NonEmptyList[
-      (List[(Bindable, Expr[B])], Pattern[(PackageName, Constructor), Type])
-    ] = {
+    ): NonEmptyList[(List[(Bindable, Expr[B])], HeadPat)] = {
       val (binds, core) = peelPattern(p, occ, inlined)
       core match {
         case union @ Pattern.Union(_, _) =>
@@ -7545,8 +7559,8 @@ object Matchless {
               (binds ::: altBinds, altCore)
             }
           }
-        case _ =>
-          NonEmptyList.one((binds, core))
+        case head: HeadPat =>
+          NonEmptyList.one((binds, head))
       }
     }
 
@@ -7557,13 +7571,12 @@ object Matchless {
     // Invariant: row.pats.length == occs.length, and every returned row has
     // that length too.
     def normalizeRow(
-        row: MatchRow,
+        row: MatchRow[Pat],
         occs: List[CheapExpr[B]],
         rootOcc: CheapExpr[B],
         inlinedRoot: Option[InlinedStructRoot]
-    ): NonEmptyList[MatchRow] = {
-      type Choice =
-        (List[(Bindable, Expr[B])], Pattern[(PackageName, Constructor), Type])
+    ): NonEmptyList[MatchRow[HeadPat]] = {
+      type Choice = (List[(Bindable, Expr[B])], HeadPat)
 
       val columns: List[NonEmptyList[Choice]] =
         row.pats.iterator
@@ -7576,9 +7589,7 @@ object Matchless {
 
       def expand(
           cols: List[NonEmptyList[Choice]]
-      ): NonEmptyList[
-        (List[(Bindable, Expr[B])], List[Pattern[(PackageName, Constructor), Type]])
-      ] =
+      ): NonEmptyList[(List[(Bindable, Expr[B])], List[HeadPat])] =
         cols match {
           case Nil         => NonEmptyList.one((Nil, Nil))
           case col :: rest =>
@@ -7599,9 +7610,9 @@ object Matchless {
     // Invariant: every row has the same arity as occs, and that arity is
     // preserved in the returned rows/occs.
     def dropWildColumns(
-        rows: List[MatchRow],
+        rows: List[MatchRow[HeadPat]],
         occs: List[CheapExpr[B]]
-    ): (List[MatchRow], List[CheapExpr[B]]) = {
+    ): (List[MatchRow[HeadPat]], List[CheapExpr[B]]) = {
       val keepIdxs = occs.indices.filter { idx =>
         rows.exists(r => r.pats(idx) != Pattern.WildCard)
       }.toList
@@ -7618,9 +7629,7 @@ object Matchless {
     }
 
     // Compute the head signature for a refutable pattern in a column.
-    def headSig(
-        pat: Pattern[(PackageName, Constructor), Type]
-    ): Option[HeadSig] =
+    def headSig(pat: HeadPat): Option[HeadSig] =
       pat match {
         case Pattern.WildCard     => None
         case Pattern.Literal(lit) =>
@@ -7658,18 +7667,6 @@ object Matchless {
               )
             // $COVERAGE-ON$
           }
-        case Pattern.Annotation(_, _) | Pattern.Var(_) | Pattern.Named(_, _) |
-            Pattern.StrPat(_) | Pattern.ListPat(_) | Pattern.Union(_, _) =>
-          // headSig is only called on rows that have been normalized
-          // (normalizeRow, which peels each union alternative and splits
-          // unions into rows), and are known to be orthogonal
-          // (isNonOrthogonal == false). These cases should be eliminated
-          // before headSig, so reaching them is an invariant violation.
-          // $COVERAGE-OFF$
-          throw new IllegalStateException(
-            s"unexpected pattern in headSig: $pat"
-          )
-        // $COVERAGE-ON$
       }
 
     // Stable de-duplication to keep constructor cases in source order.
@@ -7698,7 +7695,9 @@ object Matchless {
     // 2) then columns refuting more rows,
     // 3) then lower arity expansion cost,
     // 4) then leftmost for deterministic ties.
-    def chooseColumnByScore(rows: List[MatchRow]): (Int, List[HeadSig]) = {
+    def chooseColumnByScore(
+        rows: List[MatchRow[HeadPat]]
+    ): (Int, List[HeadSig]) = {
       val colCount = rows.headOption match {
         case Some(row) => row.pats.length
         case None      => 0
@@ -7766,11 +7765,11 @@ object Matchless {
     // returns a list of rows such that result.length <= rows.length
     def specializeRows(
         sig: HeadSig,
-        rows: List[MatchRow],
+        rows: List[MatchRow[HeadPat]],
         colIdx: Int,
         arity: Int
-    ): List[MatchRow] = {
-      lazy val wilds: List[Pattern[(PackageName, Constructor), Type]] =
+    ): List[MatchRow[Pat]] = {
+      lazy val wilds: List[Pat] =
         List.fill(arity)(Pattern.WildCard)
 
       rows.mapFilter { row =>
@@ -7824,27 +7823,12 @@ object Matchless {
                 )
               // $COVERAGE-ON$
             }
-          // $COVERAGE-OFF$
-          case Pattern.Var(_) | Pattern.Named(_, _) | Pattern.Annotation(_, _) |
-              Pattern.StrPat(_) | Pattern.ListPat(_) | Pattern.Union(_, _) =>
-            // These cases are eliminated before specialization:
-            // - normalizeRow peels Var/Named/Annotation into bindings/wildcards.
-            // - normalizePattern strips Annotation and converts list/string
-            //   patterns where possible.
-            // - normalizeRow splits Union into separate rows, peeling each
-            //   alternative.
-            // - isNonOrthogonal excludes list/string search patterns.
-            // Hitting this means the matrix invariants were violated.
-            throw new IllegalStateException(
-              s"unexpected pattern in specializeRows: pat=$pat, sig=$sig, col=$colIdx, arity=$arity"
-            )
-          // $COVERAGE-ON$
         }
       }
     }
 
     def specializedKeepOffsets(
-        rows: List[MatchRow],
+        rows: List[MatchRow[Pat]],
         colIdx: Int,
         arity: Int
     ): List[Int] =
@@ -7853,11 +7837,11 @@ object Matchless {
         .toList
 
     def trimSpecializedPats(
-        pats: List[Pattern[(PackageName, Constructor), Type]],
+        pats: List[Pat],
         colIdx: Int,
         arity: Int,
         keepOffsets: List[Int]
-    ): List[Pattern[(PackageName, Constructor), Type]] = {
+    ): List[Pat] = {
       val prefix = pats.take(colIdx)
       val kept = keepOffsets.map(i => pats(colIdx + i))
       val suffix = pats.drop(colIdx + arity)
@@ -7865,10 +7849,10 @@ object Matchless {
     }
 
     def minimizeAlreadySpecializedRows(
-        rows: List[MatchRow],
+        rows: List[MatchRow[Pat]],
         colIdx: Int,
         arity: Int
-    ): (List[MatchRow], List[Int]) = {
+    ): (List[MatchRow[Pat]], List[Int]) = {
       val keepOffsets = specializedKeepOffsets(rows, colIdx, arity)
       if (keepOffsets.length == arity) (rows, keepOffsets)
       else {
@@ -7883,10 +7867,10 @@ object Matchless {
 
     def minimizeSpecializedRows(
         sig: HeadSig,
-        rows: List[MatchRow],
+        rows: List[MatchRow[HeadPat]],
         colIdx: Int,
         arity: Int
-    ): (List[MatchRow], List[Int]) =
+    ): (List[MatchRow[Pat]], List[Int]) =
       minimizeAlreadySpecializedRows(
         specializeRows(sig, rows, colIdx, arity),
         colIdx,
@@ -8462,7 +8446,7 @@ object Matchless {
       // rowsIn.forall(r => r.pats.length == occsIn.length).
       // Also, rowsIn order matches source branch order (left-to-right).
       def compileRows(
-          rowsIn: List[MatchRow],
+          rowsIn: List[MatchRow[Pat]],
           occsIn: List[CheapExpr[B]],
           mustMatch: Boolean
       ): F[Expr[B]] =
@@ -8523,7 +8507,7 @@ object Matchless {
                   (
                       BoolExpr[B],
                       List[LocalAnonMut],
-                      List[MatchRow],
+                      List[MatchRow[Pat]],
                       List[CheapExpr[B]]
                   )
                 ] =
@@ -8913,12 +8897,12 @@ object Matchless {
     def matrixFallbackMultiplicity(
         branches: NonEmptyList[MatchBranch]
     ): Int = {
-      case class TaggedRow(row: MatchRow, isFallback: Boolean)
+      case class TaggedRow[+P](row: MatchRow[P], isFallback: Boolean)
 
       def dropWildColumnsTagged(
-          rows: List[TaggedRow],
+          rows: List[TaggedRow[HeadPat]],
           occs: List[CheapExpr[B]]
-      ): (List[TaggedRow], List[CheapExpr[B]]) = {
+      ): (List[TaggedRow[HeadPat]], List[CheapExpr[B]]) = {
         val keepIdxs = occs.indices.filter { idx =>
           rows.exists(tr => tr.row.pats(idx) != Pattern.WildCard)
         }.toList
@@ -8936,10 +8920,10 @@ object Matchless {
 
       def specializeTaggedRows(
           sig: HeadSig,
-          rows: List[TaggedRow],
+          rows: List[TaggedRow[HeadPat]],
           colIdx: Int,
           arity: Int
-      ): List[TaggedRow] =
+      ): List[TaggedRow[Pat]] =
         rows.flatMap { tr =>
           specializeRows(sig, tr.row :: Nil, colIdx, arity)
             .map(r => TaggedRow(r, tr.isFallback))
@@ -8948,10 +8932,10 @@ object Matchless {
       val dummyMut: LocalAnonMut = LocalAnonMut(Long.MinValue)
 
       def minimizeAlreadySpecializedTaggedRows(
-          rows: List[TaggedRow],
+          rows: List[TaggedRow[Pat]],
           colIdx: Int,
           arity: Int
-      ): (List[TaggedRow], List[Int]) = {
+      ): (List[TaggedRow[Pat]], List[Int]) = {
         val keepOffsets = specializedKeepOffsets(rows.map(_.row), colIdx, arity)
         if (keepOffsets.length == arity) (rows, keepOffsets)
         else {
@@ -8973,10 +8957,10 @@ object Matchless {
 
       def minimizeSpecializedTaggedRows(
           sig: HeadSig,
-          rows: List[TaggedRow],
+          rows: List[TaggedRow[HeadPat]],
           colIdx: Int,
           arity: Int
-      ): (List[TaggedRow], List[Int]) =
+      ): (List[TaggedRow[Pat]], List[Int]) =
         minimizeAlreadySpecializedTaggedRows(
           specializeTaggedRows(sig, rows, colIdx, arity),
           colIdx,
@@ -8985,11 +8969,11 @@ object Matchless {
 
       def specializeTaggedCase(
           sig: HeadSig,
-          rows: List[TaggedRow],
+          rows: List[TaggedRow[HeadPat]],
           occ: CheapExpr[B],
           occs: List[CheapExpr[B]],
           colIdx: Int
-      ): (List[TaggedRow], List[CheapExpr[B]]) =
+      ): (List[TaggedRow[Pat]], List[CheapExpr[B]]) =
         sig match {
           case EnumSig(_, v, s, _) =>
             val (newRows, keepOffsets) =
@@ -9010,7 +8994,7 @@ object Matchless {
         }
 
       def compileRowsCount(
-          rowsIn: List[TaggedRow],
+          rowsIn: List[TaggedRow[Pat]],
           occsIn: List[CheapExpr[B]],
           mustMatch: Boolean
       ): Int = {
