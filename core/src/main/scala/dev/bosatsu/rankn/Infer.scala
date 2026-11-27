@@ -226,31 +226,9 @@ object Infer {
             t
         }
 
-    final def normalizeAliasesDeep(t: Type): Type = {
+    final def normalizeAliasesDeep(t: Type): Type =
       if (aliases.isEmpty) t
-      else {
-        val head = normalizeAliasHead(t)
-        if (head ne t) normalizeAliasesDeep(head)
-        else
-          t match {
-            case t0 @ Type.ForAll(vars, in) =>
-              val in1 = normalizeAliasesDeep(in).asInstanceOf[Type.Rho]
-              if (in1 eq in) t0 else Type.ForAll(vars, in1)
-            case t0 @ Type.Exists(vars, in) =>
-              val in1 =
-                normalizeAliasesDeep(in).asInstanceOf[Type.Leaf | Type.TyApply]
-              if (in1 eq in) t0 else Type.Exists(vars, in1)
-            case t0 @ Type.TyApply(on, arg) =>
-              val on1 =
-                normalizeAliasesDeep(on).asInstanceOf[Type.Leaf | Type.TyApply]
-              val arg1 = normalizeAliasesDeep(arg)
-              if ((on1 eq on) && (arg1 eq arg)) t0
-              else Type.TyApply(on1, arg1)
-            case other =>
-              other
-          }
-      }
-    }
+      else Type.rewriteDeep(normalizeAliasHead)(t)
 
     private val kindCache: Type => Either[Region => Error, Kind] =
       Type.kindOf[Region => Error](
@@ -765,40 +743,42 @@ object Infer {
         region: Region
     ): Infer[(List[Type.Var.Skolem], List[Type.TyMeta], Type.Rho)] = {
 
-      // Invariant: if t is Leaf | TyApply, then result._3 is Leaf | TyApply
-      def loop(
-          t: Type,
-          allCo: Boolean
-      ): Infer[(List[Type.Var.Skolem], List[Type.TyMeta], Type)] =
-        t match {
-          case quant: (Type.ForAll | Type.Exists) =>
-            if (allCo) {
-              val (univ, exists, ty) = Type.splitQuantifiers(quant)
-              // Rule PRPOLY
-              for {
-                sks1 <- univ.traverse { case (b, k) =>
-                  newSkolemTyVar(b, k, existential = false)
-                }
-                ms <- exists.traverse { case (_, k) => newExistential(k) }
-                sksT = sks1.map(Type.TyVar(_))
-                ty1 = Type.substituteRhoVar(
-                  ty,
-                  (exists.map(_._1).iterator.zip(ms) ++
-                    univ.map(_._1).iterator.zip(sksT.iterator)).toMap
-                )
-                (sks2, ms2, ty) <- loop(ty1, allCo)
-              } yield (sks1 ::: sks2, ms ::: ms2, ty)
-            } else pure((Nil, Nil, quant))
+      // Rule PRPOLY, which we only apply on completely covariant paths
+      def prpoly(
+          quant: Type.ForAll | Type.Exists
+      ): Infer[
+        (List[Type.Var.Skolem], List[Type.TyMeta], Type.Leaf | Type.TyApply)
+      ] = {
+        val (univ, exists, ty) = Type.splitQuantifiers(quant)
+        for {
+          sks1 <- univ.traverse { case (b, k) =>
+            newSkolemTyVar(b, k, existential = false)
+          }
+          ms <- exists.traverse { case (_, k) => newExistential(k) }
+          sksT = sks1.map(Type.TyVar(_))
+          // we only substitute leaves, so ty1 is still Leaf | TyApply
+          ty1 = Type.substituteLeafApplyVar(
+            ty,
+            (exists.map(_._1).iterator.zip(ms) ++
+              univ.map(_._1).iterator.zip(sksT.iterator))
+              .toMap[Type.Var, Type.Leaf]
+          )
+          (sks2, ms2, ty) <- loopLeafApply(ty1, allCo = true)
+        } yield (sks1 ::: sks2, ms ::: ms2, ty)
+      }
 
+      def loopLeafApply(
+          t: Type.Leaf | Type.TyApply,
+          allCo: Boolean
+      ): Infer[
+        (List[Type.Var.Skolem], List[Type.TyMeta], Type.Leaf | Type.TyApply)
+      ] =
+        t match {
           case ta @ Type.TyApply(left, right) =>
             // Rule PRFUN
             // we know the kind of left is k -> x, and right has kind k
-            // since left: Rho, we know loop(left, path)._3 is Rho
-            (varianceOfCons(ta, region), loop(left, allCo))
-              .flatMapN { case (consVar, (sksl, el, ltpe0)) =>
-                // due to loop invariant
-                val ltpe: Type.Leaf | Type.TyApply =
-                  ltpe0.asInstanceOf[Type.Leaf | Type.TyApply]
+            (varianceOfCons(ta, region), loopLeafApply(left, allCo))
+              .flatMapN { case (consVar, (sksl, el, ltpe)) =>
                 val allCoRight = allCo && (consVar == Variance.co)
                 loop(right, allCoRight)
                   .map { case (sksr, er, rtpe) =>
@@ -810,14 +790,22 @@ object Infer {
             pure((Nil, Nil, other))
         }
 
-      loop(t, true).map {
-        case (skols, metas, rho: Type.Rho) =>
-          (skols, metas, rho)
-        // $COVERAGE-OFF$ this should be unreachable
-        // because we only return ForAll on paths nested inside noncovariant path in TyApply
-        case (sks, metas, notRho) =>
-          sys.error(s"type = $t, sks = $sks, metas = $metas notRho = $notRho")
-        // $COVERAGE-ON$ this should be unreachable
+      def loop(
+          t: Type,
+          allCo: Boolean
+      ): Infer[(List[Type.Var.Skolem], List[Type.TyMeta], Type)] =
+        t match {
+          case quant: (Type.ForAll | Type.Exists) =>
+            if (allCo) prpoly(quant)
+            else pure((Nil, Nil, quant))
+          case la: (Type.Leaf | Type.TyApply) =>
+            loopLeafApply(la, allCo)
+        }
+
+      // the top is a completely covariant path
+      t match {
+        case quant: (Type.ForAll | Type.Exists) => prpoly(quant)
+        case la: (Type.Leaf | Type.TyApply)     => loopLeafApply(la, allCo = true)
       }
     }
 
@@ -1306,7 +1294,7 @@ object Infer {
           for {
             leftT <- newMetaType(lKind)
             rightT <- newMetaType(rKind)
-            ap = Type.Tau.TauApply(Type.Tau(leftT), Type.Tau(rightT))
+            ap = Type.Tau.TauApply(leftT, Type.Tau(rightT))
             _ <- unifyTau(
               Type.Tau(notApply),
               ap,
