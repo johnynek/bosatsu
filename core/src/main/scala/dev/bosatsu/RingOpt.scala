@@ -756,6 +756,33 @@ object RingOpt {
                     case _    => add(nx, ny)
                   }
               }
+
+            def isNeg(e: Expr[A]): Boolean =
+              e match {
+                case Neg(_) => true
+                case _      => false
+              }
+
+            // We build the sum right-nested, so each Add has one summand on
+            // its left, except the innermost, which has the last two. A Neg
+            // that is a direct child of an Add is a subtraction and costs
+            // nothing, but only one per Add (see Expr.opCounts), so only the
+            // innermost Add can pay for a Neg: when both its summands are
+            // Negs. Unless every summand is a Neg, move the last one that
+            // isn't to the end.
+            def freeNegs(summands: List[Expr[A]]): List[Expr[A]] = {
+              val rev = summands.reverse
+              rev match {
+                case Neg(_) :: Neg(_) :: _ =>
+                  rev.span(isNeg) match {
+                    case (negsRev, notNeg :: beforeRev) =>
+                      (notNeg :: (negsRev ::: beforeRev)).reverse
+                    case (_, Nil) => summands
+                  }
+                case _ => summands
+              }
+            }
+
             def flatAdd(
                 es: List[Expr[A]],
                 const: BigInt,
@@ -779,11 +806,15 @@ object RingOpt {
                   }
                 case Nil =>
                   if (acc.isEmpty) canonInt(const)
-                  else
-                    step(
-                      acc.sorted.reduceRight(step(_, _)),
-                      canonInt(const)
-                    )
+                  else {
+                    // a nonzero constant goes first, unless freeNegs
+                    // moves it
+                    val summands = canonInt[A](const) match {
+                      case Zero => acc.sorted
+                      case c    => c :: acc.sorted
+                    }
+                    freeNegs(summands).reduceRight(step(_, _))
+                  }
               }
 
             flatAdd(x :: y :: Nil, BigInt(0), Nil)

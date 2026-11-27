@@ -274,6 +274,40 @@ class RingOptLaws extends munit.ScalaCheckSuite {
     }
   }
 
+  test("basicNorm doesn't pay for a Neg it can make a subtraction") {
+    // flattens to -1 + c * y + -(x) + -(z): sorted, the two Negs were the
+    // innermost Add of the right-nested sum, where only one is free
+    val x: Expr[BigInt] =
+      Symbol(BigInt("-10036649640986447059717250455951519142"))
+    val y: Expr[BigInt] = Symbol(
+      BigInt(
+        "244579927078057117543626590387964068170052129393768940137287872742284825124"
+      )
+    )
+    val z: Expr[BigInt] = Symbol(BigInt("-5146174045359042561"))
+    val c: Expr[BigInt] = Integer(BigInt("9223372036854775807"))
+    val e: Expr[BigInt] =
+      Add(Add(Neg(x), Mult(y, c)), Neg(Add(z, Integer(1))))
+    val w = Weights(mult = 16, add = 9, neg = 5)
+
+    val normE = e.basicNorm
+    assertEquals(Expr.toValue(normE), Expr.toValue(e))
+    assertEquals(Expr.opCounts(normE), Expr.opCounts(e))
+    assert(w.cost(normE) <= w.cost(e), show"normE=$normE, e=$e")
+    assertEquals(normE.basicNorm, normE)
+  }
+
+  test("basicNorm puts the constant innermost if all other terms are Negs") {
+    val x: Expr[BigInt] = Symbol(BigInt(1))
+    val y: Expr[BigInt] = Symbol(BigInt(2))
+    val e: Expr[BigInt] = Add(Neg(x), Neg(Add(y, Integer(3))))
+
+    val normE = e.basicNorm
+    assertEquals(Expr.toValue(normE), Expr.toValue(e))
+    assertEquals(Expr.opCounts(normE), Expr.OpCounts(0, 2, 0))
+    assertEquals(normE.basicNorm, normE)
+  }
+
   test("opCounts counts a Neg under an Add as part of one subtraction") {
     // as Int arithmetic is emitted: x + -y and -y + x are each one sub, and
     // every other Neg is a 0 - x
