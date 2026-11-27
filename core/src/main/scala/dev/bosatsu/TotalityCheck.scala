@@ -643,14 +643,12 @@ case class TotalityCheck(inEnv: TypeEnv[Kind.Arg]) {
               }
             )(using
               new Relatable[List[Pattern[Cons, Type]]] {
+                // as getProd(a.size).relate(a, b) does when the sizes match
                 def relate(
                     a: List[Pattern[Cons, Type]],
                     b: List[Pattern[Cons, Type]]
-                ) = {
-                  val size = a.size
-                  if (size == b.size) getProd(size).relate(a, b)
-                  else Rel.Disjoint
-                }
+                ) =
+                  Rel.zipCombine(a, b)(self.relate)
               }
             )
 
@@ -1074,11 +1072,8 @@ case class TotalityCheck(inEnv: TypeEnv[Kind.Arg]) {
                   Pattern.PositionalStruct(ln, lp),
                   Pattern.PositionalStruct(rn, rp)
                 ) =>
-              if ((ln == rn) && (lp.size == rp.size)) {
-                (lp.zip(rp).foldLeft(Rel.Same: Rel) { case (acc, (l, r)) =>
-                  acc.lazyCombine(loop(l, r))
-                })
-              } else Rel.Disjoint
+              if (ln == rn) Rel.zipCombine(lp, rp)(loop)
+              else Rel.Disjoint
             case (Pattern.PositionalStruct(_, _), _) =>
               if (isTop(b)) {
                 if (isTop(a)) Rel.Same
