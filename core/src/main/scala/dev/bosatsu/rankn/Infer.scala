@@ -1,6 +1,6 @@
 package dev.bosatsu.rankn
 
-import cats.{Functor, Monad}
+import cats.{Functor, Id, Monad}
 import cats.arrow.FunctionK
 import cats.data.{Chain, NonEmptyChain, NonEmptyList}
 
@@ -3445,44 +3445,130 @@ object Infer {
     // variables in these types, so closed types are left out (see Env.openVars).
     private val envTypes = getOpenEnv.map(_.values.toList)
 
+    // the position of each meta's first appearance in t
+    private def metaPositions(t: Type): SortedMap[Type.Meta, Int] = {
+      def loop(
+          t: Type,
+          acc: SortedMap[Type.Meta, Int]
+      ): SortedMap[Type.Meta, Int] =
+        t match {
+          case Type.TyMeta(m) =>
+            if (acc.contains(m)) acc else acc.updated(m, acc.size)
+          case Type.TyApply(on, arg) => loop(arg, loop(on, acc))
+          case Type.ForAll(_, in)    => loop(in, acc)
+          case Type.Exists(_, in)    => loop(in, acc)
+          case _                     => acc
+        }
+
+      loop(t, SortedMap.empty)
+    }
+
+    /** Bind the existential metas that skolemizing a checked type introduced.
+      *
+      * An unsolved meta means the term checks for any witness, so it becomes a
+      * variable bound by a `Generic`. A solved meta has a witness that
+      * subterms were typed against, for instance an `Int` literal checked
+      * against the meta, so the witness stays in the term and an `Annotation`
+      * hides it behind an existential, recording it as evidence. Writing a
+      * bound variable over a solved meta would leave those subterms typed
+      * against the witness inside a term typed against the variable.
+      *
+      * `rho` is the type the term was checked against. The annotation is that
+      * type when the term has it once the witnesses are filled in. Checking
+      * can give a term another type, for instance a match that repacks an
+      * existential from a pattern, and then the annotation only hides the
+      * metas the term's own type refers to.
+      */
     def quantifyMetas(
-        metas: List[Type.TyMeta]
+        metas: List[Type.TyMeta],
+        rho: Type.Rho
     ): FunctionK[TypedExpr, [X] =>> Infer[TypedExpr[X]]] =
-      NonEmptyList.fromList(metas) match {
+      NonEmptyList.fromList(metas.filter(_.toMeta.existential)) match {
         case None =>
           new FunctionK[TypedExpr, [X] =>> Infer[TypedExpr[X]]] {
             def apply[A](fa: TypedExpr[A]): Infer[TypedExpr[A]] = pure(fa)
           }
         case Some(nel) =>
-          new FunctionK[TypedExpr, [X] =>> Infer[TypedExpr[X]]] {
-            def apply[A](fa: TypedExpr[A]): Infer[TypedExpr[A]] = {
-              // all these metas can be set to Var
-              val used: Set[Type.Var.Bound] = fa.allBound
-              val aligned = Type.alignBinders(nel, used)
-              val bound = aligned.toList.traverseFilter { case (m, n) =>
-                val meta = m.toMeta
-                if (meta.existential)
-                  writeMeta(m.toMeta, Type.Tau.tauVar(n))
-                    .as(Some((n, meta.kind)))
-                else pure(None)
-              }
-              // we only need to zonk after doing a write:
-              // it isnot clear that zonkMeta correctly here because the existentials
-              // here have been realized to Type.Var now, and and meta pointing at them should
-              // become visible (no longer hidden)
-              val zFn = Type.zonk(
-                metas.iterator
-                  .map(_.toMeta)
-                  .filter(_.existential)
-                  .to(SortedSet),
-                readMeta,
-                writeMeta
-              )
-              (bound, TypedExpr.zonkMeta(fa)(zFn))
-                .mapN { (typeArgs, r) =>
-                  TypedExpr.quantVars(forallList = Nil, existList = typeArgs, r)
-                }
+          // these metas are opaque to zonkType, so make them visible here
+          val zFn = Type.zonk(
+            nel.iterator.map(_.toMeta).to(SortedSet),
+            readMeta,
+            writeMeta
+          )
+          def witnessOf(m: Type.TyMeta): Infer[Option[Type]] =
+            readMeta(m.toMeta).flatMap {
+              case None    => pure(None)
+              case Some(_) => Type.zonkMeta(m)(zFn).map(Some(_))
             }
+
+          new FunctionK[TypedExpr, [X] =>> Infer[TypedExpr[X]]] {
+            def apply[A](fa: TypedExpr[A]): Infer[TypedExpr[A]] =
+              for {
+                // fa is zonked and these metas are opaque, so both types still
+                // refer to them
+                checkedRho <- zonkType(rho)
+                checkedFilled <- Type.zonkMeta(checkedRho)(zFn)
+                termFilled <- Type.zonkMeta(fa.getType)(zFn)
+                shape =
+                  if (termFilled.sameAs(checkedFilled)) checkedRho
+                  else fa.getType
+                pos = metaPositions(shape)
+                witnesses <- nel.toList.traverse(witnessOf)
+                // a solved meta needs a binder only where the annotation
+                // refers to it. Name the binders in the order they appear,
+                // which is the order normalization names them, so renaming
+                // them later can't move a hidden witness onto another binder.
+                binders = nel.toList
+                  .zip(witnesses)
+                  .filter { case (m, w) => w.isEmpty || pos.contains(m.toMeta) }
+                  .sortBy { case (m, _) => pos.getOrElse(m.toMeta, Int.MaxValue) }
+                used = fa.allBound ++ Type.freeBoundTyVars(
+                  checkedRho :: witnesses.flatten
+                )
+                aligned = Type.alignBinders(binders, used)
+                unsolved = aligned.collect { case ((m, None), n) => (m, n) }
+                _ <- unsolved.traverse_ { case (m, n) =>
+                  writeMeta(m.toMeta, Type.Tau.tauVar(n))
+                }
+                // a witness can mention the unsolved metas we just wrote
+                hidden <- aligned.traverseFilter {
+                  case ((m, Some(_)), n) =>
+                    witnessOf(m).map(_.map(w => (n, (m.toMeta.kind, w))))
+                  case ((_, None), _) =>
+                    pure(None)
+                }
+                te <- TypedExpr.zonkMeta(fa)(zFn)
+              } yield {
+                val packed =
+                  NonEmptyList.fromList(hidden) match {
+                    case None =>
+                      te
+                    case Some(hiddenNel) =>
+                      val varOf: SortedMap[Type.Meta, Type.Tau] =
+                        aligned.iterator.map { case ((m, _), n) =>
+                          (m.toMeta, Type.Tau.tauVar(n))
+                        }.to(SortedMap)
+                      val coerce = Type.exists(
+                        hiddenNel.map { case (n, (k, _)) => (n, k) },
+                        Type.zonkMeta[Id](shape)(varOf.get)
+                      )
+                      val boundOrdering = Type.Var.Bound.orderBound.toOrdering
+                      val evidence = TypedExpr.QuantifierEvidence(
+                        sourceAtSolve = te.getType,
+                        targetAtSolve = coerce,
+                        forallSolved = SortedMap.empty(using boundOrdering),
+                        existsHidden = SortedMap.from(hidden)(using boundOrdering)
+                      )
+                      TypedExpr.Annotation(te, coerce, Some(evidence))
+                  }
+                TypedExpr.quantVars(
+                  forallList = Nil,
+                  existList = unsolved.map { case (m, n) =>
+                    (n, m.toMeta.kind)
+                  },
+                  packed
+                )
+              }
           }
       }
 
@@ -3503,7 +3589,7 @@ object Infer {
             pure(
               cRho
                 .andThenFlatMap[TypedExpr](zonkTypeExprK)
-                .andThenFlatMap[TypedExpr](quantifyMetas(metas))
+                .andThenFlatMap[TypedExpr](quantifyMetas(metas, rho))
             )
           }
         } { badTvs =>

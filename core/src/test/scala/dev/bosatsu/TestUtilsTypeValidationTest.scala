@@ -3,6 +3,7 @@ package dev.bosatsu
 import cats.data.NonEmptyList
 import dev.bosatsu.rankn.{Type, TypeAlias, TypeEnv}
 import Identifier.Constructor
+import scala.collection.immutable.SortedMap
 
 class TestUtilsTypeValidationTest extends munit.FunSuite {
   private val tag = ()
@@ -159,6 +160,95 @@ class TestUtilsTypeValidationTest extends munit.FunSuite {
     val err = renderErrors(res)
     assert(res.isInvalid, s"expected invalid but got valid: $err")
     assert(err.contains("app arg type mismatch"), err)
+  }
+
+  // `ap: paramType -> String` applied to `k: argType`
+  private def validateArg(paramType: Type, argType: Type) = {
+    val fnType = Type.Fun(NonEmptyList.one(paramType), Type.StrType)
+    val fn = TypedExpr.Local(Identifier.Name("ap"), fnType, tag)
+    val arg = TypedExpr.Local(Identifier.Name("k"), argType, tag)
+    val te = TypedExpr.App(fn, NonEmptyList.one(arg), Type.StrType, tag)
+
+    val names: Map[TypedExpr.Name[Unit], Type] =
+      Map(fn -> fnType, arg -> argType)
+    TestUtils.validateTypes(te, names, TypeEnv.empty)
+  }
+
+  private def intToIntTo(res: Type): Type =
+    Type.Fun(
+      NonEmptyList.one(Type.IntType),
+      Type.Fun(NonEmptyList.one(Type.IntType), res)
+    )
+
+  test("validateTypes accepts a weak-prenex arg for a nested exists result") {
+    val a = Type.Var.Bound("a")
+    val b = Type.Var.Bound("b")
+    // Int -> Int -> exists b. List[b]
+    val paramType = intToIntTo(
+      Type.exists(
+        List(b -> Kind.Type),
+        Type.apply1(Type.ListType, Type.TyVar(b))
+      )
+    )
+    // exists a. Int -> Int -> List[a]
+    val argType = Type.exists(
+      List(a -> Kind.Type),
+      intToIntTo(Type.apply1(Type.ListType, Type.TyVar(a)))
+    )
+    val res = validateArg(paramType, argType)
+    assert(res.isValid, renderErrors(res))
+  }
+
+  test("validateTypes does not choose a nested existential in an arg") {
+    val a = Type.Var.Bound("a")
+    // Int -> Int -> List[Int]
+    val paramType = intToIntTo(Type.apply1(Type.ListType, Type.IntType))
+    // Int -> Int -> exists a. List[a]
+    val argType = intToIntTo(
+      Type.exists(
+        List(a -> Kind.Type),
+        Type.apply1(Type.ListType, Type.TyVar(a))
+      )
+    )
+    val res = validateArg(paramType, argType)
+    val err = renderErrors(res)
+    assert(res.isInvalid, s"expected invalid but got valid: $err")
+    assert(err.contains("app arg type mismatch"), err)
+  }
+
+  private given Ordering[Type.Var.Bound] =
+    Type.Var.Bound.orderBound.toOrdering
+
+  // `xs: List[Int]` annotated as `exists b. List[b]`, hiding `witness` for b
+  private def validateIntListPack(witness: Type) = {
+    val b = Type.Var.Bound("b")
+    val listInt = Type.apply1(Type.ListType, Type.IntType)
+    val coerce = Type.exists(
+      List(b -> Kind.Type),
+      Type.apply1(Type.ListType, Type.TyVar(b))
+    )
+    val term = TypedExpr.Local(Identifier.Name("xs"), listInt, tag)
+    val evidence = TypedExpr.QuantifierEvidence(
+      sourceAtSolve = listInt,
+      targetAtSolve = coerce,
+      forallSolved = SortedMap.empty,
+      existsHidden = SortedMap(b -> (Kind.Type, witness))
+    )
+    val te = TypedExpr.Annotation(term, coerce, Some(evidence))
+    val names: Map[TypedExpr.Name[Unit], Type] = Map(term -> listInt)
+    TestUtils.validateTypes(te, names, TypeEnv.empty)
+  }
+
+  test("validateTypes accepts an annotation hiding the term's witness") {
+    val res = validateIntListPack(Type.IntType)
+    assert(res.isValid, renderErrors(res))
+  }
+
+  test("validateTypes rejects an annotation hiding another witness") {
+    val res = validateIntListPack(Type.StrType)
+    val err = renderErrors(res)
+    assert(res.isInvalid, s"expected invalid but got valid: $err")
+    assert(err.contains("annotation hides witnesses"), err)
   }
 
   test("validateTypes accepts alias-expanded nested foralls without crashing") {
