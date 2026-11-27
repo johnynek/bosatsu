@@ -2271,7 +2271,7 @@ object TypedExprNormalization {
             id1 == id2
           case (Some(Right((r1, t1, s1))), Some(Right((r2, t2, s2)))) =>
             (r1 == r2) &&
-            (t1.void === t2.void) &&
+            TypedExpr.eqTypedExpr(using Eq.allEqual[A]).eqv(t1, t2) &&
             scopeMatches(t1.freeVarsDup.toSet, s1, s2)
           case _ => false
         }

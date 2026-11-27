@@ -515,7 +515,7 @@ object TypeValidator {
           t
         case Type.TyConst(_) => t
       }
-    te.traverseType[cats.Id](checkType(_, Set.empty)): Unit
+    te.foreachType(t => checkType(t, Set.empty): Unit)
 
     def checkExpr(expr: TypedExpr[A]): Unit =
       expr match {

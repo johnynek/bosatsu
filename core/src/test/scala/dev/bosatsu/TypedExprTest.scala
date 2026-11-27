@@ -6604,6 +6604,7 @@ def make(y: Int):
                 Map((Type.Var.Bound("a"): Type.Var) -> Type.IntType)
               )
               assertEquals(tsub.size, expr.size)
+              assertEquals(expr.map(_ + 1).size, expr.size)
 
               val quantified: TypedExpr[Int] =
                 TypedExpr.quantify[Id, Int](
