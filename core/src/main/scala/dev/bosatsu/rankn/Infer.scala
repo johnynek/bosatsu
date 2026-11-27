@@ -527,7 +527,10 @@ object Infer {
       /** Instantiate sigma into this mode: the result coerces an expression
         * of type sigma.
         *
-        * Invariant: in check mode, the expected rho is in weak prenex form
+        * In check mode the expected rho is usually in weak prenex form, but
+        * not always: an annotation on an application, or the widest branch
+        * type of a match, can still have a forall in a function result.
+        * subsCheckFn handles that case.
         */
       def instSigma(sigma: Type, r: Region): Infer[FunctionK[TypedExpr, R]]
 
