@@ -723,25 +723,25 @@ object TypedExpr {
   ) {
     import QuantifierEvidence.sortedMapTraverse
 
-    private def mapSolved(fn: Type => Type)(
+    private def mapSolved(
         solved: SortedMap[Type.Var.Bound, (Kind, Type)]
-    ): SortedMap[Type.Var.Bound, (Kind, Type)] =
+    )(fn: Type => Type): SortedMap[Type.Var.Bound, (Kind, Type)] =
       SortedMap.from(
         solved.iterator
           .map { case (b, (k, t)) => (b, (k, fn(t))) }
       )
 
-    private def traverseSolved[F[_]: Applicative](fn: Type => F[Type])(
+    private def traverseSolved[F[_]: Applicative](
         solved: SortedMap[Type.Var.Bound, (Kind, Type)]
-    ): F[SortedMap[Type.Var.Bound, (Kind, Type)]] =
+    )(fn: Type => F[Type]): F[SortedMap[Type.Var.Bound, (Kind, Type)]] =
       sortedMapTraverse.traverse(solved)(fn)
 
     def mapTypes(fn: Type => Type): QuantifierEvidence =
       copy(
         sourceAtSolve = fn(sourceAtSolve),
         targetAtSolve = fn(targetAtSolve),
-        forallSolved = mapSolved(fn)(forallSolved),
-        existsHidden = mapSolved(fn)(existsHidden)
+        forallSolved = mapSolved(forallSolved)(fn),
+        existsHidden = mapSolved(existsHidden)(fn)
       )
 
     def traverseTypes[F[_]: Applicative](
@@ -750,8 +750,8 @@ object TypedExpr {
       (
         fn(sourceAtSolve),
         fn(targetAtSolve),
-        traverseSolved(fn)(forallSolved),
-        traverseSolved(fn)(existsHidden)
+        traverseSolved(forallSolved)(fn),
+        traverseSolved(existsHidden)(fn)
       ).mapN(QuantifierEvidence(_, _, _, _))
   }
   object QuantifierEvidence {

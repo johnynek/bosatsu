@@ -4211,9 +4211,8 @@ object Matchless {
     private def withSomeTuple2Expr[F[_]: Monad, A](
         optionExpr: Expr[A],
         ctx: Ctx[F, A]
-    )(
-        onSome: (CheapExpr[A], CheapExpr[A]) => F[Expr[A]],
-        onNone: => F[Expr[A]]
+    )(onNone: => F[Expr[A]])(
+        onSome: (CheapExpr[A], CheapExpr[A]) => F[Expr[A]]
     ): F[Expr[A]] =
       withCheapExpr(optionExpr, ctx.newConst) { opt =>
         for {
@@ -4316,9 +4315,8 @@ object Matchless {
         bindTargets: IndexedSeq[LocalAnonMut],
         nextBind: Int,
         ctx: Ctx[F, A]
-    )(
-        onMatch: CheapExpr[A] => F[Expr[A]],
-        onMiss: => F[Expr[A]]
+    )(onMiss: => F[Expr[A]])(
+        onMatch: CheapExpr[A] => F[Expr[A]]
     ): F[Expr[A]] =
       Defer[F].defer(parts match {
         case Nil =>
@@ -4327,31 +4325,27 @@ object Matchless {
           withSomeTuple2Expr(
             call2(ctx.from, partitionStringName, arg, Literal(Lit.Str(expect))),
             ctx
-          )(
+          )(onMiss)(
             (left, right) =>
               for {
                 missExpr <- onMiss
-                matchedExpr <- ifExactStringParts(right, tail, bindTargets, nextBind, ctx)(
-                  onMatch,
-                  onMiss
+                matchedExpr <- ifExactStringParts(right, tail, bindTargets, nextBind, ctx)(onMiss)(
+                  onMatch
                 )
-              } yield If(CompareLit(left, CompareRel.Eq, emptyStringLit), matchedExpr, missExpr),
-            onMiss
+              } yield If(CompareLit(left, CompareRel.Eq, emptyStringLit), matchedExpr, missExpr)
           )
         case (charPart: StrPart.CharPart) :: tail =>
-          withSomeTuple2Expr(call1(ctx.from, unconsStringName, arg), ctx)(
+          withSomeTuple2Expr(call1(ctx.from, unconsStringName, arg), ctx)(onMiss)(
             (head, rest) => {
               val nextBind1 =
                 if (charPart.capture) nextBind + 1 else nextBind
-              ifExactStringParts(rest, tail, bindTargets, nextBind1, ctx)(
-                onMatch,
-                onMiss
+              ifExactStringParts(rest, tail, bindTargets, nextBind1, ctx)(onMiss)(
+                onMatch
               ).map { matchedExpr =>
                 if (charPart.capture) Always(SetMut(bindAt(bindTargets, nextBind), head), matchedExpr)
                 else matchedExpr
               }
-            },
-            onMiss
+            }
           )
       })
 
@@ -4455,7 +4449,7 @@ object Matchless {
           bindTargets,
           segmentBindStart,
           ctx
-        )(
+        )(Monad[F].pure(advance))(
           right =>
             for {
               pureCheck <- compilePureStringSearchPlan(
@@ -4479,8 +4473,7 @@ object Matchless {
                 If(successCheck, matched, advance),
                 stopStringSearchExpr(state)
               )
-            },
-          Monad[F].pure(advance)
+            }
         )
       } yield {
         val loopEffect =
@@ -4547,7 +4540,7 @@ object Matchless {
         effect <- withSomeTuple2Expr(
           call2(ctx.from, partitionStringName, currentMut, Literal(Lit.Str(expect))),
           ctx
-        )(
+        )(Monad[F].pure(stopStringSearchExpr(state)))(
           (left, right) => {
             val currentAdvance: Expr[A] =
               expectTailExprOpt match {
@@ -4567,7 +4560,7 @@ object Matchless {
                 UnitExpr
               )
 
-            ifExactStringParts(right, exactTail, bindTargets, segmentBindStart, ctx)(
+            ifExactStringParts(right, exactTail, bindTargets, segmentBindStart, ctx)(Monad[F].pure(onCandidateMiss))(
               remainder =>
                 for {
                   pureCheck <- compilePureStringSearchPlan(
@@ -4591,11 +4584,9 @@ object Matchless {
                     If(successCheck, matched, onCandidateMiss),
                     stopStringSearchExpr(state)
                   )
-                },
-              Monad[F].pure(onCandidateMiss)
+                }
             )
-          },
-          Monad[F].pure(stopStringSearchExpr(state))
+          }
         )
       } yield {
         val initSets =
@@ -4677,7 +4668,7 @@ object Matchless {
           bindTargets,
           segmentBindStart,
           ctx
-        )(
+        )(Monad[F].pure(advance))(
           remainder =>
             onPureMatch.map { successCheck =>
               val matchUpdates =
@@ -4697,8 +4688,7 @@ object Matchless {
                     advance
                   )
               }
-            },
-          Monad[F].pure(advance)
+            }
         )
       } yield {
         val loopEffect =
@@ -4765,7 +4755,7 @@ object Matchless {
         effect <- withSomeTuple2Expr(
           call2(ctx.from, partitionStringName, currentMut, Literal(Lit.Str(expect))),
           ctx
-        )(
+        )(Monad[F].pure(stopStringSearchExpr(state)))(
           (left, right) => {
             val currentAdvance: Expr[A] =
               expectTailExprOpt match {
@@ -4785,7 +4775,7 @@ object Matchless {
                 UnitExpr
               )
 
-            ifExactStringParts(right, exactTail, bindTargets, segmentBindStart, ctx)(
+            ifExactStringParts(right, exactTail, bindTargets, segmentBindStart, ctx)(Monad[F].pure(onCandidateMiss))(
               remainder =>
                 onPureMatch.map { successCheck =>
                   val prefixUpdates =
@@ -4810,11 +4800,9 @@ object Matchless {
                         onCandidateMiss
                       )
                   }
-                },
-              Monad[F].pure(onCandidateMiss)
+                }
             )
-          },
-          Monad[F].pure(stopStringSearchExpr(state))
+          }
         )
       } yield {
         val initSets =

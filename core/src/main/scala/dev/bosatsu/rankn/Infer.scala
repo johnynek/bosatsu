@@ -536,8 +536,8 @@ object Infer {
 
       /** Check against the expected type, or infer, depending on the mode.
         */
-      def fold[A](check: (Type.Rho, Region) => Infer[TypedExpr.Rho[A]])(
-          infer: => Infer[Expected.Inferred[A]]
+      def fold[A](infer: => Infer[Expected.Inferred[A]])(
+          check: (Type.Rho, Region) => Infer[TypedExpr.Rho[A]]
       ): Infer[R[A]]
 
       /** Rebuild the expression of a result, keeping any inferred type.
@@ -555,8 +555,8 @@ object Infer {
         def instSigma(sigma: Type, r: Region): Infer[TypedExpr.CoerceRho] =
           subsCheckRho(sigma, rho, r, region, Error.Direction.ExpectRight)
 
-        def fold[A](check: (Type.Rho, Region) => Infer[TypedExpr.Rho[A]])(
-            infer: => Infer[Inferred[A]]
+        def fold[A](infer: => Infer[Inferred[A]])(
+            check: (Type.Rho, Region) => Infer[TypedExpr.Rho[A]]
         ): Infer[TypedExpr.Rho[A]] =
           check(rho, region)
 
@@ -581,8 +581,8 @@ object Infer {
             }
           }
 
-        def fold[A](check: (Type.Rho, Region) => Infer[TypedExpr.Rho[A]])(
-            infer: => Infer[Inferred[A]]
+        def fold[A](infer: => Infer[Inferred[A]])(
+            check: (Type.Rho, Region) => Infer[TypedExpr.Rho[A]]
         ): Infer[Inferred[A]] =
           infer
 
@@ -2372,10 +2372,11 @@ object Infer {
                   z <- zonkTypedExpr(te)
                 } yield co(z)
               case None =>
-                expect.fold { (rho, reg) =>
-                  // this this apply is known to be a rho, this assert will pass
-                  checkApplyRho(fn, args, tag, rho, reg)
-                }(applyRhoExpect(fn, args, tag, Expected.Inf))
+                expect.fold(applyRhoExpect(fn, args, tag, Expected.Inf)) {
+                  (rho, reg) =>
+                    // this this apply is known to be a rho, this assert will pass
+                    checkApplyRho(fn, args, tag, rho, reg)
+                }
             }
         case Generic(tpes, in) =>
           for {
@@ -2384,7 +2385,30 @@ object Infer {
             coerce <- expect.instSigma(unSkol.getType, region(term))
           } yield coerce(unSkol)
         case Lambda(args, result, tag) =>
-          expect.fold { (expTy, rr) =>
+          def inferLambda: Infer[Expected.Inferred[A]] =
+            for {
+              nameVarsT <- args.parTraverse {
+                case (n, Some(tpe)) =>
+                  // The environment can hold sigma types; instantiation happens
+                  // at use sites (instSigma), so we keep the annotation as-is.
+                  pure((n, tpe))
+                case (n, None) =>
+                  // all functions args of kind type
+                  newMeta.map((n, _))
+              }
+              (typedBody, bodyT) <- extendEnvNonEmptyList(nameVarsT)(
+                inferRho(result)
+              )
+            } yield (
+              TypedExpr.Rho.AnnotatedLambda(
+                nameVarsT,
+                typedBody,
+                tag
+              ),
+              Type.Fun(nameVarsT.map(_._2), bodyT)
+            )
+
+          expect.fold(inferLambda) { (expTy, rr) =>
             for {
               // we know expTy is in weak-prenex form, and since Fn is covariant, bodyT must be
               // in weak prenex form
@@ -2438,28 +2462,6 @@ object Infer {
               namesVarsT,
               typedBody,
               tag
-            )
-          } {
-            for {
-              nameVarsT <- args.parTraverse {
-                case (n, Some(tpe)) =>
-                  // The environment can hold sigma types; instantiation happens
-                  // at use sites (instSigma), so we keep the annotation as-is.
-                  pure((n, tpe))
-                case (n, None) =>
-                  // all functions args of kind type
-                  newMeta.map((n, _))
-              }
-              (typedBody, bodyT) <- extendEnvNonEmptyList(nameVarsT)(
-                inferRho(result)
-              )
-            } yield (
-              TypedExpr.Rho.AnnotatedLambda(
-                nameVarsT,
-                typedBody,
-                tag
-              ),
-              Type.Fun(nameVarsT.map(_._2), bodyT)
             )
           }
         case Let(name, rhs, body, isRecursive, tag) =>
@@ -2608,7 +2610,12 @@ object Infer {
                                 region(tag)
                               )
 
-                            validKinds.parProductR(expect.fold { (r1, reg1) =>
+                            def inferAnnotated: Infer[Expected.Inferred[A]] =
+                              checkedKinds.map { ks =>
+                                (TypedExpr.coerceRho(rho, ks)(te), rho)
+                              }
+
+                            validKinds.parProductR(expect.fold(inferAnnotated) { (r1, reg1) =>
                               val quantifierEvidence =
                                 quantifierEvidenceFromInstantiation(
                                   sourceAtSolve = te.getType,
@@ -2631,10 +2638,6 @@ object Infer {
                                   )
                                 )
                               } yield co(z)
-                            } {
-                              checkedKinds.map { ks =>
-                                (TypedExpr.coerceRho(rho, ks)(te), rho)
-                              }
                             })
                           case None =>
                             default
@@ -2673,7 +2676,20 @@ object Infer {
                   val check = (t1, region(term))
                   val unskol = unskolemizeExists(exSkols)
 
-                  expect.fold { (resT, _) =>
+                  def inferMatch: Infer[Expected.Inferred[A]] =
+                    for {
+                      tbranches <- branches.parTraverse { branch =>
+                        inferBranch(branch, check)
+                      }
+                      (rho, resBranches) <- widenBranches(tbranches)
+                    } yield (
+                      unskol(
+                        TypedExpr.Rho.Match(matchKind, tsigma, resBranches, tag)
+                      ),
+                      rho
+                    )
+
+                  expect.fold(inferMatch) { (resT, _) =>
                     for {
                       rest <- envTypes
                       unknownExs <- unsolvedExistentials(resT :: rest)
@@ -2703,18 +2719,6 @@ object Infer {
                         }
                     } yield unskol(
                       TypedExpr.Rho.Match(matchKind, tsigma, tbranches, tag)
-                    )
-                  } {
-                    for {
-                      tbranches <- branches.parTraverse { branch =>
-                        inferBranch(branch, check)
-                      }
-                      (rho, resBranches) <- widenBranches(tbranches)
-                    } yield (
-                      unskol(
-                        TypedExpr.Rho.Match(matchKind, tsigma, resBranches, tag)
-                      ),
-                      rho
                     )
                   }
               }

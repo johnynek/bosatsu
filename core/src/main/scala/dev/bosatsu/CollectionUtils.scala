@@ -43,8 +43,9 @@ object CollectionUtils {
   }
 
   def listToUnique[A, K: Order, V](
-      l: List[A]
-  )(key: A => K, value: A => V, msg: => String): Try[SortedMap[K, V]] =
+      l: List[A],
+      msg: => String
+  )(key: A => K, value: A => V): Try[SortedMap[K, V]] =
     NonEmptyList.fromList(l) match {
       case None      => Success(SortedMap.empty[K, V])
       case Some(nel) =>
