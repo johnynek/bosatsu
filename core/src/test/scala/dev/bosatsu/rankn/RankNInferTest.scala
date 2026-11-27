@@ -1652,6 +1652,47 @@ main: Wrap[forall a. a -> a] = wrap(id)
       "Wrap[forall a. a -> a]"
     )
   }
+
+  test("argument checked against a nested forall result keeps a valid type") {
+    // checking an argument against `Int -> Int -> forall b. b -> b` gives it
+    // the weak-prenex type `forall b. Int -> Int -> b -> b`, which the
+    // validator has to accept as the same parameter type
+    parseProgram(
+      """#
+(id: forall a. a -> a) = x -> x
+(k: Int -> (Int -> (forall b. b -> b))) = _ -> _ -> id
+
+def ap3(h: Int -> (Int -> (forall b. b -> b))) -> String: h(1)(2)("x")
+
+main = ap3(k)
+""",
+      "String"
+    )
+
+    parseProgram(
+      """#
+def ap2(_: Int -> (Int -> (forall b. b -> b))) -> Int: 1
+
+main = ap2(_ -> _ -> x -> x)
+""",
+      "Int"
+    )
+
+    parseProgramIllTyped("""#
+(k: Int -> (Int -> (Int -> Int))) = _ -> _ -> x -> x
+
+def ap3(h: Int -> (Int -> (forall b. b -> b))) -> String: h(1)(2)("x")
+
+main = ap3(k)
+""")
+
+    parseProgramIllTyped("""#
+def ap2(_: Int -> (Int -> (forall b. b -> b))) -> Int: 1
+
+main = ap2(_ -> _ -> _ -> 1)
+""")
+  }
+
   test("ForAll as function arg") {
     parseProgram(
       """#

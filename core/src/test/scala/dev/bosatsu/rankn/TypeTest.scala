@@ -640,6 +640,86 @@ class TypeTest extends munit.ScalaCheckSuite {
     )
   }
 
+  test("hoistForAllCovariantDeep hoists out of nested covariant results") {
+    val a = Type.Var.Bound("a")
+    val b = Type.Var.Bound("b")
+    val kindOfFn: Type => Option[Kind] = {
+      case tc: Type.TyConst if Type.FnType.unapply(tc).exists(_._2 == 1) =>
+        Some(Kind(Kind.Type.contra, Kind.Type.co))
+      case _ => None
+    }
+
+    // Int -> Int -> forall b. b -> b
+    val nested = Type.Fun(
+      Type.IntType,
+      Type.Fun(
+        Type.IntType,
+        Type.forAll(List(b -> Kind.Type), Type.Fun(Type.TyVar(b), Type.TyVar(b)))
+      )
+    )
+    val expected = Type.forAll(
+      List(b -> Kind.Type),
+      Type.Fun(
+        Type.IntType,
+        Type.Fun(Type.IntType, Type.Fun(Type.TyVar(b), Type.TyVar(b)))
+      )
+    )
+    val hoisted = Type.hoistForAllCovariantDeep(nested, kindOfFn)
+    assert(
+      hoisted.sameAs(expected),
+      s"expected ${expected.show}, got ${hoisted.show}"
+    )
+    // the one level version leaves the inner forall in place
+    assert(Type.hoistForAllCovariant(nested, kindOfFn).sameAs(nested))
+
+    // a binder hoisted past a free use of the same name is renamed:
+    // a -> Int -> forall a. a
+    val capture = Type.Fun(
+      Type.TyVar(a),
+      Type.Fun(
+        Type.IntType,
+        Type.forAll(List(a -> Kind.Type), Type.TyVar(a))
+      )
+    )
+    val captureHoisted = Type.hoistForAllCovariantDeep(capture, kindOfFn)
+    Type.liftUniversals(captureHoisted) match {
+      case ((a1, _) :: Nil, in) =>
+        assert(a1 =!= a, captureHoisted.show)
+        assert(
+          in.sameAs(
+            Type.Fun(
+              Type.TyVar(a),
+              Type.Fun(Type.IntType, Type.TyVar(a1))
+            )
+          ),
+          captureHoisted.show
+        )
+      case _ =>
+        fail(s"expected one hoisted binder, got ${captureHoisted.show}")
+    }
+
+    // contravariant arguments are left alone
+    val contra = Type.Fun(nested, Type.IntType)
+    assert(Type.hoistForAllCovariantDeep(contra, kindOfFn).sameAs(contra))
+  }
+
+  test("hoistForAllCovariantDeep is idempotent") {
+    val kindOfFn: Type => Option[Kind] = {
+      case tc: Type.TyConst if Type.FnType.unapply(tc).exists(_._2 == 1) =>
+        Some(Kind(Kind.Type.contra, Kind.Type.co))
+      case _ => None
+    }
+
+    forAll(NTypeGen.genDepth03) { t =>
+      val hoisted = Type.hoistForAllCovariantDeep(t, kindOfFn)
+      val again = Type.hoistForAllCovariantDeep(hoisted, kindOfFn)
+      assert(
+        again.sameAs(hoisted),
+        s"expected ${hoisted.show}, got ${again.show}"
+      )
+    }
+  }
+
   test("hoist and pushDown round-trip to hoist normal form") {
     val kindOfFn: Type => Option[Kind] = {
       case tc: Type.TyConst if Type.FnType.unapply(tc).exists(_._2 == 1) =>

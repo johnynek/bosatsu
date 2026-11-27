@@ -479,6 +479,40 @@ object Type {
     }
   }
 
+  /** Hoist forall binders out of every all-covariant path.
+    *
+    * [[hoistForAllCovariant]] only hoists out of the arguments of the root
+    * head. This version first hoists inside each covariant argument, so
+    * `Int -> Int -> forall b. b -> b` becomes `forall b. Int -> Int -> b -> b`.
+    * That is the weak-prenex form inference gives to a term checked against a
+    * type, since skolemization floats universals over all-covariant paths.
+    *
+    * `kindOf` must give the kind of every applied head on those paths. Where
+    * it does not, that part of the type is left unchanged.
+    */
+  def hoistForAllCovariantDeep(
+      tpe: Type,
+      kindOf: Type => Option[Kind]
+  ): Type = {
+    val (outerForalls, rho0) = liftUniversals(tpe)
+    val (cons, cargs) = unapplyAll(rho0)
+    kindOf(cons) match {
+      case None =>
+        tpe
+      case Some(kind) =>
+        val kindArgs = kind.toArgs
+        val cargs1 = cargs.iterator.zipWithIndex.map { case (arg, idx) =>
+          if (kindArgs.lift(idx).exists(_.variance == Variance.co))
+            hoistForAllCovariantDeep(arg, kindOf)
+          else arg
+        }.toList
+        hoistForAllCovariant(
+          forAll(outerForalls, applyAll(cons, cargs1)),
+          kindOf
+        )
+    }
+  }
+
   @annotation.tailrec
   private def applyAllRho(rho: Leaf | TyApply, args: List[Type]): Rho =
     args match {

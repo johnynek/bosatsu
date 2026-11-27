@@ -101,6 +101,66 @@ class TestUtilsTypeValidationTest extends munit.FunSuite {
     assert(res.isValid, renderErrors(res))
   }
 
+  // `ap: (Int -> Int -> forall b. b -> b) -> String` applied to `k: argType`
+  private def validateNestedForallResultArg(argType: Type) = {
+    val b = Type.Var.Bound("b")
+    val bType = Type.TyVar(b)
+    val paramType = Type.Fun(
+      NonEmptyList.one(Type.IntType),
+      Type.Fun(
+        NonEmptyList.one(Type.IntType),
+        Type.forAll(
+          List(b -> Kind.Type),
+          Type.Fun(NonEmptyList.one(bType), bType)
+        )
+      )
+    )
+    val fnType = Type.Fun(NonEmptyList.one(paramType), Type.StrType)
+    val fn = TypedExpr.Local(Identifier.Name("ap"), fnType, tag)
+    val arg = TypedExpr.Local(Identifier.Name("k"), argType, tag)
+    val te = TypedExpr.App(fn, NonEmptyList.one(arg), Type.StrType, tag)
+
+    val names: Map[TypedExpr.Name[Unit], Type] =
+      Map(fn -> fnType, arg -> argType)
+    TestUtils.validateTypes(te, names, TypeEnv.empty)
+  }
+
+  test("validateTypes accepts a weak-prenex arg for a nested forall result") {
+    val a = Type.Var.Bound("a")
+    val aType = Type.TyVar(a)
+    val argType = Type.forAll(
+      List(a -> Kind.Type),
+      Type.Fun(
+        NonEmptyList.one(Type.IntType),
+        Type.Fun(
+          NonEmptyList.one(Type.IntType),
+          Type.Fun(NonEmptyList.one(aType), aType)
+        )
+      )
+    )
+    val res = validateNestedForallResultArg(argType)
+    assert(res.isValid, renderErrors(res))
+  }
+
+  test("validateTypes rejects a less polymorphic arg for a nested forall result") {
+    val a = Type.Var.Bound("a")
+    val aType = Type.TyVar(a)
+    val argType = Type.forAll(
+      List(a -> Kind.Type),
+      Type.Fun(
+        NonEmptyList.one(Type.IntType),
+        Type.Fun(
+          NonEmptyList.one(Type.IntType),
+          Type.Fun(NonEmptyList.one(aType), Type.IntType)
+        )
+      )
+    )
+    val res = validateNestedForallResultArg(argType)
+    val err = renderErrors(res)
+    assert(res.isInvalid, s"expected invalid but got valid: $err")
+    assert(err.contains("app arg type mismatch"), err)
+  }
+
   test("validateTypes accepts alias-expanded nested foralls without crashing") {
     val aliasPack = PackageName.parts("TypeValidatorTest")
     val aliasName = TypeName(Constructor("Poly"))
