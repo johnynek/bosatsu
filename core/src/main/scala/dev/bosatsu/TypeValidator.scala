@@ -190,8 +190,10 @@ object TypeValidator {
 
     if (from0.sameAs(to0)) Right((true, solvedFreeBounds))
     else {
-      val from1 = normalizeType(Type.hoistForAllCovariant(from0, kindOf))
-      val to1 = normalizeType(Type.hoistForAllCovariant(to0, kindOf))
+      // inference gives terms weak-prenex types, with universals floated over
+      // all-covariant paths, so compare both sides in that form
+      val from1 = normalizeType(Type.hoistForAllCovariantDeep(from0, kindOf))
+      val to1 = normalizeType(Type.hoistForAllCovariantDeep(to0, kindOf))
       val unresolvedFrom =
         Type
           .freeBoundTyVars(from1 :: Nil)
