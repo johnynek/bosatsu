@@ -52,6 +52,9 @@ object ReservedPackage {
 
     inline def external(inline n: String): (PackageName, Bindable) =
       (name, Name(CheckedNames.external(source, n)))
+
+    inline def value(inline n: String): Name =
+      Name(CheckedNames.exportedValue(source, n))
   }
 
   object Lazy {
@@ -107,6 +110,9 @@ object ReservedPackage {
 
     inline def external(inline n: String): (PackageName, Bindable) =
       (name, Name(CheckedNames.external(source, n)))
+
+    inline def value(inline n: String): Name =
+      Name(CheckedNames.exportedValue(source, n))
 
     inline def typeName(inline n: String): TypeName =
       TypeName(Constructor(CheckedNames.exportedType(source, n)))

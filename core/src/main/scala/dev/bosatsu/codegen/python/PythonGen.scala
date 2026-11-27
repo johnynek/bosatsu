@@ -12,6 +12,7 @@ import dev.bosatsu.{
   Matchless,
   Par,
   Parser,
+  PredefName,
   ReservedPackage
 }
 import dev.bosatsu.codegen.{CompilationNamespace, CompilationSource, Idents}
@@ -1312,14 +1313,14 @@ object PythonGen {
       val results: Map[Bindable, (List[ValueLike] => Env[ValueLike], Int)] =
         Map(
           (
-            Identifier.Name("add"),
+            PredefName.value("add"),
             (
               input => Env.onLast2(input.head, input.tail.head)(_.evalPlus(_)),
               2
             )
           ),
           (
-            Identifier.Name("sub"),
+            PredefName.value("sub"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head)(_.evalMinus(_))
@@ -1328,7 +1329,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("mul"),
+            PredefName.value("mul"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head)(_.evalTimes(_))
@@ -1337,7 +1338,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("div"),
+            PredefName.value("div"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head) { (a, b) =>
@@ -1354,7 +1355,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("div_mod"),
+            PredefName.value("div_mod"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head) { (a, b) =>
@@ -1381,14 +1382,14 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("addf"),
+            PredefName.value("addf"),
             (
               input => Env.onLast2(input.head, input.tail.head)(_.evalPlus(_)),
               2
             )
           ),
           (
-            Identifier.Name("subf"),
+            PredefName.value("subf"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head)(_.evalMinus(_))
@@ -1397,7 +1398,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("mulf"),
+            PredefName.value("mulf"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head)(_.evalTimes(_))
@@ -1406,14 +1407,14 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("divf"),
+            PredefName.value("divf"),
             (
               divFloatFn,
               2
             )
           ),
           (
-            Identifier.Name("mod_Int"),
+            PredefName.value("mod_Int"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head) { (a, b) =>
@@ -1429,9 +1430,9 @@ object PythonGen {
               2
             )
           ),
-          (Identifier.Name("cmp_Int"), (cmpFn, 2)),
+          (PredefName.value("cmp_Int"), (cmpFn, 2)),
           (
-            Identifier.Name("eq_Int"),
+            PredefName.value("eq_Int"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head)(
@@ -1441,9 +1442,9 @@ object PythonGen {
               2
             )
           ),
-          (Identifier.Name("cmp_Char"), (cmpUtf32Fn, 2)),
+          (PredefName.value("cmp_Char"), (cmpUtf32Fn, 2)),
           (
-            Identifier.Name("eq_Char"),
+            PredefName.value("eq_Char"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head)(
@@ -1453,10 +1454,10 @@ object PythonGen {
               2
             )
           ),
-          (Identifier.Name("cmp_Float64"), (cmpFloatFn, 2)),
-          (Identifier.Name("eq_Float64"), (eqFloatFn, 2)),
+          (PredefName.value("cmp_Float64"), (cmpFloatFn, 2)),
+          (PredefName.value("eq_Float64"), (eqFloatFn, 2)),
           (
-            Identifier.Name("shift_left_Int"),
+            PredefName.value("shift_left_Int"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head)(
@@ -1467,7 +1468,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("shift_right_Int"),
+            PredefName.value("shift_right_Int"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head)(
@@ -1478,7 +1479,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("and_Int"),
+            PredefName.value("and_Int"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head)(
@@ -1489,7 +1490,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("or_Int"),
+            PredefName.value("or_Int"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head)(
@@ -1500,7 +1501,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("xor_Int"),
+            PredefName.value("xor_Int"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head)(
@@ -1511,7 +1512,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("not_Int"),
+            PredefName.value("not_Int"),
             (
               {
                 // leverage not(x) == -1 - x
@@ -1521,7 +1522,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("popcount_Int"),
+            PredefName.value("popcount_Int"),
             (
               { input =>
                 (
@@ -1571,7 +1572,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("gcd_Int"),
+            PredefName.value("gcd_Int"),
             (
               { input =>
                 (
@@ -1603,7 +1604,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("concat_String"),
+            PredefName.value("concat_String"),
             (
               { input =>
                 Env.onLastM(input.head) { listOfStrings =>
@@ -1628,7 +1629,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("length_String"),
+            PredefName.value("length_String"),
             (
               { input =>
                 Env.onLast(input.head)(_.len())
@@ -1637,7 +1638,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("int_to_String"),
+            PredefName.value("int_to_String"),
             (
               { input =>
                 Env.onLast(input.head) {
@@ -1650,7 +1651,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("string_to_Int"),
+            PredefName.value("string_to_Int"),
             (
               { input =>
                 Env.onLast(input.head) { s =>
@@ -1680,12 +1681,12 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("char_to_String"),
+            PredefName.value("char_to_String"),
             // we encode chars as strings so this is just identity
             ({ input => Env.envMonad.pure(input.head) }, 1)
           ),
           (
-            Identifier.Name("char_to_Int"),
+            PredefName.value("char_to_Int"),
             (
               { input =>
                 structModule.flatMap { struct =>
@@ -1703,7 +1704,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("char_List_to_String"),
+            PredefName.value("char_List_to_String"),
             (
               { input =>
                 Env.onLastM(input.head) { listOfChars =>
@@ -1728,7 +1729,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("int_to_Char"),
+            PredefName.value("int_to_Char"),
             (
               { input =>
                 structModule.flatMap { struct =>
@@ -1760,7 +1761,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("trace"),
+            PredefName.value("trace"),
             (
               { input =>
                 Env.onLast2(input.head, input.tail.head) { (msg, i) =>
@@ -1773,7 +1774,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("partition_String"),
+            PredefName.value("partition_String"),
             (
               { input =>
                 Env.newAssignableVar
@@ -1805,7 +1806,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("rpartition_String"),
+            PredefName.value("rpartition_String"),
             (
               { input =>
                 Env.newAssignableVar
@@ -1835,7 +1836,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("uncons_String"),
+            PredefName.value("uncons_String"),
             (
               { input =>
                 Env.onLast(input.head) { str =>
@@ -1856,7 +1857,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("tail_or_empty_String"),
+            PredefName.value("tail_or_empty_String"),
             (
               { input =>
                 Env.onLast(input.head) { str =>
@@ -1866,18 +1867,18 @@ object PythonGen {
               1
             )
           ),
-          (Identifier.Name("cmp_String"), (cmpStringFn, 2))
+          (PredefName.value("cmp_String"), (cmpStringFn, 2))
         )
 
       val arrayResults
           : Map[Bindable, (List[ValueLike] => Env[ValueLike], Int)] =
         Map(
           (
-            Identifier.Name("empty_Array"),
+            ReservedPackage.Array.value("empty_Array"),
             ((_: List[ValueLike]) => Env.pure(emptyArray), 0)
           ),
           (
-            Identifier.Name("tabulate_Array"),
+            ReservedPackage.Array.value("tabulate_Array"),
             (
               { input =>
                 (
@@ -1931,7 +1932,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("from_List_Array"),
+            ReservedPackage.Array.value("from_List_Array"),
             (
               { input =>
                 Env.newAssignableVar.flatMap { pyList =>
@@ -1953,7 +1954,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("to_List_Array"),
+            ReservedPackage.Array.value("to_List_Array"),
             (
               { input =>
                 (
@@ -1987,7 +1988,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("size_Array"),
+            ReservedPackage.Array.value("size_Array"),
             (
               { input =>
                 Env.onLastM(input.head)(ary => boxInt64(arrayLen(ary)))
@@ -1996,7 +1997,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("char_Array_to_String"),
+            ReservedPackage.Array.value("char_Array_to_String"),
             (
               { input =>
                 Env.onLast(input.head) { ary =>
@@ -2014,7 +2015,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("get_map_Array"),
+            ReservedPackage.Array.value("get_map_Array"),
             (
               { input =>
                 Env.onLastsM(input) {
@@ -2045,7 +2046,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("get_or_Array"),
+            ReservedPackage.Array.value("get_or_Array"),
             (
               { input =>
                 Env.onLastsM(input) {
@@ -2076,7 +2077,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("foldl_with_index_Array"),
+            ReservedPackage.Array.value("foldl_with_index_Array"),
             (
               { input =>
                 (
@@ -2123,7 +2124,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("foldl_Array"),
+            ReservedPackage.Array.value("foldl_Array"),
             (
               { input =>
                 (
@@ -2167,7 +2168,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("foldr_Array"),
+            ReservedPackage.Array.value("foldr_Array"),
             (
               { input =>
                 (
@@ -2211,7 +2212,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("map_Array"),
+            ReservedPackage.Array.value("map_Array"),
             (
               { input =>
                 (
@@ -2255,7 +2256,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("map_with_index_Array"),
+            ReservedPackage.Array.value("map_with_index_Array"),
             (
               { input =>
                 (
@@ -2302,7 +2303,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("filter_Array"),
+            ReservedPackage.Array.value("filter_Array"),
             (
               { input =>
                 (
@@ -2349,7 +2350,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("flat_map_Array"),
+            ReservedPackage.Array.value("flat_map_Array"),
             (
               { input =>
                 (
@@ -2452,7 +2453,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("zip_map_Array"),
+            ReservedPackage.Array.value("zip_map_Array"),
             (
               { input =>
                 (
@@ -2506,7 +2507,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("zip_foldl_Array"),
+            ReservedPackage.Array.value("zip_foldl_Array"),
             (
               { input =>
                 (
@@ -2560,7 +2561,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("zip_sumf_Array"),
+            ReservedPackage.Array.value("zip_sumf_Array"),
             (
               { input =>
                 (
@@ -2637,7 +2638,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("sumf_Array"),
+            ReservedPackage.Array.value("sumf_Array"),
             (
               { input =>
                 (
@@ -2686,7 +2687,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("sumsqf_Array"),
+            ReservedPackage.Array.value("sumsqf_Array"),
             (
               { input =>
                 (
@@ -2736,7 +2737,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("dotf_Array"),
+            ReservedPackage.Array.value("dotf_Array"),
             (
               { input =>
                 (
@@ -2814,7 +2815,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("set_or_self_Array"),
+            ReservedPackage.Array.value("set_or_self_Array"),
             (
               { input =>
                 (
@@ -2859,7 +2860,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("sort_Array"),
+            ReservedPackage.Array.value("sort_Array"),
             (
               { input =>
                 (
@@ -2922,7 +2923,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("concat_all_Array"),
+            ReservedPackage.Array.value("concat_all_Array"),
             (
               { input =>
                 (
@@ -3004,7 +3005,7 @@ object PythonGen {
             )
           ),
           (
-            Identifier.Name("slice_Array"),
+            ReservedPackage.Array.value("slice_Array"),
             (
               { input =>
                 (
@@ -3074,64 +3075,64 @@ object PythonGen {
       val floatResults
           : Map[Bindable, (List[ValueLike] => Env[ValueLike], Int)] =
         Map(
-          (Identifier.Name("abs"), (unaryMath("fabs"), 1)),
-          (Identifier.Name("acos"), (unaryMath("acos"), 1)),
-          (Identifier.Name("asin"), (unaryMath("asin"), 1)),
-          (Identifier.Name("atan"), (unaryMath("atan"), 1)),
-          (Identifier.Name("atan2"), (binaryMath("atan2"), 2)),
-          (Identifier.Name("ceil"), (unaryMath("ceil"), 1)),
-          (Identifier.Name("cos"), (unaryMath("cos"), 1)),
-          (Identifier.Name("cosh"), (unaryMath("cosh"), 1)),
-          (Identifier.Name("exp"), (unaryMath("exp"), 1)),
-          (Identifier.Name("floor"), (unaryMath("floor"), 1)),
-          (Identifier.Name("hypot"), (binaryMath("hypot"), 2)),
-          (Identifier.Name("log"), (unaryMath("log"), 1)),
-          (Identifier.Name("log10"), (unaryMath("log10"), 1)),
-          (Identifier.Name("pow"), (binaryMath("pow"), 2)),
-          (Identifier.Name("sin"), (unaryMath("sin"), 1)),
-          (Identifier.Name("sinh"), (unaryMath("sinh"), 1)),
-          (Identifier.Name("sqrt"), (unaryMath("sqrt"), 1)),
-          (Identifier.Name("tan"), (unaryMath("tan"), 1)),
-          (Identifier.Name("tanh"), (unaryMath("tanh"), 1)),
+          (ReservedPackage.Float64.value("abs"), (unaryMath("fabs"), 1)),
+          (ReservedPackage.Float64.value("acos"), (unaryMath("acos"), 1)),
+          (ReservedPackage.Float64.value("asin"), (unaryMath("asin"), 1)),
+          (ReservedPackage.Float64.value("atan"), (unaryMath("atan"), 1)),
+          (ReservedPackage.Float64.value("atan2"), (binaryMath("atan2"), 2)),
+          (ReservedPackage.Float64.value("ceil"), (unaryMath("ceil"), 1)),
+          (ReservedPackage.Float64.value("cos"), (unaryMath("cos"), 1)),
+          (ReservedPackage.Float64.value("cosh"), (unaryMath("cosh"), 1)),
+          (ReservedPackage.Float64.value("exp"), (unaryMath("exp"), 1)),
+          (ReservedPackage.Float64.value("floor"), (unaryMath("floor"), 1)),
+          (ReservedPackage.Float64.value("hypot"), (binaryMath("hypot"), 2)),
+          (ReservedPackage.Float64.value("log"), (unaryMath("log"), 1)),
+          (ReservedPackage.Float64.value("log10"), (unaryMath("log10"), 1)),
+          (ReservedPackage.Float64.value("pow"), (binaryMath("pow"), 2)),
+          (ReservedPackage.Float64.value("sin"), (unaryMath("sin"), 1)),
+          (ReservedPackage.Float64.value("sinh"), (unaryMath("sinh"), 1)),
+          (ReservedPackage.Float64.value("sqrt"), (unaryMath("sqrt"), 1)),
+          (ReservedPackage.Float64.value("tan"), (unaryMath("tan"), 1)),
+          (ReservedPackage.Float64.value("tanh"), (unaryMath("tanh"), 1)),
           (
-            Identifier.Name("copy_sign"),
+            ReservedPackage.Float64.value("copy_sign"),
             (binaryMath("copysign"), 2)
           ),
-          (Identifier.Name("is_nan"), (unaryMath("isnan"), 1)),
+          (ReservedPackage.Float64.value("is_nan"), (unaryMath("isnan"), 1)),
           (
-            Identifier.Name("is_infinite"),
+            ReservedPackage.Float64.value("is_infinite"),
             (unaryMath("isinf"), 1)
           ),
           (
-            Identifier.Name("float64_to_String"),
+            ReservedPackage.Float64.value("float64_to_String"),
             (floatToStringFn, 1)
           ),
           (
-            Identifier.Name("string_to_Float64"),
+            ReservedPackage.Float64.value("string_to_Float64"),
             (stringToFloatFn, 1)
           ),
           (
-            Identifier.Name("int_bits_to_Float64"),
+            ReservedPackage.Float64.value("int_bits_to_Float64"),
             (intBitsToFloatFn, 1)
           ),
           (
-            Identifier.Name("float64_bits_to_Int"),
+            ReservedPackage.Float64.value("float64_bits_to_Int"),
             (floatBitsToIntFn, 1)
           ),
           (
-            Identifier.Name("float32_bits_to_Float64"),
+            ReservedPackage.Float64.value("float32_bits_to_Float64"),
             (intBits32ToFloatFn, 1)
           ),
           (
-            Identifier.Name("float64_to_float32_bits"),
+            ReservedPackage.Float64.value("float64_to_float32_bits"),
             (floatToBits32Fn, 1)
           ),
           (
-            Identifier.Name("float64_to_Int"),
+            ReservedPackage.Float64.value("float64_to_Int"),
             (floatToIntFn, 1)
           ),
           (
-            Identifier.Name("int_to_Float64"),
+            ReservedPackage.Float64.value("int_to_Float64"),
             (intToFloatFn, 1)
           )
         )
