@@ -477,15 +477,6 @@ object TypedExprNormalization {
       branch: Branch[A],
       avoid: Set[Bindable]
   ): Branch[A] = {
-    def replacementSubstitution(
-        renames: Map[Bindable, Bindable]
-    ): Map[Bindable, Local[A] => TypedExpr[A]] =
-      renames.iterator.map { case (oldArg, newArg) =>
-        oldArg -> { (loc: Local[A]) =>
-          (Local(newArg, loc.tpe, loc.tag): TypedExpr[A])
-        }
-      }.toMap
-
     def freshRenames(
         clashes: List[Bindable],
         avoidSet: Set[Bindable]
@@ -523,11 +514,9 @@ object TypedExprNormalization {
                 innerClashes,
                 outerAvoid ++ branch1.pattern.names.toSet ++ renamedFree
               )
-            val resSub = replacementSubstitution(argRenames)
-            val expr1 =
-              TypedExpr.substituteAll(resSub, branch1.expr, enterLambda = true).get
+            val expr1 = TypedExpr.substituteAll(argRenames, branch1.expr)
             val guardOpt1 =
-              guardOpt.map(TypedExpr.substituteAll(resSub, _, enterLambda = true).get)
+              guardOpt.map(TypedExpr.substituteAll(argRenames, _))
             val pattern1 = pattern.substitute(argRenames)
             val guard1 =
               TypedExpr.MatchGuard(argExpr, pattern1, guardOpt1)(using
@@ -1455,15 +1444,12 @@ object TypedExprNormalization {
             val captures = namedTypes.map { case (n, tpe) =>
               CapturedClosureVar(n, fresh.next(), tpe)
             }
-            val renameMap: Map[Bindable, Local[A] => TypedExpr[A]] =
+            val renameMap =
               captures.iterator.map { case CapturedClosureVar(n, cap, _) =>
-                n -> { (loc: Local[A]) =>
-                  Local(cap, loc.tpe, loc.tag): TypedExpr[A]
-                }
+                n -> cap
               }.toMap
 
-            val expr1 =
-              TypedExpr.substituteAll(renameMap, expr, enterLambda = true).get
+            val expr1 = TypedExpr.substituteAll(renameMap, expr)
             // closureNames is non-empty above, and traverse preserves cardinality.
             val extraParams =
               NonEmptyList.fromListUnsafe(captures.map(c => (c.capture, c.tpe)))
@@ -1921,9 +1907,9 @@ object TypedExprNormalization {
                         // we don't want to inline a value that is itself a function call
                         // inside of lambdas
                         val inlined =
-                          if (shouldInline)
-                            substitute(arg, ex2, in1, enterLambda = isSimp)
-                          else None
+                          if (!shouldInline) None
+                          else if (isSimp) Some(substitute(arg, ex2, in1))
+                          else substituteNoLambda(Map(arg -> ex2), in1)
                         inlined match {
                           case Some(il) =>
                             normalize1(namerec, il, scope, typeEnv)

@@ -1582,11 +1582,8 @@ object TypedExprRecursionCheck {
         case TypedExpr.Global(pack, nm: Bindable, _, _) =>
           state.topLevelLowerableAliases.get((pack, nm)).flatMap { alias =>
             if (alias.params.length == args.length) {
-              val substitutions = alias.params.iterator.zip(args.iterator).map {
-                case (param, argExpr) =>
-                  param -> ((_: TypedExpr.Local[Declaration]) => argExpr)
-              }.toMap
-              TypedExpr.substituteAll(substitutions, alias.body, enterLambda = true)
+              val substitutions = alias.params.iterator.zip(args.iterator).toMap
+              Some(TypedExpr.substituteAll(substitutions, alias.body))
             } else None
           }
         case _ =>
@@ -2387,24 +2384,11 @@ object TypedExprRecursionCheck {
         .toList
         .flatMap(_.substitutionAlternatives(guardBoundByPattern))
         .flatMap { renames =>
-          val substitutions: Map[
-            Bindable,
-            TypedExpr.Local[Declaration] => TypedExpr[Declaration]
-          ] =
-            renames.iterator.collect {
-              case (from, to) if to != from =>
-                from -> { (local: TypedExpr.Local[Declaration]) =>
-                  TypedExpr.Local(to, local.tpe, local.tag): TypedExpr[
-                    Declaration
-                  ]
-                }
-            }.toMap
+          val substitutions =
+            renames.iterator.filter { case (from, to) => to != from }.toMap
 
           if (substitutions.isEmpty) List(guardExpr)
-          else
-            TypedExpr
-              .substituteAll(substitutions, guardExpr, enterLambda = true)
-              .toList
+          else TypedExpr.substituteAll(substitutions, guardExpr) :: Nil
         }
         .distinct
     }

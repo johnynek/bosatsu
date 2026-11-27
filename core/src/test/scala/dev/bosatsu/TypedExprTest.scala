@@ -850,7 +850,7 @@ foo = _ -> 1
       val let1 = let("y", varTE("x", intTpe), varTE("y", intTpe))
       assertEquals(
         TypedExpr.substitute(Identifier.Name("x"), int(2), let1),
-        Some(let("y", int(2), varTE("y", intTpe)))
+        let("y", int(2), varTE("y", intTpe))
       )
     }
 
@@ -860,10 +860,8 @@ foo = _ -> 1
       assertEquals(
         TypedExpr
           .substitute(Identifier.Name("x"), varTE("y", intTpe), let1)
-          .map(_.reprString),
-        Some(
-          "(let y0 (var y Bosatsu/Predef::Int) (var y0 Bosatsu/Predef::Int))"
-        )
+          .reprString,
+        "(let y0 (var y Bosatsu/Predef::Int) (var y0 Bosatsu/Predef::Int))"
       )
     }
 
@@ -872,7 +870,7 @@ foo = _ -> 1
       val let1 = let("y", varTE("y", intTpe), varTE("y", intTpe))
       assertEquals(
         TypedExpr.substitute(Identifier.Name("y"), int(42), let1),
-        Some(let("y", int(42), varTE("y", intTpe)))
+        let("y", int(42), varTE("y", intTpe))
       )
     }
 
@@ -881,9 +879,27 @@ foo = _ -> 1
       val let1 = letrec("y", varTE("y", intTpe), varTE("y", intTpe))
       assertEquals(
         TypedExpr.substitute(Identifier.Name("y"), int(42), let1),
-        Some(let1)
+        let1
       )
     }
+  }
+
+  test("substituteNoLambda refuses any expression with a lambda") {
+    val x = Identifier.Name("x")
+    val noLambda = let("y", varTE("x", intTpe), varTE("y", intTpe))
+    assertEquals(
+      TypedExpr.substituteNoLambda(Map(x -> int(2)), noLambda),
+      Some(let("y", int(2), varTE("y", intTpe)))
+    )
+
+    // the lambda does not mention x, but is still refused
+    val withLambda =
+      let("y", varTE("x", intTpe), lam("z", intTpe, varTE("z", intTpe)))
+    assertEquals(TypedExpr.substituteNoLambda(Map(x -> int(2)), withLambda), None)
+    assertEquals(
+      TypedExpr.substituteAll(Map(x -> int(2)), withLambda),
+      let("y", int(2), lam("z", intTpe, varTE("z", intTpe)))
+    )
   }
 
   lazy val genNonFree: Gen[TypedExpr[Unit]] =
@@ -897,14 +913,8 @@ foo = _ -> 1
       TypedExpr.freeVars(te0 :: Nil) match {
         case Nil    => ()
         case b :: _ =>
-          TypedExpr.substitute(b, te1, te0) match {
-            case None =>
-              // te1 has no free variables, this shouldn't fail
-              assert(false)
-
-            case Some(te0sub) =>
-              assert(!TypedExpr.freeVarsSet(te0sub :: Nil)(b))
-          }
+          val te0sub = TypedExpr.substitute(b, te1, te0)
+          assert(!TypedExpr.freeVarsSet(te0sub :: Nil)(b))
       }
     }
   }
@@ -927,13 +937,7 @@ foo = _ -> 1
     } yield (nf, te)
 
     forAll(pair, genNonFree) { case ((b, te0), te1) =>
-      TypedExpr.substitute(b, te1, te0) match {
-        case None =>
-          // te1 has no free variables, this shouldn't fail
-          assert(false)
-
-        case Some(te0sub) => assertEquals(te0sub, te0)
-      }
+      assertEquals(TypedExpr.substitute(b, te1, te0), te0)
     }
   }
 
@@ -970,19 +974,11 @@ foo = _ -> 1
       )(using Region.empty)
       val expr = TypedExpr.Match(int(0), NonEmptyList.one(branch), ())
 
-      val outerSub = TypedExpr.substituteAll(
-        Map(outer -> { (_: TypedExpr.Local[Unit]) => int(11) }),
-        expr,
-        enterLambda = true
-      )
-      val innerSub = TypedExpr.substituteAll(
-        Map(inner -> { (_: TypedExpr.Local[Unit]) => int(17) }),
-        expr,
-        enterLambda = true
-      )
+      val outerSub = TypedExpr.substituteAll(Map(outer -> int(11)), expr)
+      val innerSub = TypedExpr.substituteAll(Map(inner -> int(17)), expr)
 
-      assertEquals(outerSub, Some(expr))
-      assertEquals(innerSub, Some(expr))
+      assertEquals(outerSub, expr)
+      assertEquals(innerSub, expr)
     }
   }
 
@@ -1010,11 +1006,7 @@ foo = _ -> 1
     )(using Region.empty)
     val expr = TypedExpr.Match(int(0), NonEmptyList.one(branch), ())
 
-    val substituted = TypedExpr.substituteAll(
-      Map(optName -> { (_: TypedExpr.Local[Unit]) => xLocal }),
-      expr,
-      enterLambda = true
-    ).get
+    val substituted = TypedExpr.substituteAll(Map(optName -> xLocal), expr)
 
     substituted match {
       case TypedExpr.Match(_, NonEmptyList(branch1, Nil), _) =>
@@ -1066,11 +1058,7 @@ foo = _ -> 1
     )(using Region.empty)
     val expr = TypedExpr.Match(int(0), NonEmptyList.one(branch), ())
 
-    val substituted = TypedExpr.substituteAll(
-      Map(yName -> { (_: TypedExpr.Local[Unit]) => pLocal }),
-      expr,
-      enterLambda = true
-    ).get
+    val substituted = TypedExpr.substituteAll(Map(yName -> pLocal), expr)
 
     substituted match {
       case TypedExpr.Match(_, NonEmptyList(branch1, Nil), _) =>
@@ -6607,10 +6595,9 @@ def make(y: Int):
               assert(expr.allTypes(Type.IntType))
               assert(TypedExpr.eqTypedExpr(using Eq[Int]).eqv(expr, expr))
 
-              val subMap: Map[Bindable, TypedExpr.Local[Int] => TypedExpr[Int]] =
-                Map(Identifier.Name("missing") -> ((loc: TypedExpr.Local[Int]) => loc))
-              val subRes = TypedExpr.substituteAll(subMap, expr, enterLambda = true)
-              assert(subRes.nonEmpty)
+              val missing = Identifier.Name("missing")
+              val subRes = TypedExpr.substituteAll(Map(missing -> missing), expr)
+              assert(TypedExpr.eqTypedExpr(using Eq[Int]).eqv(subRes, expr))
 
               val tsub = TypedExpr.substituteTypeVar(
                 expr,
