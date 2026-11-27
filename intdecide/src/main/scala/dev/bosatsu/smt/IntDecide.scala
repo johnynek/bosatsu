@@ -27,11 +27,15 @@ import SmtExpr.*
   *      form over linear constraints. Each `div` or `mod` by a constant `k`
   *      becomes a fresh quotient `q` and remainder `r` with
   *      `n == k * q + r` and `0 <= r <= |k| - 1`, and each Int `ite` a fresh
-  *      variable equal to one branch or the other.
+  *      variable equal to one branch or the other. `ite`s whose conditions
+  *      and branches translate the same share their variable, as do
+  *      `ite c a b` and `ite (not c) b a`.
   *   3. A search looks for values making all of that true. Constraints that
   *      must hold go to the Omega test (`Omega`), which is exact over the
   *      integers. A disjunction is only split when the values found so far
-  *      make it false, so disjunctions that don't matter cost nothing.
+  *      make it false, so disjunctions that don't matter cost nothing, and
+  *      its parts that a constraint already asserted decides (one bounding
+  *      the same terms) are dropped or end the disjunction without a split.
   *
   * No values means the goal is proved. Values found are checked on the
   * facts and goal themselves before they are reported as a counterexample.
@@ -283,7 +287,8 @@ object IntDecide {
     private var nextBool = 0
     // the same term always gets the same fresh variable
     private val divMods = mutable.HashMap.empty[(Omega.Form, BigInt), (Int, Int)]
-    private val iteVars = mutable.HashMap.empty[IntExpr, Int]
+    private val iteTerms = mutable.HashMap.empty[IntExpr, Omega.Form]
+    private val iteVars = mutable.HashMap.empty[(Nnf, Omega.Form, Omega.Form), Int]
     private val opaqueInts = mutable.HashMap.empty[IntExpr, Int]
     private val opaqueBools = mutable.HashMap.empty[BoolExpr, Int]
     private var defs = List.empty[Nnf]
@@ -438,29 +443,46 @@ object IntDecide {
             case None    => opaqueInt(e)
           }
         case Ite(c, t, f)                =>
-          val tf = int(t)
-          val ff = int(f)
-          if (tf == ff) tf
-          else
-            iteVars.get(e) match {
-              case Some(v) => Omega.Form.variable(v)
-              case None    =>
-                val v = freshInt()
-                val vf = Omega.Form.variable(v)
-                defs = Nnf.anyOf(
-                  Nnf.all(bool(c, positive = true) :: Nnf.eq(vf - tf) :: Nil) ::
-                    Nnf.all(bool(c, positive = false) :: Nnf.eq(vf - ff) :: Nil) ::
-                    Nil
-                ) :: defs
-                iteVars.update(e, v)
-                vf
-            }
+          iteTerms.get(e) match {
+            case Some(form) => form
+            case None       =>
+              val form = ite(c, int(t), int(f))
+              iteTerms.update(e, form)
+              form
+          }
         case Add(_) | Sub(_) | Mul(_) | App(_, _) =>
           // no arguments, which is not valid SMT-LIB, or an uninterpreted
           // function
           opaqueInt(e)
       }
     }
+
+    // `ite c tf ff`: a fresh variable, shared by every `ite` whose condition
+    // and branches translate the same, and by `ite (not c) ff tf`, since
+    // they are the same term.
+    private def ite(c: BoolExpr, tf: Omega.Form, ff: Omega.Form): Omega.Form =
+      if (tf == ff) tf
+      else {
+        val pos = bool(c, positive = true)
+        val neg = bool(c, positive = false)
+        if (pos == Nnf.True) tf
+        else if (pos == Nnf.False) ff
+        else
+          iteVars.get((pos, tf, ff)) match {
+            case Some(v) => Omega.Form.variable(v)
+            case None    =>
+              val v = freshInt()
+              val vf = Omega.Form.variable(v)
+              defs = Nnf.anyOf(
+                Nnf.all(pos :: Nnf.eq(vf - tf) :: Nil) ::
+                  Nnf.all(neg :: Nnf.eq(vf - ff) :: Nil) ::
+                  Nil
+              ) :: defs
+              iteVars.update((pos, tf, ff), v)
+              iteVars.update((neg, ff, tf), v)
+              vf
+          }
+      }
 
     /** `e` when positive, else its negation, in negation normal form. */
     def bool(e: BoolExpr, positive: Boolean): Nnf =
@@ -538,11 +560,51 @@ object IntDecide {
     * Omega for values meeting the constraints, and only splits a disjunction
     * those values (with unassigned Bools false) make false: if they make every
     * open disjunction true they are an answer.
+    *
+    * Before that, a disjunction with a part that the literals or the bounds
+    * of the constraints imply is dropped, and the parts they contradict are
+    * dropped from the others; one left with a single part must hold.
     */
   private final class Search(budget: Omega.Budget) {
     import Search.Outcome
 
-    def run(f: Nnf): Outcome = node(f :: Nil, Vector.empty, IntMap.empty, Vector.empty)
+    def run(f: Nnf): Outcome = node(f :: Nil, Vector.empty, Map.empty, IntMap.empty, Vector.empty)
+
+    // The bounds the constraints so far give, keyed by coefficients k with
+    // gcd 1: the least c such that some constraint, tightened, is
+    // `k * vars + c >= 0`. Another constraint on the same `k * vars`, or on
+    // `-k * vars`, is then decided without Omega. Atoms are never constant
+    // (Nnf.geq and Nnf.eq fold those), and one would find no bound here,
+    // which only decides less.
+    private type Bounds = Map[IntMap[BigInt], BigInt]
+
+    private def boundGeq(bounds: Bounds, f: Omega.Form): Bounds = {
+      val t = f.tightened
+      bounds.get(t.coeffs) match {
+        case Some(c) if c <= t.const => bounds
+        case _                       => bounds.updated(t.coeffs, t.const)
+      }
+    }
+
+    private def bound(bounds: Bounds, c: Omega.Constraint): Bounds =
+      c match {
+        case Omega.Constraint.Geq(f) => boundGeq(bounds, f)
+        case Omega.Constraint.Eq(f)  => boundGeq(boundGeq(bounds, f), -f)
+      }
+
+    // Whether f >= 0 follows from the bounds: with f tightened to
+    // `k * vars + c1`, they give `k * vars >= -c` for some c <= c1.
+    private def impliesGeq(bounds: Bounds, f: Omega.Form): Boolean = {
+      val t = f.tightened
+      bounds.get(t.coeffs).exists(_ <= t.const)
+    }
+
+    // Whether f >= 0 contradicts the bounds: with f tightened to
+    // `k * vars + c1`, they give `k * vars <= c2` for some c2 < -c1.
+    private def refutesGeq(bounds: Bounds, f: Omega.Form): Boolean = {
+      val t = f.tightened
+      bounds.get((-t).coeffs).exists(_ + t.const < 0)
+    }
 
     private def holds(f: Nnf, ints: IntMap[BigInt], bools: IntMap[Boolean]): Boolean = {
       val _ = budget.spend(1)
@@ -555,57 +617,72 @@ object IntDecide {
     }
 
     // Moves what must hold out of todo, then drops the disjuncts that the
-    // Bool literals rule out, repeating while that leaves one. None if the
-    // literals contradict each other or a disjunction is left empty.
+    // Bool literals or the bounds rule out, repeating while that leaves one.
+    // None if the literals contradict each other or a disjunction is left
+    // empty.
     @annotation.tailrec
     private def absorb(
         todo: List[Nnf],
         atoms: Vector[Omega.Constraint],
+        bounds: Bounds,
         bools: IntMap[Boolean],
         disjs: Vector[List[Nnf]]
-    ): Option[(Vector[Omega.Constraint], IntMap[Boolean], Vector[List[Nnf]])] =
+    ): Option[(Vector[Omega.Constraint], Bounds, IntMap[Boolean], Vector[List[Nnf]])] =
       todo match {
-        case Nnf.Atom(c) :: rest          => absorb(rest, atoms :+ c, bools, disjs)
+        case Nnf.Atom(c) :: rest          => absorb(rest, atoms :+ c, bound(bounds, c), bools, disjs)
         case Nnf.Lit(v, value) :: rest    =>
           bools.get(v) match {
             case Some(other) if other != value => None
-            case _                             => absorb(rest, atoms, bools.updated(v, value), disjs)
+            case _                             => absorb(rest, atoms, bounds, bools.updated(v, value), disjs)
           }
-        case Nnf.All(ps) :: rest          => absorb(ps ::: rest, atoms, bools, disjs)
+        case Nnf.All(ps) :: rest          => absorb(ps ::: rest, atoms, bounds, bools, disjs)
         case Nnf.AnyOf(Nil) :: _          => None
-        case Nnf.AnyOf(p :: Nil) :: rest  => absorb(p :: rest, atoms, bools, disjs)
-        case Nnf.AnyOf(ps) :: rest        => absorb(rest, atoms, bools, disjs :+ ps)
+        case Nnf.AnyOf(p :: Nil) :: rest  => absorb(p :: rest, atoms, bounds, bools, disjs)
+        case Nnf.AnyOf(ps) :: rest        => absorb(rest, atoms, bounds, bools, disjs :+ ps)
         case Nil                          =>
-          def ruledOut(p: Nnf): Boolean =
+          // false wherever the literals and constraints so far hold
+          def ruledOut(p: Nnf): Boolean = {
+            val _ = budget.spend(1)
             p match {
-              case Nnf.Lit(v, value) => bools.get(v).contains(!value)
-              case _                 => false
+              case Nnf.Lit(v, value)                 => bools.get(v).contains(!value)
+              case Nnf.Atom(Omega.Constraint.Geq(f)) => refutesGeq(bounds, f)
+              case Nnf.Atom(Omega.Constraint.Eq(f))  => refutesGeq(bounds, f) || refutesGeq(bounds, -f)
+              case Nnf.All(ps)                       => ps.exists(ruledOut)
+              case Nnf.AnyOf(ps)                     => ps.forall(ruledOut)
             }
-          def satisfied(p: Nnf): Boolean =
+          }
+          // true wherever the literals and constraints so far hold
+          def satisfied(p: Nnf): Boolean = {
+            val _ = budget.spend(1)
             p match {
-              case Nnf.Lit(v, value) => bools.get(v).contains(value)
-              case _                 => false
+              case Nnf.Lit(v, value)                 => bools.get(v).contains(value)
+              case Nnf.Atom(Omega.Constraint.Geq(f)) => impliesGeq(bounds, f)
+              case Nnf.Atom(Omega.Constraint.Eq(f))  => impliesGeq(bounds, f) && impliesGeq(bounds, -f)
+              case Nnf.All(ps)                       => ps.forall(satisfied)
+              case Nnf.AnyOf(ps)                     => ps.exists(satisfied)
             }
+          }
           val open = disjs.filterNot(_.exists(satisfied)).map(_.filterNot(ruledOut))
           open.indexWhere(_.lengthCompare(1) <= 0) match {
-            case -1 => Some((atoms, bools, open))
+            case -1 => Some((atoms, bounds, bools, open))
             case i  =>
               // empty is a conflict (AnyOf(Nil)), one must hold
-              absorb(Nnf.AnyOf(open(i)) :: Nil, atoms, bools, open.patch(i, Nil, 1))
+              absorb(Nnf.AnyOf(open(i)) :: Nil, atoms, bounds, bools, open.patch(i, Nil, 1))
           }
       }
 
     private def node(
         todo: List[Nnf],
         atoms0: Vector[Omega.Constraint],
+        bounds0: Bounds,
         bools0: IntMap[Boolean],
         disjs0: Vector[List[Nnf]]
     ): Outcome =
       if (!budget.spend(1)) Outcome.GaveUp
       else
-        absorb(todo, atoms0, bools0, disjs0) match {
-          case None                         => Outcome.Unsat
-          case Some((atoms, bools, disjs)) =>
+        absorb(todo, atoms0, bounds0, bools0, disjs0) match {
+          case None                                 => Outcome.Unsat
+          case Some((atoms, bounds, bools, disjs)) =>
             Omega.solve(atoms.toList, budget) match {
               case Omega.Result.Unsat    => Outcome.Unsat
               case Omega.Result.GaveUp   => Outcome.GaveUp
@@ -621,7 +698,7 @@ object IntDecide {
                       acc match {
                         case Outcome.Sat(_, _) => acc
                         case _                 =>
-                          node(p :: Nil, atoms, bools, rest) match {
+                          node(p :: Nil, atoms, bounds, bools, rest) match {
                             case sat @ Outcome.Sat(_, _) => sat
                             case Outcome.GaveUp          => Outcome.GaveUp
                             case Outcome.Unsat           => acc

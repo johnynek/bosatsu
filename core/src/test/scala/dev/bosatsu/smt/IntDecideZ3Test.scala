@@ -2,7 +2,7 @@ package dev.bosatsu.smt
 
 import dev.bosatsu.Platform
 import org.scalacheck.{Gen, Prop}
-import org.scalacheck.Prop.{forAll, propBoolean}
+import org.scalacheck.Prop.{forAll, forAllNoShrink, propBoolean}
 import org.scalacheck.rng.Seed
 
 import IntDecide.Result
@@ -12,8 +12,9 @@ import LinearBoundsGens.evalBool
   * contradict each other: IntDecide must never prove a goal z3 refutes (z3
   * finds the facts and the negated goal sat), and never refute one z3 proves
   * (unsat). Either may fail to answer, and the embedded z3 sometimes does
-  * (it traps on some valid queries), but in the fragment IntDecide decides it
-  * must always answer, so its giving up fails these properties too.
+  * (it traps on some valid queries), but in the fragment IntDecide decides,
+  * with a limit large enough (`IntDecideGens.decide`), it must always
+  * answer, so its giving up fails these properties too.
   *
   * Three kinds of goals, from IntDecideGens:
   *   - refutable: facts built to hold at a point where the goal fails, so
@@ -45,7 +46,7 @@ class IntDecideZ3Test extends munit.ScalaCheckSuite {
       bools: Iterable[String],
       expect: Expect
   ): Prop = {
-    val decided = IntDecide.implies(goal, facts, IntDecide.DefaultWorkLimit)
+    val decided = decide(goal, facts)
     val z3 = Z3Oracle.implies(goal, facts, ints, bools)
     val clue = s"facts: $facts\ngoal: $goal\nIntDecide: $decided\nz3: $z3\nexpected: $expect"
     // z3's answer, when it has one: Some(true) is unsat (proved)
@@ -80,7 +81,7 @@ class IntDecideZ3Test extends munit.ScalaCheckSuite {
   }
 
   property("goals built to follow from the facts: IntDecide proves them, and z3 never refutes them") {
-    forAll(provableCaseGen) { case (facts, goal) =>
+    forAllNoShrink(provableCaseGen) { case (facts, goal) =>
       checkAgainstZ3(facts, goal, intNames, boolNames, Expect.Proof)
     }
   }

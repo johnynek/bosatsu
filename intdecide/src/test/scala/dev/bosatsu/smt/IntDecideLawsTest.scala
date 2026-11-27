@@ -1,7 +1,7 @@
 package dev.bosatsu.smt
 
 import org.scalacheck.{Gen, Prop}
-import org.scalacheck.Prop.{forAll, propBoolean}
+import org.scalacheck.Prop.{forAll, forAllNoShrink, propBoolean}
 import org.scalacheck.rng.Seed
 
 import IntDecide.{Reason, Result}
@@ -13,8 +13,12 @@ import LinearBoundsGens.{byZeroChoices, evalBool}
   *   - with every Int variable bounded, the grid covers every value, so it
   *     decides the goal, and `implies` must agree with it exactly.
   *
-  * IntDecideZ3Test in core checks the same procedure against z3 on unbounded
-  * goals.
+  * The properties take the result with a limit large enough
+  * (`IntDecideGens.decide`), as the third law does; "the default limit
+  * decides the generated goals" checks that the default is rarely short.
+  *
+  * IntDecideZ3Test in core checks the same procedure against z3 on
+  * unbounded goals.
   */
 class IntDecideLawsTest extends munit.ScalaCheckSuite {
   import SmtExpr.*
@@ -56,7 +60,7 @@ class IntDecideLawsTest extends munit.ScalaCheckSuite {
   property("in the fragment, with every Int variable bounded, implies agrees with the grid") {
     forAll(caseGen(nonlinear = false)) { case (facts0, goal) =>
       val facts = boxFacts ::: facts0
-      (implies(goal, facts), counterexample(grid, facts, goal)) match {
+      (decide(goal, facts), counterexample(grid, facts, goal)) match {
         case (Result.Proved, None)         => Prop.passed
         case (Result.Proved, Some(env))    =>
           Prop.falsified :| s"proved, but $env is a counterexample\n${describe(facts, goal)}"
@@ -71,7 +75,7 @@ class IntDecideLawsTest extends munit.ScalaCheckSuite {
 
   property("in the fragment, implies proves or refutes, and is right") {
     forAll(caseGen(nonlinear = false)) { case (facts, goal) =>
-      implies(goal, facts) match {
+      decide(goal, facts) match {
         case Result.Proved     =>
           val bad = counterexample(grid, facts, goal)
           bad.isEmpty :| s"proved, but $bad is a counterexample\n${describe(facts, goal)}"
@@ -86,7 +90,7 @@ class IntDecideLawsTest extends munit.ScalaCheckSuite {
     // fewer cases: each grid check runs under every interpretation of
     // division by zero
     forAll(caseGen(nonlinear = true)) { case (facts, goal) =>
-      implies(goal, facts) match {
+      decide(goal, facts) match {
         case Result.Proved     =>
           val bad = counterexample(gridAllByZero, facts, goal)
           bad.isEmpty :| s"proved, but $bad is a counterexample\n${describe(facts, goal)}"
@@ -99,7 +103,7 @@ class IntDecideLawsTest extends munit.ScalaCheckSuite {
 
   property("a goal that fails at a point where every fact holds is refuted") {
     forAll(refutableCaseGen) { case (facts, goal, _) =>
-      implies(goal, facts) match {
+      decide(goal, facts) match {
         case Result.Refuted(m) => realCounterexample(m, facts, goal)
         case other             =>
           Prop.falsified :| s"expected a counterexample, got $other\n${describe(facts, goal)}"
@@ -108,8 +112,8 @@ class IntDecideLawsTest extends munit.ScalaCheckSuite {
   }
 
   property("a goal built to follow from the facts is proved") {
-    forAll(provableCaseGen) { case (facts, goal) =>
-      val res = implies(goal, facts)
+    forAllNoShrink(provableCaseGen) { case (facts, goal) =>
+      val res = decide(goal, facts)
       (res == Result.Proved) :| s"got $res\n${describe(facts, goal)}"
     }
   }
@@ -123,9 +127,23 @@ class IntDecideLawsTest extends munit.ScalaCheckSuite {
 
   property("adding facts never stops a proof") {
     forAll(caseGen(nonlinear = false), factGen(nonlinear = false)) { case ((facts, goal), extra) =>
-      (implies(goal, facts) == Result.Proved) ==>
-        (implies(goal, extra :: facts) == Result.Proved) :| describe(extra :: facts, goal)
+      (decide(goal, facts) == Result.Proved) ==>
+        (decide(goal, extra :: facts) == Result.Proved) :| describe(extra :: facts, goal)
     }
+  }
+
+  test("the default limit decides the generated goals") {
+    // the properties fall back to a larger limit, so check the default
+    // separately, on fixed cases so the check isn't flaky
+    def cases(gen: Gen[(List[BoolExpr], BoolExpr)]): Seq[(List[BoolExpr], BoolExpr)] =
+      (0 until 300).flatMap(i => gen(Gen.Parameters.default, Seed(i.toLong)))
+    val all =
+      cases(provableCaseGen) ++ cases(caseGen(nonlinear = false)) ++
+        cases(refutableCaseGen.map { case (facts, goal, _) => (facts, goal) })
+    val reached = all.filter { case (facts, goal) =>
+      implies(goal, facts) == Result.Unknown(Reason.WorkLimit)
+    }
+    assert(reached.isEmpty, reached.map { case (facts, goal) => describe(facts, goal) }.mkString("\n"))
   }
 
   // ---------------------------------------------------------------------------
@@ -176,6 +194,19 @@ class IntDecideLawsTest extends munit.ScalaCheckSuite {
     // `if fast: n.sub(2) else: n.sub(1)` is < n
     val next = Ite[SmtSort.IntSort](fast, Sub(Vector(n, c(2))), Sub(Vector(n, c(1))))
     assertProvedNew(Lt(next, n), Gt(n, c(0)))
+  }
+
+  test("an ite restated is the same term") {
+    // `ite c a b` and `ite (not c) b a`, with c and the branches written
+    // differently: one variable for both, so there is nothing to split (45
+    // work; with a variable each, splitting their definitions takes 242)
+    val ite1 = Ite[SmtSort.IntSort](Lt(n, k), Sub(Vector(n, c(1))), k)
+    val ite2 = Ite[SmtSort.IntSort](Gte(n, k), k, Add(Vector(n, c(-1))))
+    assert(!pathImplies(EqInt(ite1, ite2), Nil))
+    assertEquals(IntDecide.implies(EqInt(ite1, ite2), Nil, 100), Result.Proved)
+    // a condition that translates to a constant picks its branch
+    assertProvedNew(EqInt(Ite[SmtSort.IntSort](Lte(n, n), n, k), n))
+    assertProvedNew(EqInt(Ite[SmtSort.IntSort](Lt(n, n), k, n), n))
   }
 
   test("a case split on a Bool variable") {
@@ -252,6 +283,206 @@ class IntDecideLawsTest extends munit.ScalaCheckSuite {
       IntDecide.implies(goal, List(Gt(n, c(0))), 5),
       Result.Unknown(Reason.WorkLimit)
     )
+  }
+
+  // ---------------------------------------------------------------------------
+  // Goals the properties found
+
+  test("a case split whose goal restates its conclusion") {
+    // provableCaseGen's case split, from "a goal built to follow from the
+    // facts is proved" with seed bKIYNUNqfIju_KfiSLcknBzzbAFhV5MmTSNWQVk9KUH=:
+    // the facts are a or b, a ==> g and b ==> g, and the goal is g restated
+    // by IntDecideGens.equivalent. The ites of the restatement got their own
+    // variables, and the search split each against its twin in g: it needed
+    // 1,456,000 work, more than seven times the default limit. Sharing
+    // their variables and deciding constraints by the bounds already found
+    // brings that under 250,000.
+    val x = iv("x")
+    val y = iv("y")
+    val z = iv("z")
+    val p = bv("p")
+    val q = bv("q")
+    val a = Ite[SmtSort.BoolSort](
+      And(
+        Vector(
+          p,
+          Gt(Ite[SmtSort.IntSort](Ite[SmtSort.BoolSort](Lte(y, z), Gt(y, z), Gt(x, z)), y, z), x),
+          Gte(Div(c(5), c(5)), z)
+        )
+      ),
+      Gte(Mod(z, c(5)), Div(z, c(4))),
+      And(Vector(Gte(Ite[SmtSort.IntSort](EqBool(Gte(x, y), Gt(y, z)), c(6), x), z), BoolConst.False))
+    )
+    val b = And(
+      Vector(
+        Or(
+          Vector(
+            EqInt(z, Sub(Vector(z, x))),
+            EqInt(Add(Vector(c(-1), x)), Sub(Vector(z, y, c(-5))))
+          )
+        ),
+        Xor(Lt(Sub(Vector(c(5), c(0), c(2))), Sub(Vector(z, c(0)))), Gt(c(6), Mod(z, c(5))))
+      )
+    )
+    val g = EqBool(
+      Or(
+        Vector(
+          EqInt(
+            Ite[SmtSort.IntSort](And(Vector(Lte(x, x), p)), c(0), x),
+            Ite[SmtSort.IntSort](EqBool(Gte(y, z), BoolConst.True), z, c(-5))
+          ),
+          Gt(x, Add(Vector(c(4), c(0))))
+        )
+      ),
+      Or(
+        Vector(
+          Lte(
+            Div(Sub(Vector(c(0), z)), c(5)),
+            Ite[SmtSort.IntSort](And(Vector(BoolConst.True, q, Lt(x, z))), z, c(5))
+          ),
+          Lte(
+            Sub(Vector(c(0), Mod(c(-2), c(3)))),
+            Ite[SmtSort.IntSort](Ite[SmtSort.BoolSort](p, q, Lt(x, z)), z, x)
+          ),
+          Lte(Sub(Vector(x, z)), Ite[SmtSort.IntSort](Or(Vector(p, BoolConst.False)), c(4), y))
+        )
+      )
+    )
+    val restated = Not(
+      Xor(
+        Or(
+          Vector(
+            Lt(Sub(Vector(Add(Vector(Add(Vector(c(4), c(0))), c(0))), x)), c(0)),
+            And(
+              Vector(
+                Lte(
+                  Ite[SmtSort.IntSort](
+                    Not(And(Vector(Not(Not(p)), Gte(x, x)))),
+                    x,
+                    Add(Vector(c(0), c(0)))
+                  ),
+                  Ite[SmtSort.IntSort](
+                    Not(
+                      And(
+                        Vector(
+                          Implies(
+                            Lt(Add(Vector(z, c(0))), Add(Vector(y, c(1)))),
+                            BoolConst.True
+                          ),
+                          Implies(
+                            BoolConst.True,
+                            Lt(Add(Vector(z, c(0))), Add(Vector(y, c(1))))
+                          )
+                        )
+                      )
+                    ),
+                    c(-5),
+                    z
+                  )
+                ),
+                Gte(
+                  Ite[SmtSort.IntSort](
+                    Not(And(Vector(Not(Not(p)), Gte(x, x)))),
+                    x,
+                    Add(Vector(c(0), c(0)))
+                  ),
+                  Ite[SmtSort.IntSort](
+                    Not(
+                      And(
+                        Vector(
+                          Implies(
+                            Lt(Add(Vector(z, c(0))), Add(Vector(y, c(1)))),
+                            BoolConst.True
+                          ),
+                          Implies(
+                            BoolConst.True,
+                            Lt(Add(Vector(z, c(0))), Add(Vector(y, c(1))))
+                          )
+                        )
+                      )
+                    ),
+                    c(-5),
+                    z
+                  )
+                )
+              )
+            )
+          )
+        ),
+        Not(
+          And(
+            Vector(
+              Not(
+                Lt(
+                  Div(Sub(Vector(c(0), z)), c(5)),
+                  Add(
+                    Vector(
+                      Ite[SmtSort.IntSort](
+                        And(
+                          Vector(
+                            Not(Not(BoolConst.True)),
+                            Not(Not(q)),
+                            Lte(Add(Vector(Add(Vector(x, c(0))), c(1))), z)
+                          )
+                        ),
+                        Add(Vector(z, c(0))),
+                        c(5)
+                      ),
+                      c(1)
+                    )
+                  )
+                )
+              ),
+              Not(
+                Lt(
+                  Add(
+                    Vector(
+                      Add(Vector(c(0), c(0))),
+                      Mul(Vector(c(-1), Mod(Add(Vector(c(-2), c(0))), c(3))))
+                    )
+                  ),
+                  Add(
+                    Vector(
+                      Ite[SmtSort.IntSort](
+                        And(
+                          Vector(
+                            Implies(Not(Not(p)), q),
+                            Implies(Not(Not(Not(p))), Not(Gte(x, Add(Vector(z, c(0))))))
+                          )
+                        ),
+                        Add(Vector(z, c(0))),
+                        x
+                      ),
+                      c(1)
+                    )
+                  )
+                )
+              ),
+              Not(
+                Lt(
+                  Add(Vector(x, Mul(Vector(c(-1), z)))),
+                  Add(
+                    Vector(
+                      Ite[SmtSort.IntSort](
+                        Not(And(Vector(Not(Not(Not(p))), Not(BoolConst.False)))),
+                        c(4),
+                        y
+                      ),
+                      c(1)
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+    val facts = List(Or(Vector(a, b)), Implies(a, g), Implies(b, g), Gte(x, c(-4)))
+    assertEquals(IntDecide.implies(restated, facts, 2 * IntDecide.DefaultWorkLimit), Result.Proved)
+    // It doesn't follow without the facts: shrinking reported it with none,
+    // refuted, which is why that property doesn't shrink.
+    val _ = assertRefuted(restated)
   }
 
   test("Reason messages") {

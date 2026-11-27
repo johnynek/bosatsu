@@ -61,6 +61,18 @@ class OmegaLawsTest extends munit.ScalaCheckSuite {
     }
   }
 
+  property("Form.tightened has the same integer solutions, with coefficients of gcd 1") {
+    forAll(omegaFormGen, Gen.choose(1, 6), Gen.chooseNum(-5, 5), envGen) { (f0, k, d, env) =>
+      // a common factor and an offset it doesn't divide
+      val f = (f0 * BigInt(k)).plus(BigInt(d))
+      val t = f.tightened
+      Prop.all(
+        ((t.eval(env) >= 0) == (f.eval(env) >= 0)) :| s"$f and $t at $env",
+        (t.isConstant || (t.coeffs.valuesIterator.foldLeft(BigInt(0))(_.gcd(_)) == 1)) :| s"$t"
+      )
+    }
+  }
+
   property("floorDiv and ceilDiv bracket the quotient") {
     forAll(LinearBoundsGens.bigIntGen, LinearBoundsGens.positiveBigIntGen) { (a, k) =>
       val q = Omega.floorDiv(a, k)
@@ -125,6 +137,41 @@ class OmegaLawsTest extends munit.ScalaCheckSuite {
         case _ => Prop.falsified :| s"$forward but reversed $backward for $cs"
       }
     }
+  }
+
+  test("quotients and remainders of the same variables don't blow up the projection") {
+    // From IntDecide on a goal provableCaseGen built. Variables 0, 1 and 2
+    // are its Int variables, and each of its seven div and mod terms adds a
+    // quotient q and remainder r with n == k * q + r and 0 <= r <= k - 1.
+    // The pairs of bounds on a quotient have coefficients k, so only the Int
+    // variables counted as exact, and eliminating them first multiplied the
+    // constraints (400 lower times 183 upper bounds after six steps): no
+    // budget sufficed. Counting the pairs on a quotient used nowhere else as
+    // exact (pairExact) solves it with under 1,000.
+    def f(const: Int, coeffs: (Int, Int)*): Form =
+      Form.of(BigInt(const), coeffs.map { case (v, k) => (v, BigInt(k)) })
+    def divMod(n: Form, k: Int, q: Int, r: Int): List[Constraint] =
+      List(
+        Constraint.Eq(n - f(0, q -> k, r -> 1)),
+        Constraint.Geq(f(0, r -> 1)),
+        Constraint.Geq(f(k - 1, r -> -1))
+      )
+    val cs =
+      divMod(f(0, 0 -> -1), 5, 3, 4) ::: divMod(f(0, 0 -> 1), 4, 5, 6) :::
+        divMod(f(0, 2 -> -1), 4, 7, 8) ::: divMod(f(0, 1 -> 1), 4, 10, 11) :::
+        divMod(f(0, 0 -> 1), 7, 12, 13) ::: divMod(f(0, 1 -> -1), 3, 14, 15) :::
+        divMod(f(0, 2 -> 1), 5, 16, 17) ::: List(
+          Constraint.Eq(f(0, 1 -> -1, 9 -> 1)),
+          Constraint.Geq(f(0, 3 -> 1, 5 -> -1)),
+          Constraint.Geq(f(3, 1 -> 1, 2 -> -1)),
+          Constraint.Geq(f(0, 0 -> 2, 2 -> -1)),
+          Constraint.Eq(f(0, 0 -> 1, 2 -> -1, 11 -> 1)),
+          Constraint.Geq(f(-1, 0 -> 1, 2 -> -1, 8 -> 1))
+        )
+    // Unsat: v3 >= v5 is floor(-v0 / 5) >= floor(v0 / 4), so v0 <= 0; then
+    // v2 == v0 + v11 <= 2 * v0 with v11 >= 0 makes v0, v11 and v2 all 0,
+    // and v8 >= 1 fails, since v8 is (-v2) mod 4.
+    assertEquals(Omega.solve(cs, Omega.Budget(10000L)), Result.Unsat)
   }
 
   test("a budget that runs out gives GaveUp") {

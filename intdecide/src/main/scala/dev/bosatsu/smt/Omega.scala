@@ -27,11 +27,12 @@ import scala.collection.immutable.IntMap
   *   4. Eliminate a variable. One bounded on one side only is dropped with
   *      its constraints. Otherwise each pair of a lower and an upper bound
   *      gives one constraint without the variable (Fourier-Motzkin). When
-  *      every pair has a coefficient of 1 on one side this projection is
-  *      exact. When it isn't, the "dark shadow" (pairs that leave room for an
-  *      integer between them) is solved, and if it has no solution, so are
-  *      the "splinters": the original problem with the variable pinned close
-  *      to one of its lower bounds. Together these find every solution.
+  *      every pair has a coefficient of 1 on one side, or always leaves room
+  *      for an integer between its bounds, this projection is exact. When it
+  *      isn't, the "dark shadow" (pairs that leave room for an integer
+  *      between them) is solved, and if it has no solution, so are the
+  *      "splinters": the original problem with the variable pinned close to
+  *      one of its lower bounds. Together these find every solution.
   *
   * Solutions are rebuilt on the way back out: an eliminated variable gets a
   * value from its definition or from its bounds at the values found for the
@@ -100,6 +101,16 @@ private[smt] object Omega {
         case Some(a) => without(v) + (by * a)
         case None    => this
       }
+
+    /** `f >= 0` restated with coefficients whose gcd is 1: each divided by
+      * their gcd, and the constant rounded down. A constant form is itself.
+      *
+      * Laws, for every Form `f` and integer environment `env`:
+      *   - `f.tightened.eval(env) >= 0` exactly when `f.eval(env) >= 0`
+      *   - the gcd of `f.tightened`'s coefficients is 1, unless it has none
+      */
+    def tightened: Form =
+      if (coeffs.isEmpty) this else divideFloor(gcdOf(this))
 
     // Every coefficient and the constant divided by g, which divides all of
     // them; the coefficients stay nonzero.
@@ -402,16 +413,41 @@ private[smt] object Omega {
             case other         => other
           }
         case None =>
-          // An exact projection needs a coefficient of 1 on every lower
-          // bound or on every upper bound. Prefer those, then the fewest
-          // new constraints.
-          def exact(x: Int): Boolean =
-            lowers(x).forall(_.coeff(x) == 1) || uppers(x).forall(_.coeff(x) == -1)
+          // An exact projection needs every pair of a lower and an upper
+          // bound to be exact. Prefer those, then the fewest new constraints.
+          def exact(x: Int): Boolean = {
+            val lows = lowers(x)
+            val highs = uppers(x)
+            lows.forall(_.coeff(x) == 1) || highs.forall(_.coeff(x) == -1) ||
+              // each pair costs a step, so a large problem gives up rather
+              // than checking every pair of every variable
+              lows.forall(f => highs.forall(g => budget.spend(1) && pairExact(x, f, g)))
+          }
           def cost(x: Int): Int = lowers(x).size * uppers(x).size
-          val x = vars.minBy(x => (if (exact(x)) 0 else 1, cost(x), x))
-          eliminateBounded(x, geqs, exact(x), budget)
+          val (x, isExact) = vars
+            .map(x => (x, exact(x)))
+            .minBy { case (x, isExact) => (if (isExact) 0 else 1, cost(x), x) }
+          eliminateBounded(x, geqs, isExact, budget)
       }
     }
+
+  // Whether a lower bound f == a * x + r >= 0 and an upper bound
+  // g == -b * x + s >= 0 leave an integer x between them exactly when their
+  // real shadow b * r + a * s >= 0 holds. They do when a or b is 1, since
+  // then one bound is an integer. They also do when b * r + a * s is a
+  // constant at least (a - 1) * (b - 1): the dark shadow then holds whatever
+  // the other values are, so there is always an integer between them, and
+  // the real shadow always holds too. For example, the pair
+  // n - k + 1 <= k * q <= n, which bounds a quotient q only by its
+  // definition, has coefficients k but the constant shadow k * (k - 1).
+  private def pairExact(x: Int, f: Form, g: Form): Boolean = {
+    val a = f.coeff(x)
+    val b = -g.coeff(x)
+    (a == 1) || (b == 1) || {
+      val sum = (f * b) + (g * a)
+      sum.isConstant && (sum.const >= (a - 1) * (b - 1))
+    }
+  }
 
   // The value of x from its bounds at m: the largest lower bound, else the
   // smallest upper bound, else 0. When there is an integer between every
