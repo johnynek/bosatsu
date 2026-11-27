@@ -32,7 +32,7 @@ class PackageBindingsTest extends munit.FunSuite {
   private def scopeJson(scope: PackageBindings.Scope): Json = scope match {
     case PackageBindings.Scope.Member(member) => Json.JObject(List(
       "kind" -> Json.JString("member"),
-      "member" -> Json.JString(member.asString)
+      "package" -> Json.JString(member.asString)
     ))
     case PackageBindings.Scope.Local(name) => Json.JObject(List(
       "kind" -> Json.JString("local-signature"),
@@ -73,13 +73,11 @@ class PackageBindingsTest extends munit.FunSuite {
 
   private def importJson(
       identity: LibraryIdentity,
-      signature: String,
-      label: String
+      signature: String
   ): Json = Json.JObject(List(
     "identity" -> identityJson(identity),
     "signature_path" -> Json.JString(signature),
-    "public_index_path" -> Json.JString("public-index.json"),
-    "label" -> Json.JString(label)
+    "exposures_path" -> Json.JString("public-index.json")
   ))
 
   private def dependencyJson(
@@ -147,7 +145,7 @@ class PackageBindingsTest extends munit.FunSuite {
       bindingOrder: List[Int]
   ): Json = {
     val dependencies = List(dependencyJson(app, "Api", apiScope))
-    val imports = List(importJson(libApi, "api.sig", label = "same-label"), importJson(libOne, "types.sig", label = "same-label"))
+    val imports = List(importJson(libApi, "api.sig"), importJson(libOne, "types.sig"))
     val bindings = List(
       bindingJson(app, "Api", apiScope, Some("api.sig")),
       bindingJson(app, "Types", typesScope, Some("types.sig")),
@@ -178,8 +176,6 @@ class PackageBindingsTest extends munit.FunSuite {
       checked.bindings(typesKey).witnessPath,
       List(app, apiScope, typesScope)
     )
-    assertEquals(parsed.imports(libApi).signature.label, Some("same-label"))
-    assertEquals(parsed.imports(libOne).signature.label, Some("same-label"))
     assertNotEquals(parsed.imports(libApi).signature.path, parsed.imports(libOne).signature.path)
 
     val mismatch = PackageBindings.validateAgainstInspection(parsed, index, Nil, memberExposures = Map.empty, localInterfaces = Nil)
@@ -227,7 +223,7 @@ class PackageBindingsTest extends munit.FunSuite {
         dependencyJson(first, packageText, PackageBindings.Scope.Library(libOne)),
         dependencyJson(second, packageText, PackageBindings.Scope.Library(libTwo))
       ),
-      List(importJson(libOne, "shared-v1.sig", label = "same-label"), importJson(libTwo, "shared-v2.sig", label = "same-label")),
+      List(importJson(libOne, "shared-v1.sig"), importJson(libTwo, "shared-v2.sig")),
       List(
         bindingJson(first, packageText, PackageBindings.Scope.Library(libOne), Some("shared-v1.sig")),
         bindingJson(second, packageText, PackageBindings.Scope.Library(libTwo), Some("shared-v2.sig"))
@@ -252,7 +248,7 @@ class PackageBindingsTest extends munit.FunSuite {
     val scopeMap = scopeMapJson(
       List("App"),
       Nil,
-      List(importJson(libOne, "empty.sig", label = "same-label")),
+      List(importJson(libOne, "empty.sig")),
       Nil
     )
     val parsed = read(scopeMap, PackageBindings.indexFromPackages(Nil, identities = Nil), List("empty.sig"))
@@ -300,7 +296,7 @@ class PackageBindingsTest extends munit.FunSuite {
     val scopeMap = scopeMapJson(
       List("App"),
       List(dependencyJson(app, "Api", apiScope)),
-      List(importJson(libApi, "api.sig", label = "same-label"), importJson(libOne, "types.sig", label = "same-label")),
+      List(importJson(libApi, "api.sig"), importJson(libOne, "types.sig")),
       Nil
     )
     val parsed = read(scopeMap, apiIndex, List("api.sig", "types.sig")).toOption.get
@@ -326,7 +322,7 @@ class PackageBindingsTest extends munit.FunSuite {
     val duplicate = scopeMapJson(
       List("App"),
       List(dependencyJson(app, "Api", apiScope)),
-      List(importJson(libApi, "api.sig", label = "same-label"), importJson(libOne, "types.sig", label = "same-label")),
+      List(importJson(libApi, "api.sig"), importJson(libOne, "types.sig")),
       List(
         bindingJson(app, "Api", apiScope, Some("api.sig")),
         bindingJson(app, "Api", apiScope, Some("api.sig"))
@@ -339,7 +335,7 @@ class PackageBindingsTest extends munit.FunSuite {
     val unknown = scopeMapJson(
       List("App"),
       List(dependencyJson(app, "Api", apiScope)),
-      List(importJson(libApi, "api.sig", label = "same-label"), importJson(libOne, "types.sig", label = "same-label")),
+      List(importJson(libApi, "api.sig"), importJson(libOne, "types.sig")),
       List(bindingJson(
         PackageBindings.Scope.Member(packageName("Missing")),
         "Api",
@@ -375,13 +371,42 @@ class PackageBindingsTest extends munit.FunSuite {
     val invalidImport = Json.JObject(List(
       "identity" -> invalidIdentity,
       "signature_path" -> Json.JString("shared.sig"),
-      "public_index_path" -> Json.JString("public-index.json")
+      "exposures_path" -> Json.JString("public-index.json")
     ))
     val scopeMap = scopeMapJson(List("App"), Nil, List(invalidImport), Nil)
     val error = read(scopeMap, PackageBindings.indexFromPackages(Nil, identities = Nil), List("shared.sig"))
       .left.toOption.get.getMessage
 
     assert(error.contains("couldn't parse semver"), error)
+  }
+
+  test("scope maps reject unknown import and scope fields") {
+    val index = apiIndex
+    def readError(scopeMap: Json): String =
+      read(scopeMap, index, List("api.sig", "types.sig")).left.toOption.get.getMessage
+    val labeledImport = Json.JObject(List(
+      "identity" -> identityJson(libApi),
+      "signature_path" -> Json.JString("api.sig"),
+      "exposures_path" -> Json.JString("public-index.json"),
+      "label" -> Json.JString("//imports:api")
+    ))
+    val labeled = scopeMapJson(List("App"), Nil, List(labeledImport), Nil)
+    val labelError = readError(labeled)
+    assert(labelError.contains("unknown imported scope fields: label"), labelError)
+
+    val oldMember = Json.JObject(List(
+      "kind" -> Json.JString("member"), "member" -> Json.JString("App")
+    ))
+    val oldScope = scopeMapJson(
+      List("App"),
+      List(Json.JObject(List(
+        "from" -> oldMember, "package" -> Json.JString("Api"), "to" -> scopeJson(apiScope)
+      ))),
+      Nil,
+      Nil
+    )
+    val scopeError = readError(oldScope)
+    assert(scopeError.contains("unknown member scope fields: member"), scopeError)
   }
 
   test("forged provider edges are rejected against the inspected public index") {
@@ -395,9 +420,9 @@ class PackageBindingsTest extends munit.FunSuite {
       List("App"),
       List(dependencyJson(app, "Api", apiScope)),
       List(
-        importJson(libApi, "api.sig", label = "same-label"),
-        importJson(libOne, "types.sig", label = "same-label"),
-        importJson(libThree, "other.sig", label = "same-label")
+        importJson(libApi, "api.sig"),
+        importJson(libOne, "types.sig"),
+        importJson(libThree, "other.sig")
       ),
       List(
         bindingJson(app, "Api", apiScope, Some("api.sig")),
@@ -422,7 +447,7 @@ class PackageBindingsTest extends munit.FunSuite {
         dependencyJson(app, api, left),
         dependencyJson(app, api, right)
       ),
-      List(importJson(libOne, "v1.sig", label = "same-label"), importJson(libTwo, "v2.sig", label = "same-label")),
+      List(importJson(libOne, "v1.sig"), importJson(libTwo, "v2.sig")),
       List(bindingJson(app, api, left, Some("v1.sig")))
     )
     val parsed = read(scopeMap, index, List("v1.sig", "v2.sig")).toOption.get

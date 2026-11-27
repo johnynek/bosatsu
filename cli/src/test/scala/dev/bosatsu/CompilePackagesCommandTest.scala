@@ -27,9 +27,9 @@ class CompilePackagesCommandTest extends FileCommandFixtures {
   private def bytes(root: Path, name: String): List[Byte] =
     Files.readAllBytes(root.resolve(name)).toList
 
-  private def scope(kind: String, member: String): Json = Json.JObject(List(
+  private def scope(kind: String, packageName: String): Json = Json.JObject(List(
     "kind" -> Json.JString(kind),
-    "member" -> Json.JString(member)
+    "package" -> Json.JString(packageName)
   ))
 
   private def libraryScope(name: String, version: String): Json = Json.JObject(List(
@@ -276,7 +276,7 @@ class CompilePackagesCommandTest extends FileCommandFixtures {
       val imports = Json.JArray(Vector(Json.JObject(List(
         "identity" -> identity,
         "signature_path" -> Json.JString("pinned.sig"),
-        "public_index_path" -> Json.JString("pinned-index.json")
+        "exposures_path" -> Json.JString("pinned-index.json")
       ))))
       val scopeMap = Json.JObject(List(
         "schema_version" -> Json.JNumberStr("1"),
@@ -352,8 +352,7 @@ class CompilePackagesCommandTest extends FileCommandFixtures {
           "imports" -> Json.JArray(Vector(Json.JObject(List(
             "identity" -> identity,
             "signature_path" -> Json.JString("shared.sig"),
-            "public_index_path" -> Json.JString("shared-index.json"),
-            "label" -> Json.JString("//shared:api")
+            "exposures_path" -> Json.JString("shared-index.json")
           )))),
           "bindings" -> Json.JArray(Vector(binding))
         )).render
@@ -426,7 +425,7 @@ class CompilePackagesCommandTest extends FileCommandFixtures {
           "name" -> Json.JString("shared"), "version" -> Json.JString(version)
         )),
         "signature_path" -> Json.JString(signature),
-        "public_index_path" -> Json.JString(index)
+        "exposures_path" -> Json.JString(index)
       ))
       for {
         hashesOne <- inspectSharedLibraryVersion(root, runner, versionOne, "shared-v1")

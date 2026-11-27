@@ -52,7 +52,7 @@ object InspectLibraryCommand {
         "authenticate only the root before reporting its dependency descriptors"
       ).orFalse
     val dependencyContext =
-      Opts.option[Path]("dependency-context", "version-1 declared dependency-file context").orNone
+      Opts.option[Path]("dependency-context", ImportedScopeInputs.dependencyContextHelp).orNone
     val signatureOut = Opts.option[Path]("sig-out", "canonical exported interface bundle").orNone
     val exposuresOut =
       Opts.option[Path]("exposures-out", "typed package exposure and provider ownership JSON").orNone

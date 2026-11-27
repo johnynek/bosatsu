@@ -140,7 +140,7 @@ class ValidateGraphCommandTest extends FileCommandFixtures {
       val toolchain =
         s"""{"schema_version":1,"compiler":{"uri":"unused","sha256":"$emptySha"},"core":{"library_name":"bosatsu","version":"1.2.3","uri":"unused","sha256":"$emptySha"},"c_runtime":{"uri":"unused","sha256":"$emptySha"}}"""
       val scopeMap =
-        """{"schema_version":1,"members":["App","Wrapper"],"dependencies":[{"from":{"kind":"member","member":"App"},"package":"Wrapper","to":{"kind":"member","member":"Wrapper"}}],"imports":[],"bindings":[{"referrer":{"kind":"member","member":"App"},"package":"Wrapper","provider":{"kind":"member","member":"Wrapper"},"interface_path":null}]}"""
+        """{"schema_version":1,"members":["App","Wrapper"],"dependencies":[{"from":{"kind":"member","package":"App"},"package":"Wrapper","to":{"kind":"member","package":"Wrapper"}}],"imports":[],"bindings":[{"referrer":{"kind":"member","package":"App"},"package":"Wrapper","provider":{"kind":"member","package":"Wrapper"},"interface_path":null}]}"""
       val command = List(
         "validate-graph",
         "--root", rootFile,
@@ -183,7 +183,7 @@ class ValidateGraphCommandTest extends FileCommandFixtures {
         "package" -> Json.JString(name.asString)
       ))
       val appScope = Json.JObject(List(
-        "kind" -> Json.JString("member"), "member" -> Json.JString(app.asString)
+        "kind" -> Json.JString("member"), "package" -> Json.JString(app.asString)
       ))
       val tokenName = TypeName(Identifier.Constructor("Token"))
       val token = DefinedType(types, tokenName, Nil, Nil)
@@ -266,7 +266,7 @@ class ValidateGraphCommandTest extends FileCommandFixtures {
         s"""{"schema_version":1,"compiler":{"uri":"unused","sha256":"$selectedCoreHash"},"core":{"library_name":"bosatsu","version":"1.2.3","uri":"unused","sha256":"$selectedCoreHash"},"c_runtime":{"uri":"unused","sha256":"$selectedCoreHash"}}"""
       val identity = """{"name":"parser","version":"1.0.0"}"""
       val scopeMap =
-        s"""{"schema_version":1,"members":["App"],"dependencies":[{"from":{"kind":"member","member":"App"},"package":"Parser","to":{"kind":"library","identity":$identity}}],"imports":[{"identity":$identity,"signature_path":"graph/parser.sig","public_index_path":"graph/parser-index.json","label":"parser"}],"bindings":[{"referrer":{"kind":"member","member":"App"},"package":"Parser","provider":{"kind":"library","identity":$identity},"interface_path":"graph/parser.sig"}]}"""
+        s"""{"schema_version":1,"members":["App"],"dependencies":[{"from":{"kind":"member","package":"App"},"package":"Parser","to":{"kind":"library","identity":$identity}}],"imports":[{"identity":$identity,"signature_path":"graph/parser.sig","exposures_path":"graph/parser-index.json"}],"bindings":[{"referrer":{"kind":"member","package":"App"},"package":"Parser","provider":{"kind":"library","identity":$identity},"interface_path":"graph/parser.sig"}]}"""
       val emptyBindingsScopeMap = Json.parserFile.parseAll(scopeMap).toOption.get match {
         case obj: Json.JObject =>
           Json.JObject(obj.items.filterNot(_._1 == "bindings") :+
@@ -433,7 +433,7 @@ class ValidateGraphCommandTest extends FileCommandFixtures {
         _ = success(inspected)
         identity = """{"name":"parser","version":"1.0.0"}"""
         scopeMap =
-          s"""{"schema_version":1,"members":["App"],"dependencies":[{"from":{"kind":"member","member":"App"},"package":"Parser","to":{"kind":"library","identity":$identity}}],"imports":[{"identity":$identity,"signature_path":"graph/parser.sig","public_index_path":"graph/parser-index.json","label":"parser"}],"bindings":[{"referrer":{"kind":"member","member":"App"},"package":"Parser","provider":{"kind":"library","identity":$identity},"interface_path":"graph/parser.sig"}]}"""
+          s"""{"schema_version":1,"members":["App"],"dependencies":[{"from":{"kind":"member","package":"App"},"package":"Parser","to":{"kind":"library","identity":$identity}}],"imports":[{"identity":$identity,"signature_path":"graph/parser.sig","exposures_path":"graph/parser-index.json"}],"bindings":[{"referrer":{"kind":"member","package":"App"},"package":"Parser","provider":{"kind":"library","identity":$identity},"interface_path":"graph/parser.sig"}]}"""
         _ <- write(root, "graph/scope-map.json", scopeMap)
         selectedCoreHash = Algo.hashBytes[Algo.Sha256](Array.emptyByteArray).hex
         selectedToolchain =
@@ -583,6 +583,11 @@ class ValidateGraphCommandTest extends FileCommandFixtures {
         base.replace("\"schema_version\":1", "\"schema_version\":2,\"schema_version\":1") -> "repeated JSON fields: schema_version",
         base.replace("\"deps\":[]", "\"deps\":[{\"label\":\"//:missing\"}]") -> "manifest",
         base.replace("\"deps\":[]", "\"deps\":[{\"label\":true,\"manifest\":\"path\"}]") -> "label",
+        base.replace("\"label\":\"//:g\"", "\"label\":\"//:g\",\"extra\":1") -> "unknown group node fields: extra",
+        base.replace("\"package\":\"Good\"", "\"package\":\"Good\",\"expose\":[]") ->
+          "unknown group member fields: expose",
+        base.replace("\"deps\":[]", "\"deps\":[{\"label\":\"//:d\",\"manifest\":\"d.json\",\"extra\":1}]") ->
+          "unknown group dependency fields: extra",
         base.dropRight(1) -> "invalid JSON"
       )
       for {

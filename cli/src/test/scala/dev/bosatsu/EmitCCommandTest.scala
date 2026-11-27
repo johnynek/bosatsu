@@ -167,10 +167,9 @@ class EmitCCommandTest extends FileCommandFixtures {
           proto.MemberBuildRequirements(
             memberName = "Demo/Suite",
             bindings = List(proto.ScopedBindingRequirement(
-              referrer = Some(proto.BuildScope(kind = "member", memberName = "Demo/Suite")),
+              referrer = Some(proto.BuildScope(proto.BuildScope.Value.Member("Demo/Suite"))),
               packageName = "Demo/Helper",
-              owner = Some(proto.BuildScope(kind = "member", memberName = "Demo/Helper")),
-              ownerPackageName = "Demo/Helper"
+              owner = Some(proto.BuildScope(proto.BuildScope.Value.Member("Demo/Helper")))
             ))
           )
         )

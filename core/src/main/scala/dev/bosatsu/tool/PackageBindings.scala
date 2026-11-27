@@ -190,7 +190,7 @@ private[bosatsu] object PackageBindings {
   final case class ImportedScope[Path](
       identity: LibraryIdentity,
       signature: InterfaceSource[Path],
-      publicIndexPath: Path
+      exposuresPath: Path
   )
 
   final case class BindingKey(referrer: Scope, requiredPackage: PackageName)
@@ -251,7 +251,7 @@ private[bosatsu] object PackageBindings {
   private def scopeIdentityJson(scope: Scope): Json = scope match {
     case Scope.Member(name) => Json.JObject(List(
       "kind" -> Json.JString("member"),
-      "member" -> Json.JString(name.asString)
+      "package" -> Json.JString(name.asString)
     ))
     case Scope.Local(name) => Json.JObject(List(
       "kind" -> Json.JString("local-signature"),
@@ -536,8 +536,7 @@ private[bosatsu] object PackageBindings {
   private final case class RawImportedScope(
       identity: LibraryIdentity,
       signaturePath: String,
-      publicIndexPath: String,
-      label: Option[String]
+      exposuresPath: String
   )
 
   private final case class RawBinding(
@@ -578,8 +577,8 @@ private[bosatsu] object PackageBindings {
         from.field[String]("kind")(using BuildManifest.nonEmpty).flatMap {
           case "member" =>
             for {
-              _ <- BuildManifest.onlyFields(from, "member scope", Set("kind", "member"))
-              name <- from.field[PackageName]("member")
+              _ <- BuildManifest.onlyFields(from, "member scope", Set("kind", "package"))
+              name <- from.field[PackageName]("package")
             } yield Scope.Member(name)
           case "local-signature" =>
             for {
@@ -729,13 +728,12 @@ private[bosatsu] object PackageBindings {
     BuildManifest.obj("imported scope") { from =>
       for {
         _ <- BuildManifest.onlyFields(
-          from, "imported scope", Set("identity", "signature_path", "public_index_path", "label")
+          from, "imported scope", Set("identity", "signature_path", "exposures_path")
         )
         identity <- from.field[LibraryIdentity]("identity")(using identityReader)
         signaturePath <- from.field[String]("signature_path")(using BuildManifest.nonEmpty)
-        publicIndexPath <- from.field[String]("public_index_path")(using BuildManifest.nonEmpty)
-        label <- from.optional[String]("label")(using BuildManifest.nonEmpty)
-      } yield RawImportedScope(identity, signaturePath, publicIndexPath, label)
+        exposuresPath <- from.field[String]("exposures_path")(using BuildManifest.nonEmpty)
+      } yield RawImportedScope(identity, signaturePath, exposuresPath)
     }
 
   private val rawScopeDependencyReader: Json.Reader[ScopeDependency] =
@@ -1230,19 +1228,20 @@ private[bosatsu] object PackageBindings {
         ) { (resolved, imported) =>
           for {
             signature <- pathFrom(imported.signaturePath, "signature path")
-            publicIndex <- pathFrom(imported.publicIndexPath, "public index path")
+            exposures <- pathFrom(imported.exposuresPath, "exposures path")
             _ <- Either.cond(orderedInterfaces.contains(signature), (),
               show"imported signature $signature is not in --direct-interface")
             _ <- Either.cond(!resolved.contains(imported.identity), (),
               s"duplicate imported scope ${libraryIdentityShow.show(imported.identity)}")
           } yield resolved.updated(imported.identity, ImportedScope(
             imported.identity,
-            InterfaceSource(signature, imported.label),
-            publicIndex
+            // Labels for every declared interface come from --interface-labels.
+            InterfaceSource(signature, None),
+            exposures
           ))
         }.leftMap(CliException.Basic(_))
       ).flatMap { imports =>
-        val indexPaths = SortedSet.from(imports.valuesIterator.map(_.publicIndexPath))(using pathOrdering)
+        val indexPaths = SortedSet.from(imports.valuesIterator.map(_.exposuresPath))(using pathOrdering)
         indexPaths.toList.foldM(
           SortedMap.empty[Path, PublicIndex](using pathOrdering)
         ) { (indexes, indexPath) =>

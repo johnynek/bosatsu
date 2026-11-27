@@ -16,9 +16,7 @@ import org.typelevel.paiges.Doc
 
 object ValidateGraphCommand {
   private final case class MixedInputs[Path](
-      scopeMap: Path,
-      dependencyContext: Path,
-      toolchainManifest: Path,
+      imported: ImportedScopeInputs[Path],
       directInterfaces: List[Path]
   )
 
@@ -34,12 +32,14 @@ object ValidateGraphCommand {
     platform.withEC {
       given CanPromise[F] = platform.canPromiseF
       for {
-        scopeMap <- PackageBindings.read(platform, inputs.scopeMap, inputs.directInterfaces)
-        dependencyContext <- LibraryInspection.readDependencyContext(platform, inputs.dependencyContext)
-        toolchain <- ToolchainManifest.read(platform, inputs.toolchainManifest)
-        inputPaths = List(root, inputs.scopeMap, inputs.dependencyContext, inputs.toolchainManifest) :::
-          nodes ::: inputs.directInterfaces ::: dependencyContext.libraries.map(_.path) :::
-          scopeMap.imports.valuesIterator.map(_.publicIndexPath).toList
+        scopeMap <- PackageBindings.read(platform, inputs.imported.scopeMap, inputs.directInterfaces)
+        dependencyContext <- LibraryInspection.readDependencyContext(
+          platform, inputs.imported.dependencyContext
+        )
+        toolchain <- ToolchainManifest.read(platform, inputs.imported.toolchainManifest)
+        inputPaths = root :: inputs.imported.files ::: nodes ::: inputs.directInterfaces :::
+          dependencyContext.libraries.map(_.path) :::
+          scopeMap.imports.valuesIterator.map(_.exposuresPath).toList
         _ <- OutputPathChecks.checkOutputFiles(platform, inputPaths, List(output))
         importedInputs <- LibraryInspection.loadImportedInputs(
           platform,
@@ -76,24 +76,15 @@ object ValidateGraphCommand {
       val root = Opts.option[P]("root", "root group manifest")
       val nodes = Opts.options[P]("node", "declared dependency manifest (repeatable)").orEmpty
       val local = Opts.flag("local", "check the root and its immediate dependency groups").orFalse
-      val scopeMap = Opts.option[P]("scope-map", "checked member-relative imported bindings").orNone
-      val dependencyContext =
-        Opts.option[P]("dependency-context", "version-1 declared library artifact context").orNone
-      val toolchainManifest =
-        Opts.option[P]("toolchain-manifest", "selected toolchain and core manifest").orNone
       val directInterfaces = Opts.options[P]("direct-interface", "declared imported signature (repeatable)").orEmpty
       val output = Opts.option[P]("out", "write a validation stamp on success")
 
       val mixedInputs: Opts[Option[MixedInputs[P]]] =
-        (scopeMap, dependencyContext, toolchainManifest, directInterfaces).tupled.mapValidated {
-          case (None, None, None, interfaces) if interfaces.isEmpty => Validated.valid(None)
-          case (Some(scopes), Some(context), Some(manifest), interfaces) =>
-            Validated.valid(Some(MixedInputs(scopes, context, manifest, interfaces)))
-          case (None, None, None, _) =>
+        (ImportedScopeInputs.opts[P]("mixed validation"), directInterfaces).tupled.mapValidated {
+          case (None, interfaces) if interfaces.isEmpty => Validated.valid(None)
+          case (Some(imported), interfaces) => Validated.valid(Some(MixedInputs(imported, interfaces)))
+          case (None, _) =>
             Validated.invalidNel("--direct-interface requires mixed validation inputs")
-          case _ => Validated.invalidNel(
-            "mixed validation requires --scope-map, --dependency-context, and --toolchain-manifest together"
-          )
         }
 
       (root, nodes, local, mixedInputs, output).mapN { (rootPath, nodePaths, isLocal, mixed, outputPath) =>

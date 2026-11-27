@@ -96,14 +96,11 @@ class LocalRuntimeScopeTest extends munit.FunSuite {
         members = List(proto.MemberBuildRequirements(
           memberName = "Client",
           bindings = List(proto.ScopedBindingRequirement(
-            referrer = Some(proto.BuildScope(kind = "member", memberName = "Client")),
+            referrer = Some(proto.BuildScope(proto.BuildScope.Value.Member("Client"))),
             packageName = "External",
             owner = Some(proto.BuildScope(
-              kind = "library",
-              libraryName = "shared",
-              libraryVersion = Some(proto.Version(major = 1))
-            )),
-            ownerPackageName = "External"
+              proto.BuildScope.Value.Library(proto.LibIdentity("shared", Some(proto.Version(major = 1))))
+            ))
           )),
           interfaces = List(proto.InterfaceRequirement("External", "0" * 64))
         ))
@@ -119,10 +116,9 @@ class LocalRuntimeScopeTest extends munit.FunSuite {
         members = List(proto.MemberBuildRequirements(
           memberName = "Client",
           bindings = List(proto.ScopedBindingRequirement(
-            referrer = Some(proto.BuildScope(kind = "member", memberName = "Client")),
+            referrer = Some(proto.BuildScope(proto.BuildScope.Value.Member("Client"))),
             packageName = "External",
-            owner = Some(proto.BuildScope(kind = "local", memberName = "External")),
-            ownerPackageName = "External"
+            owner = Some(proto.BuildScope(proto.BuildScope.Value.LocalSignature("External")))
           )),
           interfaces = List(proto.InterfaceRequirement("External", "0" * 64))
         ))
@@ -187,19 +183,16 @@ class LocalRuntimeScopeTest extends munit.FunSuite {
       List(externalInterface)
     )
     val owner = proto.BuildScope(
-      kind = "library",
-      libraryName = "shared",
-      libraryVersion = Some(proto.Version(major = 1))
+      proto.BuildScope.Value.Library(proto.LibIdentity("shared", Some(proto.Version(major = 1))))
     )
     val scopedRequirements = proto.BuildRequirements(
       scopedVersion = 1,
       members = List(proto.MemberBuildRequirements(
         memberName = clientName.asString,
         bindings = List(proto.ScopedBindingRequirement(
-          referrer = Some(proto.BuildScope(kind = "member", memberName = clientName.asString)),
+          referrer = Some(proto.BuildScope(proto.BuildScope.Value.Member(clientName.asString))),
           packageName = externalName.asString,
-          owner = Some(owner),
-          ownerPackageName = externalName.asString
+          owner = Some(owner)
         )),
         interfaces = List(proto.InterfaceRequirement(externalName.asString, "0" * 64))
       ))

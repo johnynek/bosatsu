@@ -356,7 +356,7 @@ example:
   "members": ["App"],
   "dependencies": [
     {
-      "from": {"kind": "member", "member": "App"},
+      "from": {"kind": "member", "package": "App"},
       "package": "Left",
       "to": {"kind": "library", "identity": {"name": "left", "version": "1.0.0"}}
     }
@@ -365,19 +365,17 @@ example:
     {
       "identity": {"name": "left", "version": "1.0.0"},
       "signature_path": "imports/left.sig",
-      "public_index_path": "imports/left-exposures.json",
-      "label": "//imports:left"
+      "exposures_path": "imports/left-exposures.json"
     },
     {
       "identity": {"name": "shared", "version": "1.0.0"},
       "signature_path": "imports/shared.sig",
-      "public_index_path": "imports/shared-exposures.json",
-      "label": "//imports:shared"
+      "exposures_path": "imports/shared-exposures.json"
     }
   ],
   "bindings": [
     {
-      "referrer": {"kind": "member", "member": "App"},
+      "referrer": {"kind": "member", "package": "App"},
       "package": "Left",
       "provider": {"kind": "library", "identity": {"name": "left", "version": "1.0.0"}},
       "interface_path": "imports/left.sig"
@@ -395,12 +393,16 @@ example:
 `members` must match the source packages. `dependencies` contains only local
 member edges; the compiler derives those edges from source imports and
 `exposes` declarations and compares them with the map. `imports` names each
-library scope and its declared signature and public-index files. `bindings`
-records caller-relative providers for both local imports and imported
-exposures. A scope is `member`, `local-signature` (with its `package`),
-`library` (with exact name and version), or compiler `predef`. Library
-bindings require an `interface_path` present in `--direct-interface`;
-source-member and Predef bindings name their package owner directly.
+library scope, its declared signature file, and the exposure projection that
+`inspect-library --exposures-out` wrote for it. Labels for these signatures,
+like every other `--direct-interface` file, come only from
+`--interface-labels`. `bindings` records caller-relative providers for both
+local imports and imported exposures. A scope is `member` or
+`local-signature` (each with its `package`), `library` (with exact name and
+version), or compiler `predef`. Library and local-signature bindings require
+an `interface_path` present in `--direct-interface`; source-member and Predef
+bindings name their package owner directly. Every scope-map object rejects
+unknown fields, as do group manifests.
 
 A `local-signature` scope is a package compiled separately from the current
 batch, such as an earlier `compile-packages` output. Its binding names the one
@@ -489,13 +491,17 @@ identities, never paths to read. Old group and group-members files without
 `exposes` still parse.
 
 Scoped compilation writes `Packages.buildRequirements` with
-`scoped_version = 1`, one record per member, each selected caller/package
+`scopedVersion = 1`, one record per member, each selected caller/package
 binding and owner scope, and a BLAKE3 requirement for each selected imported
-interface, including exposure-only owners. Full implementation hashes remain
+interface, including exposure-only owners. A binding stores its package name
+once, because its owner always provides that package. A `BuildScope` is a
+protobuf `oneof` (`member`, `localSignature`, `library` with a `LibIdentity`,
+or an empty `predef`), so a record cannot carry fields for two kinds of
+scope. Full implementation hashes remain
 in artifact verification and composition, outside ordinary consumer signature
 inputs. A provider identity change therefore remains visible to decoding even
 when the new provider has identical signature bytes. Selected local signature
-owners are recorded the same way: a `local-signature` owner scope and the
+owners are recorded the same way: a `localSignature` owner scope and the
 BLAKE3 digest of its canonical public interface. A bundle's own source owners
 stay `member` scopes, and a `member` owner must be a bundle member; a library
 or local signature cannot own a bundle member's package. Each member record
@@ -805,6 +811,8 @@ For local validation, add `--local`. Generate a local root whose edges point to 
 ```
 
 Emit the local root, full root and membership file from the same group provider and parsed source facts. Each root lists the same direct labels. The local root points to their membership files and the full root points to their topology files. A direct group’s outgoing-edge edit can now leave every input to its parent’s local check byte-identical. Local checks also accept full direct nodes for callers using a single manifest per group. A membership file can only be a direct input of a local scan. The root of either scan and every node in a full scan require topology. Imported libraries have their own scope and cannot supply loose membership projections.
+
+Node, member and dependency objects reject unknown fields, and a `group-members` file has no `deps`. A misspelled field therefore fails instead of being ignored.
 
 For a full scan pass all reachable topology files and omit `--local`. Missing edges, undeclared or surplus manifests, membership collisions and full-graph cycles fail with diagnostics. A successful run writes the same small `ok` stamp for every valid topology. The JVM file runner publishes the stamp only on success. Neither operation reads implementations, and library nodes get a separate scoped contract in 0m.
 

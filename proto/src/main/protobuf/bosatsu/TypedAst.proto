@@ -423,7 +423,7 @@ message BuildRequirements {
   repeated InterfaceRequirement interfaces = 1;
   // Zero identifies the historical package-wide format. Version 1 identifies
   // caller-relative requirements, including when every member has no imports.
-  int32 scoped_version = 2;
+  int32 scopedVersion = 2;
   repeated MemberBuildRequirements members = 3;
 }
 
@@ -434,27 +434,39 @@ message InterfaceRequirement {
 }
 
 message MemberBuildRequirements {
-  string member_name = 1;
+  string memberName = 1;
   repeated ScopedBindingRequirement bindings = 2;
   // One entry per selected imported package, including exposure-only owners.
   repeated InterfaceRequirement interfaces = 3;
 }
 
+// The referrer needs packageName, and owner provides that same package.
 message ScopedBindingRequirement {
   BuildScope referrer = 1;
-  string package_name = 2;
+  string packageName = 2;
   BuildScope owner = 3;
-  string owner_package_name = 4;
 }
 
-// Scope identity fields are validated as a tagged value by the common
-// requirements parser. A library scope includes its exact semantic version.
+// A scope that refers to or owns a package in scoped requirements.
 message BuildScope {
-  string kind = 1;
-  string member_name = 2;
-  string library_name = 3;
-  Version library_version = 4;
+  oneof value {
+    // A source package compiled into this bundle.
+    string member = 1;
+    // A separately compiled local package signature.
+    string localSignature = 2;
+    // An imported library at its exact semantic version.
+    LibIdentity library = 3;
+    // The compiler's built-in Predef.
+    PredefScope predef = 4;
+  }
 }
+
+message LibIdentity {
+  string name = 1;
+  Version version = 2;
+}
+
+message PredefScope { }
 
 // Message representing a Version using Semantic Versioning
 message Version {

@@ -154,14 +154,11 @@ class IOPlatformIOTest extends munit.ScalaCheckSuite {
         members = List(proto.MemberBuildRequirements(
           memberName = "Client",
           bindings = List(proto.ScopedBindingRequirement(
-            referrer = Some(proto.BuildScope(kind = "member", memberName = "Client")),
+            referrer = Some(proto.BuildScope(proto.BuildScope.Value.Member("Client"))),
             packageName = "External",
             owner = Some(proto.BuildScope(
-              kind = "library",
-              libraryName = "shared",
-              libraryVersion = Some(proto.Version(major = 1))
-            )),
-            ownerPackageName = "External"
+              proto.BuildScope.Value.Library(proto.LibIdentity("shared", Some(proto.Version(major = 1))))
+            ))
           )),
           interfaces = List(proto.InterfaceRequirement("External", "0" * 64))
         ))

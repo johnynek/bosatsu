@@ -70,7 +70,7 @@ class PackageSignaturesTest extends munit.FunSuite {
 
   private def scopeJson(scope: PackageBindings.Scope): Json = scope match {
     case PackageBindings.Scope.Member(member) => Json.JObject(List(
-      "kind" -> Json.JString("member"), "member" -> Json.JString(member.asString)
+      "kind" -> Json.JString("member"), "package" -> Json.JString(member.asString)
     ))
     case PackageBindings.Scope.Local(name) => Json.JObject(List(
       "kind" -> Json.JString("local-signature"), "package" -> Json.JString(name.asString)
@@ -109,7 +109,7 @@ class PackageSignaturesTest extends munit.FunSuite {
   ): Json = Json.JObject(List(
     "identity" -> identityJson(identity),
     "signature_path" -> Json.JString(signaturePath),
-    "public_index_path" -> Json.JString("public-index.json")
+    "exposures_path" -> Json.JString("public-index.json")
   ))
 
   private def checkedScopeMap(
@@ -855,14 +855,11 @@ class PackageSignaturesTest extends munit.FunSuite {
       proto.MemberBuildRequirements(
         memberName = name,
         bindings = Seq(proto.ScopedBindingRequirement(
-          referrer = Some(proto.BuildScope(kind = "member", memberName = name)),
+          referrer = Some(proto.BuildScope(proto.BuildScope.Value.Member(name))),
           packageName = sharedApi.asString,
           owner = Some(proto.BuildScope(
-            kind = "library",
-            libraryName = "shared",
-            libraryVersion = Some(proto.Version(major = version))
-          )),
-          ownerPackageName = sharedApi.asString
+            proto.BuildScope.Value.Library(proto.LibIdentity("shared", Some(proto.Version(major = version))))
+          ))
         )),
         interfaces = Seq(proto.InterfaceRequirement(sharedApi.asString, digest))
       )
@@ -891,9 +888,7 @@ class PackageSignaturesTest extends munit.FunSuite {
         scopedMember("Client", 1).bindings.head,
         scopedMember("Client", 2).bindings.head.copy(
           referrer = Some(proto.BuildScope(
-            kind = "library",
-            libraryName = "facade",
-            libraryVersion = Some(proto.Version(major = 1))
+            proto.BuildScope.Value.Library(proto.LibIdentity("facade", Some(proto.Version(major = 1))))
           ))
         )
       ))
@@ -916,34 +911,75 @@ class PackageSignaturesTest extends munit.FunSuite {
       members = Seq(proto.MemberBuildRequirements(
         memberName = "Client",
         bindings = Seq(proto.ScopedBindingRequirement(
-          referrer = Some(proto.BuildScope(kind = "member", memberName = "Client")),
+          referrer = Some(proto.BuildScope(proto.BuildScope.Value.Member("Client"))),
           packageName = "Owner",
           owner = Some(proto.BuildScope(
-            kind = "library", libraryName = "owner", libraryVersion = Some(proto.Version(major = -1))
-          )),
-          ownerPackageName = "Owner"
+            proto.BuildScope.Value.Library(proto.LibIdentity("owner", Some(proto.Version(major = -1))))
+          ))
         )),
         interfaces = Seq(proto.InterfaceRequirement("Owner", digest))
       ))
     )
     assert(PackageSignatures.parseBuildRequirements(invalidLibraryVersion).failed.get.getMessage
       .contains("invalid library version"))
+
+    def withOwner(owner: proto.BuildScope): proto.BuildRequirements =
+      invalidLibraryVersion.copy(members = invalidLibraryVersion.members.map(member =>
+        member.copy(bindings = member.bindings.map(_.copy(owner = Some(owner))))
+      ))
+    val unnamedLibrary = withOwner(proto.BuildScope(
+      proto.BuildScope.Value.Library(proto.LibIdentity("", Some(proto.Version(major = 1))))
+    ))
+    assert(PackageSignatures.parseBuildRequirements(unnamedLibrary).failed.get.getMessage
+      .contains("missing library name"))
+    val emptyScope = withOwner(proto.BuildScope())
+    assert(PackageSignatures.parseBuildRequirements(emptyScope).failed.get.getMessage
+      .contains("missing requirement scope"))
+  }
+
+  test("scoped requirements round trip through the shared encoder") {
+    import PackageBindings.Scope
+    val shared = LibraryName("shared") -> Version(1, 2, 3)
+    val client = PackageName.parts("Client")
+    val facade = PackageName.parts("Facade")
+    val types = PackageName.parts("Local", "Types")
+    val requirements = List(PackageSignatures.MemberRequirements(
+      client,
+      List(
+        PackageSignatures.RequirementBinding(Scope.Member(client), facade, Scope.Library(shared)),
+        PackageSignatures.RequirementBinding(Scope.Library(shared), types, Scope.Local(types))
+      ),
+      List(
+        PackageSignatures.InterfaceDigest(facade, "c" * 64),
+        PackageSignatures.InterfaceDigest(types, "d" * 64)
+      )
+    ))
+    val encoded = PackageSignatures.scopedRequirementsToProto(requirements)
+    assertEquals(
+      encoded.members.flatMap(_.bindings).map(_.owner.map(_.value)),
+      Seq(
+        Some(proto.BuildScope.Value.Library(proto.LibIdentity("shared", Some(Version(1, 2, 3).toProto)))),
+        Some(proto.BuildScope.Value.LocalSignature("Local/Types"))
+      )
+    )
+    PackageSignatures.parseBuildRequirements(encoded).get match {
+      case PackageSignatures.ParsedBuildRequirements.Scoped(decoded) =>
+        assertEquals(decoded, requirements)
+      case other => fail(s"expected scoped requirements, found $other")
+    }
   }
 
   test("build requirements reject records that cannot be one member's resolved closure") {
     val digest = "b" * 64
-    def memberScope(name: String) = proto.BuildScope(kind = "member", memberName = name)
+    def memberScope(name: String) = proto.BuildScope(proto.BuildScope.Value.Member(name))
     def libraryScope(name: String, major: Long) = proto.BuildScope(
-      kind = "library",
-      libraryName = name,
-      libraryVersion = Some(proto.Version(major = major))
+      proto.BuildScope.Value.Library(proto.LibIdentity(name, Some(proto.Version(major = major))))
     )
     def binding(referrer: proto.BuildScope, pkg: String, owner: proto.BuildScope) =
       proto.ScopedBindingRequirement(
         referrer = Some(referrer),
         packageName = pkg,
-        owner = Some(owner),
-        ownerPackageName = pkg
+        owner = Some(owner)
       )
     def scoped(members: proto.MemberBuildRequirements*) =
       proto.BuildRequirements(scopedVersion = 1, members = members)

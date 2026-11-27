@@ -950,7 +950,7 @@ main = dep_value
       PackageSignatures.MemberRequirements(
         member,
         List(PackageSignatures.RequirementBinding(
-          Scope.Member(member), apiName, owner
+          Scope.Member(member), apiName, owner.scope
         )),
         List(PackageSignatures.InterfaceDigest(apiName, encoded.interfaceBlake3))
       )
@@ -959,33 +959,7 @@ main = dep_value
       makeMemberRequirements(oneName, ownerOne, apiOne),
       makeMemberRequirements(twoName, ownerTwo, apiTwo)
     )
-    def scopeToProto(scope: Scope): proto.BuildScope = scope match {
-      case Scope.Member(member) => proto.BuildScope(kind = "member", memberName = member.asString)
-      case Scope.Local(name) => proto.BuildScope(kind = "local", memberName = name.asString)
-      case Scope.Library((name, version)) => proto.BuildScope(
-        kind = "library", libraryName = name.name, libraryVersion = Some(version.toProto)
-      )
-      case Scope.Predef => proto.BuildScope(kind = "predef")
-    }
-    val buildRequirements = proto.BuildRequirements(
-      scopedVersion = 1,
-      members = memberRequirements.map { requirements =>
-        proto.MemberBuildRequirements(
-          memberName = requirements.member.asString,
-          bindings = requirements.bindings.map { binding =>
-            proto.ScopedBindingRequirement(
-              referrer = Some(scopeToProto(binding.referrer)),
-              packageName = binding.packageName.asString,
-              owner = Some(scopeToProto(binding.owner.scope)),
-              ownerPackageName = binding.owner.packageName.asString
-            )
-          },
-          interfaces = requirements.interfaces.map(req =>
-            proto.InterfaceRequirement(req.packageName.asString, req.blake3)
-          )
-        )
-      }
-    )
+    val buildRequirements = PackageSignatures.scopedRequirementsToProto(memberRequirements)
     val bundle = proto.Packages(
       packages = List(ProtoConverter.packageToProto(one).get, ProtoConverter.packageToProto(two).get),
       buildRequirements = Some(buildRequirements)
@@ -1048,35 +1022,6 @@ main = dep_value
   test("scoped decoding keeps source owners and rejects omitted exposure contexts") {
     import PackageBindings.{BindingKey, PackageOwner, Scope}
 
-    def scopeToProto(scope: Scope): proto.BuildScope = scope match {
-      case Scope.Member(member) => proto.BuildScope(kind = "member", memberName = member.asString)
-      case Scope.Local(name) => proto.BuildScope(kind = "local", memberName = name.asString)
-      case Scope.Library((name, version)) => proto.BuildScope(
-        kind = "library", libraryName = name.name, libraryVersion = Some(version.toProto)
-      )
-      case Scope.Predef => proto.BuildScope(kind = "predef")
-    }
-    def bundleRequirements(
-        requirements: List[PackageSignatures.MemberRequirements]
-    ): proto.BuildRequirements = proto.BuildRequirements(
-      scopedVersion = 1,
-      members = requirements.map { member =>
-        proto.MemberBuildRequirements(
-          memberName = member.member.asString,
-          bindings = member.bindings.map { binding =>
-            proto.ScopedBindingRequirement(
-              referrer = Some(scopeToProto(binding.referrer)),
-              packageName = binding.packageName.asString,
-              owner = Some(scopeToProto(binding.owner.scope)),
-              ownerPackageName = binding.owner.packageName.asString
-            )
-          },
-          interfaces = member.interfaces.map(req =>
-            proto.InterfaceRequirement(req.packageName.asString, req.blake3)
-          )
-        )
-      }
-    )
 
     val providerName = PackageName.parts("Source/Provider")
     val clientName = PackageName.parts("Source/Client")
@@ -1097,7 +1042,7 @@ main = dep_value
       PackageSignatures.MemberRequirements(
         clientName,
         List(PackageSignatures.RequirementBinding(
-          Scope.Member(clientName), providerName, sourceOwner
+          Scope.Member(clientName), providerName, sourceOwner.scope
         )),
         Nil
       )
@@ -1107,7 +1052,7 @@ main = dep_value
     val lookalikeOwner = PackageOwner(Scope.Library(libraryIdentity), providerName)
     val sourceBundle = proto.Packages(
       packages = List(ProtoConverter.packageToProto(client).get, ProtoConverter.packageToProto(provider).get),
-      buildRequirements = Some(bundleRequirements(sourceRequirements))
+      buildRequirements = Some(PackageSignatures.scopedRequirementsToProto(sourceRequirements))
     )
     val sourceDecoded = ProtoConverter.packagesFromProtoScoped(
       sourceBundle,
@@ -1154,8 +1099,8 @@ main = dep_value
     val fullRequirements = PackageSignatures.MemberRequirements(
       exposureClientName,
       List(
-        PackageSignatures.RequirementBinding(Scope.Member(exposureClientName), facadeName, facadeOwner),
-        PackageSignatures.RequirementBinding(Scope.Library(libraryIdentity), leafName, leafOwner)
+        PackageSignatures.RequirementBinding(Scope.Member(exposureClientName), facadeName, facadeOwner.scope),
+        PackageSignatures.RequirementBinding(Scope.Library(libraryIdentity), leafName, leafOwner.scope)
       ),
       List(
         PackageSignatures.InterfaceDigest(facadeName,
@@ -1173,7 +1118,7 @@ main = dep_value
     val exposureProviders = Map(facadeOwner -> facadeIface, leafOwner -> leafIface)
     val exposureBundle = proto.Packages(
       List(ProtoConverter.packageToProto(exposureClient).get),
-      Some(bundleRequirements(List(fullRequirements)))
+      Some(PackageSignatures.scopedRequirementsToProto(List(fullRequirements)))
     )
     val decodedExposure = ProtoConverter.packagesFromProtoScoped(
       exposureBundle, exposureChecked, exposureProviders
@@ -1185,7 +1130,7 @@ main = dep_value
       interfaces = fullRequirements.interfaces.filterNot(_.packageName == leafName)
     )
     val omittedBundle = exposureBundle.copy(
-      buildRequirements = Some(bundleRequirements(List(omittedLeaf)))
+      buildRequirements = Some(PackageSignatures.scopedRequirementsToProto(List(omittedLeaf)))
     )
     assert(ProtoConverter.packagesFromProtoScoped(
       omittedBundle, exposureChecked, exposureProviders

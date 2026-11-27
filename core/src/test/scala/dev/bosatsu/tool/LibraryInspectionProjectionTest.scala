@@ -346,7 +346,7 @@ class LibraryInspectionProjectionTest extends munit.FunSuite {
           "version" -> Json.JString(libraryIdentity._2.render)
         )),
         "signature_path" -> Json.JString("imports/parser.sig"),
-        "public_index_path" -> Json.JString("imports/parser-index.json")
+        "exposures_path" -> Json.JString("imports/parser-index.json")
       )))),
       "bindings" -> Json.JArray(Vector.empty)
     )).render

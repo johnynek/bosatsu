@@ -1,6 +1,6 @@
 package dev.bosatsu.tool_command
 
-import cats.data.{NonEmptyList, Validated}
+import cats.data.NonEmptyList
 import cats.syntax.all._
 import com.monovore.decline.Opts
 import dev.bosatsu.{CompileOptions, LocationMap, PackageSignatures, Par, PlatformIO}
@@ -18,18 +18,12 @@ import dev.bosatsu.tool.{
 import scala.collection.immutable.SortedMap
 
 object CompilePackagesCommand {
-  private final case class ScopedInputs[Path](
-      scopeMap: Path,
-      dependencyContext: Path,
-      toolchainManifest: Path
-  )
-
   private def scopedCompilation[F[_], Path](
       platform: PlatformIO[F, Path],
       sources: NonEmptyList[PackageResolver.SourceFile[F, Path]],
       directInterfaces: List[Path],
       labels: SortedMap[Path, String],
-      inputs: ScopedInputs[Path],
+      inputs: ImportedScopeInputs[Path],
       labelMap: Option[Path],
       sourcesOnDisk: List[Path],
       packagesOut: Path,
@@ -43,15 +37,14 @@ object CompilePackagesCommand {
     for {
       rawScopeMap <- PackageBindings.read(platform, inputs.scopeMap, directInterfaces)
       scopeMap = rawScopeMap.copy(imports = rawScopeMap.imports.map { case (identity, imported) =>
-        val label = labels.get(imported.signature.path).orElse(imported.signature.label)
+        val label = labels.get(imported.signature.path)
         identity -> imported.copy(signature = imported.signature.copy(label = label))
       })
       dependencyContext <- LibraryInspection.readDependencyContext(platform, inputs.dependencyContext)
       toolchain <- ToolchainManifest.read(platform, inputs.toolchainManifest)
-      inputPaths = sourcesOnDisk ::: directInterfaces ::: labelMap.toList ::: List(
-        inputs.scopeMap, inputs.dependencyContext, inputs.toolchainManifest
-      ) ::: dependencyContext.libraries.map(_.path) :::
-        scopeMap.imports.valuesIterator.map(_.publicIndexPath).toList
+      inputPaths = sourcesOnDisk ::: directInterfaces ::: labelMap.toList ::: inputs.files :::
+        dependencyContext.libraries.map(_.path) :::
+        scopeMap.imports.valuesIterator.map(_.exposuresPath).toList
       _ <- OutputPathChecks.checkOutputFiles(platform, inputPaths, List(packagesOut, sigOut))
       imported <- LibraryInspection.loadImportedInputs(
         platform, scopeMap, dependencyContext, toolchain
@@ -93,20 +86,7 @@ object CompilePackagesCommand {
       val strict = Opts.flag("error-unused-interfaces", "reject any unused direct interface file").orFalse
       val packagesOut = Opts.option[Path]("packages-out", "compiled implementation bundle")
       val sigOut = Opts.option[Path]("sig-out", "public package signature")
-      val scopeMap = Opts.option[Path]("scope-map", "checked member-relative imported bindings").orNone
-      val dependencyContext =
-        Opts.option[Path]("dependency-context", "version-1 declared library artifact context").orNone
-      val toolchainManifest =
-        Opts.option[Path]("toolchain-manifest", "selected toolchain and core manifest").orNone
-      val scopedInputs: Opts[Option[ScopedInputs[Path]]] =
-        (scopeMap, dependencyContext, toolchainManifest).tupled.mapValidated {
-          case (None, None, None) => Validated.valid(None)
-          case (Some(scopes), Some(context), Some(manifest)) =>
-            Validated.valid(Some(ScopedInputs(scopes, context, manifest)))
-          case _ => Validated.invalidNel(
-            "scoped compilation requires --scope-map, --dependency-context, and --toolchain-manifest together"
-          )
-        }
+      val scopedInputs = ImportedScopeInputs.opts[Path]("scoped compilation")
 
       (sources, directInterfaces, labelMap, strict, packagesOut, sigOut, scopedInputs)
         .mapN { (srcs, deps, labelsPath, errorUnused, packagesPath, signaturePath, scoped) =>

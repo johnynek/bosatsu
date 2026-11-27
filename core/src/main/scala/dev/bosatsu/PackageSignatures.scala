@@ -9,6 +9,7 @@ import dev.bosatsu.library.{Name, Version}
 import dev.bosatsu.rankn.{Type, TypeEnv}
 import dev.bosatsu.tool.{CliException, CompilerApi, PackageBindings}
 import dev.bosatsu.tool.PackageBindings.{CheckedBinding, CheckedScopeMap, PackageOwner, Scope}
+import scala.annotation.unused
 import scala.collection.immutable.SortedMap
 import scala.collection.mutable
 import scala.util.{Failure, Success, Try}
@@ -17,6 +18,9 @@ import scala.util.{Failure, Success, Try}
   * bundles keep their full-fidelity codec.
   */
 object PackageSignatures {
+  @unused private given canEqualBuildScopeValue
+      : CanEqual[proto.BuildScope.Value, proto.BuildScope.Value] =
+    CanEqual.derived
   private val exportOrder = Ordering.by[ExportedName[Referant[Kind.Arg]], (Identifier, String)](
     e => (e.name, e.nameKind)
   )
@@ -62,21 +66,29 @@ object PackageSignatures {
   def encode(interfaces: List[Package.Interface]): Try[proto.Interfaces] =
     interfaces.sortBy(_.name).traverse(encodeRoot).map(proto.Interfaces(_))
 
-  private[bosatsu] def requirement(iface: Package.Interface): Try[proto.InterfaceRequirement] =
+  private def interfaceDigest(iface: Package.Interface): Try[InterfaceDigest] =
     encodeRoot(iface).map { entry =>
-      proto.InterfaceRequirement(iface.name.asString, Algo.hashBytes[Algo.Blake3](entry.toByteArray).hex)
+      InterfaceDigest(iface.name, Algo.hashBytes[Algo.Blake3](entry.toByteArray).hex)
     }
+
+  private[bosatsu] def requirement(iface: Package.Interface): Try[proto.InterfaceRequirement] =
+    interfaceDigest(iface).map(digest =>
+      proto.InterfaceRequirement(digest.packageName.asString, digest.blake3)
+    )
 
   private[bosatsu] final case class InterfaceDigest(
       packageName: PackageName,
       blake3: String
   )
 
+  /** `referrer` needs `packageName`, which `ownerScope` provides. */
   private[bosatsu] final case class RequirementBinding(
       referrer: Scope,
       packageName: PackageName,
-      owner: PackageOwner
-  )
+      ownerScope: Scope
+  ) {
+    def owner: PackageOwner = PackageOwner(ownerScope, packageName)
+  }
 
   private[bosatsu] final case class MemberRequirements(
       member: PackageName,
@@ -90,16 +102,38 @@ object PackageSignatures {
     final case class Scoped(members: List[MemberRequirements]) extends ParsedBuildRequirements
   }
 
-  private def scopeToProto(scope: Scope): proto.BuildScope = scope match {
-    case Scope.Member(name) => proto.BuildScope(kind = "member", memberName = name.asString)
-    case Scope.Local(name) => proto.BuildScope(kind = "local", memberName = name.asString)
-    case Scope.Library((name, version)) => proto.BuildScope(
-      kind = "library",
-      libraryName = name.name,
-      libraryVersion = Some(version.toProto)
+  private def scopeToProto(scope: Scope): proto.BuildScope = proto.BuildScope(scope match {
+    case Scope.Member(name) => proto.BuildScope.Value.Member(name.asString)
+    case Scope.Local(name) => proto.BuildScope.Value.LocalSignature(name.asString)
+    case Scope.Library((name, version)) =>
+      proto.BuildScope.Value.Library(proto.LibIdentity(name.name, Some(version.toProto)))
+    case Scope.Predef => proto.BuildScope.Value.Predef(proto.PredefScope())
+  })
+
+  /** The one encoder for scoped requirements. A binding's owner provides the
+    * binding's package, so the wire record stores that package name once.
+    */
+  private[bosatsu] def scopedRequirementsToProto(
+      members: List[MemberRequirements]
+  ): proto.BuildRequirements =
+    proto.BuildRequirements(
+      scopedVersion = 1,
+      members = members.map { member =>
+        proto.MemberBuildRequirements(
+          memberName = member.member.asString,
+          bindings = member.bindings.map { binding =>
+            proto.ScopedBindingRequirement(
+              referrer = Some(scopeToProto(binding.referrer)),
+              packageName = binding.packageName.asString,
+              owner = Some(scopeToProto(binding.ownerScope))
+            )
+          },
+          interfaces = member.interfaces.map(digest =>
+            proto.InterfaceRequirement(digest.packageName.asString, digest.blake3)
+          )
+        )
+      }
     )
-    case Scope.Predef => proto.BuildScope(kind = "predef")
-  }
 
   /** Serialize the exact checked owners retained by scoped compilation. */
   private[bosatsu] def buildRequirements[Path](
@@ -129,28 +163,20 @@ object PackageSignatures {
         }
         val dependencies = compiled.publicDependencies.iterator.map(iface => iface.name -> iface).toMap
         val interfaceRecords = ownersByName.flatMap(_.valuesIterator.toList.traverse { owner =>
-          dependencies.get(owner.packageName).fold[Try[proto.InterfaceRequirement]](
+          dependencies.get(owner.packageName).fold[Try[InterfaceDigest]](
             Failure(CliException.Basic(
               s"missing selected public interface ${owner.packageName.asString} for ${member.asString}"
             ))
-          )(requirement)
+          )(interfaceDigest)
         })
         interfaceRecords.map { interfaces =>
-          val bindingRecords = bindings.map { binding =>
-            proto.ScopedBindingRequirement(
-              referrer = Some(scopeToProto(binding.key.referrer)),
-              packageName = binding.key.requiredPackage.asString,
-              owner = Some(scopeToProto(binding.owner.scope)),
-              ownerPackageName = binding.owner.packageName.asString
-            )
+          // A checked binding's owner always provides the binding's package.
+          val records = bindings.map { binding =>
+            RequirementBinding(binding.key.referrer, binding.key.requiredPackage, binding.owner.scope)
           }
-          proto.MemberBuildRequirements(
-            memberName = member.asString,
-            bindings = bindingRecords,
-            interfaces = interfaces
-          )
+          MemberRequirements(member, records, interfaces)
         }
-      }.map(members => proto.BuildRequirements(scopedVersion = 1, members = members))
+      }.map(scopedRequirementsToProto)
   }
 
   /** Decode legacy and scoped metadata without erasing the format distinction. */
@@ -177,27 +203,21 @@ object PackageSignatures {
       parsed.sortBy(_.packageName)
     }
 
-    def parseScope(raw: proto.BuildScope): Scope = raw.kind match {
-      case "member" =>
-        if (raw.memberName.isEmpty || raw.libraryName.nonEmpty || raw.libraryVersion.isDefined)
-          throw CliException.Basic("contradictory member scope fields")
-        Scope.Member(parsePackage(raw.memberName, "scope member"))
-      case "local" =>
-        if (raw.memberName.isEmpty || raw.libraryName.nonEmpty || raw.libraryVersion.isDefined)
-          throw CliException.Basic("contradictory local signature scope fields")
-        Scope.Local(parsePackage(raw.memberName, "scope local signature"))
-      case "library" =>
-        if (raw.libraryName.isEmpty || raw.memberName.nonEmpty || raw.libraryVersion.isEmpty)
-          throw CliException.Basic("contradictory library scope fields")
-        val version = Version.fromProtoChecked(raw.libraryVersion.get).getOrElse(
+    def parseScope(raw: proto.BuildScope): Scope = raw.value match {
+      case proto.BuildScope.Value.Member(name) =>
+        Scope.Member(parsePackage(name, "scope member"))
+      case proto.BuildScope.Value.LocalSignature(name) =>
+        Scope.Local(parsePackage(name, "scope local signature"))
+      case proto.BuildScope.Value.Library(identity) =>
+        if (identity.name.isEmpty)
+          throw CliException.Basic("missing library name in build requirements")
+        val version = identity.version.flatMap(Version.fromProtoChecked).getOrElse(
           throw CliException.Basic("invalid library version in build requirements")
         )
-        Scope.Library(Name(raw.libraryName) -> version)
-      case "predef" =>
-        if (raw.memberName.nonEmpty || raw.libraryName.nonEmpty || raw.libraryVersion.isDefined)
-          throw CliException.Basic("contradictory Predef scope fields")
-        Scope.Predef
-      case other => throw CliException.Basic(s"unknown requirement scope kind '$other'")
+        Scope.Library(Name(identity.name) -> version)
+      case proto.BuildScope.Value.Predef(_) => Scope.Predef
+      case proto.BuildScope.Value.Empty =>
+        throw CliException.Basic("missing requirement scope")
     }
 
     requirements.scopedVersion match {
@@ -214,16 +234,16 @@ object PackageSignatures {
             val referrer = parseScope(raw.referrer.getOrElse(
               throw CliException.Basic("missing binding referrer scope")
             ))
-            if (referrer == Scope.Predef)
-              throw CliException.Basic("Predef cannot be a binding referrer")
+            referrer match {
+              case Scope.Predef =>
+                throw CliException.Basic("Predef cannot be a binding referrer")
+              case _ => ()
+            }
             val packageName = parsePackage(raw.packageName, "binding package")
             val ownerScope = parseScope(raw.owner.getOrElse(
               throw CliException.Basic("missing binding owner scope")
             ))
-            val ownerPackage = parsePackage(raw.ownerPackageName, "binding owner package")
-            if (packageName != ownerPackage)
-              throw CliException.Basic("binding package and owner package disagree")
-            RequirementBinding(referrer, packageName, PackageOwner(ownerScope, ownerPackage))
+            RequirementBinding(referrer, packageName, ownerScope)
           }
           val bindingKeys = bindings.map(binding =>
             PackageBindings.BindingKey(binding.referrer, binding.packageName)

@@ -1424,7 +1424,7 @@ def library_scope(identity: tuple[str, str]) -> dict[str, object]:
 
 
 def member_scope(member: str) -> dict[str, str]:
-    return {"kind": "member", "member": member}
+    return {"kind": "member", "package": member}
 
 
 def local_signature_scope(package: str) -> dict[str, str]:
@@ -1481,14 +1481,14 @@ def inspect_fixture_roots(
         context_target.write_text(json.dumps(root_context, sort_keys=True), encoding="utf-8")
 
         signature_path = f"{output_dir}/{name}-{version}.sig"
-        public_index_path = f"{output_dir}/{name}-{version}-index.json"
+        exposures_path = f"{output_dir}/{name}-{version}-exposures.json"
         command = inspection_command(
             str(entry["path"]),
             name,
             version,
             list(entry["hashes"]),
             dependency_context=context_file,
-            outputs={"--sig-out": signature_path, "--exposures-out": public_index_path},
+            outputs={"--sig-out": signature_path, "--exposures-out": exposures_path},
         )
         result = invoke(java, jar, cwd, "tool", *command)
         if result.returncode != 0:
@@ -1496,11 +1496,11 @@ def inspect_fixture_roots(
                 f"candidate jar could not inspect scoped fixture {name} {version}:\n"
                 f"{result.stderr.decode('utf-8', errors='replace')}"
             )
-        index = json.loads((cwd / public_index_path).read_text(encoding="utf-8"))
+        index = json.loads((cwd / exposures_path).read_text(encoding="utf-8"))
         inspected[identity] = {
             "identity": {"name": name, "version": version},
             "signature_path": signature_path,
-            "public_index_path": public_index_path,
+            "exposures_path": exposures_path,
             "public_index": index,
             "label": f"//inspection:{name}-{version}",
         }
@@ -1532,8 +1532,7 @@ def write_scoped_inputs(
         {
             "identity": imported[identity]["identity"],
             "signature_path": imported[identity]["signature_path"],
-            "public_index_path": imported[identity]["public_index_path"],
-            "label": imported[identity]["label"],
+            "exposures_path": imported[identity]["exposures_path"],
         }
         for identity in identities
     ]

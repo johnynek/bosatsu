@@ -45,9 +45,14 @@ private[bosatsu] object GroupGraph {
   }
 
   private given Json.Reader[Edge[String]] = BuildManifest.obj("group dependency") { from =>
-    (from.field[String]("label")(using BuildManifest.nonEmpty),
-      from.field[String]("manifest")(using BuildManifest.nonEmpty)).mapN(Edge(_, _))
+    for {
+      _ <- BuildManifest.onlyFields(from, "group dependency", Set("label", "manifest"))
+      label <- from.field[String]("label")(using BuildManifest.nonEmpty)
+      manifest <- from.field[String]("manifest")(using BuildManifest.nonEmpty)
+    } yield Edge(label, manifest)
   }
+
+  private val nodeFields: Set[String] = Set("schema_version", "kind", "label", "members")
 
   private def nodeReader(view: View): Json.Reader[Node[String]] =
     BuildManifest.obj("group node") { from =>
@@ -56,6 +61,12 @@ private[bosatsu] object GroupGraph {
         kind <- from.field[String]("kind")
         _ <- Either.cond(kind == "group" || (view == View.DirectMembers && kind == "group-members"), (),
           (s"unsupported graph node kind '$kind' for $view", from.j, from.path.key("kind")))
+        // A group-members summary deliberately has no dependency edges.
+        _ <- BuildManifest.onlyFields(
+          from,
+          "group node",
+          if (kind == "group") nodeFields + "deps" else nodeFields
+        )
         label <- from.field[String]("label")(using BuildManifest.nonEmpty)
         members <- from.field[List[Member]]("members")
         _ <- Either.cond(members.nonEmpty, (),
