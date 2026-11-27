@@ -295,6 +295,86 @@ class TestUtilsTypeValidationTest extends munit.FunSuite {
     assert(err.contains("app arg type mismatch"), err)
   }
 
+  private val polyIdType: Type = {
+    val a = Type.Var.Bound("a")
+    Type.forAll(List(a -> Kind.Type), fn1(Type.TyVar(a), Type.TyVar(a)))
+  }
+  private val intToInt: Type = fn1(Type.IntType, Type.IntType)
+
+  // a reference with type `refType` to a local bound with type `boundType`
+  private def validateLocalRef(boundType: Type, refType: Type) = {
+    val name = Identifier.Name("f")
+    val names: Map[TypedExpr.Name[Unit], Type] =
+      Map(TypedExpr.Local(name, boundType, tag) -> boundType)
+    TestUtils.validateTypes(TypedExpr.Local(name, refType, tag), names, TypeEnv.empty)
+  }
+
+  test("validateTypes checks a local's binding type fits its reference") {
+    val ok = validateLocalRef(boundType = polyIdType, refType = intToInt)
+    assert(ok.isValid, renderErrors(ok))
+
+    val bad = validateLocalRef(boundType = intToInt, refType = polyIdType)
+    val err = renderErrors(bad)
+    assert(bad.isInvalid, s"expected invalid but got valid: $err")
+    assert(err.contains("local type mismatch"), err)
+  }
+
+  // a reference with type `refType` to a global defined with type `defType`
+  private def validateGlobalRef(defType: Type, refType: Type) = {
+    val pack = PackageName.parts("TypeValidatorTest")
+    val name = Identifier.Name("f")
+    val names: Map[TypedExpr.Name[Unit], Type] =
+      Map(TypedExpr.Global(pack, name, defType, tag) -> defType)
+    TestUtils.validateTypes(
+      TypedExpr.Global(pack, name, refType, tag),
+      names,
+      TypeEnv.empty
+    )
+  }
+
+  test("validateTypes checks a global's type fits its reference") {
+    val ok = validateGlobalRef(defType = polyIdType, refType = intToInt)
+    assert(ok.isValid, renderErrors(ok))
+
+    val bad = validateGlobalRef(defType = intToInt, refType = polyIdType)
+    val err = renderErrors(bad)
+    assert(bad.isInvalid, s"expected invalid but got valid: $err")
+    assert(err.contains("global type mismatch"), err)
+  }
+
+  // a match whose branches return locals of `branch0Type` and `branch1Type`,
+  // so the match has type `branch0Type`
+  private def validateTwoBranchMatch(branch0Type: Type, branch1Type: Type) = {
+    val scrutinee = TypedExpr.Local(Identifier.Name("x"), Type.IntType, tag)
+    val body0 = TypedExpr.Local(Identifier.Name("p"), branch0Type, tag)
+    val body1 = TypedExpr.Local(Identifier.Name("q"), branch1Type, tag)
+    val te = TypedExpr.Match(
+      scrutinee,
+      NonEmptyList.of(
+        TypedExpr.Branch(Pattern.WildCard, None, body0)(using Region.empty),
+        TypedExpr.Branch(Pattern.WildCard, None, body1)(using Region.empty)
+      ),
+      tag
+    )
+    val names: Map[TypedExpr.Name[Unit], Type] =
+      Map(
+        scrutinee -> Type.IntType,
+        body0 -> branch0Type,
+        body1 -> branch1Type
+      )
+    TestUtils.validateTypes(te, names, TypeEnv.empty)
+  }
+
+  test("validateTypes checks each branch's type fits the match's type") {
+    val ok = validateTwoBranchMatch(intToInt, polyIdType)
+    assert(ok.isValid, renderErrors(ok))
+
+    val bad = validateTwoBranchMatch(polyIdType, intToInt)
+    val err = renderErrors(bad)
+    assert(bad.isInvalid, s"expected invalid but got valid: $err")
+    assert(err.contains("branch result type mismatch"), err)
+  }
+
   test("validateTypes rejects a monomorphic recur arg for a polymorphic loop arg") {
     val a = Type.Var.Bound("a")
     val aType = Type.TyVar(a)

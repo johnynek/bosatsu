@@ -349,40 +349,41 @@ object TypeValidator {
       Map.empty
     ).map(_._1)
 
-  /** Check that an argument of type `arg` can be passed where `param` is
-    * expected, solving the applied function's `typeParams` where `param`
-    * mentions them.
+  /** Check that a value of type `actual` can be used where `expected` is
+    * expected, solving `typeParams` where `expected` mentions them. For an
+    * application argument, `actual` is the argument's type, `expected` the
+    * parameter's, and `typeParams` the applied function's type parameters.
     *
-    * The argument's universals can be instantiated and the parameter's outer
-    * existentials chosen. The parameter's universals, the argument's
-    * existentials and the type variables in scope stay fixed. `solved` holds
-    * the type parameters solved so far, and the result adds the ones this
-    * argument solves, so every argument has to agree.
+    * The actual type's universals can be instantiated and the expected type's
+    * outer existentials chosen. The expected type's universals, the actual
+    * type's existentials and the type variables in scope stay fixed. `solved`
+    * holds the type parameters solved so far, and the result adds the ones
+    * this check solves, so every argument has to agree.
     */
-  private def argFitsParamAndSolve(
-      arg: Type,
-      param: Type,
+  private def typeFitsAndSolve(
+      actual: Type,
+      expected: Type,
       kindOf: Type => Option[Kind],
       normalizeType: Type => Type,
       inScopeKinds: Map[Type.Var.Bound, Kind],
       typeParams: Map[Type.Var.Bound, Kind],
       solved: SolvedFreeBounds
   ): Either[List[Type.Var.Bound], (Boolean, SolvedFreeBounds)] = {
-    val arg0 = normalizeType(Type.substituteVar(arg, solved))
-    val param0 = normalizeType(Type.substituteVar(param, solved))
+    val actual0 = normalizeType(Type.substituteVar(actual, solved))
+    val expected0 = normalizeType(Type.substituteVar(expected, solved))
     def prenex(t: Type): Type =
       normalizeType(Type.hoistQuantifiersCovariantDeep(t, kindOf))
 
-    if (arg0.sameAs(param0) || prenex(arg0).sameAs(prenex(param0)))
+    if (actual0.sameAs(expected0) || prenex(actual0).sameAs(prenex(expected0)))
       Right((true, solved))
     else {
       // as in canWidenInScopeAndSolve, the solve floats only universals
-      val arg1 = normalizeType(Type.hoistForAllCovariantDeep(arg0, kindOf))
-      val param1 = normalizeType(Type.hoistForAllCovariantDeep(param0, kindOf))
+      val actual1 = normalizeType(Type.hoistForAllCovariantDeep(actual0, kindOf))
+      val expected1 = normalizeType(Type.hoistForAllCovariantDeep(expected0, kindOf))
       val known = inScopeKinds ++ typeParams
       val unresolved =
         Type
-          .freeBoundTyVars(arg1 :: param1 :: Nil)
+          .freeBoundTyVars(actual1 :: expected1 :: Nil)
           .distinct
           .filterNot(known.contains)
       if (unresolved.nonEmpty) Left(unresolved)
@@ -390,9 +391,9 @@ object TypeValidator {
         // rename the outer binders apart from each other and from everything
         // else, so the solve can't mix them up
         val taken: Set[Type.Var.Bound] =
-          known.keySet ++ Type.freeBoundTyVars(arg1 :: param1 :: Nil)
-        val (argForalls, argExists, argRho) = {
-          val (fas, exs, rho) = Type.splitQuantifiers(arg1)
+          known.keySet ++ Type.freeBoundTyVars(actual1 :: expected1 :: Nil)
+        val (actualForalls, actualExists, actualRho) = {
+          val (fas, exs, rho) = Type.splitQuantifiers(actual1)
           NonEmptyList.fromList(fas ::: exs) match {
             case None => (Nil, Nil, rho: Type)
             case Some(nel) =>
@@ -401,27 +402,27 @@ object TypeValidator {
               (fas1, exs1, Type.substituteVar(rho, sub))
           }
         }
-        val argBinders = (argForalls ::: argExists).iterator.map(_._1).toSet
-        val (paramExists, paramBody) = {
-          val (exs, body) = Type.liftExistentials(param1)
+        val actualBinders = (actualForalls ::: actualExists).iterator.map(_._1).toSet
+        val (expectedExists, expectedBody) = {
+          val (exs, body) = Type.liftExistentials(expected1)
           NonEmptyList.fromList(exs) match {
             case None => (Nil, body)
             case Some(nel) =>
-              val (sub, nel1) = Type.unshadow(nel, taken ++ argBinders)
+              val (sub, nel1) = Type.unshadow(nel, taken ++ actualBinders)
               (nel1.toList, Type.substituteVar(body, sub))
           }
         }
-        val paramTypeParams =
+        val expectedTypeParams =
           Type
-            .freeBoundTyVars(paramBody :: Nil)
+            .freeBoundTyVars(expectedBody :: Nil)
             .distinct
             .flatMap(b => typeParams.get(b).map(b -> _))
             .toMap
-        val vars = argForalls.toMap
-        val toVars = paramExists.toMap ++ paramTypeParams
+        val vars = actualForalls.toMap
+        val toVars = expectedExists.toMap ++ expectedTypeParams
         val rigidWitnesses =
           rigidInstantiateWitnesses(
-            inScopeKinds ++ argExists ++ typeParams,
+            inScopeKinds ++ actualExists ++ typeParams,
             vars,
             toVars
           )
@@ -429,29 +430,29 @@ object TypeValidator {
         Type
           .instantiate(
             vars = vars,
-            from = Type.substituteVar(argRho, rigidWitnesses.subst),
+            from = Type.substituteVar(actualRho, rigidWitnesses.subst),
             toVars = toVars,
-            to = Type.substituteVar(paramBody, rigidWitnesses.subst),
+            to = Type.substituteVar(expectedBody, rigidWitnesses.subst),
             env = inScopeKinds
           ) match {
           case None =>
             Right((false, solved))
           case Some(inst) =>
-            val argSolutions: Map[Type.Var, Type] =
+            val actualSolutions: Map[Type.Var, Type] =
               inst.subs.iterator.map { case (b, (_, t)) => (b, t) }.toMap
             val fresh =
-              paramTypeParams.keysIterator.flatMap { b =>
+              expectedTypeParams.keysIterator.flatMap { b =>
                 inst.toSubs.get(b).map { case (_, t) =>
                   (b: Type.Var) -> thawRigidWitnesses(
-                    Type.substituteVar(t, argSolutions),
+                    Type.substituteVar(t, actualSolutions),
                     rigidWitnesses.reverse
                   )
                 }
               }.toList
-            // a type parameter solved to one of the argument's own binders
+            // a type parameter solved to one of the actual type's own binders
             // would leave that binder out of scope
             val escapes = fresh.exists { case (_, t) =>
-              Type.freeBoundTyVars(t :: Nil).exists(argBinders)
+              Type.freeBoundTyVars(t :: Nil).exists(actualBinders)
             }
             if (escapes) Right((false, solved))
             else {
@@ -463,9 +464,9 @@ object TypeValidator {
     }
   }
 
-  private def argFitsParamOrFail(
-      arg: Type,
-      param: Type,
+  private def typeFitsOrFail(
+      actual: Type,
+      expected: Type,
       kindOf: Type => Option[Kind],
       normalizeType: Type => Type,
       inScopeKinds: Map[Type.Var.Bound, Kind],
@@ -474,9 +475,9 @@ object TypeValidator {
       path: TypeValidation.Path,
       onMismatch: => String
   ): TypeValidation[SolvedFreeBounds] =
-    argFitsParamAndSolve(
-      arg,
-      param,
+    typeFitsAndSolve(
+      actual,
+      expected,
       kindOf,
       normalizeType,
       inScopeKinds,
@@ -490,7 +491,7 @@ object TypeValidator {
       case Left(unbound) =>
         TypeValidation.fail(
           path,
-          s"$onMismatch; unresolved bound type vars (${unbound.iterator.map(_.name).mkString(", ")}) in arg check of ${arg.show} against ${param.show}"
+          s"$onMismatch; unresolved bound type vars (${unbound.iterator.map(_.name).mkString(", ")}) checking ${actual.show} against ${expected.show}"
         )
     }
 
@@ -948,15 +949,18 @@ object TypeValidator {
           case Some(expected) =>
             if (isAppFnPath(path)) typeValidationPass
             else
-              typeWidensToOrFail(
-                tpe,
+              // the binding's type has to fit the type the reference has
+              typeFitsOrFail(
                 expected,
+                tpe,
                 kindOf,
                 normalizeType,
                 inScopeKinds,
+                Map.empty,
+                Map.empty,
                 path,
                 s"local type mismatch for ${name.sourceCodeRepr}: expected ${expected.show}, got ${tpe.show}"
-              )
+              ).void
           case None =>
             typeValidationFail(
               path,
@@ -967,15 +971,18 @@ object TypeValidator {
       case TypedExpr.Global(pack, name, tpe, _) =>
         globals.get((pack, name)).orElse(env.getValue(pack, name)) match {
           case Some(expected) =>
-            typeWidensToOrFail(
-              tpe,
+            // the global's type has to fit the type the reference has
+            typeFitsOrFail(
               expected,
+              tpe,
               kindOf,
               normalizeType,
               inScopeKinds,
+              Map.empty,
+              Map.empty,
               path,
               s"global type mismatch for ${pack.asString}::${name.sourceCodeRepr}: expected ${expected.show}, got ${tpe.show}"
-            )
+            ).void
           case None =>
             typeValidationFail(
               path,
@@ -1167,7 +1174,7 @@ object TypeValidator {
                   SolvedFreeBounds
                 ]) { case (acc, ((expected, got), idx)) =>
                   acc.andThen { solvedSoFar =>
-                    argFitsParamOrFail(
+                    typeFitsOrFail(
                       got.getType,
                       expected,
                       kindOf,
@@ -1292,7 +1299,7 @@ object TypeValidator {
               val argTypeChecks =
                 loopArgTypes.zip(args.toList).zipWithIndex.map {
                   case ((expected, got), idx) =>
-                    argFitsParamOrFail(
+                    typeFitsOrFail(
                       got.getType,
                       expected,
                       kindOf,
@@ -1349,16 +1356,19 @@ object TypeValidator {
             branchPath
           )
 
+          // each branch's type has to fit the match's type
           val branchResultTypeCheck =
-            typeWidensToOrFail(
-              te.getType,
+            typeFitsOrFail(
               branch.expr.getType,
+              te.getType,
               kindOf,
               normalizeType,
               inScopeKinds,
+              Map.empty,
+              Map.empty,
               branchPath,
               s"branch result type mismatch: expected ${te.getType.show}, got ${branch.expr.getType.show}"
-            )
+            ).void
 
           branchLocals.andThen { localsFromPattern =>
             val outerScope = locals ++ localsFromPattern
