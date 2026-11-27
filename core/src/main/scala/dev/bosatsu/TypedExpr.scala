@@ -1259,20 +1259,31 @@ object TypedExpr {
     )(using patternRegion: Region): Branch[T] =
       new Branch(pattern, guardNode, expr)
 
-    def unapply[T](
-        branch: Branch[T]
-    ): Some[(Pattern[(PackageName, Constructor), Type], Option[TypedExpr[T]], TypedExpr[T])] =
-      Some((branch.pattern, branch.guard, branch.expr))
+    // a zero allocation match result: pattern, guard expression and body
+    final class BranchMatch[+T](val branch: Branch[T]) extends AnyVal {
+      def isEmpty: false = false
+      def get: BranchMatch[T] = this
+      def _1: Pattern[(PackageName, Constructor), Type] = branch.pattern
+      def _2: Option[TypedExpr[T]] = branch.guard
+      def _3: TypedExpr[T] = branch.expr
+    }
+
+    def unapply[T](branch: Branch[T]): BranchMatch[T] = new BranchMatch(branch)
+
+    // a zero allocation match result: pattern and body
+    final class UnguardedMatch[+T](val branch: Branch[T]) extends AnyVal {
+      def isEmpty: Boolean = branch.guardNode.nonEmpty
+      def get: UnguardedMatch[T] = this
+      def _1: Pattern[(PackageName, Constructor), Type] = branch.pattern
+      def _2: TypedExpr[T] = branch.expr
+    }
 
     /** A branch without a guard, as its pattern and body. Unlike Branch, this
       * never builds the expression of a MatchGuard.
       */
     object Unguarded {
-      def unapply[T](
-          branch: Branch[T]
-      ): Option[(Pattern[(PackageName, Constructor), Type], TypedExpr[T])] =
-        if (branch.guardNode.isEmpty) Some((branch.pattern, branch.expr))
-        else None
+      def unapply[T](branch: Branch[T]): UnguardedMatch[T] =
+        new UnguardedMatch(branch)
     }
   }
   final case class MatchExpr[+T](
@@ -1299,10 +1310,16 @@ object TypedExpr {
     ): MatchExpr[T] =
       MatchExpr(matchKind, arg, branches, tag)
 
-    def unapply[T](
-        m: MatchExpr[T]
-    ): Some[(TypedExpr[T], NonEmptyList[Branch[T]], T)] =
-      Some((m.arg, m.branches, m.tag))
+    // a zero allocation match result: arg, branches and tag
+    final class MatchMatch[+T](val m: MatchExpr[T]) extends AnyVal {
+      def isEmpty: false = false
+      def get: MatchMatch[T] = this
+      def _1: TypedExpr[T] = m.arg
+      def _2: NonEmptyList[Branch[T]] = m.branches
+      def _3: T = m.tag
+    }
+
+    def unapply[T](m: MatchExpr[T]): MatchMatch[T] = new MatchMatch(m)
   }
 
   final case class App2Step[T](
