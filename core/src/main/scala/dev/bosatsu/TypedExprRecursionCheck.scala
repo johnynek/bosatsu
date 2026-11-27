@@ -223,7 +223,7 @@ object TypedExprRecursionCheck {
     }
 
     type TopLevelLowerableAliases = Map[(PackageName, Bindable), TopLevelAlias]
-    type TopLevelPredefAliases = Map[(PackageName, Bindable), Identifier.Name]
+    type TopLevelPredefAliases = Map[(PackageName, Bindable), PredefOp]
 
     case class TopLevelAlias(
         params: NonEmptyList[Bindable],
@@ -1547,28 +1547,70 @@ object TypedExprRecursionCheck {
           None
       }
 
-    private val lowerablePredefFnNames: Set[Identifier.Name] = Set(
-      Identifier.Name("add"),
-      Identifier.Name("sub"),
-      Identifier.Name("mul"),
-      Identifier.Name("div"),
-      Identifier.Name("mod_Int"),
-      Identifier.Name("cmp_Int"),
-      Identifier.Name("eq_Int"),
-      Identifier.Name("and"),
-      Identifier.Name("or"),
-      Identifier.Name("not"),
-      Identifier.Name("xor"),
-      Identifier.Name("implies")
-    )
+    // The Predef functions with an Int result that lower to SMT
+    enum IntOp derives CanEqual {
+      case Add, Sub, Mul, Div, Mod
+    }
 
-    private def resolvedPredefFnName(
+    // The Predef functions with a Bool result that lower to SMT
+    enum BoolOp derives CanEqual {
+      case EqInt, And, Or, Not, Xor, Implies
+    }
+
+    // A Predef function that lowers to SMT, by the sort of its result
+    enum PredefOp derives CanEqual {
+      case IntResult(op: IntOp)
+      case BoolResult(op: BoolOp)
+      // cmp_Int, whose result is a Comparison
+      case CmpInt
+    }
+
+    // The one table of the Predef functions that lower to SMT
+    private val lowerablePredefOps: Map[Identifier.Name, PredefOp] =
+      Map(
+        Identifier.Name("add") -> PredefOp.IntResult(IntOp.Add),
+        Identifier.Name("sub") -> PredefOp.IntResult(IntOp.Sub),
+        Identifier.Name("mul") -> PredefOp.IntResult(IntOp.Mul),
+        Identifier.Name("div") -> PredefOp.IntResult(IntOp.Div),
+        Identifier.Name("mod_Int") -> PredefOp.IntResult(IntOp.Mod),
+        Identifier.Name("cmp_Int") -> PredefOp.CmpInt,
+        Identifier.Name("eq_Int") -> PredefOp.BoolResult(BoolOp.EqInt),
+        Identifier.Name("and") -> PredefOp.BoolResult(BoolOp.And),
+        Identifier.Name("or") -> PredefOp.BoolResult(BoolOp.Or),
+        Identifier.Name("not") -> PredefOp.BoolResult(BoolOp.Not),
+        Identifier.Name("xor") -> PredefOp.BoolResult(BoolOp.Xor),
+        Identifier.Name("implies") -> PredefOp.BoolResult(BoolOp.Implies)
+      )
+
+    // The constructors of Predef's Comparison, with the Int each one is
+    // lowered to
+    enum ComparisonCtor(val value: BigInt) derives CanEqual {
+      case LT extends ComparisonCtor(BigInt(-1))
+      case EQ extends ComparisonCtor(BigInt(0))
+      case GT extends ComparisonCtor(BigInt(1))
+    }
+
+    private val comparisonCtors: Map[Identifier.Constructor, ComparisonCtor] =
+      Map(
+        Identifier.Constructor("LT") -> ComparisonCtor.LT,
+        Identifier.Constructor("EQ") -> ComparisonCtor.EQ,
+        Identifier.Constructor("GT") -> ComparisonCtor.GT
+      )
+
+    // `fn` is a Predef function that lowers to SMT
+    private def lowerablePredefOp(
+        fn: TypedExpr[Declaration]
+    ): Option[PredefOp] =
+      predefFnName(fn).flatMap {
+        case n: Identifier.Name => lowerablePredefOps.get(n)
+        case _                  => None
+      }
+
+    private def resolvedPredefOp(
         fn: TypedExpr[Declaration],
         state: SmtBranchState
-    ): Option[Identifier.Name] =
-      predefFnName(fn)
-        .collect { case n: Identifier.Name => n }
-        .filter(lowerablePredefFnNames)
+    ): Option[PredefOp] =
+      lowerablePredefOp(fn)
         .orElse {
           stripExprWrappers(fn) match {
             case TypedExpr.Global(pack, nm: Bindable, _, _) =>
@@ -1624,12 +1666,7 @@ object TypedExprRecursionCheck {
               _,
               _
             ) =>
-          cons.asString match {
-            case "LT" => Some(BigInt(-1))
-            case "EQ" => Some(BigInt(0))
-            case "GT" => Some(BigInt(1))
-            case _    => None
-          }
+          comparisonCtors.get(cons).map(_.value)
         case _ =>
           None
       }
@@ -1714,8 +1751,8 @@ object TypedExprRecursionCheck {
     ): (Option[(SmtExpr.IntExpr, SmtExpr.IntExpr)], SmtBranchState) =
       stripExprWrappers(expr) match {
         case TypedExpr.App(fn, args, _, _) =>
-          resolvedPredefFnName(fn, state) match {
-            case Some(Identifier.Name("cmp_Int")) =>
+          resolvedPredefOp(fn, state) match {
+            case Some(PredefOp.CmpInt) =>
               lowerBinaryInt(args, state)((_, _))
             case _ =>
               inlinedTopLevelAliasApp(fn, args, state) match {
@@ -1738,17 +1775,17 @@ object TypedExprRecursionCheck {
           val (cmpExpr, state1) = ensureComparisonLocal(name, state)
           (Some(cmpExpr), state1)
         case TypedExpr.App(fn, args, _, _) =>
-          resolvedPredefFnName(fn, state) match {
-            case Some(Identifier.Name("cmp_Int")) =>
+          resolvedPredefOp(fn, state) match {
+            case Some(PredefOp.CmpInt) =>
               val (pair, state1) = lowerBinaryInt(args, state)((_, _))
               val compared = pair.map { case (left, right) =>
                 SmtExpr.Ite(
                   SmtExpr.Lt(left, right),
-                  SmtExpr.IntConst(BigInt(-1)),
+                  SmtExpr.IntConst(ComparisonCtor.LT.value),
                   SmtExpr.Ite(
                     SmtExpr.EqInt(left, right),
-                    SmtExpr.IntConst(BigInt(0)),
-                    SmtExpr.IntConst(BigInt(1))
+                    SmtExpr.IntConst(ComparisonCtor.EQ.value),
+                    SmtExpr.IntConst(ComparisonCtor.GT.value)
                   )
                 )
               }
@@ -1877,27 +1914,30 @@ object TypedExprRecursionCheck {
           val (intExpr, state1) = ensureIntLocal(name, state)
           (Some(intExpr), state1)
         case TypedExpr.App(fn, args, _, _) =>
-          resolvedPredefFnName(fn, state) match {
-            case Some(Identifier.Name("add")) =>
-              lowerBinaryInt(args, state)((left, right) =>
-                SmtExpr.Add(Vector(left, right))
-              )
-            case Some(Identifier.Name("sub")) =>
-              lowerBinaryInt(args, state)((left, right) =>
-                SmtExpr.Sub(Vector(left, right))
-              )
-            case Some(Identifier.Name("mul")) =>
-              lowerBinaryInt(args, state)((left, right) =>
-                SmtExpr.Mul(Vector(left, right))
-              )
-            case Some(Identifier.Name("div")) =>
-              // Bosatsu rounds toward negative infinity and defines
-              // `x / 0 == 0`; SMT-LIB `div` differs on both
-              lowerBinaryInt(args, state)(SmtExpr.bosatsuDiv)
-            case Some(Identifier.Name("mod_Int")) =>
-              // Bosatsu's `mod_Int` has the sign of the divisor and defines
-              // `x % 0 == x`; SMT-LIB `mod` differs on both
-              lowerBinaryInt(args, state)(SmtExpr.bosatsuMod)
+          resolvedPredefOp(fn, state) match {
+            case Some(PredefOp.IntResult(op)) =>
+              op match {
+                case IntOp.Add =>
+                  lowerBinaryInt(args, state)((left, right) =>
+                    SmtExpr.Add(Vector(left, right))
+                  )
+                case IntOp.Sub =>
+                  lowerBinaryInt(args, state)((left, right) =>
+                    SmtExpr.Sub(Vector(left, right))
+                  )
+                case IntOp.Mul =>
+                  lowerBinaryInt(args, state)((left, right) =>
+                    SmtExpr.Mul(Vector(left, right))
+                  )
+                case IntOp.Div =>
+                  // Bosatsu rounds toward negative infinity and defines
+                  // `x / 0 == 0`; SMT-LIB `div` differs on both
+                  lowerBinaryInt(args, state)(SmtExpr.bosatsuDiv)
+                case IntOp.Mod =>
+                  // Bosatsu's `mod_Int` has the sign of the divisor and
+                  // defines `x % 0 == x`; SMT-LIB `mod` differs on both
+                  lowerBinaryInt(args, state)(SmtExpr.bosatsuMod)
+              }
             case _ =>
               inlinedTopLevelAliasApp(fn, args, state) match {
                 case Some(inlined) => lowerIntExpr(inlined, state)
@@ -1918,31 +1958,25 @@ object TypedExprRecursionCheck {
 
     private def comparisonGoalFromPattern(
         argExpr: TypedExpr[Declaration],
-        cons: Identifier.Constructor,
+        cmp: ComparisonCtor,
         state: SmtBranchState
     ): (Option[SmtExpr.BoolExpr], SmtBranchState) = {
       val (cmpPair, state1) = lowerCmpIntArgs(argExpr, state)
       val direct =
         cmpPair.map { case (left, right) =>
-            cons.asString match {
-              case "LT" => SmtExpr.Lt(left, right)
-              case "EQ" => SmtExpr.EqInt(left, right)
-              case "GT" => SmtExpr.Gt(left, right)
-              case _    => SmtExpr.BoolConst.False
-            }
+          cmp match {
+            case ComparisonCtor.LT => SmtExpr.Lt(left, right)
+            case ComparisonCtor.EQ => SmtExpr.EqInt(left, right)
+            case ComparisonCtor.GT => SmtExpr.Gt(left, right)
+          }
         }
 
       direct match {
         case Some(expr) => (Some(expr), state1)
         case None       =>
           val (cmpExpr, state2) = lowerComparisonExpr(argExpr, state)
-          val asEq = cmpExpr.flatMap { term =>
-            cons.asString match {
-              case "LT" => Some(SmtExpr.EqInt(term, SmtExpr.IntConst(BigInt(-1))))
-              case "EQ" => Some(SmtExpr.EqInt(term, SmtExpr.IntConst(BigInt(0))))
-              case "GT" => Some(SmtExpr.EqInt(term, SmtExpr.IntConst(BigInt(1))))
-              case _    => None
-            }
+          val asEq = cmpExpr.map { term =>
+            SmtExpr.EqInt(term, SmtExpr.IntConst(cmp.value))
           }
           (asEq, state2)
       }
@@ -2003,10 +2037,11 @@ object TypedExprRecursionCheck {
                 if (cons.asString == "True") b else SmtExpr.Not(b)
               }
               (cond, state1)
-            case "LT" | "EQ" | "GT" =>
-              comparisonGoalFromPattern(argExpr, cons, state)
             case _ =>
-              (None, state)
+              comparisonCtors.get(cons) match {
+                case Some(cmp) => comparisonGoalFromPattern(argExpr, cmp, state)
+                case None      => (None, state)
+              }
           }
         case ps @ Pattern.PositionalStruct(_, _)
             if patternIsIrrefutable(ps, state) =>
@@ -2069,36 +2104,39 @@ object TypedExprRecursionCheck {
           val (boolExpr, state1) = ensureBoolLocal(name, state)
           (Some(boolExpr), state1)
         case TypedExpr.App(fn, args, _, _) =>
-          resolvedPredefFnName(fn, state) match {
-            case Some(Identifier.Name("eq_Int")) =>
-              lowerBinaryInt(args, state)(SmtExpr.EqInt(_, _))
-            case Some(Identifier.Name("and")) =>
-              lowerBinaryBool(args, state)((left, right) =>
-                simplifyBoolExpr(mkAnd(Vector(left, right)))
-              )
-            case Some(Identifier.Name("or")) =>
-              lowerBinaryBool(args, state)((left, right) =>
-                simplifyBoolExpr(mkOr(Vector(left, right)))
-              )
-            case Some(Identifier.Name("not")) =>
-              lowerUnaryBool(args, state)(arg =>
-                simplifyBoolExpr(SmtExpr.Not(arg))
-              )
-            case Some(Identifier.Name("xor")) =>
-              lowerBinaryBool(args, state)((left, right) =>
-                simplifyBoolExpr(
-                  mkOr(
-                    Vector(
-                      mkAnd(Vector(left, SmtExpr.Not(right))),
-                      mkAnd(Vector(SmtExpr.Not(left), right))
+          resolvedPredefOp(fn, state) match {
+            case Some(PredefOp.BoolResult(op)) =>
+              op match {
+                case BoolOp.EqInt =>
+                  lowerBinaryInt(args, state)(SmtExpr.EqInt(_, _))
+                case BoolOp.And =>
+                  lowerBinaryBool(args, state)((left, right) =>
+                    simplifyBoolExpr(mkAnd(Vector(left, right)))
+                  )
+                case BoolOp.Or =>
+                  lowerBinaryBool(args, state)((left, right) =>
+                    simplifyBoolExpr(mkOr(Vector(left, right)))
+                  )
+                case BoolOp.Not =>
+                  lowerUnaryBool(args, state)(arg =>
+                    simplifyBoolExpr(SmtExpr.Not(arg))
+                  )
+                case BoolOp.Xor =>
+                  lowerBinaryBool(args, state)((left, right) =>
+                    simplifyBoolExpr(
+                      mkOr(
+                        Vector(
+                          mkAnd(Vector(left, SmtExpr.Not(right))),
+                          mkAnd(Vector(SmtExpr.Not(left), right))
+                        )
+                      )
                     )
                   )
-                )
-              )
-            case Some(Identifier.Name("implies")) =>
-              lowerBinaryBool(args, state)((left, right) =>
-                simplifyBoolExpr(mkOr(Vector(SmtExpr.Not(left), right)))
-              )
+                case BoolOp.Implies =>
+                  lowerBinaryBool(args, state)((left, right) =>
+                    simplifyBoolExpr(mkOr(Vector(SmtExpr.Not(left), right)))
+                  )
+              }
             case _ =>
               inlinedTopLevelAliasApp(fn, args, state) match {
                 case Some(inlined) => lowerBoolExpr(inlined, state)
@@ -4888,10 +4926,8 @@ object TypedExprRecursionCheck {
 
     private def directPredefAliasTarget(
         expr: TypedExpr[Declaration]
-    ): Option[Identifier.Name] =
-      predefFnName(expr)
-        .collect { case n: Identifier.Name => n }
-        .filter(lowerablePredefFnNames)
+    ): Option[PredefOp] =
+      lowerablePredefOp(expr)
         .orElse {
           collectArgGroupsAndBody(expr).flatMap { case (argGroups, body) =>
             val argNames = argGroups.iterator.flatMap(_.iterator.map(_._1)).toList
@@ -4902,10 +4938,7 @@ object TypedExprRecursionCheck {
                     case (argName, argExpr) =>
                       localNameOf(argExpr).contains(argName)
                   }
-                if (forwardsArgs)
-                  predefFnName(fn)
-                    .collect { case n: Identifier.Name => n }
-                    .filter(lowerablePredefFnNames)
+                if (forwardsArgs) lowerablePredefOp(fn)
                 else None
               case _ =>
                 None
@@ -4942,8 +4975,8 @@ object TypedExprRecursionCheck {
         lets: List[(Bindable, RecursionKind, TypedExpr[Declaration])]
     ): TopLevelPredefAliases =
       lets.iterator.flatMap { case (name, _, expr) =>
-        directPredefAliasTarget(expr).map { predefName =>
-          ((currentPackage, name), predefName)
+        directPredefAliasTarget(expr).map { predefOp =>
+          ((currentPackage, name), predefOp)
         }
       }.toMap
 
