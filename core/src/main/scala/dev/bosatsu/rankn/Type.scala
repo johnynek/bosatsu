@@ -1022,8 +1022,8 @@ object Type {
     t match {
       case TyApply(on, arg) =>
         val arg1 = substituteVar(arg, env)
-        // if on becomes (exists x, y, ... ff) we need (exists x, y, ... ff)[arg1]
-        // so if we lift the exists out, we need to rename so we don't shadow
+        // if on becomes (exists x, y, ... ff), then apply1Rho lifts the exists
+        // out of the apply, renaming x, y, ... so they don't shadow arg1
         apply1Rho(substituteRhoVar(on, env), arg1)
 
       case Exists(vars, in) =>
