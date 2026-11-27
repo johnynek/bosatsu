@@ -7,6 +7,7 @@ import com.monovore.decline.Argument
 import dev.bosatsu.{Bytes => ImmutableBytes}
 import java.nio.charset.StandardCharsets
 import scala.collection.immutable.SortedMap
+import scala.util.Try
 import dev.bosatsu.graph.CanPromise
 import dev.bosatsu.tool.Output
 import dev.bosatsu.hashing.{Algo, Hashed, HashValue}
@@ -237,7 +238,7 @@ object MemoryMain {
 
         private def evaluateOnRun[A](a: => A): F[A] =
           StateT { state =>
-            innerMonad.fromTry(scala.util.Try(a)).map(value => (state, value))
+            innerMonad.fromTry(Try(a)).map(value => (state, value))
           }
 
         def delay[A](a: => A): F[A] = evaluateOnRun(a)
@@ -474,10 +475,10 @@ object MemoryMain {
                   case Some(Right(MemoryMain.FileContent.Bytes(bytes))) =>
                     for {
                       ppack <- moduleIOMonad.fromTry(
-                        scala.util.Try(proto.Packages.parseFrom(bytes.unsafeReadOnlyView))
+                        Try(proto.Packages.parseFrom(bytes.unsafeReadOnlyView))
                       )
                       packs <- moduleIOMonad.fromTry(
-                        ProtoConverter.packagesFromProtoBundles(List(ppack))
+                        ProtoConverter.packagesFromProtoBundles(List(ppack), Nil)
                       )
                     } yield packs._2
                   case other =>

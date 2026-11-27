@@ -5,7 +5,7 @@ import cats.Eq
 import cats.data.{Ior, NonEmptyList}
 import dev.bosatsu.IorMethods.IorExtension
 import dev.bosatsu.rankn.{ConstructorFn, ConstructorParam, DefinedType, Type, TypeAlias}
-import dev.bosatsu.library.{Name as LibraryName, Version}
+import dev.bosatsu.library.{LibraryIdentity, Name as LibraryName, Version}
 import dev.bosatsu.tool.PackageBindings
 import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
@@ -887,7 +887,7 @@ main = dep_value
 
   private def checkedScopedBindings(
       members: List[PackageSignatures.MemberRequirements],
-      publicPackages: List[PackageBindings.PublicPackage] = Nil
+      publicPackages: List[PackageBindings.PublicPackage]
   ): PackageBindings.CheckedScopeMap[String] = {
     import PackageBindings.BindingKey
     val memberNames = members.map(_.member)
@@ -902,12 +902,12 @@ main = dep_value
         )
       }
     )(using PackageBindings.bindingKeyOrdering)
-    val index = PackageBindings.indexFromPackages(publicPackages)
+    val index = PackageBindings.indexFromPackages(publicPackages, identities = Nil)
     val identitiesOrdering = Ordering.Tuple2(using LibraryName.orderingName, Version.versionOrdering)
     val scopeMap = PackageBindings.ScopeMap(
       members = SortedSet.from(memberNames),
       dependencies = Nil,
-      imports = SortedMap.empty[PackageBindings.LibraryIdentity, PackageBindings.ImportedScope[String]](
+      imports = SortedMap.empty[LibraryIdentity, PackageBindings.ImportedScope[String]](
         using identitiesOrdering
       ),
       publicIndex = index,
@@ -916,7 +916,7 @@ main = dep_value
         using PackageBindings.bindingKeyOrdering
       )
     )
-    PackageBindings.CheckedScopeMap(scopeMap, index, checkedBindings)
+    PackageBindings.CheckedScopeMap(scopeMap, index, checkedBindings, localInterfaces = Nil)
   }
 
   test("scoped bundle decoding keeps incompatible same-named providers per member") {
@@ -1102,7 +1102,7 @@ main = dep_value
         Nil
       )
     )
-    val sourceChecked = checkedScopedBindings(sourceRequirements)
+    val sourceChecked = checkedScopedBindings(sourceRequirements, publicPackages = Nil)
     val libraryIdentity = LibraryName("private") -> Version.parser.parseAll("1.0.0").toOption.get
     val lookalikeOwner = PackageOwner(Scope.Library(libraryIdentity), providerName)
     val sourceBundle = proto.Packages(

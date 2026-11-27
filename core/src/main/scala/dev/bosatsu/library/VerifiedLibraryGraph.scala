@@ -13,6 +13,10 @@ import scala.collection.mutable
 
 private[bosatsu] type LibraryIdentity = (Name, Version)
 
+/** The one ordering for exact library identities: name, then version. */
+private[bosatsu] val libraryIdentityOrdering: Ordering[LibraryIdentity] =
+  Ordering.Tuple2(using summon[Ordering[Name]], summon[Ordering[Version]])
+
 private[bosatsu] enum LibraryDependencyVisibility derives CanEqual {
   case Public, Private, UnusedTransitivePublic
 
@@ -226,8 +230,7 @@ private[bosatsu] object VerifiedLibraryGraph {
   private type Context[Path] = LibraryInspection.DependencyContext[Path]
   private type Declared[Path] = LibraryInspection.DeclaredLibraryFile[Path]
 
-  private given Ordering[Identity] =
-    Ordering.Tuple2(using summon[Ordering[Name]], summon[Ordering[Version]])
+  private given Ordering[Identity] = libraryIdentityOrdering
 
   private final case class Node[Path](
       primary: VerifiedLibrarySnapshot[Path],

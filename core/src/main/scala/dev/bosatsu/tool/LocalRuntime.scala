@@ -59,12 +59,19 @@ private[bosatsu] object LocalRuntime {
         throw CliException.Basic(show"empty implementation bundle $file"))
     })
 
-    // Decode jointly so imports can bind to actual declarations across bundle
-    // boundaries. Inspect whole-bundle requirements before package extraction;
-    // the codec uses the compiler's implicit Predef interface.
-    val (_, decoded) = ProtoConverter.packagesFromProtoBundles(bundles.toList.map(_._2)).recover { case err =>
-      throw CliException.Basic(s"invalid local implementation graph: ${err.getMessage}")
-    }.get
+    // Inspect each bundle's whole-bundle requirements before package
+    // extraction, naming the bundle in any rejection. Then decode jointly so
+    // imports can bind to actual declarations across bundle boundaries. The
+    // codec uses the compiler's implicit Predef interface.
+    bundles.toList.foreach { case (file, bundle) =>
+      ProtoConverter.validateStandalonePackageBundles(bundle :: Nil).recover { case err =>
+        throw CliException.Basic(show"invalid implementation bundle $file: ${err.getMessage}")
+      }.get
+    }
+    val (_, decoded) =
+      ProtoConverter.packagesFromProto(Nil, bundles.toList.flatMap(_._2.packages)).recover { case err =>
+        throw CliException.Basic(s"invalid local implementation graph: ${err.getMessage}")
+      }.get
     val packages = PackageMap.fromIterable(PackageMap.predefCompiled :: decoded)
     checkImports(packages)
     checkRequirements(bundles, members, packages)
@@ -136,57 +143,24 @@ private[bosatsu] object LocalRuntime {
           if (owners.nonEmpty)
             throw CliException.Basic(show"recompile legacy bundle $file to verify external types from ${owners.map(_.asString).mkString(", ")}")
         case Some(requirements) =>
-          PackageSignatures.parseBuildRequirements(requirements).get match {
+          PackageSignatures.parseBuildRequirements(requirements).recover { case err =>
+            throw CliException.Basic(show"${err.getMessage} in $file")
+          }.get match {
             case PackageSignatures.ParsedBuildRequirements.Legacy(records) =>
               checkInterfaceRequirements(
                 file,
                 local,
                 imports.map(_.pack.name).toList,
                 records,
-                Nil,
                 packages,
-                verified,
-                exact = false
+                verified
               )
-            case PackageSignatures.ParsedBuildRequirements.Scoped(memberRecords) =>
-              val recordNames = memberRecords.map(_.member).toSet
-              if (recordNames != local)
-                throw CliException.Basic(show"member requirements do not match implementation bundle $file")
-              val allMembers = members.valuesIterator.flatMap(_.toList).toSet
-              memberRecords.foreach { memberRecord =>
-                val pack = packages.toMap(memberRecord.member)
-                val keys = memberRecord.bindings.iterator.map(binding =>
-                  PackageBindings.BindingKey(binding.referrer, binding.packageName)
-                ).toSet
-                pack.imports.foreach { imported =>
-                  if (!imported.pack.name.isPredef &&
-                      !keys(PackageBindings.BindingKey(
-                        PackageBindings.Scope.Member(memberRecord.member), imported.pack.name
-                      )))
-                    throw CliException.Basic(
-                      show"missing scoped import binding for ${imported.pack.name} in ${memberRecord.member}"
-                    )
-                }
-                memberRecord.bindings.foreach { binding =>
-                  binding.owner.scope match {
-                    case PackageBindings.Scope.Member(owner) if !allMembers(owner) =>
-                      throw CliException.Basic(show"missing source member $owner required by $file")
-                    case PackageBindings.Scope.Predef if !binding.packageName.isPredef =>
-                      throw CliException.Basic(show"invalid Predef binding for ${binding.packageName} in $file")
-                    case _ => ()
-                  }
-                }
-                checkInterfaceRequirements(
-                  file,
-                  local,
-                  pack.imports.map(_.pack.name),
-                  memberRecord.interfaces,
-                  Package.interfaceOf(pack).exposedDepPackages,
-                  packages,
-                  verified,
-                  exact = true
-                )
-              }
+            case PackageSignatures.ParsedBuildRequirements.Scoped(_) =>
+              // validateStandalonePackageBundles has already rejected library
+              // and local signature owners, and required a same-bundle member
+              // binding for every import. A scoped bundle loaded here is
+              // therefore self-contained and has no interface requirements.
+              ()
           }
       }
     }
@@ -197,15 +171,12 @@ private[bosatsu] object LocalRuntime {
       local: Set[PackageName],
       imports: List[PackageName],
       requirements: List[PackageSignatures.InterfaceDigest],
-      memberExposures: List[PackageName],
       packages: PackageMap.Compiled,
-      verified: mutable.Map[PackageName, (String, List[PackageName])],
-      exact: Boolean
+      verified: mutable.Map[PackageName, (String, List[PackageName])]
   ): Unit = {
     val recorded = mutable.Set.empty[PackageName]
     val needed = mutable.Set.empty[PackageName]
     needed ++= imports
-    needed ++= memberExposures
     requirements.foreach { req =>
       val pn = req.packageName
       if (pn.isPredef || local(pn) || !recorded.add(pn))
@@ -223,10 +194,5 @@ private[bosatsu] object LocalRuntime {
     val missing = needed.iterator.filterNot(n => n.isPredef || local(n) || recorded(n)).toList.sorted
     if (missing.nonEmpty)
       throw CliException.Basic(show"missing interface requirements in $file: ${missing.map(_.asString).mkString(", ")}")
-    if (exact) {
-      val extra = recorded.iterator.filterNot(needed).toList.sorted
-      if (extra.nonEmpty)
-        throw CliException.Basic(show"unreachable interface requirements in $file: ${extra.map(_.asString).mkString(", ")}")
-    }
   }
 }

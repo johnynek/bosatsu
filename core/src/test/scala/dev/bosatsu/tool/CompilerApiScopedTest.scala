@@ -13,7 +13,7 @@ import dev.bosatsu.{
   ExportedName, Identifier, LocationMap, MemoryMain, Package, PackageError, PackageMap,
   PackageName, PackageSignatures, Par, ParTest, Referant, TypeName
 }
-import dev.bosatsu.library.{Name, Version}
+import dev.bosatsu.library.{LibraryIdentity, Name, Version, libraryIdentityOrdering}
 import scala.collection.immutable.{SortedMap, SortedSet}
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -24,10 +24,7 @@ class CompilerApiScopedTest extends munit.FunSuite with ParTest {
 
   private given Ordering[Path] = Ordering.by(_.toList.mkString("/"))
   private given Show[Path] = Show.show(_.toList.mkString("/"))
-  private given Ordering[PackageBindings.LibraryIdentity] = Ordering.Tuple2(using
-    Name.orderingName,
-    Version.versionOrdering
-  )
+  private given Ordering[LibraryIdentity] = libraryIdentityOrdering
 
   private def packageName(value: String): PackageName = PackageName.parse(value).get
 
@@ -112,8 +109,8 @@ class CompilerApiScopedTest extends munit.FunSuite with ParTest {
     PackageBindings.ScopeMap(
       SortedSet.from(members),
       dependencies,
-      SortedMap.empty[PackageBindings.LibraryIdentity, PackageBindings.ImportedScope[Path]],
-      PackageBindings.indexFromPackages(Nil),
+      SortedMap.empty[LibraryIdentity, PackageBindings.ImportedScope[Path]],
+      PackageBindings.indexFromPackages(Nil, identities = Nil),
       SortedSet.empty[Path],
       SortedMap.from(bindings.map(binding => binding.key -> binding))(
         using PackageBindings.bindingKeyOrdering
@@ -123,8 +120,8 @@ class CompilerApiScopedTest extends munit.FunSuite with ParTest {
   private def importedInputs: LibraryInspection.ImportedInputs[Path] =
     LibraryInspection.ImportedInputs(
       None,
-      PackageBindings.indexFromPackages(Nil),
-      SortedMap.empty[PackageBindings.LibraryIdentity, proto.Interfaces]
+      PackageBindings.indexFromPackages(Nil, identities = Nil),
+      SortedMap.empty[LibraryIdentity, proto.Interfaces]
     )
 
   private def sourceBinding(

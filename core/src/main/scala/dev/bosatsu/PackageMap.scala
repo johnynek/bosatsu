@@ -107,6 +107,29 @@ case class PackageMap[A, B, C, +D](
 }
 
 object PackageMap {
+  /** One error per elementary cycle through `loopNodes`, following `deps`
+    * only between loop nodes. `fallback` names the package to report when no
+    * elementary cycle is found.
+    */
+  private def loopDependencyErrors(
+      loopNodes: List[PackageName],
+      deps: PackageName => List[PackageName],
+      fallback: PackageName
+  ): NonEmptyList[PackageError] = {
+    val loopSet = loopNodes.toSet
+    def loopDeps(from: PackageName): List[PackageName] =
+      if (loopSet(from)) deps(from).filter(loopSet) else Nil
+    val cycles = loopNodes.sorted.flatMap { from =>
+      Paths.allCycle0(from)(loopDeps).map { path =>
+        val reversedPath = NonEmptyList.ofInitLast(path.toList.init.reverse, from)
+        PackageError.CircularDependency(from, reversedPath)
+      }
+    }
+    NonEmptyList.fromList(cycles).getOrElse(
+      NonEmptyList.one(PackageError.CircularDependency(fallback, NonEmptyList.one(fallback)))
+    )
+  }
+
   private def circularDependencyCycle(
       err: PackageError.CircularDependency[?, ?, ?]
   ): List[PackageName] = {
@@ -478,39 +501,9 @@ object PackageMap {
                   val topo = Toposort.sort(reachable)(internalDeps)
 
                   val circularErrors: NonEmptyChain[PackageError] =
-                    topo.loopNodes match {
-                      case Nil =>
-                        NonEmptyChain.one(
-                          PackageError.CircularDependency(
-                            pname,
-                            NonEmptyList.one(pname)
-                          )
-                        )
-                      case loopNodes =>
-                        val loopSet = loopNodes.toSet
-                        def loopDeps(from: PackageName): List[PackageName] =
-                          if (loopSet(from)) {
-                            internalDeps(from).filter(loopSet)
-                          } else Nil
-
-                        val cycleErrors =
-                          loopNodes.sorted.flatMap { from =>
-                            Paths.allCycle0(from)(loopDeps).map { path =>
-                              val reversedPath =
-                                NonEmptyList.ofInitLast(path.toList.init.reverse, from)
-                              PackageError.CircularDependency(from, reversedPath)
-                            }
-                          }
-
-                        NonEmptyChain.fromSeq(cycleErrors).getOrElse(
-                          NonEmptyChain.one(
-                            PackageError.CircularDependency(
-                              pname,
-                              NonEmptyList.one(pname)
-                            )
-                          )
-                        )
-                    }
+                    NonEmptyChain.fromNonEmptyList(
+                      loopDependencyErrors(topo.loopNodes, internalDeps, pname)
+                    )
 
                   Left(circularErrors)
               }
@@ -704,11 +697,14 @@ object PackageMap {
 
     val resolvedByName: SortedMap[PackageName, ResolvedU] = ps.toMap
 
+    // Keep import order first: dependency errors combine in this order, so
+    // legacy diagnostics are unchanged. Scoped source owners reached only
+    // through exposures follow in sorted order.
     def sourceDeps(name: PackageName, pack: ResolvedU): List[PackageName] =
       (pack.imports.iterator
         .flatMap(imp => Package.unfix(imp.pack).toOption.map(_.name))
         .toList
-        ::: scoped.flatMap(_.sourceDependencies.get(name)).getOrElse(Nil)).distinct.sorted
+        ::: scoped.flatMap(_.sourceDependencies.get(name)).getOrElse(Nil).sorted).distinct
 
     def internalDeps(from: PackageName): List[PackageName] =
       resolvedByName.get(from).fold(List.empty[PackageName])(
@@ -719,18 +715,10 @@ object PackageMap {
     val cycleErrors = sourceOrder match {
       case _: Toposort.Success[PackageName] => None
       case failure: Toposort.Failure[PackageName] =>
-        val loopSet = failure.loopNodes.toSet
-        val cycles = failure.loopNodes.sorted.flatMap { from =>
-          Paths.allCycle0(from)(node => internalDeps(node).filter(loopSet)).map { path =>
-            val reversedPath = NonEmptyList.ofInitLast(path.toList.init.reverse, from)
-            PackageError.CircularDependency(from, reversedPath)
-          }
-        }
-        Some(NonEmptyList.fromList(cycles).getOrElse(
-          NonEmptyList.one(PackageError.CircularDependency(
-            failure.loopNodes.headOption.getOrElse(resolvedByName.keys.head),
-            NonEmptyList.one(failure.loopNodes.headOption.getOrElse(resolvedByName.keys.head))
-          ))
+        Some(loopDependencyErrors(
+          failure.loopNodes,
+          internalDeps,
+          failure.loopNodes.headOption.getOrElse(resolvedByName.keys.head)
         ))
     }
 
@@ -960,7 +948,7 @@ object PackageMap {
       compileOptions: CompileOptions,
       cache: InferCache[F, CompileCache.GenerateKeyInput, Package.Compiled],
       phases: InferPhases,
-      scoped: Option[ScopedInference[F]] = None
+      scoped: Option[ScopedInference[F]]
   ): F[Ior[NonEmptyList[PackageError], ScopedCompileResult]] =
     IorT(
       // Resolving imports and validating the full source graph is pure CPU
@@ -1059,7 +1047,8 @@ object PackageMap {
       ifs,
       compileOptions,
       cache,
-      phases
+      phases,
+      scoped = None
     ).map(_.map(_.compiled))
 
   private[bosatsu] def typeCheckSourcesScoped[F[_]: Monad: Parallel: CanPromise, A: Show](
@@ -1121,7 +1110,8 @@ object PackageMap {
       ifs,
       compileOptions,
       cache,
-      phases
+      phases,
+      scoped = None
     ).map(_.map(_.compiled))
 
   def resolveThenInfer[A: Show](

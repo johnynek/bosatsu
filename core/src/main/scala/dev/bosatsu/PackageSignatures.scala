@@ -1,15 +1,15 @@
 package dev.bosatsu
 
 import _root_.bosatsu.{TypedAst => proto}
-import cats.Show
+import cats.{Eq, Show}
 import cats.syntax.all._
 import dev.bosatsu.hashing.Algo
 import dev.bosatsu.graph.Toposort
 import dev.bosatsu.library.{Name, Version}
 import dev.bosatsu.rankn.{Type, TypeEnv}
-import dev.bosatsu.tool.CliException
-import dev.bosatsu.tool.PackageBindings
+import dev.bosatsu.tool.{CliException, CompilerApi, PackageBindings}
 import dev.bosatsu.tool.PackageBindings.{CheckedBinding, CheckedScopeMap, PackageOwner, Scope}
+import scala.collection.immutable.SortedMap
 import scala.collection.mutable
 import scala.util.{Failure, Success, Try}
 
@@ -103,11 +103,11 @@ object PackageSignatures {
 
   /** Serialize the exact checked owners retained by scoped compilation. */
   private[bosatsu] def buildRequirements[Path](
-      group: dev.bosatsu.tool.CompilerApi.CompiledGroup[Path]
+      group: CompilerApi.CompiledGroup[Path]
   ): Try[proto.BuildRequirements] = group.context match {
-    case dev.bosatsu.tool.CompilerApi.CompilationContext.Legacy() =>
-      group.dependencies.traverse(requirement).map(proto.BuildRequirements(_))
-    case dev.bosatsu.tool.CompilerApi.CompilationContext.Scoped(members) =>
+    case CompilerApi.CompilationContext.Legacy(dependencies) =>
+      dependencies.traverse(requirement).map(proto.BuildRequirements(_))
+    case CompilerApi.CompilationContext.Scoped(members) =>
       members.toList.sortBy(_._1).traverse { case (member, compiled) =>
         val bindings = compiled.bindings.sortBy(_.key)(using PackageBindings.bindingKeyOrdering)
         val externalOwners = bindings.iterator.filter { binding =>
@@ -116,25 +116,25 @@ object PackageSignatures {
             case _ => false
           }
         }.map(_.owner).toList
-        val ownersByName = externalOwners.foldLeft(
-          scala.collection.immutable.SortedMap.empty[PackageName, PackageOwner]
+        val ownersByName = externalOwners.foldM(
+          SortedMap.empty[PackageName, PackageOwner]
         ) { (owners, owner) =>
           owners.get(owner.packageName) match {
             case Some(existing) if !PackageBindings.samePackageOwner(existing, owner) =>
-              throw CliException.Basic(
+              Failure(CliException.Basic(
                 s"conflicting serialized owners for ${owner.packageName.asString} in ${member.asString}"
-              )
-            case _ => owners.updated(owner.packageName, owner)
+              ))
+            case _ => Success(owners.updated(owner.packageName, owner))
           }
         }
         val dependencies = compiled.publicDependencies.iterator.map(iface => iface.name -> iface).toMap
-        val interfaceRecords = ownersByName.valuesIterator.toList.traverse { owner =>
+        val interfaceRecords = ownersByName.flatMap(_.valuesIterator.toList.traverse { owner =>
           dependencies.get(owner.packageName).fold[Try[proto.InterfaceRequirement]](
             Failure(CliException.Basic(
               s"missing selected public interface ${owner.packageName.asString} for ${member.asString}"
             ))
           )(requirement)
-        }
+        })
         interfaceRecords.map { interfaces =>
           val bindingRecords = bindings.map { binding =>
             proto.ScopedBindingRequirement(
@@ -234,7 +234,7 @@ object PackageSignatures {
             throw CliException.Basic(s"duplicate binding record for ${member.asString}")
 
           val ownerByPackage = bindings.foldLeft(
-            scala.collection.immutable.SortedMap.empty[PackageName, PackageOwner]
+            SortedMap.empty[PackageName, PackageOwner]
           ) { (owners, binding) =>
             owners.get(binding.packageName) match {
               case Some(existing) if !PackageBindings.samePackageOwner(existing, binding.owner) =>
@@ -263,14 +263,34 @@ object PackageSignatures {
                 throw CliException.Basic("Predef binding owner must be Bosatsu/Predef")
               case _ => ()
             }
-            binding.referrer match {
-              case Scope.Local(name) if !ownerByPackage.get(name).exists(
-                    _.scope == Scope.Local(name)
-                  ) =>
-                throw CliException.Basic(s"unjustified local signature referrer ${name.asString}")
-              case _ => ()
-            }
           }
+          // A record is one member's resolved closure. Every binding must be
+          // reachable from the member through owners selected by earlier
+          // bindings, and at most one release of each library may be visible.
+          @annotation.tailrec
+          def unreached(
+              scopes: List[Scope],
+              pending: List[RequirementBinding]
+          ): List[RequirementBinding] = {
+            val (next, rest) = pending.partition { binding =>
+              scopes.exists(scope => Eq[Scope].eqv(scope, binding.referrer))
+            }
+            if (next.isEmpty) rest
+            else unreached(next.map(_.owner.scope), rest)
+          }
+          unreached(List(Scope.Member(member)), bindings).headOption.foreach { binding =>
+            throw CliException.Basic(
+              show"unjustified binding referrer ${binding.referrer} in ${member.asString}"
+            )
+          }
+          ownerByPackage.valuesIterator.map(_.scope).toList
+            .collect { case Scope.Library(identity) => identity }
+            .groupBy(_._1).foreach { case (libraryName, identities) =>
+              if (identities.exists(!PackageBindings.sameLibraryIdentity(_, identities.head)))
+                throw CliException.Basic(
+                  s"conflicting visible releases for ${libraryName.name} in ${member.asString}"
+                )
+            }
           MemberRequirements(member, bindings.sortBy(binding =>
             PackageBindings.BindingKey(binding.referrer, binding.packageName)
           )(using PackageBindings.bindingKeyOrdering), interfaces)
@@ -290,6 +310,10 @@ object PackageSignatures {
               throw CliException.Basic(s"unknown binding owner member ${name.asString}")
             case Scope.Local(name) if memberSet(name) =>
               throw CliException.Basic(s"local signature owner ${name.asString} conflicts with bundle member")
+            case Scope.Library(_) if memberSet(binding.owner.packageName) =>
+              throw CliException.Basic(
+                s"library owner of ${binding.owner.packageName.asString} conflicts with bundle member"
+              )
             case _ => ()
           }
         }
@@ -657,7 +681,7 @@ object PackageSignatures {
     }
     val rootOrdering = Ordering.Tuple2(using summon[Ordering[P]], summon[Ordering[PackageName]])
     val rootsByPathAndName = roots.foldLeft(
-      scala.collection.immutable.SortedMap.empty[(P, PackageName), List[(Input[P], Root)]](using rootOrdering)
+      SortedMap.empty[(P, PackageName), List[(Input[P], Root)]](using rootOrdering)
     ) { case (index, pair @ (input, root)) =>
       val key = (input.path, root.name)
       index.updated(key, index.getOrElse(key, Nil) :+ pair)
@@ -674,7 +698,12 @@ object PackageSignatures {
       checked,
       sourceExposures,
       builtinPredef,
-      localPackages = sourceNames
+      localPackages = sourceNames,
+      // A source's `exposes` header names packages directly, so compilation
+      // treats each one as a root that needs its own member binding (see
+      // `requirements`). Decoding instead passes the decoded API's exposures
+      // here, because an encoded package has no header to bind.
+      requiredExposures = Map.empty
     ).fold(message => throw CliException.Basic(message), identity)
 
     val members = sources.map { source =>

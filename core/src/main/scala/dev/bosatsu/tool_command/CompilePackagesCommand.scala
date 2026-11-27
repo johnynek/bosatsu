@@ -1,6 +1,6 @@
 package dev.bosatsu.tool_command
 
-import cats.data.Validated
+import cats.data.{NonEmptyList, Validated}
 import cats.syntax.all._
 import com.monovore.decline.Opts
 import dev.bosatsu.{CompileOptions, LocationMap, PackageSignatures, Par, PlatformIO}
@@ -15,6 +15,7 @@ import dev.bosatsu.tool.{
   PackageResolver,
   ToolchainManifest
 }
+import scala.collection.immutable.SortedMap
 
 object CompilePackagesCommand {
   private final case class ScopedInputs[Path](
@@ -25,9 +26,9 @@ object CompilePackagesCommand {
 
   private def scopedCompilation[F[_], Path](
       platform: PlatformIO[F, Path],
-      sources: cats.data.NonEmptyList[PackageResolver.SourceFile[F, Path]],
+      sources: NonEmptyList[PackageResolver.SourceFile[F, Path]],
       directInterfaces: List[Path],
-      labels: Map[Path, String],
+      labels: SortedMap[Path, String],
       inputs: ScopedInputs[Path],
       labelMap: Option[Path],
       sourcesOnDisk: List[Path],
@@ -84,7 +85,7 @@ object CompilePackagesCommand {
   }
 
   def opts[F[_], Path](platform: PlatformIO[F, Path]): Opts[F[Output[Path]]] = {
-    import platform.{moduleIOMonad, pathArg}
+    import platform.{moduleIOMonad, pathArg, pathOrdering}
     Opts.subcommand("compile-packages", "compile a group of explicit sources for a build") {
       val sources = Opts.options[Path]("src", "Bosatsu source file (repeatable)")
       val directInterfaces = Opts.options[Path]("direct-interface", "dependency signature (repeatable)").orEmpty
@@ -121,7 +122,7 @@ object CompilePackagesCommand {
               _ <- moduleIOMonad.raiseWhen(loaded.exists(_.packageName.isPredef))(
                 CliException.Basic("Bosatsu/Predef is implicit in compile-packages")
               )
-              labels <- labelsPath.fold(moduleIOMonad.pure(Map.empty[Path, String]))(
+              labels <- labelsPath.fold(moduleIOMonad.pure(SortedMap.empty[Path, String]))(
                 InterfaceLabels.read(platform, _, paths)
               )
               output <- scoped match {

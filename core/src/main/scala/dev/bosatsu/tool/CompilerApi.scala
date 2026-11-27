@@ -30,6 +30,7 @@ import dev.bosatsu.{
 import dev.bosatsu.LocationMap.Colorize
 import dev.bosatsu.rankn.Infer
 import org.typelevel.paiges.Doc
+import scala.util.Try
 
 import cats.syntax.all._
 
@@ -612,7 +613,7 @@ object CompilerApi {
       lintMode: LintMode,
       replaySuccessfulLint: Boolean,
       compileCacheDirOpt: Option[Path],
-      scopedInference: Option[PackageMap.ScopedInference[IO]] = None
+      scopedInference: Option[PackageMap.ScopedInference[IO]]
   )(implicit
       ec: Par.EC
   ): IO[TypeCheckDiagnostics[Path]] = {
@@ -773,9 +774,14 @@ object CompilerApi {
       publicDependencies: List[Package.Interface]
   )
 
+  /** How a compiled group's external requirements are recorded. Legacy
+    * groups name package-wide dependency interfaces; scoped groups keep each
+    * member's checked bindings and public dependencies.
+    */
   private[bosatsu] sealed trait CompilationContext[Path]
   private[bosatsu] object CompilationContext {
-    final case class Legacy[Path]() extends CompilationContext[Path]
+    final case class Legacy[Path](dependencies: List[Package.Interface])
+        extends CompilationContext[Path]
     final case class Scoped[Path](
         members: Map[PackageName, ScopedCompiledMember[Path]]
     ) extends CompilationContext[Path]
@@ -783,7 +789,6 @@ object CompilerApi {
 
   private[bosatsu] final case class CompiledGroup[Path](
       members: List[Package.Compiled],
-      dependencies: List[Package.Interface],
       context: CompilationContext[Path]
   )
 
@@ -805,7 +810,7 @@ object CompilerApi {
       imported: LibraryInspection.ImportedInputs[Path],
       directBundles: List[(PackageSignatures.Input[Path], proto.Interfaces)],
       builtinPredef: Boolean
-  ): scala.util.Try[ScopedCompilationPlan[Path]] = {
+  ): Try[ScopedCompilationPlan[Path]] = {
     import PackageBindings.{BindingKey, Scope, ScopeDependency}
 
     val sources = sourceFiles.toList.map { source =>
@@ -937,8 +942,9 @@ object CompilerApi {
           } yield (next, compiled ::: members)
       }
     } yield CompiledGroup(result._2.sortBy(_.name),
-      resolution.origins.keys.toList.sorted.map(name => result._1(name).iface),
-      CompilationContext.Legacy[Path]())
+      CompilationContext.Legacy[Path](
+        resolution.origins.keys.toList.sorted.map(name => result._1(name).iface)
+      ))
   }
 
   /** Compile all members in one memoized source-DAG traversal while resolving
@@ -956,10 +962,10 @@ object CompilerApi {
   )(using Par.EC): F[CompiledGroup[Path]] = {
     import platform.moduleIOMonad
 
-    def scopedImports: scala.util.Try[Map[PackageName, Map[
+    def scopedImports: Try[Map[PackageName, Map[
       PackageName,
       Either[Package.Interface, PackageName]
-    ]]] = scala.util.Try {
+    ]]] = Try {
       plan.selection.members.iterator.map { case (member, selected) =>
         val external = selected.interfaces.map { iface =>
           val stub: Package.Interface = Package(iface.owner.packageName, Nil, Nil, ())
@@ -1027,7 +1033,6 @@ object CompilerApi {
       }
     } yield CompiledGroup(
       compiledMembers.sortBy(_.name),
-      Nil,
       CompilationContext.Scoped(members)
     )
   }
@@ -1191,7 +1196,8 @@ object CompilerApi {
         compileOptions,
         lintMode,
         replaySuccessfulLint = true,
-        compileCacheDirOpt
+        compileCacheDirOpt,
+        scopedInference = None
       )
       result <- lintMode match {
         case LintMode.Strict =>

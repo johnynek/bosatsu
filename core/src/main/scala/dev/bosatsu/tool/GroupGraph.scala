@@ -16,7 +16,7 @@ private[bosatsu] object GroupGraph {
   final case class Member(
       source: String,
       packageName: PackageName,
-      exposes: Option[List[PackageName]] = None
+      exposes: Option[List[PackageName]]
   )
   final case class Edge[P](label: String, manifest: P)
   final case class Node[P](label: String, members: List[Member], deps: List[Edge[P]])
@@ -199,10 +199,19 @@ private[bosatsu] object GroupGraph {
       checked: PackageBindings.CheckedScopeMap[P],
       memberExposures: Map[PackageName, Option[List[PackageName]]]
   ): Either[String, Unit] = {
-    val requirements = checked.scopeMap.members.toList.map { member =>
-      member -> checked.scopeMap.dependencies.collect {
-        case dependency if dependency.from == BindingScope.Member(member) => dependency.packageName
+    // Declared dependencies are the roots: graph validation has no source
+    // headers, and the binding list cannot be evidence of its own completeness.
+    val requiredByMember = checked.scopeMap.dependencies.foldLeft(
+      Map.empty[PackageName, List[PackageName]]
+    ) { (acc, dependency) =>
+      dependency.from match {
+        case BindingScope.Member(member) =>
+          acc.updated(member, dependency.packageName :: acc.getOrElse(member, Nil))
+        case _ => acc
       }
+    }
+    val requirements = checked.scopeMap.members.toList.map { member =>
+      member -> requiredByMember.getOrElse(member, Nil).reverse
     }
     val localPackages = localGroups.iterator.flatMap(
       _.node.members.iterator.map(_.packageName)
@@ -212,7 +221,10 @@ private[bosatsu] object GroupGraph {
       checked,
       memberExposures,
       builtinPredef = true,
-      localPackages = localPackages
+      localPackages = localPackages,
+      // Header exposures are declared dependencies here, so there are no
+      // separate exposure roots.
+      requiredExposures = Map.empty
     ).void
   }
 
@@ -228,9 +240,8 @@ private[bosatsu] object GroupGraph {
       scopeMap: ScopeMap[P],
       inspectedIndex: PackageBindings.PublicIndex,
       showFile: P => String,
-      localInterfaces: List[PackageBindings.LocalInterface[P]] = Nil
+      localInterfaces: List[PackageBindings.LocalInterface[P]]
   )(read: (P, View) => F[Node[P]])(using F: MonadThrow[F]): F[Unit] = {
-    import cats.syntax.all._
     validateLocalGraph(root, declared, scope, showFile)(read).flatMap { localGroups =>
       val rootMembers = localGroups.headOption.toList.flatMap(_.node.members.map(_.packageName))
         .sorted(using summon[Ordering[PackageName]])

@@ -193,6 +193,31 @@ class CompilePackagesCommandTest extends FileCommandFixtures {
     }
   }
 
+  test("unscoped compilation rejects outputs that alias each other or an input") {
+    withRunner { (root, runner) =>
+      for {
+        _ <- write(root, "Base.bosatsu", "package Base\nexport answer\nanswer = 42\n")
+        _ <- write(root, "group.sig", "previous signature")
+        sameOutputs <- runner.run(root, List(
+          "compile-packages", "--src", "Base.bosatsu",
+          "--packages-out", "group.sig", "--sig-out", "group.sig"
+        ))
+        _ = failure(sameOutputs)
+        _ = assert(sameOutputs.stderr.contains("multiple outputs refer to the same file"), sameOutputs.stderr)
+        overwritesSource <- runner.run(root, List(
+          "compile-packages", "--src", "Base.bosatsu",
+          "--packages-out", "Base.bosatsu", "--sig-out", "group.sig"
+        ))
+        _ = failure(overwritesSource)
+        _ = assert(overwritesSource.stderr.contains("refers to runtime input"), overwritesSource.stderr)
+        preservedSource <- read(root, "Base.bosatsu")
+        _ = assertEquals(preservedSource, "package Base\nexport answer\nanswer = 42\n")
+        preservedSig <- read(root, "group.sig")
+        _ = assertEquals(preservedSig, "previous signature")
+      } yield ()
+    }
+  }
+
   test("scoped compilation publishes source-owner bindings and an explicit empty member context") {
     withRunner { (root, runner) =>
       val client = "package Client\nfrom Provider import value\nexport main\nmain = value\n"
@@ -479,7 +504,9 @@ class CompilePackagesCommandTest extends FileCommandFixtures {
           )
         )
         checked <- IO.fromEither(PackageBindings.validateAgainstInspection(
-          scopeMap, importedInputs.publicIndex, sourceDependencies
+          scopeMap, importedInputs.publicIndex, sourceDependencies,
+      memberExposures = Map.empty,
+      localInterfaces = Nil
         ).leftMap(CliException.Basic(_)))
         ownerInterfaces = importedInputs.signatureBundles.toList.flatMap {
           case (identity, signatureBundle) =>
@@ -598,7 +625,7 @@ class CompilePackagesCommandTest extends FileCommandFixtures {
         localRoots <- IO.fromTry(PackageSignatures.localInterfaces(localBundles)(using IOPlatformIO.showPath))
         checked <- IO.fromEither(PackageBindings.validateAgainstInspection(
           checkedMap,
-          PackageBindings.indexFromPackages(Nil),
+          PackageBindings.indexFromPackages(Nil, identities = Nil),
           List(PackageBindings.ScopeDependency(
             PackageBindings.Scope.Member(client), facade, PackageBindings.Scope.Local(facade)
           ), PackageBindings.ScopeDependency(

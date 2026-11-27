@@ -2597,13 +2597,35 @@ object ProtoConverter {
     */
   private[bosatsu] def packagesFromProtoBundles(
       bundles: Iterable[proto.Packages],
-      ifaces: Iterable[proto.Interface] = Nil
+      ifaces: Iterable[proto.Interface]
   ): Try[(List[Package.Interface], List[Package.Compiled])] = {
     val bundleList = bundles.toList
     validateStandalonePackageBundles(bundleList).flatMap { _ =>
       packagesFromProto(ifaces, bundleList.flatMap(_.packages))
     }
   }
+
+  /** The bundle's packages by name. A scoped bundle has one record per name. */
+  private def scopedBundlePackages(bundle: proto.Packages): List[(PackageName, proto.Package)] = {
+    val packages = bundle.packages.toList.map { pack =>
+      val rawName = pname(pack)
+      PackageName.parse(rawName).getOrElse(
+        throw CliException.Basic(s"invalid package name '$rawName' in scoped bundle")
+      ) -> pack
+    }
+    val names = packages.map(_._1)
+    if (names.distinct.size != names.size)
+      throw CliException.Basic("duplicate package member in scoped bundle")
+    packages
+  }
+
+  /** The package names a wire package imports, in declaration order. */
+  private def wireImportNames(pack: proto.Package, member: PackageName): List[PackageName] =
+    pack.imports.iterator.map { imported =>
+      pack.strings.lift(imported.packageName - 1).flatMap(PackageName.parse).getOrElse(
+        throw CliException.Basic(s"invalid import package name in ${member.asString}")
+      )
+    }.toList
 
   /** Validate metadata before a reader without a checked scope map uses the
     * legacy package-name decoder. Local member bindings are safe because the
@@ -2614,9 +2636,6 @@ object ProtoConverter {
   ): Try[Unit] = Try {
     import PackageBindings.Scope
 
-    def parseName(raw: String, what: String): PackageName =
-      PackageName.parse(raw).getOrElse(throw CliException.Basic(s"invalid $what '$raw'"))
-
     bundles.foreach { bundle =>
       // Legacy requirements keep their existing reader-specific diagnostics
       // and checks. This guard owns the new scoped format that raw readers
@@ -2625,13 +2644,8 @@ object ProtoConverter {
         PackageSignatures.parseBuildRequirements(rawRequirements).get match {
           case PackageSignatures.ParsedBuildRequirements.Legacy(_) => ()
           case PackageSignatures.ParsedBuildRequirements.Scoped(members) =>
-            val packagePairs = bundle.packages.toList.map { pack =>
-              parseName(pname(pack), "package name in scoped bundle") -> pack
-            }
-            val packageNames = packagePairs.map(_._1)
-            if (packageNames.distinct.size != packageNames.size)
-              throw CliException.Basic("duplicate package member in scoped bundle")
-            val packageSet = packageNames.toSet
+            val packagePairs = scopedBundlePackages(bundle)
+            val packageSet = packagePairs.iterator.map(_._1).toSet
             val requirementSet = members.iterator.map(_.member).toSet
             if (packageSet != requirementSet)
               throw CliException.Basic("member requirements do not match packages in scoped bundle")
@@ -2656,12 +2670,7 @@ object ProtoConverter {
                 }
               }
 
-              val wirePackage = packageByName(member.member)
-              wirePackage.imports.foreach { imported =>
-                val importedRaw = wirePackage.strings.lift(imported.packageName - 1).getOrElse(
-                  throw CliException.Basic(s"invalid import package name in ${member.member.asString}")
-                )
-                val importedName = parseName(importedRaw, "import package name")
+              wireImportNames(packageByName(member.member), member.member).foreach { importedName =>
                 if (!importedName.isPredef && !member.bindings.exists { binding =>
                     binding.referrer == Scope.Member(member.member) && binding.packageName == importedName
                   })
@@ -2712,16 +2721,8 @@ object ProtoConverter {
     if (checked.scopeMap.members.toSet != requirementSet)
       throw CliException.Basic("checked scope-map members do not match bundle member requirements")
 
-    val packages = bundle.packages.toList.map { pack =>
-      val rawName = pname(pack)
-      val name = PackageName.parse(rawName).getOrElse(
-        throw CliException.Basic(s"invalid package name '$rawName' in scoped bundle")
-      )
-      name -> pack
-    }
+    val packages = scopedBundlePackages(bundle)
     val packageNames = packages.map(_._1)
-    if (packageNames.distinct.size != packageNames.size)
-      throw CliException.Basic("duplicate package member in scoped bundle")
     if (packageNames.toSet != requirementSet) {
       val missing = requirementSet.diff(packageNames.toSet).toList.sorted
       val extra = packageNames.toSet.diff(requirementSet).toList.sorted
@@ -2733,8 +2734,11 @@ object ProtoConverter {
 
     val requirementByMember = memberRequirements.iterator.map(r => r.member -> r).toMap
     val packageByMember = packages.toMap
+    val importsByMember = packages.iterator.map { case (member, wire) =>
+      member -> wireImportNames(wire, member)
+    }.toMap
     val bindingsByMember = memberRequirements.iterator.map { requirements =>
-      val selected = scala.collection.immutable.SortedMap.from(
+      val selected = SortedMap.from(
         requirements.bindings.map { binding =>
           BindingKey(binding.referrer, binding.packageName) -> binding.owner
         }
@@ -2744,7 +2748,10 @@ object ProtoConverter {
 
     // The artifact carries a snapshot of the checked choices. Compare owner
     // identities as well as interface bytes so identical signatures cannot
-    // make a provider switch invisible.
+    // make a provider switch invisible. Each owner's digest is computed once.
+    val ownerDigests = mutable.TreeMap.empty[PackageBindings.PackageOwner, String](
+      using PackageBindings.packageOwnerOrdering
+    )
     memberRequirements.foreach { requirements =>
       requirements.bindings.foreach { recorded =>
         val key = BindingKey(recorded.referrer, recorded.packageName)
@@ -2759,18 +2766,16 @@ object ProtoConverter {
           )
       }
 
-      requirements.interfaces.foreach { requirement =>
-        val owner = requirements.bindings.iterator.map(_.owner).find { owner =>
-          owner.packageName == requirement.packageName && (owner.scope match {
-            case Scope.Library(_) | Scope.Local(_) => true
-            case _                => false
-          })
+      // parseBuildRequirements guarantees one owner per package and one
+      // digest for each library or local signature owner.
+      val externalOwners = requirements.bindings.iterator.map(_.owner).filter { owner =>
+        owner.scope match {
+          case Scope.Library(_) | Scope.Local(_) => true
+          case _                                 => false
         }
-        val exactOwner = owner.getOrElse(
-          throw CliException.Basic(
-            s"missing selected library owner for ${requirement.packageName.asString} in ${requirements.member.asString}"
-          )
-        )
+      }.map(owner => owner.packageName -> owner).toMap
+      requirements.interfaces.foreach { requirement =>
+        val exactOwner = externalOwners(requirement.packageName)
         val iface = ownerInterfaces.getOrElse(exactOwner,
           throw CliException.Basic(
             s"missing interface context for ${exactOwner.scope.show}:${exactOwner.packageName.asString}"
@@ -2780,7 +2785,10 @@ object ProtoConverter {
           throw CliException.Basic(
             s"interface context for ${exactOwner.packageName.asString} contains ${iface.name.asString}"
           )
-        val actualDigest = PackageSignatures.requirement(iface).get.interfaceBlake3
+        val actualDigest = ownerDigests.getOrElseUpdate(
+          exactOwner,
+          PackageSignatures.requirement(iface).get.interfaceBlake3
+        )
         if (actualDigest != requirement.blake3)
           throw CliException.Basic(
             s"stale public interface for ${exactOwner.packageName.asString}: " +
@@ -2801,18 +2809,16 @@ object ProtoConverter {
       )
     }.iterator.flatMap(_.toList).toList
 
-    val decoded = mutable.Map.empty[PackageName, Package.Compiled]
+    // Topological order and parseBuildRequirements guarantee that every
+    // source owner is a bundle member decoded before its consumers.
+    val decoded = mutable.Map.empty[PackageName, (Package.Compiled, Package.Interface)]
     orderedMembers.foreach { member =>
       val selected = requirementByMember(member)
       val directBindings = selected.bindings.filter(_.referrer == Scope.Member(member))
       val directNames = directBindings.map(_.packageName).toSet
       val wire = packageByMember(member)
-      val wireImports = wire.imports.iterator.map { imported =>
-        wire.strings.lift(imported.packageName - 1).flatMap(PackageName.parse).getOrElse(
-          throw CliException.Basic(s"invalid import package name in ${member.asString}")
-        )
-      }.toList
-      val missingImports = wireImports.filterNot(name => name.isPredef || directNames(name)).distinct.sorted
+      val missingImports = importsByMember(member)
+        .filterNot(name => name.isPredef || directNames(name)).distinct.sorted
       if (missingImports.nonEmpty)
         throw CliException.Basic(
           s"missing member bindings in ${member.asString}: ${missingImports.map(_.asString).mkString(", ")}"
@@ -2821,29 +2827,13 @@ object ProtoConverter {
       val dependencyInterfaces = selected.bindings.map { binding =>
         val owner = binding.owner
         owner.scope match {
-          case Scope.Member(source) =>
-            val sourcePack = decoded.getOrElse(source,
-              throw CliException.Basic(s"missing source context ${source.asString} for ${member.asString}")
-            )
-            if (sourcePack.name != owner.packageName)
-              throw CliException.Basic(
-                s"source context ${source.asString} does not provide ${owner.packageName.asString}"
-              )
-            Package.interfaceOf(sourcePack)
-          case Scope.Library(_) => ownerInterfaces.getOrElse(owner,
+          case Scope.Member(source) => decoded(source)._2
+          case Scope.Library(_) | Scope.Local(_) => ownerInterfaces.getOrElse(owner,
             throw CliException.Basic(
               s"missing interface context for ${owner.scope.show}:${owner.packageName.asString}"
             )
           )
-          case Scope.Local(_) => ownerInterfaces.getOrElse(owner,
-            throw CliException.Basic(
-              s"missing interface context for ${owner.scope.show}:${owner.packageName.asString}"
-            )
-          )
-          case Scope.Predef =>
-            if (owner.packageName != PackageName.PredefName)
-              throw CliException.Basic("compiler Predef binding has a non-Predef package")
-            PackageSignatures.predef
+          case Scope.Predef => PackageSignatures.predef
         }
       }.distinctBy(_.name)
       val decodedMember = packagesFromProto(Nil, List(wire), dependencyInterfaces).get._2 match {
@@ -2853,24 +2843,17 @@ object ProtoConverter {
             s"expected one decoded package for ${member.asString}, found ${packs.size}"
           )
       }
-      decoded.update(member, decodedMember)
+      decoded.update(member, decodedMember -> Package.interfaceOf(decodedMember))
     }
 
     // Derive closure roots from the decoded member itself. The serialized
     // binding records are checked against the result, but never define which
     // imports and public exposures must be present.
     val memberExposures = orderedMembers.iterator.map { member =>
-      member -> Some(Package.interfaceOf(decoded(member)).exposedDepPackages)
+      member -> Some(decoded(member)._2.exposedDepPackages)
     }.toMap
     val closureRequirements = memberRequirements.map { requirements =>
-      val member = requirements.member
-      val wire = packageByMember(member)
-      val imports = wire.imports.iterator.map { imported =>
-        wire.strings.lift(imported.packageName - 1).flatMap(PackageName.parse).getOrElse(
-          throw CliException.Basic(s"invalid import package name in ${member.asString}")
-        )
-      }.toList
-      member -> imports.distinct
+      requirements.member -> importsByMember(requirements.member).distinct
     }
     val closures = PackageBindings.resolveMemberClosures(
       closureRequirements,
@@ -2913,7 +2896,7 @@ object ProtoConverter {
 
     memberRequirements.map { requirements =>
       val context = closures(requirements.member).bindings.valuesIterator.toList
-      ScopedDecodedMember(decoded(requirements.member), context)
+      ScopedDecodedMember(decoded(requirements.member)._1, context)
     }
   }
 }

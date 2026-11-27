@@ -14,7 +14,8 @@ import dev.bosatsu.library.{
   Name,
   VerifiedLibraryGraph,
   VerifiedLibrarySnapshot,
-  Version
+  Version,
+  libraryIdentityOrdering
 }
 import dev.bosatsu.tool.PackageBindings.{
   PublicIndex,
@@ -57,12 +58,8 @@ private[bosatsu] object LibraryInspection {
 
   private final case class RawDependencyContext(libraries: List[RawLibraryFile])
 
-  private type Result[A] = BuildManifest.Result[A]
 
-  private given Ordering[LibraryIdentity] = Ordering.Tuple2(using
-    summon[Ordering[Name]],
-    summon[Ordering[Version]]
-  )
+  private given Ordering[LibraryIdentity] = libraryIdentityOrdering
 
   private final case class DescriptorEntry(
       visibility: LibraryDependencyVisibility,
@@ -370,12 +367,6 @@ private[bosatsu] object LibraryInspection {
     ))
   }
 
-  private val libraryNameReader: Json.Reader[Name] = new Json.Reader[Name] {
-    val describe = "nonempty library name"
-    def read(path: Json.Path, value: Json): Result[Name] =
-      BuildManifest.nonEmpty.read(path, value).map(Name(_))
-  }
-
   private val rawLibraryFileReader: Json.Reader[RawLibraryFile] =
     BuildManifest.obj("declared library file") { from =>
       for {
@@ -384,7 +375,7 @@ private[bosatsu] object LibraryInspection {
           "declared library file",
           Set("name", "version", "path", "hashes")
         )
-        name <- from.field[Name]("name")(using libraryNameReader)
+        name <- from.field[Name]("name")(using BuildManifest.libraryName)
         version <- from.field[Version]("version")
         path <- from.field[String]("path")(using BuildManifest.nonEmpty)
         hashes <- from.field[List[String]]("hashes")(
@@ -473,7 +464,7 @@ private[bosatsu] object LibraryInspection {
 
     roots.flatMap {
       case Nil =>
-        val empty = PackageBindings.indexFromPackages(Nil)
+        val empty = PackageBindings.indexFromPackages(Nil, Nil)
         moduleIOMonad.pure(ImportedInputs(
           None,
           empty,

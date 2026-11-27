@@ -40,12 +40,6 @@ private[bosatsu] object ToolchainManifest {
   private val sha256Reader: Json.Reader[HashValue[Algo.Sha256]] =
     Json.Reader.fromParser("SHA-256 hash", Algo.parseHashHex(Algo.sha256Algo))
 
-  private val libraryNameReader: Json.Reader[Name] = new Json.Reader[Name] {
-    val describe = "nonempty library name"
-    def read(path: Json.Path, value: Json): Result[Name] =
-      BuildManifest.nonEmpty.read(path, value).map(Name(_))
-  }
-
   private given Json.Reader[Artifact] = BuildManifest.obj("toolchain artifact") { from =>
     for {
       _ <- BuildManifest.onlyFields(from, "toolchain artifact", Set("uri", "sha256"))
@@ -57,7 +51,7 @@ private[bosatsu] object ToolchainManifest {
   private given Json.Reader[Core] = BuildManifest.obj("toolchain core") { from =>
     for {
       _ <- BuildManifest.onlyFields(from, "toolchain core", Set("library_name", "version", "uri", "sha256"))
-      libraryName <- from.field[Name]("library_name")(using libraryNameReader)
+      libraryName <- from.field[Name]("library_name")(using BuildManifest.libraryName)
       version <- from.field[Version]("version")
       uri <- from.field[String]("uri")(using BuildManifest.nonEmpty)
       sha256 <- from.field[HashValue[Algo.Sha256]]("sha256")(using sha256Reader)

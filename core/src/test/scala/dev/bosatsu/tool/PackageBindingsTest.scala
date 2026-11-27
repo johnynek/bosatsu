@@ -1,12 +1,13 @@
 package dev.bosatsu.tool
 
+import cats.data.Chain
 import dev.bosatsu.{Bytes, Json, MemoryMain, PackageName}
-import dev.bosatsu.library.{Name, Version}
+import dev.bosatsu.library.{LibraryIdentity, Name, Version}
 import scala.collection.immutable.SortedMap
 
 class PackageBindingsTest extends munit.FunSuite {
   private type ErrorOr[A] = Either[Throwable, A]
-  private type Path = cats.data.Chain[String]
+  private type Path = Chain[String]
 
   private val platform = MemoryMain[ErrorOr].platformIO
   private val libOne = Name("shared") -> version("1.0.0")
@@ -20,9 +21,9 @@ class PackageBindingsTest extends munit.FunSuite {
     PackageName.parse(text).get
 
   private def path(raw: String): Path =
-    cats.data.Chain.fromSeq(raw.split("/", -1).toIndexedSeq)
+    Chain.fromSeq(raw.split("/", -1).toIndexedSeq)
 
-  private def identityJson(identity: PackageBindings.LibraryIdentity): Json =
+  private def identityJson(identity: LibraryIdentity): Json =
     Json.JObject(List(
       "name" -> Json.JString(identity._1.name),
       "version" -> Json.JString(identity._2.render)
@@ -45,14 +46,14 @@ class PackageBindingsTest extends munit.FunSuite {
   }
 
   private def publicIndex(
-      entries: List[(PackageBindings.LibraryIdentity, String, List[(String, PackageBindings.LibraryIdentity, List[PackageBindings.LibraryIdentity])])]
+      entries: List[(LibraryIdentity, String, List[(String, LibraryIdentity, List[LibraryIdentity])])]
   ): PackageBindings.PublicIndex =
     PackageBindings.indexFromPackages(entries.map { case (identity, name, exposures) =>
       val resolvedExposures = SortedMap.from(exposures.map { case (packageText, provider, witness) =>
         packageName(packageText) -> PackageBindings.PublicProvider.Library(provider, witness)
       })(using summon[Ordering[PackageName]])
       PackageBindings.PublicPackage(identity, packageName(name), resolvedExposures)
-    })
+    }, identities = Nil)
 
   private def apiIndex: PackageBindings.PublicIndex =
     PackageBindings.indexFromPackages(List(
@@ -68,12 +69,12 @@ class PackageBindingsTest extends munit.FunSuite {
         packageName("Types"),
         SortedMap.empty(using summon[Ordering[PackageName]])
       )
-    ))
+    ), identities = Nil)
 
   private def importJson(
-      identity: PackageBindings.LibraryIdentity,
+      identity: LibraryIdentity,
       signature: String,
-      label: String = "same-label"
+      label: String
   ): Json = Json.JObject(List(
     "identity" -> identityJson(identity),
     "signature_path" -> Json.JString(signature),
@@ -142,11 +143,11 @@ class PackageBindingsTest extends munit.FunSuite {
   private val typesScope = PackageBindings.Scope.Library(libOne)
 
   private def apiScopeMap(
-      importOrder: List[Int] = List(0, 1),
-      bindingOrder: List[Int] = List(0, 1, 2)
+      importOrder: List[Int],
+      bindingOrder: List[Int]
   ): Json = {
     val dependencies = List(dependencyJson(app, "Api", apiScope))
-    val imports = List(importJson(libApi, "api.sig"), importJson(libOne, "types.sig"))
+    val imports = List(importJson(libApi, "api.sig", label = "same-label"), importJson(libOne, "types.sig", label = "same-label"))
     val bindings = List(
       bindingJson(app, "Api", apiScope, Some("api.sig")),
       bindingJson(app, "Types", typesScope, Some("types.sig")),
@@ -162,8 +163,8 @@ class PackageBindingsTest extends munit.FunSuite {
 
   test("inspection records drive checked bindings and witness paths") {
     val index = apiIndex
-    val parsed = read(apiScopeMap(), index, List("api.sig", "types.sig")).toOption.get
-    val checked = PackageBindings.validateAgainstInspection(parsed, index, parsed.dependencies)
+    val parsed = read(apiScopeMap(importOrder = List(0, 1), bindingOrder = List(0, 1, 2)), index, List("api.sig", "types.sig")).toOption.get
+    val checked = PackageBindings.validateAgainstInspection(parsed, index, parsed.dependencies, memberExposures = Map.empty, localInterfaces = Nil)
       .fold(error => fail(error), identity)
 
     val apiKey = PackageBindings.BindingKey(app, packageName("Api"))
@@ -181,7 +182,7 @@ class PackageBindingsTest extends munit.FunSuite {
     assertEquals(parsed.imports(libOne).signature.label, Some("same-label"))
     assertNotEquals(parsed.imports(libApi).signature.path, parsed.imports(libOne).signature.path)
 
-    val mismatch = PackageBindings.validateAgainstInspection(parsed, index, Nil)
+    val mismatch = PackageBindings.validateAgainstInspection(parsed, index, Nil, memberExposures = Map.empty, localInterfaces = Nil)
       .left.toOption.get
     assert(mismatch.contains("do not match source-derived dependencies"), mismatch)
   }
@@ -190,8 +191,8 @@ class PackageBindingsTest extends munit.FunSuite {
     val index = apiIndex
     val direct = List("api.sig", "types.sig")
     val baseline = {
-      val parsed = read(apiScopeMap(), index, direct).toOption.get
-      PackageBindings.validateAgainstInspection(parsed, index, parsed.dependencies)
+      val parsed = read(apiScopeMap(importOrder = List(0, 1), bindingOrder = List(0, 1, 2)), index, direct).toOption.get
+      PackageBindings.validateAgainstInspection(parsed, index, parsed.dependencies, memberExposures = Map.empty, localInterfaces = Nil)
         .toOption.get.bindings.toList
     }
     val importsOrders = List(List(0, 1), List(1, 0))
@@ -203,7 +204,9 @@ class PackageBindingsTest extends munit.FunSuite {
         val checked = PackageBindings.validateAgainstInspection(
           parsed,
           index,
-          parsed.dependencies
+          parsed.dependencies,
+          memberExposures = Map.empty,
+          localInterfaces = Nil
         ).toOption.get
         assertEquals(checked.bindings.toList, baseline)
       }
@@ -224,14 +227,14 @@ class PackageBindingsTest extends munit.FunSuite {
         dependencyJson(first, packageText, PackageBindings.Scope.Library(libOne)),
         dependencyJson(second, packageText, PackageBindings.Scope.Library(libTwo))
       ),
-      List(importJson(libOne, "shared-v1.sig"), importJson(libTwo, "shared-v2.sig")),
+      List(importJson(libOne, "shared-v1.sig", label = "same-label"), importJson(libTwo, "shared-v2.sig", label = "same-label")),
       List(
         bindingJson(first, packageText, PackageBindings.Scope.Library(libOne), Some("shared-v1.sig")),
         bindingJson(second, packageText, PackageBindings.Scope.Library(libTwo), Some("shared-v2.sig"))
       )
     )
     val parsed = read(scopeMap, index, List("shared-v1.sig", "shared-v2.sig")).toOption.get
-    val checked = PackageBindings.validateAgainstInspection(parsed, index, parsed.dependencies)
+    val checked = PackageBindings.validateAgainstInspection(parsed, index, parsed.dependencies, memberExposures = Map.empty, localInterfaces = Nil)
       .fold(error => fail(error), identity)
 
     assertEquals(checked.bindings.size, 2)
@@ -249,20 +252,22 @@ class PackageBindingsTest extends munit.FunSuite {
     val scopeMap = scopeMapJson(
       List("App"),
       Nil,
-      List(importJson(libOne, "empty.sig")),
+      List(importJson(libOne, "empty.sig", label = "same-label")),
       Nil
     )
-    val parsed = read(scopeMap, PackageBindings.indexFromPackages(Nil), List("empty.sig"))
+    val parsed = read(scopeMap, PackageBindings.indexFromPackages(Nil, identities = Nil), List("empty.sig"))
       .toOption.get
     val inspected = PackageBindings.indexFromPackages(Nil, List(libOne))
-    val checked = PackageBindings.validateAgainstInspection(parsed, inspected, Nil)
+    val checked = PackageBindings.validateAgainstInspection(parsed, inspected, Nil, memberExposures = Map.empty, localInterfaces = Nil)
       .fold(error => fail(error), identity)
 
     assert(checked.publicIndex.identities.contains(libOne))
     val missing = PackageBindings.validateAgainstInspection(
       parsed,
-      PackageBindings.indexFromPackages(Nil),
-      Nil
+      PackageBindings.indexFromPackages(Nil, identities = Nil),
+      Nil,
+      memberExposures = Map.empty,
+      localInterfaces = Nil
     ).left.toOption.get
     assert(missing.contains("imported scope is missing"), missing)
   }
@@ -276,11 +281,13 @@ class PackageBindingsTest extends munit.FunSuite {
       Nil,
       List(bindingJson(consumer, "Provider", provider, None))
     )
-    val parsed = read(scopeMap, PackageBindings.indexFromPackages(Nil), Nil).toOption.get
+    val parsed = read(scopeMap, PackageBindings.indexFromPackages(Nil, identities = Nil), Nil).toOption.get
     val checked = PackageBindings.validateAgainstInspection(
       parsed,
-      PackageBindings.indexFromPackages(Nil),
-      parsed.dependencies
+      PackageBindings.indexFromPackages(Nil, identities = Nil),
+      parsed.dependencies,
+      memberExposures = Map.empty,
+      localInterfaces = Nil
     ).fold(error => fail(error), identity)
     val key = PackageBindings.BindingKey(consumer, packageName("Provider"))
 
@@ -293,19 +300,23 @@ class PackageBindingsTest extends munit.FunSuite {
     val scopeMap = scopeMapJson(
       List("App"),
       List(dependencyJson(app, "Api", apiScope)),
-      List(importJson(libApi, "api.sig"), importJson(libOne, "types.sig")),
+      List(importJson(libApi, "api.sig", label = "same-label"), importJson(libOne, "types.sig", label = "same-label")),
       Nil
     )
     val parsed = read(scopeMap, apiIndex, List("api.sig", "types.sig")).toOption.get
     val checked = PackageBindings.validateAgainstInspection(
-      parsed, apiIndex, parsed.dependencies
+      parsed, apiIndex, parsed.dependencies,
+      memberExposures = Map.empty,
+      localInterfaces = Nil
     ).fold(error => fail(error), identity)
 
     val closure = PackageBindings.resolveMemberClosures(
       List(packageName("App") -> List(packageApi)),
       checked,
       Map(packageName("App") -> Some(Nil)),
-      builtinPredef = true
+      builtinPredef = true,
+      localPackages = Set.empty,
+      requiredExposures = Map.empty
     )
     assert(closure.left.toOption.get.contains("missing interface binding for Api"))
   }
@@ -315,7 +326,7 @@ class PackageBindingsTest extends munit.FunSuite {
     val duplicate = scopeMapJson(
       List("App"),
       List(dependencyJson(app, "Api", apiScope)),
-      List(importJson(libApi, "api.sig"), importJson(libOne, "types.sig")),
+      List(importJson(libApi, "api.sig", label = "same-label"), importJson(libOne, "types.sig", label = "same-label")),
       List(
         bindingJson(app, "Api", apiScope, Some("api.sig")),
         bindingJson(app, "Api", apiScope, Some("api.sig"))
@@ -328,7 +339,7 @@ class PackageBindingsTest extends munit.FunSuite {
     val unknown = scopeMapJson(
       List("App"),
       List(dependencyJson(app, "Api", apiScope)),
-      List(importJson(libApi, "api.sig"), importJson(libOne, "types.sig")),
+      List(importJson(libApi, "api.sig", label = "same-label"), importJson(libOne, "types.sig", label = "same-label")),
       List(bindingJson(
         PackageBindings.Scope.Member(packageName("Missing")),
         "Api",
@@ -347,11 +358,11 @@ class PackageBindingsTest extends munit.FunSuite {
       Nil,
       List(bindingJson(app, "Missing", missingProvider, None))
     )
-    val providerError = read(unknownProvider, PackageBindings.indexFromPackages(Nil), Nil)
+    val providerError = read(unknownProvider, PackageBindings.indexFromPackages(Nil, identities = Nil), Nil)
       .left.toOption.map(_.getMessage).getOrElse("")
     assert(providerError.contains("unknown binding provider"), providerError)
 
-    val undeclared = read(apiScopeMap(), index, List("api.sig")).left.toOption
+    val undeclared = read(apiScopeMap(importOrder = List(0, 1), bindingOrder = List(0, 1, 2)), index, List("api.sig")).left.toOption
       .map(_.getMessage).getOrElse("")
     assert(undeclared.contains("not in --direct-interface"), undeclared)
   }
@@ -367,7 +378,7 @@ class PackageBindingsTest extends munit.FunSuite {
       "public_index_path" -> Json.JString("public-index.json")
     ))
     val scopeMap = scopeMapJson(List("App"), Nil, List(invalidImport), Nil)
-    val error = read(scopeMap, PackageBindings.indexFromPackages(Nil), List("shared.sig"))
+    val error = read(scopeMap, PackageBindings.indexFromPackages(Nil, identities = Nil), List("shared.sig"))
       .left.toOption.get.getMessage
 
     assert(error.contains("couldn't parse semver"), error)
@@ -384,9 +395,9 @@ class PackageBindingsTest extends munit.FunSuite {
       List("App"),
       List(dependencyJson(app, "Api", apiScope)),
       List(
-        importJson(libApi, "api.sig"),
-        importJson(libOne, "types.sig"),
-        importJson(libThree, "other.sig")
+        importJson(libApi, "api.sig", label = "same-label"),
+        importJson(libOne, "types.sig", label = "same-label"),
+        importJson(libThree, "other.sig", label = "same-label")
       ),
       List(
         bindingJson(app, "Api", apiScope, Some("api.sig")),
@@ -394,7 +405,7 @@ class PackageBindingsTest extends munit.FunSuite {
       )
     )
     val parsed = read(scopeMap, forged, List("api.sig", "types.sig", "other.sig")).toOption.get
-    val error = PackageBindings.validateAgainstInspection(parsed, apiIndex, parsed.dependencies)
+    val error = PackageBindings.validateAgainstInspection(parsed, apiIndex, parsed.dependencies, memberExposures = Map.empty, localInterfaces = Nil)
       .left.toOption.get
 
     assert(error.contains("does not match the inspected library index"), error)
@@ -411,11 +422,11 @@ class PackageBindingsTest extends munit.FunSuite {
         dependencyJson(app, api, left),
         dependencyJson(app, api, right)
       ),
-      List(importJson(libOne, "v1.sig"), importJson(libTwo, "v2.sig")),
+      List(importJson(libOne, "v1.sig", label = "same-label"), importJson(libTwo, "v2.sig", label = "same-label")),
       List(bindingJson(app, api, left, Some("v1.sig")))
     )
     val parsed = read(scopeMap, index, List("v1.sig", "v2.sig")).toOption.get
-    val error = PackageBindings.validateAgainstInspection(parsed, index, parsed.dependencies)
+    val error = PackageBindings.validateAgainstInspection(parsed, index, parsed.dependencies, memberExposures = Map.empty, localInterfaces = Nil)
       .left.toOption.get
 
     assert(error.contains("ambiguous providers"), error)

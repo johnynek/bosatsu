@@ -2,6 +2,7 @@ package dev.bosatsu.tool
 
 import cats.syntax.all._
 import dev.bosatsu.{Json, PlatformIO}
+import scala.collection.immutable.{SortedMap, SortedSet}
 
 /** A label map annotates the declared input files. Paths in JSON never
   * introduce new file reads and labels never participate in inference keys.
@@ -16,11 +17,11 @@ private[bosatsu] object InterfaceLabels {
     BuildManifest.version1(from) *> from.field[List[Entry]]("interfaces")
   }
 
-  def read[F[_], P](platform: PlatformIO[F, P], file: P, declared: List[P]): F[Map[P, String]] = {
-    import platform.{moduleIOMonad, showPath}
-    val inputs = declared.toSet
+  def read[F[_], P](platform: PlatformIO[F, P], file: P, declared: List[P]): F[SortedMap[P, String]] = {
+    import platform.{moduleIOMonad, pathOrdering, showPath}
+    val inputs = SortedSet.from(declared)
     BuildManifest.read(platform, file, reader).flatMap { entries =>
-      val result = entries.foldM(Map.empty[P, String]) { (labels, entry) =>
+      val result = entries.foldM(SortedMap.empty[P, String]) { (labels, entry) =>
         platform.path(entry.path).toEither.leftMap(_.toList.mkString(", ")).flatMap { path =>
           if (!inputs(path)) Left(show"undeclared interface $path (${entry.label})")
           else if (labels.contains(path)) Left(show"duplicate entry for interface $path")

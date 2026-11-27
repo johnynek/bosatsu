@@ -7,7 +7,7 @@ import cats.data.NonEmptyList
 import dev.bosatsu.cache.CompileCache
 import dev.bosatsu.Identifier.{Constructor, Name}
 import dev.bosatsu.{Bytes, Json, MemoryMain}
-import dev.bosatsu.library.{Name as LibraryName, Version}
+import dev.bosatsu.library.{LibraryIdentity, Name as LibraryName, Version}
 import dev.bosatsu.rankn.{ConstructorFn, ConstructorParam, DataRepr, DefinedType, Type, TypeAlias}
 import dev.bosatsu.tool.PackageBindings
 import scala.collection.immutable.SortedMap
@@ -63,7 +63,7 @@ class PackageSignaturesTest extends munit.FunSuite {
   private def path(raw: String): BindingPath =
     Chain.fromSeq(raw.split("/", -1).toIndexedSeq)
 
-  private def identityJson(identity: PackageBindings.LibraryIdentity): Json = Json.JObject(List(
+  private def identityJson(identity: LibraryIdentity): Json = Json.JObject(List(
     "name" -> Json.JString(identity._1.name),
     "version" -> Json.JString(identity._2.render)
   ))
@@ -104,7 +104,7 @@ class PackageSignaturesTest extends munit.FunSuite {
   ))
 
   private def importedJson(
-      identity: PackageBindings.LibraryIdentity,
+      identity: LibraryIdentity,
       signaturePath: String
   ): Json = Json.JObject(List(
     "identity" -> identityJson(identity),
@@ -119,7 +119,7 @@ class PackageSignaturesTest extends munit.FunSuite {
       bindings: List[Json],
       index: PackageBindings.PublicIndex,
       directInterfaces: List[String],
-      localInterfaces: List[PackageBindings.LocalInterface[BindingPath]] = Nil
+      localInterfaces: List[PackageBindings.LocalInterface[BindingPath]]
   ): PackageBindings.CheckedScopeMap[BindingPath] = {
     val scopeMap = Json.JObject(List(
       "schema_version" -> Json.JNumberStr("1"),
@@ -139,12 +139,13 @@ class PackageSignaturesTest extends munit.FunSuite {
       bindingPlatform, path("scope-map.json"), directInterfaces.map(path)
     ).runA(state).toOption.get
     PackageBindings.validateAgainstInspection(
-      parsed, index, parsed.dependencies, localInterfaces = localInterfaces
+      parsed, index, parsed.dependencies, localInterfaces = localInterfaces,
+      memberExposures = Map.empty
     )
       .fold(error => fail(error), identity)
   }
 
-  private def libraryIdentity(name: String, versionText: String): PackageBindings.LibraryIdentity =
+  private def libraryIdentity(name: String, versionText: String): LibraryIdentity =
     LibraryName(name) -> Version.parser.parseAll(versionText).toOption.get
 
   test("scoped selection keeps byte-identical providers separate for disjoint members") {
@@ -164,7 +165,7 @@ class PackageSignaturesTest extends munit.FunSuite {
       PackageBindings.PublicPackage(
         sharedTwo, api, SortedMap.empty(using summon[Ordering[PackageName]])
       )
-    ))
+    ), identities = Nil)
     val scopeMap = checkedScopeMap(
       List(left, right),
       List(
@@ -177,7 +178,8 @@ class PackageSignaturesTest extends munit.FunSuite {
         bindingJson(rightScope, api, providerTwo, Some("shared-v2.sig"))
       ),
       index,
-      List("shared-v1.sig", "shared-v2.sig", "unused.sig")
+      List("shared-v1.sig", "shared-v2.sig", "unused.sig"),
+      localInterfaces = Nil
     )
     val apiType = DefinedType(api, TypeName(Constructor("Value")), Nil, Nil)
     val apiIface = interface(api, List(
@@ -251,7 +253,7 @@ class PackageSignaturesTest extends munit.FunSuite {
       PackageBindings.PublicPackage(
         sharedLibrary, leaf, SortedMap.empty(using summon[Ordering[PackageName]])
       )
-    ))
+    ), identities = Nil)
     val checked = checkedScopeMap(
       List(clientName),
       List(dependencyJson(clientScope, facade, facadeScope)),
@@ -265,7 +267,8 @@ class PackageSignaturesTest extends munit.FunSuite {
         bindingJson(sharedScope, leaf, sharedScope, Some("shared.sig"))
       ),
       index,
-      List("facade.sig", "shared.sig")
+      List("facade.sig", "shared.sig"),
+      localInterfaces = Nil
     )
     val facadeAlias = TypeAlias(facade, typeName, Nil, Type.const(types, typeName))
     val typesAlias = TypeAlias(types, typeName, Nil, Type.const(leaf, typeName))
@@ -326,7 +329,7 @@ class PackageSignaturesTest extends munit.FunSuite {
       PackageSignatures.Input(path("types.sig"), Some("//local:types")) -> signature(typesIface)
     )
     val localRoots = success(PackageSignatures.localInterfaces(bundles))
-    val index = PackageBindings.indexFromPackages(Nil)
+    val index = PackageBindings.indexFromPackages(Nil, identities = Nil)
     val checked = checkedScopeMap(
       List(clientName),
       List(dependencyJson(clientScope, facadeName, facadeScope)),
@@ -402,8 +405,8 @@ class PackageSignaturesTest extends munit.FunSuite {
     val sharedTwoScope = PackageBindings.Scope.Library(sharedTwo)
     def exposure(
         packageName: PackageName,
-        provider: PackageBindings.LibraryIdentity,
-        witness: List[PackageBindings.LibraryIdentity]
+        provider: LibraryIdentity,
+        witness: List[LibraryIdentity]
     ) = SortedMap.from(List(
       packageName -> PackageBindings.PublicProvider.Library(provider, witness)
     ))(using summon[Ordering[PackageName]])
@@ -420,7 +423,7 @@ class PackageSignaturesTest extends munit.FunSuite {
       PackageBindings.PublicPackage(
         sharedTwo, apiTwo, SortedMap.empty(using summon[Ordering[PackageName]])
       )
-    ))
+    ), identities = Nil)
     val checked = checkedScopeMap(
       List(clientName),
       List(
@@ -440,7 +443,8 @@ class PackageSignaturesTest extends munit.FunSuite {
         bindingJson(facadeTwoScope, apiTwo, sharedTwoScope, Some("shared-two.sig"))
       ),
       index,
-      List("facade-one.sig", "facade-two.sig", "shared-one.sig", "shared-two.sig")
+      List("facade-one.sig", "facade-two.sig", "shared-one.sig", "shared-two.sig"),
+      localInterfaces = Nil
     )
     val facadeOneType = TypeAlias(
       facadeOne, TypeName(Constructor("Payload")), Nil,
@@ -498,7 +502,7 @@ class PackageSignaturesTest extends munit.FunSuite {
       PackageBindings.PublicPackage(
         hiddenLibrary, secret, SortedMap.empty(using summon[Ordering[PackageName]])
       )
-    ))
+    ), identities = Nil)
     val checked = checkedScopeMap(
       List(clientName, wrapper),
       List(
@@ -516,7 +520,8 @@ class PackageSignaturesTest extends munit.FunSuite {
         bindingJson(wrapperScope, secret, hiddenScope, Some("secret.sig"))
       ),
       index,
-      List("types.sig", "secret.sig")
+      List("types.sig", "secret.sig"),
+      localInterfaces = Nil
     )
     val typeDef = DefinedType(types, TypeName(Constructor("T")), Nil, Nil)
     val secretDef = DefinedType(secret, TypeName(Constructor("S")), Nil, Nil)
@@ -923,5 +928,112 @@ class PackageSignaturesTest extends munit.FunSuite {
     )
     assert(PackageSignatures.parseBuildRequirements(invalidLibraryVersion).failed.get.getMessage
       .contains("invalid library version"))
+  }
+
+  test("build requirements reject records that cannot be one member's resolved closure") {
+    val digest = "b" * 64
+    def memberScope(name: String) = proto.BuildScope(kind = "member", memberName = name)
+    def libraryScope(name: String, major: Long) = proto.BuildScope(
+      kind = "library",
+      libraryName = name,
+      libraryVersion = Some(proto.Version(major = major))
+    )
+    def binding(referrer: proto.BuildScope, pkg: String, owner: proto.BuildScope) =
+      proto.ScopedBindingRequirement(
+        referrer = Some(referrer),
+        packageName = pkg,
+        owner = Some(owner),
+        ownerPackageName = pkg
+      )
+    def scoped(members: proto.MemberBuildRequirements*) =
+      proto.BuildRequirements(scopedVersion = 1, members = members)
+    def failure(requirements: proto.BuildRequirements): String =
+      PackageSignatures.parseBuildRequirements(requirements).failed.get.getMessage
+
+    // Different package names cannot hide two releases of one library.
+    val twoReleases = scoped(proto.MemberBuildRequirements(
+      memberName = "Client",
+      bindings = Seq(
+        binding(memberScope("Client"), "Shared/One", libraryScope("shared", 1)),
+        binding(memberScope("Client"), "Shared/Two", libraryScope("shared", 2))
+      ),
+      interfaces = Seq(
+        proto.InterfaceRequirement("Shared/One", digest),
+        proto.InterfaceRequirement("Shared/Two", digest)
+      )
+    ))
+    assert(failure(twoReleases).contains("conflicting visible releases for shared in Client"),
+      failure(twoReleases))
+
+    // A bundle member's package cannot also be owned by a library.
+    val libraryClaimsMember = scoped(
+      proto.MemberBuildRequirements(
+        memberName = "Client",
+        bindings = Seq(binding(memberScope("Client"), "Owner", libraryScope("owner", 1))),
+        interfaces = Seq(proto.InterfaceRequirement("Owner", digest))
+      ),
+      proto.MemberBuildRequirements(memberName = "Owner")
+    )
+    assert(failure(libraryClaimsMember).contains("library owner of Owner conflicts with bundle member"),
+      failure(libraryClaimsMember))
+
+    // A library referrer must be a scope this member's closure selected.
+    val facadeExposure = binding(libraryScope("facade", 1), "Shared/Api", libraryScope("shared", 1))
+    val unjustified = scoped(proto.MemberBuildRequirements(
+      memberName = "Client",
+      bindings = Seq(facadeExposure),
+      interfaces = Seq(proto.InterfaceRequirement("Shared/Api", digest))
+    ))
+    assert(failure(unjustified).contains("unjustified binding referrer library facade@1.0.0 in Client"),
+      failure(unjustified))
+    val justified = scoped(proto.MemberBuildRequirements(
+      memberName = "Client",
+      bindings = Seq(
+        binding(memberScope("Client"), "Facade", libraryScope("facade", 1)),
+        facadeExposure
+      ),
+      interfaces = Seq(
+        proto.InterfaceRequirement("Facade", digest),
+        proto.InterfaceRequirement("Shared/Api", digest)
+      )
+    ))
+    assert(PackageSignatures.parseBuildRequirements(justified).isSuccess)
+
+    // Bindings that only justify each other are not reachable from the member.
+    val cyclic = scoped(proto.MemberBuildRequirements(
+      memberName = "Client",
+      bindings = Seq(
+        binding(libraryScope("facade", 1), "Facade/One", libraryScope("facade", 1)),
+        binding(libraryScope("facade", 1), "Facade/Two", libraryScope("facade", 1))
+      ),
+      interfaces = Seq(
+        proto.InterfaceRequirement("Facade/One", digest),
+        proto.InterfaceRequirement("Facade/Two", digest)
+      )
+    ))
+    assert(failure(cyclic).contains("unjustified binding referrer library facade@1.0.0 in Client"),
+      failure(cyclic))
+
+    // Another member may refer only through a source owner it selected.
+    val wrapperExposure = binding(memberScope("Wrapper"), "Shared/Api", libraryScope("shared", 1))
+    val unjustifiedMember = scoped(
+      proto.MemberBuildRequirements(
+        memberName = "Client",
+        bindings = Seq(wrapperExposure),
+        interfaces = Seq(proto.InterfaceRequirement("Shared/Api", digest))
+      ),
+      proto.MemberBuildRequirements(memberName = "Wrapper")
+    )
+    assert(failure(unjustifiedMember).contains("unjustified binding referrer member Wrapper in Client"),
+      failure(unjustifiedMember))
+    val justifiedMember = scoped(
+      proto.MemberBuildRequirements(
+        memberName = "Client",
+        bindings = Seq(binding(memberScope("Client"), "Wrapper", memberScope("Wrapper")), wrapperExposure),
+        interfaces = Seq(proto.InterfaceRequirement("Shared/Api", digest))
+      ),
+      proto.MemberBuildRequirements(memberName = "Wrapper")
+    )
+    assert(PackageSignatures.parseBuildRequirements(justifiedMember).isSuccess)
   }
 }

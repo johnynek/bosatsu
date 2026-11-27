@@ -9,6 +9,7 @@ import dev.bosatsu.hashing.Algo
 import dev.bosatsu.library.{
   DecodedLibraryWithDeps,
   Library,
+  LibraryIdentity,
   LibraryInspectionFixtures,
   Name,
   VerifiedLibraryGraph,
@@ -16,6 +17,7 @@ import dev.bosatsu.library.{
   Version
 }
 import dev.bosatsu.tool.PackageBindings.PublicIndex
+import java.nio.charset.StandardCharsets
 
 class LibraryInspectionProjectionTest extends munit.FunSuite {
   private type ErrorOr[A] = Either[Throwable, A]
@@ -128,7 +130,7 @@ class LibraryInspectionProjectionTest extends munit.FunSuite {
   }
 
   private def legacyExposureContract(index: PublicIndex): Json = {
-    def identityJson(identity: PackageBindings.LibraryIdentity): Json = Json.JObject(List(
+    def identityJson(identity: LibraryIdentity): Json = Json.JObject(List(
       "name" -> Json.JString(identity._1.name),
       "version" -> Json.JString(identity._2.render)
     ))
@@ -140,7 +142,7 @@ class LibraryInspectionProjectionTest extends munit.FunSuite {
             Json.JObject(List(
               "kind" -> Json.JString("compiler"),
               "name" -> Json.JString("Predef")
-            )) -> List.empty[PackageBindings.LibraryIdentity]
+            )) -> List.empty[LibraryIdentity]
           case PackageBindings.PublicProvider.Library(identity, path) =>
             identityJson(identity) -> path
         }
@@ -349,10 +351,10 @@ class LibraryInspectionProjectionTest extends munit.FunSuite {
       "bindings" -> Json.JArray(Vector.empty)
     )).render
     val inputState = state(List(
-      "imports/scope-map.json" -> scopeMapJson.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+      "imports/scope-map.json" -> scopeMapJson.getBytes(StandardCharsets.UTF_8),
       "imports/parser.sig" -> expected.signature,
       "imports/parser-index.json" -> expected.publicIndex.toJson.render
-        .getBytes(java.nio.charset.StandardCharsets.UTF_8)
+        .getBytes(StandardCharsets.UTF_8)
     ))
     val sha = Algo.hashBytes[Algo.Sha256](Array.emptyByteArray)
     val version = Version.parser.parseAll("1.2.3").toOption.get

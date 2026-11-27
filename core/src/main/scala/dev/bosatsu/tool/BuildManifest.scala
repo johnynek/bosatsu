@@ -2,6 +2,7 @@ package dev.bosatsu.tool
 
 import cats.syntax.all._
 import dev.bosatsu.{Json, PlatformIO}
+import dev.bosatsu.library.Name
 
 /** JSON used by file-based build actions. Decode a manifest inside the
   * request and retain both its filename and the JSON field on failure.
@@ -13,6 +14,12 @@ private[bosatsu] object BuildManifest {
     Json.Reader[String].mapEither("nonempty string") { text =>
       Either.cond(text.nonEmpty, text, "expected a nonempty string")
     }
+
+  val libraryName: Json.Reader[Name] = new Json.Reader[Name] {
+    val describe = "nonempty library name"
+    def read(path: Json.Path, value: Json): Result[Name] =
+      nonEmpty.read(path, value).map(Name(_))
+  }
 
   def obj[A](name: String)(
       decode: Json.Reader.FromObj => Result[A]
