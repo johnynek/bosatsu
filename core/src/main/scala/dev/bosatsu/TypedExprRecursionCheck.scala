@@ -416,13 +416,8 @@ object TypedExprRecursionCheck {
       final def inDef: InDef =
         this match {
           case id @ InDef(_, _, _, _, _, _, _, _, _)    => id
-          case InDefRecurred(ir, _, _, _, _)            => ir.inDef
-          case InRecurBranch(
-                InDefRecurred(ir, _, _, _, _),
-                _,
-                _,
-                _
-              ) =>
+          case InDefRecurred(ir, _, _)                  => ir.inDef
+          case InRecurBranch(InDefRecurred(ir, _, _), _, _, _) =>
             ir.inDef
         }
 
@@ -459,7 +454,7 @@ object TypedExprRecursionCheck {
         )
 
       def setRecur(target: RecurTarget, m: Declaration.Match): InDefRecurred =
-        InDefRecurred(this, target, m, 0, Map.empty)
+        InDefRecurred(this, target, m)
 
       // This is eta-expansion of the function name as a lambda so we can check
       // using the lambda rule.
@@ -506,9 +501,7 @@ object TypedExprRecursionCheck {
     case class InDefRecurred(
         inRec: InDef,
         target: RecurTarget,
-        recur: Declaration.Match,
-        recCount: Int,
-        calledNames: Map[Bindable, Int]
+        recur: Declaration.Match
     ) extends InDefState {
       // The SMT state every recur branch starts from: one symbol for each
       // Int, Bool or Comparison argument. A target's value is its symbol
@@ -523,25 +516,16 @@ object TypedExprRecursionCheck {
           case Declaration.TupleCons(_) => true
           case _                        => false
         }
-
-      def incRecCount: InDefRecurred = copy(recCount = recCount + 1)
-      def noteCalledName(nm: Bindable): InDefRecurred =
-        copy(calledNames = calledNames.updatedWith(nm) {
-          case None        => Some(1)
-          case Some(count) => Some(count + 1)
-        })
     }
 
+    // Nothing in a recur branch changes inRec: a branch starts from the
+    // InDefRecurred of its recur match and ends back in it.
     case class InRecurBranch(
         inRec: InDefRecurred,
         branch: Pattern[(PackageName, Identifier.Constructor), Type],
         proofsPerTarget: NonEmptyList[TargetProof],
         smtState: SmtBranchState
-    ) extends InDefState {
-      def incRecCount: InRecurBranch = copy(inRec = inRec.incRecCount)
-      def noteCalledName(nm: Bindable): InRecurBranch =
-        copy(inRec = inRec.noteCalledName(nm))
-    }
+    ) extends InDefState
 
     private def likelyRenameCall(
         fnname: Bindable,
@@ -1001,7 +985,7 @@ object TypedExprRecursionCheck {
       finalState match {
         case InDef(_, _, _, _, _, _, _, _, _) =>
           unitValid
-        case InDefRecurred(_, _, recur, _, _) =>
+        case InDefRecurred(_, _, recur) =>
           val selfCallKind = SelfCallKind(fnname, body)
           recur.kind match {
             case Declaration.MatchKind.Loop
@@ -3756,95 +3740,79 @@ object TypedExprRecursionCheck {
       }
     }
 
+    // `irb` is the state at the recursive call
     private def recurAllowedByLexOrder(
         fnname: Bindable,
-        inrec: InDefRecurred,
-        target: RecurTarget,
+        irb: InRecurBranch,
         callArgsByTarget: NonEmptyList[TypedExpr[Declaration]],
         region: Region
-    ): St[Unit] =
-      getSt.flatMap {
-        case InRecurBranch(
-              _,
-              branch,
-              proofsNow,
-              smtState0
-            ) =>
-          val defaultLexErr: RecursionCheck.Error = {
-            val targetParams = target.map(_.paramName)
-            RecursionCheck.RecursionNotLexicographic(fnname, targetParams, region)
-          }
-          val targetItems = target.toList.toVector
-          val proofItems = proofsNow.toList.toVector
-          val callItems = callArgsByTarget.toList.toVector
-          var smtState = smtState0
-          var deferredError: Option[Eval[RecursionCheck.Error]] = None
-          var immediateError: Option[RecursionCheck.Error] = None
-          var accepted = false
-          var idx = 0
-
-          while (
-            (idx < targetItems.length) &&
-            immediateError.isEmpty &&
-            !accepted
-          ) {
-            val targetItem = targetItems(idx)
-            val proof = proofItems(idx)
-            val argExpr = callItems(idx)
-            val step =
-              if (isIntType(targetItemType(inrec, targetItem))) {
-                val (intStep, smt1) =
-                  classifyIntArg(
-                    fnname,
-                    targetItem,
-                    targetIntSymbol(inrec, targetItem),
-                    argExpr,
-                    smtState,
-                    region
-                  )
-                smtState = smt1
-                intStep
-              } else
-                classifyStructuralArg(
-                  inrec,
-                  targetItem,
-                  proof,
-                  argExpr
-                )
-
-            step.order match {
-              case Smaller =>
-                accepted = true
-              case Equal   =>
-                if (deferredError.isEmpty) deferredError = step.noDecreaseError
-              case Other   =>
-                immediateError = Some(step.immediateError.getOrElse(defaultLexErr))
-            }
-            idx += 1
-          }
-
-          setSt(
-            InRecurBranch(
-              inrec,
-              branch,
-              proofsNow,
-              smtState
-            )
-          ) *> (
-            if (accepted) unitSt
-            else
-              // only now is a deferred error built
-              failSt(
-                immediateError
-                  .orElse(deferredError.map(_.value))
-                  .getOrElse(defaultLexErr)
-              )
-          )
-        case notRecur =>
-          // $COVERAGE-OFF$ this should be unreachable
-          sys.error(s"recurAllowedByLexOrder called outside recur branch: $notRecur")
-          // $COVERAGE-ON$
+    ): St[Unit] = {
+      val inrec = irb.inRec
+      val target = inrec.target
+      val defaultLexErr: RecursionCheck.Error = {
+        val targetParams = target.map(_.paramName)
+        RecursionCheck.RecursionNotLexicographic(fnname, targetParams, region)
       }
+      val targetItems = target.toList.toVector
+      val proofItems = irb.proofsPerTarget.toList.toVector
+      val callItems = callArgsByTarget.toList.toVector
+      var smtState = irb.smtState
+      var deferredError: Option[Eval[RecursionCheck.Error]] = None
+      var immediateError: Option[RecursionCheck.Error] = None
+      var accepted = false
+      var idx = 0
+
+      while (
+        (idx < targetItems.length) &&
+        immediateError.isEmpty &&
+        !accepted
+      ) {
+        val targetItem = targetItems(idx)
+        val proof = proofItems(idx)
+        val argExpr = callItems(idx)
+        val step =
+          if (isIntType(targetItemType(inrec, targetItem))) {
+            val (intStep, smt1) =
+              classifyIntArg(
+                fnname,
+                targetItem,
+                targetIntSymbol(inrec, targetItem),
+                argExpr,
+                smtState,
+                region
+              )
+            smtState = smt1
+            intStep
+          } else
+            classifyStructuralArg(
+              inrec,
+              targetItem,
+              proof,
+              argExpr
+            )
+
+        step.order match {
+          case Smaller =>
+            accepted = true
+          case Equal   =>
+            if (deferredError.isEmpty) deferredError = step.noDecreaseError
+          case Other   =>
+            immediateError = Some(step.immediateError.getOrElse(defaultLexErr))
+        }
+        idx += 1
+      }
+
+      setSt(irb.copy(smtState = smtState)) *> (
+        if (accepted) unitSt
+        else
+          // only now is a deferred error built
+          failSt(
+            immediateError
+              .orElse(deferredError.map(_.value))
+              .getOrElse(defaultLexErr)
+          )
+      )
+    }
 
     /*
      * We disallow shadowing recursive defs. This code checks that we have not done so as we
@@ -4046,7 +4014,7 @@ object TypedExprRecursionCheck {
                 getSt.flatMap {
                   case idEnd @ InDef(_, _, _, _, _, _, _, _, _) =>
                     setSt(idEnd.withLocalScope(outerScope)).as(a)
-                  case irEnd @ InDefRecurred(inRec, _, _, _, _) =>
+                  case irEnd @ InDefRecurred(inRec, _, _) =>
                     setSt(
                       irEnd.copy(inRec = inRec.withLocalScope(outerScope))
                     ).as(a)
@@ -4491,21 +4459,17 @@ object TypedExprRecursionCheck {
                           .toValidNec(RecursionCheck.NotEnoughRecurArgs(nm, region))
                       }
 
+                    // toSt leaves the state as it was, irb
                     toSt(targetArgsV).flatMap { targetArgs =>
                       recurAllowedByLexOrder(
                         irb.defname,
-                        inrec,
-                        inrec.target,
+                        irb,
                         targetArgs,
                         region
                       )
-                    } *>
-                      getSt.flatMap {
-                        case irbNow: InRecurBranch => setSt(irbNow.incRecCount)
-                        case _                     => setSt(irb.incRecCount)
-                      } *> allArgs.parTraverse_(
-                        checkExpr(currentPackage, _, wrappers)
-                      )
+                    } *> allArgs.parTraverse_(
+                      checkExpr(currentPackage, _, wrappers)
+                    )
                   } else if (irb.defNamesContain(nm)) {
                     failSt(RecursionCheck.InvalidRecursion(nm, region))
                   } else if (
@@ -4557,7 +4521,7 @@ object TypedExprRecursionCheck {
                     // not a recursive call, or a call to a reachable function
                     // whose type could hand its callbacks values chosen by the caller.
                     // Every argument group of a curried call is checked.
-                    setSt(irb.noteCalledName(nm)) *> allArgs.parTraverse_(
+                    allArgs.parTraverse_(
                       checkExpr(currentPackage, _, wrappers)
                     )
                   }
@@ -4798,7 +4762,7 @@ object TypedExprRecursionCheck {
               // this is a state change
               getSt.flatMap {
                 case TopLevel(_) | InRecurBranch(_, _, _, _) |
-                    InDefRecurred(_, _, _, _, _) =>
+                    InDefRecurred(_, _, _) =>
                   failSt(RecursionCheck.UnexpectedRecur(recur.region))
                 case ir @ InDef(_, defname, typedArgs, sourceArgs, _, _, _, _, locals) =>
                   toSt(getRecurTarget(defname, sourceArgs, typedArgs, recur, locals)).flatMap {
@@ -4816,43 +4780,12 @@ object TypedExprRecursionCheck {
                               .fold(st)(bindSourcePatternAliases(inrec, _, st))
                         }
 
-                      // on all these branches, use the same parent state
-                      def beginBranch(
-                          compiledPat: Pattern[(PackageName, Identifier.Constructor), Type],
-                          entryState: SmtBranchState
-                      ): St[Unit] =
-                        getSt.flatMap {
-                          case ir @ InDef(_, _, _, _, _, _, _, _, _) =>
-                            val rec = ir.setRecur(target, recur)
-                            setSt(rec) *> beginBranch(compiledPat, entryState)
-                          case irr @ InDefRecurred(_, _, _, _, _) =>
-                            setSt(
-                              InRecurBranch(
-                                irr,
-                                compiledPat,
-                                proofsByTargetFromTyped(
-                                  irr.target,
-                                  irr.targetIsTuple,
-                                  compiledPat
-                                ),
-                                entryState
-                              )
-                            )
-                          case illegal =>
-                            // $COVERAGE-OFF$ this should be unreachable
-                            sys.error(s"unreachable: $compiledPat -> $illegal")
-                          // $COVERAGE-ON$
-                        }
-
-                      val endBranch: St[Unit] =
-                        getSt.flatMap {
-                          case InRecurBranch(irr, _, _, _) =>
-                            setSt(irr)
-                          case illegal                  =>
-                            // $COVERAGE-OFF$ this should be unreachable
-                            sys.error(s"unreachable end state: $illegal")
-                          // $COVERAGE-ON$
-                        }
+                      // Every branch starts from inrec, and ends back in
+                      // it: nothing in a branch changes the InDefRecurred
+                      // its InRecurBranch holds. A branch that fails
+                      // leaves the state as it was, ir or inrec, and the
+                      // match ends in inrec.
+                      val endBranch: St[Unit] = setSt(inrec)
 
                       branches.toList.zip(entryStates.toList).parTraverse_ {
                         case (branch, entryState) =>
@@ -4860,9 +4793,22 @@ object TypedExprRecursionCheck {
                           // localScope is no longer read (a second recur
                           // is an error), so their names need not be
                           // made local.
+                          val beginBranch: St[Unit] =
+                            setSt(
+                              InRecurBranch(
+                                inrec,
+                                branch.pattern,
+                                proofsByTargetFromTyped(
+                                  inrec.target,
+                                  inrec.targetIsTuple,
+                                  branch.pattern
+                                ),
+                                entryState
+                              )
+                            )
                           for {
                             _ <- checkForIllegalBindsSt(branch.pattern.names, tag.region)
-                            _ <- beginBranch(branch.pattern, entryState)
+                            _ <- beginBranch
                             _ <- checkBranchGuardAndExpr(branch)
                             _ <- endBranch
                           } yield ()
