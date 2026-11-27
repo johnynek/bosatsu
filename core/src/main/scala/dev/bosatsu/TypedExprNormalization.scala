@@ -560,12 +560,8 @@ object TypedExprNormalization {
       case a @ Annotation(in, tpe, qev) =>
         val in1 = unshadowInlineBinders(in, avoid)
         if (in1 eq in) a else Annotation(in1, tpe, qev)
-      case lam @ AnnotatedLambda(_, _, tag) =>
-        val lam1 = lam.unshadow(avoid)
-        val avoid1 = avoid ++ lam1.args.iterator.map(_._1)
-        val body1 = unshadowInlineBinders(lam1.expr, avoid1)
-        if (body1 eq lam1.expr) lam1
-        else AnnotatedLambda(lam1.args, body1, tag)
+      case lam @ AnnotatedLambda(_, _, _) =>
+        unshadowInlineLambda(lam, avoid)
       case app @ App(fn, args, tpe, tag) =>
         val fn1 = unshadowInlineBinders(fn, avoid)
         val args1 = ListUtil.mapConserveNel(args)(unshadowInlineBinders(_, avoid))
@@ -607,21 +603,25 @@ object TypedExprNormalization {
         n
     }
 
+  private def unshadowInlineLambda[A](
+      lam: AnnotatedLambda[A],
+      avoid: Set[Bindable]
+  ): AnnotatedLambda[A] = {
+    val lam1 = lam.unshadow(avoid)
+    val avoid1 = avoid ++ lam1.args.iterator.map(_._1)
+    val body1 = unshadowInlineBinders(lam1.expr, avoid1)
+    if (body1 eq lam1.expr) lam1
+    else AnnotatedLambda(lam1.args, body1, lam1.tag)
+  }
+
   private def appLambda[A](
       f1: AnnotatedLambda[A],
       args: NonEmptyList[TypedExpr[A]],
       tpe: Type,
       tag: A
   ): TypedExpr[A] = {
-    val unshadowed =
-      unshadowInlineBinders(f1, TypedExpr.freeVarsSet(args.toList))
-    val (lamArgs, expr) =
-      unshadowed match {
-        case AnnotatedLambda(args1, expr1, _) =>
-          (args1, expr1)
-        case _ =>
-          sys.error(s"expected lambda after inline unshadowing, found: ${unshadowed.reprString}")
-      }
+    val AnnotatedLambda(lamArgs, expr, _) =
+      unshadowInlineLambda(f1, TypedExpr.freeVarsSet(args.toList))
     // Now that we certainly don't shadow we can convert this:
     // ((y1, y2, ..., yn) -> z)(x1, x2, ..., xn) = let y1 = x1 in let y2 = x2 in ... z
     val lets = lamArgs.zip(args).map { case ((n, ltpe), arg) =>
