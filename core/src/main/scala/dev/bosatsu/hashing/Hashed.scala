@@ -8,6 +8,7 @@ import cats.{Eq, Hash}
 case class Hashed[A, +Of](hash: HashValue[A], arg: Of)
 
 object Hashed {
+
   /** The digest already summarizes `arg`, so it alone is the hash. Equality
     * still checks `arg`, but only after the digests match: nothing forces a
     * digest to be the digest of its argument.

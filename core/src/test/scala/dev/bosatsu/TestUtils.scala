@@ -128,7 +128,6 @@ object TestUtils {
   def statementsOf(str: String): List[Statement] =
     Parser.unsafeParse(Statement.parser, str)
 
-
   val testPackage: PackageName = PackageName.parts("Test")
 
   // Type check one package of statements against Predef, as Package.inferBody
@@ -175,7 +174,11 @@ object TestUtils {
   ): A = {
     val stmts = Parser.unsafeParse(Statement.parser, statement)
     val sourceConverted =
-      SourceConverter.toProgram(testPackage, predefSourceImport :: Nil, stmts) match {
+      SourceConverter.toProgram(
+        testPackage,
+        predefSourceImport :: Nil,
+        stmts
+      ) match {
         case Ior.Right(prog)   => prog
         case Ior.Both(_, prog) => prog
         case Ior.Left(errs)    =>
@@ -185,11 +188,11 @@ object TestUtils {
     val Program((importedTypeEnv, parsedTypeEnv0), lets, _, _) = sourceConverted
     val parsedTypeEnv =
       KindFormula.solveShapesAndKinds(importedTypeEnv, parsedTypeEnv0) match {
-        case Ior.Right(inferred)   =>
+        case Ior.Right(inferred) =>
           inferred
         case Ior.Both(_, inferred) =>
           inferred
-        case Ior.Left(errs)        =>
+        case Ior.Left(errs) =>
           fail(s"kind inference failed: ${errs.toList.mkString(", ")}")
       }
 
@@ -199,8 +202,7 @@ object TestUtils {
       fullTypeEnv.localValuesOf(p).iterator.map { case (n, t) =>
         ((Option(p), n), t)
       }
-    }
-      .toMap
+    }.toMap
 
     val extDefRegions: Map[Identifier.Bindable, Region] =
       stmts.iterator.collect { case ed: Statement.ExternalDef =>
@@ -220,7 +222,9 @@ object TestUtils {
           withFqn,
           importedTypeEnv.typeConstructors ++ typeEnv.typeConstructors,
           fullTypeEnv.toKindMap,
-          fullTypeEnv.allTypeAliases.iterator.map(ta => ta.toTypeConst -> ta).toMap
+          fullTypeEnv.allTypeAliases.iterator
+            .map(ta => ta.toTypeConst -> ta)
+            .toMap
         )
     val typedLets =
       typedLetsEither.fold(
@@ -260,7 +264,11 @@ object TestUtils {
       Par.withEC {
         given Order[Unit] = Order.fromOrdering
         val comp =
-          MatchlessFromTypedExpr.compile((), pm, Matchless.LocalPassOptions.Default)
+          MatchlessFromTypedExpr.compile(
+            (),
+            pm,
+            Matchless.LocalPassOptions.Default
+          )
         fn(comp)
       }
     }
@@ -342,16 +350,18 @@ object TestUtils {
         )
       )
 
-    Par.await(
-      PackageMap.typeCheckParsed[F, A](
-        packs,
-        ifs,
-        predefKey,
-        compileOptions,
-        InferCache.noop[F, CompileCache.GenerateKeyInput, Package.Compiled],
-        capturePhases
+    Par
+      .await(
+        PackageMap.typeCheckParsed[F, A](
+          packs,
+          ifs,
+          predefKey,
+          compileOptions,
+          InferCache.noop[F, CompileCache.GenerateKeyInput, Package.Compiled],
+          capturePhases
+        )
       )
-    ).map(toInferredMap)
+      .map(toInferredMap)
   }
 
   def makeInputArgs(files: List[(Chain[String], Any)]): List[String] =
@@ -396,8 +406,8 @@ object TestUtils {
   }
 
   /** Evaluate `main` in a single package (no package line) from its lets as
-    * type checking leaves them, without loop lowering or normalization. This
-    * is the program the recursion check reasons about.
+    * type checking leaves them, without loop lowering or normalization. This is
+    * the program the recursion check reasons about.
     */
   def evalUnnormalizedMain(source: String): Value = {
     val (_, program) = inferUnoptimized(source)

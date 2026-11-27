@@ -5,7 +5,13 @@ import dev.bosatsu.tool.CliException
 import dev.bosatsu.tool.ExitCode
 import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Path}
-import java.io.{ByteArrayOutputStream, IOException, InputStream, OutputStream, PrintStream}
+import java.io.{
+  ByteArrayOutputStream,
+  IOException,
+  InputStream,
+  OutputStream,
+  PrintStream
+}
 import java.util.Base64
 
 /** The file operations available through Bazel's worker entry point. */
@@ -58,7 +64,9 @@ object BazelWorker {
       sandboxDir: String
   ) extends Envelope
 
-  /** V1 has no cancellation support, so controls cannot be dispatched as actions. */
+  /** V1 has no cancellation support, so controls cannot be dispatched as
+    * actions.
+    */
   final case class CancelRequest(requestId: Int) extends Envelope
 
   final case class Response(
@@ -68,7 +76,7 @@ object BazelWorker {
       wasCancelled: Boolean = false
   )
 
-  private final case class RequestFields(
+  final private case class RequestFields(
       arguments: List[String] = Nil,
       inputs: List[Input] = Nil,
       requestId: Int = 0,
@@ -77,7 +85,7 @@ object BazelWorker {
       sandboxDir: String = ""
   )
 
-  private final case class InputFields(
+  final private case class InputFields(
       path: String = "",
       digest: Bytes = Bytes.empty
   )
@@ -85,7 +93,7 @@ object BazelWorker {
   /** Decode one complete protobuf-JSON WorkRequest object. */
   def decodeRequest(line: String): Either[String, Envelope] =
     Json.strictParserFile.parseAll(line) match {
-      case Left(error) => Left(s"invalid worker JSON: $error")
+      case Left(error)              => Left(s"invalid worker JSON: $error")
       case Right(obj: Json.JObject) =>
         decodeRequestFields(obj.items).map { fields =>
           if (fields.cancel) CancelRequest(fields.requestId)
@@ -106,7 +114,7 @@ object BazelWorker {
   ): Either[String, RequestFields] =
     items.foldLeft[Either[String, RequestFields]](Right(RequestFields())) {
       case (acc, (_, Json.JNull)) => acc
-      case (acc, (name, value)) =>
+      case (acc, (name, value))   =>
         acc.flatMap { fields =>
           name match {
             case "arguments" =>
@@ -115,11 +123,17 @@ object BazelWorker {
             case "inputs" =>
               decodeInputs(value).map(inputs => fields.copy(inputs = inputs))
             case "requestId" | "request_id" =>
-              decodeInt32(value, name).map(requestId => fields.copy(requestId = requestId))
+              decodeInt32(value, name).map(requestId =>
+                fields.copy(requestId = requestId)
+              )
             case "verbosity" =>
-              decodeInt32(value, name).map(verbosity => fields.copy(verbosity = verbosity))
+              decodeInt32(value, name).map(verbosity =>
+                fields.copy(verbosity = verbosity)
+              )
             case "cancel" =>
-              decodeBoolean(value, name).map(cancel => fields.copy(cancel = cancel))
+              decodeBoolean(value, name).map(cancel =>
+                fields.copy(cancel = cancel)
+              )
             case "sandboxDir" | "sandbox_dir" =>
               decodeString(value, name)
                 .map(sandboxDir => fields.copy(sandboxDir = sandboxDir))
@@ -128,26 +142,39 @@ object BazelWorker {
         }
     }
 
-  private def decodeStrings(value: Json, field: String): Either[String, List[String]] =
+  private def decodeStrings(
+      value: Json,
+      field: String
+  ): Either[String, List[String]] =
     value match {
       case Json.JArray(values) =>
-        values.zipWithIndex.foldLeft[Either[String, Vector[String]]](Right(Vector.empty)) {
-          case (acc, (Json.JString(value), _)) => acc.map(_ :+ value)
-          case (acc, (_, index)) =>
-            acc.flatMap(_ => Left(s"worker field '$field[$index]' must be a string"))
-        }.map(_.toList)
+        values.zipWithIndex
+          .foldLeft[Either[String, Vector[String]]](Right(Vector.empty)) {
+            case (acc, (Json.JString(value), _)) => acc.map(_ :+ value)
+            case (acc, (_, index))               =>
+              acc.flatMap(_ =>
+                Left(s"worker field '$field[$index]' must be a string")
+              )
+          }
+          .map(_.toList)
       case _ => Left(s"worker field '$field' must be an array of strings")
     }
 
   private def decodeInputs(value: Json): Either[String, List[Input]] =
     value match {
       case Json.JArray(values) =>
-        values.zipWithIndex.foldLeft[Either[String, Vector[Input]]](Right(Vector.empty)) {
-          case (acc, (obj: Json.JObject, index)) =>
-            acc.flatMap(inputs => decodeInput(obj.items, index).map(inputs :+ _))
-          case (acc, (_, index)) =>
-            acc.flatMap(_ => Left(s"worker field 'inputs[$index]' must be an object"))
-        }.map(_.toList)
+        values.zipWithIndex
+          .foldLeft[Either[String, Vector[Input]]](Right(Vector.empty)) {
+            case (acc, (obj: Json.JObject, index)) =>
+              acc.flatMap(inputs =>
+                decodeInput(obj.items, index).map(inputs :+ _)
+              )
+            case (acc, (_, index)) =>
+              acc.flatMap(_ =>
+                Left(s"worker field 'inputs[$index]' must be an object")
+              )
+          }
+          .map(_.toList)
       case _ => Left("worker field 'inputs' must be an array of objects")
     }
 
@@ -155,19 +182,22 @@ object BazelWorker {
       items: List[(String, Json)],
       index: Int
   ): Either[String, Input] =
-    items.foldLeft[Either[String, InputFields]](Right(InputFields())) {
-      case (acc, (_, Json.JNull)) => acc
-      case (acc, ("path", value)) =>
-        acc.flatMap(fields =>
-          decodeString(value, s"inputs[$index].path").map(path => fields.copy(path = path))
-        )
-      case (acc, ("digest", value)) =>
-        acc.flatMap(fields =>
-          decodeDigest(value, s"inputs[$index].digest")
-            .map(digest => fields.copy(digest = digest))
-        )
-      case (acc, _) => acc
-    }.map(fields => Input(fields.path, fields.digest))
+    items
+      .foldLeft[Either[String, InputFields]](Right(InputFields())) {
+        case (acc, (_, Json.JNull)) => acc
+        case (acc, ("path", value)) =>
+          acc.flatMap(fields =>
+            decodeString(value, s"inputs[$index].path")
+              .map(path => fields.copy(path = path))
+          )
+        case (acc, ("digest", value)) =>
+          acc.flatMap(fields =>
+            decodeDigest(value, s"inputs[$index].digest")
+              .map(digest => fields.copy(digest = digest))
+          )
+        case (acc, _) => acc
+      }
+      .map(fields => Input(fields.path, fields.digest))
 
   private def decodeString(value: Json, field: String): Either[String, String] =
     value match {
@@ -175,7 +205,10 @@ object BazelWorker {
       case _                 => Left(s"worker field '$field' must be a string")
     }
 
-  private def decodeBoolean(value: Json, field: String): Either[String, Boolean] =
+  private def decodeBoolean(
+      value: Json,
+      field: String
+  ): Either[String, Boolean] =
     value match {
       case Json.JBool.True  => Right(true)
       case Json.JBool.False => Right(false)
@@ -185,8 +218,9 @@ object BazelWorker {
   private def decodeInt32(value: Json, field: String): Either[String, Int] = {
     val asString = value match {
       case Json.JNumberStr(number) => Right(number)
-      case Json.JString(number) => Right(number)
-      case _ => Left(s"worker field '$field' must be an int32 number or quoted integer")
+      case Json.JString(number)    => Right(number)
+      case _                       =>
+        Left(s"worker field '$field' must be an int32 number or quoted integer")
     }
     asString.flatMap { number =>
       try {
@@ -198,8 +232,7 @@ object BazelWorker {
         else if (decimal.compareTo(min) < 0 || decimal.compareTo(max) > 0)
           Left(s"worker field '$field' is outside the int32 range")
         else Right(decimal.intValue)
-      }
-      catch {
+      } catch {
         case _: NumberFormatException =>
           Left(s"worker field '$field' is not a valid int32 value")
       }
@@ -229,9 +262,9 @@ object BazelWorker {
 
   /** Encode the fixed WorkResponse shape without pretty-print line breaks.
     * JsonStringUtil.escape encodes diagnostic newlines as literal `\n` escapes.
-    * BazelWorkerTest's "worker response encoding round trips generated values as
-    * one compact JSON line" checks LF/CR escaping and independent JSON decoding,
-    * including a long multiline diagnostic.
+    * BazelWorkerTest's "worker response encoding round trips generated values
+    * as one compact JSON line" checks LF/CR escaping and independent JSON
+    * decoding, including a long multiline diagnostic.
     */
   def encodeResponse(response: Response): String =
     s"{\"requestId\":${response.requestId},\"exitCode\":${response.exitCode}," +
@@ -248,7 +281,9 @@ object BazelWorker {
     case Line(text: String)
   }
 
-  /** Run the singleplex worker protocol without taking ownership of its streams. */
+  /** Run the singleplex worker protocol without taking ownership of its
+    * streams.
+    */
   def runPersistent(
       directory: Path,
       input: InputStream,
@@ -261,12 +296,15 @@ object BazelWorker {
         diagnostics.println(s"bazel worker transport error: $message")
         diagnostics.flush()
         if (diagnostics.checkError())
-          throw new IOException("failed to write bazel worker transport diagnostic")
+          throw new IOException(
+            "failed to write bazel worker transport diagnostic"
+          )
       }.as(ExitCode.Error)
 
     def writeResponse(response: Response): IO[Unit] =
       IO.blocking {
-        val bytes = (encodeResponse(response) + "\n").getBytes(StandardCharsets.UTF_8)
+        val bytes =
+          (encodeResponse(response) + "\n").getBytes(StandardCharsets.UTF_8)
         output.write(bytes)
         output.flush()
         output match {
@@ -332,15 +370,15 @@ object BazelWorker {
           transportError(
             s"could not read worker request: ${Option(error.getMessage).getOrElse(error.getClass.getSimpleName)}"
           )
-        case Right(Frame.End) => IO.pure(ExitCode.Success)
+        case Right(Frame.End)       => IO.pure(ExitCode.Success)
         case Right(Frame.Truncated) =>
           transportError("truncated worker request: EOF before newline")
         case Right(Frame.Malformed) =>
           transportError("worker request is not valid UTF-8")
         case Right(Frame.Line(line)) =>
           decodeRequest(line) match {
-            case Left(error) => transportError(error)
-            case Right(_: CancelRequest) => loop
+            case Left(error)                   => transportError(error)
+            case Right(_: CancelRequest)       => loop
             case Right(request: ActionRequest) => respond(request) *> loop
           }
       }
@@ -350,7 +388,10 @@ object BazelWorker {
   }
 
   /** Read one @file argument without shell parsing or recursive expansion. */
-  def readParameterFile(directory: Path, parameterArgument: String): IO[Invocation] =
+  def readParameterFile(
+      directory: Path,
+      parameterArgument: String
+  ): IO[Invocation] =
     IO.blocking {
       parameterArgument match {
         case value if value.startsWith("@") && value.length > 1 =>
@@ -372,7 +413,7 @@ object BazelWorker {
       }
     }.handleErrorWith {
       case err: CliException => IO.raiseError(err)
-      case err =>
+      case err               =>
         val filename = parameterArgument.stripPrefix("@")
         IO.raiseError(
           CliException.Basic(

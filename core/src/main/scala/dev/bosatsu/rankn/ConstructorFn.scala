@@ -48,13 +48,12 @@ object ConstructorFn {
   /** The existentials and field types of `cfn` applied to `args`, the type
     * arguments that `paramSub` maps its type parameters to.
     *
-    * Unlike a quantifier inside a type, an existential is not named apart
-    * from the arguments by `normalize`. So existentials that share a name
-    * with a free variable of `args` (or with a variable a field uses
-    * without declaring it) are renamed first. Otherwise a reader of the
-    * field types would take them for that outer variable. Other names need
-    * no avoiding: an outer variable that occurs in no field can't be
-    * captured.
+    * Unlike a quantifier inside a type, an existential is not named apart from
+    * the arguments by `normalize`. So existentials that share a name with a
+    * free variable of `args` (or with a variable a field uses without declaring
+    * it) are renamed first. Otherwise a reader of the field types would take
+    * them for that outer variable. Other names need no avoiding: an outer
+    * variable that occurs in no field can't be captured.
     */
   def openAt(
       cfn: ConstructorFn[Kind.Arg],
@@ -62,7 +61,9 @@ object ConstructorFn {
       args: List[Type]
   ): (List[(Type.Var.Bound, Kind)], List[Type]) = {
     val fields = cfn.args.map(_.tpe)
-    NonEmptyList.fromList(cfn.exists.map { case (b, ka) => (b, ka.kind) }) match {
+    NonEmptyList.fromList(
+      cfn.exists.map { case (b, ka) => (b, ka.kind) }
+    ) match {
       case None =>
         (Nil, fields.map(Type.substituteVar(_, paramSub)))
       case Some(exists) =>

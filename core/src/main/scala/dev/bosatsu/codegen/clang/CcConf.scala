@@ -8,7 +8,8 @@ case class CcConf(
     iflags: List[String],
     libs: List[String],
     os: String
-) derives Json.Reader, Json.Writer {
+) derives Json.Reader,
+      Json.Writer {
   def compile[F[_], Path](
       src: Path,
       to: Path,

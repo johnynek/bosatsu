@@ -22,10 +22,13 @@ class InspectLibraryCommandTest extends FileCommandFixtures {
   private def copyFixtures(root: Path): IO[Unit] = IO.blocking {
     val files = Files.list(fixtureDirectory)
     try
-      files.iterator().asScala
+      files
+        .iterator()
+        .asScala
         .filter(path => path.getFileName.toString != "README.md")
         .foreach { source =>
-          val destination = root.resolve(fixtureRelative).resolve(source.getFileName)
+          val destination =
+            root.resolve(fixtureRelative).resolve(source.getFileName)
           Files.createDirectories(destination.getParent)
           Files.copy(source, destination, StandardCopyOption.REPLACE_EXISTING)
         }
@@ -46,16 +49,25 @@ class InspectLibraryCommandTest extends FileCommandFixtures {
   private def args(hashes: List[String]): List[String] =
     List(
       "inspect-library",
-      "--input", rootLibrary,
-      "--expected-name", "parser",
-      "--expected-version", "1.0.0"
+      "--input",
+      rootLibrary,
+      "--expected-name",
+      "parser",
+      "--expected-version",
+      "1.0.0"
     ) ++ hashes.flatMap(hash => List("--expected-hash", hash)) ++ List(
-      "--dependency-context", s"$fixtureRelative/parser-context.json",
-      "--sig-out", "parser.sig",
-      "--exposures-out", "exposures.json",
-      "--membership-out", "membership.json",
-      "--implementation-out", "implementation.json",
-      "--descriptor-out", "descriptor.json"
+      "--dependency-context",
+      s"$fixtureRelative/parser-context.json",
+      "--sig-out",
+      "parser.sig",
+      "--exposures-out",
+      "exposures.json",
+      "--membership-out",
+      "membership.json",
+      "--implementation-out",
+      "implementation.json",
+      "--descriptor-out",
+      "descriptor.json"
     )
 
   private def parameterInvocation(
@@ -64,11 +76,14 @@ class InspectLibraryCommandTest extends FileCommandFixtures {
       arguments: List[String]
   ): IO[FileCommandRunner.Result] =
     write(root, "inspect.params", arguments.mkString("\n") + "\n") *>
-      BazelWorker.readParameterFile(root, "@inspect.params").flatMap { invocation =>
-        runner.runWorker(root, invocation.commandArguments)
+      BazelWorker.readParameterFile(root, "@inspect.params").flatMap {
+        invocation =>
+          runner.runWorker(root, invocation.commandArguments)
       }
 
-  test("inspection uses the same registered operation for direct, worker, and parameter dispatch") {
+  test(
+    "inspection uses the same registered operation for direct, worker, and parameter dispatch"
+  ) {
     withRunner { (root, runner) =>
       for {
         _ <- copyFixtures(root)
@@ -83,15 +98,21 @@ class InspectLibraryCommandTest extends FileCommandFixtures {
         _ = assertEquals(fromWorker, expected)
         fromParams <- parameterInvocation(runner, root, command)
         _ = success(fromParams)
-        fromParameterFile <- generatedOutputs.traverse(name => readBytes(root, name))
+        fromParameterFile <- generatedOutputs.traverse(name =>
+          readBytes(root, name)
+        )
         _ = assertEquals(fromParameterFile, expected)
         _ = assert(FileCommandRunner.supports("inspect-library"))
-        _ = assert(BazelWorker.Operation.fromCommandName("inspect-library").nonEmpty)
+        _ = assert(
+          BazelWorker.Operation.fromCommandName("inspect-library").nonEmpty
+        )
       } yield ()
     }
   }
 
-  test("verification and publication failures preserve every prior requested output") {
+  test(
+    "verification and publication failures preserve every prior requested output"
+  ) {
     withRunner { (root, runner) =>
       for {
         _ <- copyFixtures(root)
@@ -100,22 +121,35 @@ class InspectLibraryCommandTest extends FileCommandFixtures {
         initial <- runner.run(root, command)
         _ = success(initial)
         before <- generatedOutputs.traverse(name => readBytes(root, name))
-        _ <- write(root, s"$fixtureRelative/common-v1.0.0.bosatsu_lib", "tampered artifact")
+        _ <- write(
+          root,
+          s"$fixtureRelative/common-v1.0.0.bosatsu_lib",
+          "tampered artifact"
+        )
         invalid <- runner.run(root, command)
         _ = failure(invalid)
         _ = assert(invalid.stderr.contains("pin mismatch"), invalid.stderr)
-        afterVerificationFailure <- generatedOutputs.traverse(name => readBytes(root, name))
+        afterVerificationFailure <- generatedOutputs.traverse(name =>
+          readBytes(root, name)
+        )
         _ = assertEquals(afterVerificationFailure, before)
         _ <- copyFixtures(root)
-        _ <- IO.blocking(Files.createDirectories(root.resolve("out/blocked-directory")))
+        _ <- IO.blocking(
+          Files.createDirectories(root.resolve("out/blocked-directory"))
+        )
         publicationArgs = command.updated(
           command.indexOf("--descriptor-out") + 1,
           "out/blocked-directory"
         )
         publicationFailure <- runner.run(root, publicationArgs)
         _ = failure(publicationFailure)
-        _ = assert(publicationFailure.stderr.contains("regular output file"), publicationFailure.stderr)
-        afterPublicationFailure <- generatedOutputs.traverse(name => readBytes(root, name))
+        _ = assert(
+          publicationFailure.stderr.contains("regular output file"),
+          publicationFailure.stderr
+        )
+        afterPublicationFailure <- generatedOutputs.traverse(name =>
+          readBytes(root, name)
+        )
         _ = assertEquals(afterPublicationFailure, before)
         _ = assert(!listPaths(root).exists(_.contains(".bosatsu-stage-")))
       } yield ()
@@ -149,27 +183,41 @@ class InspectLibraryCommandTest extends FileCommandFixtures {
         _ <- IO.blocking(Files.write(root.resolve(rootLibrary), targetBytes))
         targetFailure <- runner.run(root, args(hashes(targetBytes)))
         _ = failure(targetFailure)
-        _ = assert(targetFailure.stderr.contains("invalid version"), targetFailure.stderr)
-        afterTargetFailure <- generatedOutputs.traverse(name => readBytes(root, name))
+        _ = assert(
+          targetFailure.stderr.contains("invalid version"),
+          targetFailure.stderr
+        )
+        afterTargetFailure <- generatedOutputs.traverse(name =>
+          readBytes(root, name)
+        )
         _ = assertEquals(afterTargetFailure, before)
         _ <- copyFixtures(root)
         restoredRoot <- readBytes(root, rootLibrary)
         parsedRestoredRoot = proto.Library.parseFrom(restoredRoot.toArray)
         malformedRoot = parsedRestoredRoot.copy(
-          descriptor = parsedRestoredRoot.descriptor.map(_.copy(version = Some(invalidVersion)))
+          descriptor = parsedRestoredRoot.descriptor.map(
+            _.copy(version = Some(invalidVersion))
+          )
         )
         rootBytes = malformedRoot.toByteArray
         _ <- IO.blocking(Files.write(root.resolve(rootLibrary), rootBytes))
         rootFailure <- runner.run(root, args(hashes(rootBytes)))
         _ = failure(rootFailure)
-        _ = assert(rootFailure.stderr.contains("invalid version"), rootFailure.stderr)
-        afterRootFailure <- generatedOutputs.traverse(name => readBytes(root, name))
+        _ = assert(
+          rootFailure.stderr.contains("invalid version"),
+          rootFailure.stderr
+        )
+        afterRootFailure <- generatedOutputs.traverse(name =>
+          readBytes(root, name)
+        )
         _ = assertEquals(afterRootFailure, before)
       } yield ()
     }
   }
 
-  test("inspection rejects outputs that alias the root, context, or dependency files") {
+  test(
+    "inspection rejects outputs that alias the root, context, or dependency files"
+  ) {
     withRunner { (root, runner) =>
       for {
         _ <- copyFixtures(root)
@@ -185,13 +233,22 @@ class InspectLibraryCommandTest extends FileCommandFixtures {
           val alias = command.updated(index, input)
           runner.run(root, alias).map { result =>
             failure(result)
-            assert(result.stderr.contains("refers to runtime input"), result.stderr)
+            assert(
+              result.stderr.contains("refers to runtime input"),
+              result.stderr
+            )
           }
         }
-        duplicate = command.updated(command.indexOf("--descriptor-out") + 1, "parser.sig")
+        duplicate = command.updated(
+          command.indexOf("--descriptor-out") + 1,
+          "parser.sig"
+        )
         duplicateResult <- runner.run(root, duplicate)
         _ = failure(duplicateResult)
-        _ = assert(duplicateResult.stderr.contains("multiple outputs refer"), duplicateResult.stderr)
+        _ = assert(
+          duplicateResult.stderr.contains("multiple outputs refer"),
+          duplicateResult.stderr
+        )
       } yield ()
     }
   }

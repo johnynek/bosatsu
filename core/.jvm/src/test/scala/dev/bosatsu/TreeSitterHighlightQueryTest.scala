@@ -9,12 +9,21 @@ class TreeSitterHighlightQueryTest extends munit.FunSuite {
     val relativeToRepoRoot =
       Paths.get("syntax", "tree-sitter-bosatsu", "queries", "highlights.scm")
     val relativeToCoreDir =
-      Paths.get("..", "syntax", "tree-sitter-bosatsu", "queries", "highlights.scm")
+      Paths.get(
+        "..",
+        "syntax",
+        "tree-sitter-bosatsu",
+        "queries",
+        "highlights.scm"
+      )
 
     val queryPath =
       if (Files.isRegularFile(relativeToRepoRoot)) relativeToRepoRoot
       else if (Files.isRegularFile(relativeToCoreDir)) relativeToCoreDir
-      else fail("could not locate syntax/tree-sitter-bosatsu/queries/highlights.scm")
+      else
+        fail(
+          "could not locate syntax/tree-sitter-bosatsu/queries/highlights.scm"
+        )
 
     Files.readString(queryPath, StandardCharsets.UTF_8)
   }

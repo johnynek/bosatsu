@@ -5,9 +5,9 @@ import dev.bosatsu.scalawasiz3.{Z3Platform, Z3Result}
 import org.scalacheck.Prop
 import org.scalacheck.Prop.forAll
 
-/** `SmtExpr.bosatsuDiv` and `bosatsuMod` must mean exactly Bosatsu's `div`
-  * and `mod_Int` under SMT-LIB semantics, or the recursion check could prove
-  * a false termination goal.
+/** `SmtExpr.bosatsuDiv` and `bosatsuMod` must mean exactly Bosatsu's `div` and
+  * `mod_Int` under SMT-LIB semantics, or the recursion check could prove a
+  * false termination goal.
   */
 class BosatsuDivModTest extends munit.ScalaCheckSuite {
   import SmtExpr.*
@@ -62,9 +62,16 @@ class BosatsuDivModTest extends munit.ScalaCheckSuite {
     } yield s"$xv $name $dv: expected $expected, SMT-LIB term $term gives $got"
   }
 
-  test("PredefImpl div and mod_Int are Python's floor division, with x / 0 == 0 and x % 0 == x") {
+  test(
+    "PredefImpl div and mod_Int are Python's floor division, with x / 0 == 0 and x % 0 == x"
+  ) {
     forAll(bigIntGen, bigIntGen) { (xv, dv) =>
-      Prop(predefDiv(xv, dv) == specDiv(xv, dv) && predefMod(xv, dv) == specMod(xv, dv)) :|
+      Prop(
+        predefDiv(xv, dv) == specDiv(xv, dv) && predefMod(xv, dv) == specMod(
+          xv,
+          dv
+        )
+      ) :|
         s"$xv, $dv: ${predefDiv(xv, dv)}, ${predefMod(xv, dv)}"
     }
   }
@@ -98,7 +105,9 @@ class BosatsuDivModTest extends munit.ScalaCheckSuite {
     }
   }
 
-  test("bosatsuDiv and bosatsuMod agree with Bosatsu on every small numerator and divisor") {
+  test(
+    "bosatsuDiv and bosatsuMod agree with Bosatsu on every small numerator and divisor"
+  ) {
     for {
       xv <- -30 to 30
       dv <- -9 to 9
@@ -129,7 +138,9 @@ class BosatsuDivModTest extends munit.ScalaCheckSuite {
       case _            => false
     }
 
-  property("a constant divisor gives no ite, and SMT-LIB div and mod only by a positive constant") {
+  property(
+    "a constant divisor gives no ite, and SMT-LIB div and mod only by a positive constant"
+  ) {
     forAll(bigIntGen) { dv =>
       val terms = List(bosatsuDiv(x, IntConst(dv)), bosatsuMod(x, IntConst(dv)))
       Prop(terms.forall { t =>
@@ -141,10 +152,16 @@ class BosatsuDivModTest extends munit.ScalaCheckSuite {
     }
   }
 
-  test("a variable divisor only reaches SMT-LIB div and mod as d or -d, under a guard") {
+  test(
+    "a variable divisor only reaches SMT-LIB div and mod as d or -d, under a guard"
+  ) {
     List(bosatsuDiv(x, d), bosatsuMod(x, d)).foreach { t =>
       t match {
-        case Ite(EqInt(`d`, IntConst(zero)), _, Ite(Gt(`d`, IntConst(zero1)), pos, neg)) =>
+        case Ite(
+              EqInt(`d`, IntConst(zero)),
+              _,
+              Ite(Gt(`d`, IntConst(zero1)), pos, neg)
+            ) =>
           assertEquals(zero, BigInt(0))
           assertEquals(zero1, BigInt(0))
           assertEquals(divisors(pos), List(d))
@@ -187,7 +204,9 @@ class BosatsuDivModTest extends munit.ScalaCheckSuite {
     z3Unsat(Nil, Or(mismatches))
   }
 
-  test("z3 proves bosatsuDiv and bosatsuMod by a constant are floor division, for every x") {
+  test(
+    "z3 proves bosatsuDiv and bosatsuMod by a constant are floor division, for every x"
+  ) {
     // q and r are floor division of x by k exactly when x == k * q + r and r
     // is between 0 and k, on k's side of 0
     for (k <- (-9 to 9) if k != 0) {
@@ -196,7 +215,9 @@ class BosatsuDivModTest extends munit.ScalaCheckSuite {
       val rInRange =
         if (k > 0) And(Vector(Gte(r, IntConst(0)), Lt(r, IntConst(k))))
         else And(Vector(Lte(r, IntConst(0)), Gt(r, IntConst(k))))
-      val defn = And(Vector(EqInt(x, Add(Vector(Mul(Vector(IntConst(k), q)), r))), rInRange))
+      val defn = And(
+        Vector(EqInt(x, Add(Vector(Mul(Vector(IntConst(k), q)), r))), rInRange)
+      )
       z3Unsat(List("x"), Not(defn))
     }
     // and by 0, x div 0 == 0 and x mod_Int 0 == x

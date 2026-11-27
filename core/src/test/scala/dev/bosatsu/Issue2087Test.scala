@@ -5,7 +5,8 @@ import dev.bosatsu.rankn.Type
 import Identifier.Bindable
 
 class Issue2087Test extends munit.FunSuite with ParTest {
-  private val lazyPack = Predef.loadFileInCompile("test_workspace/Bosatsu/Lazy.bosatsu")
+  private val lazyPack =
+    Predef.loadFileInCompile("test_workspace/Bosatsu/Lazy.bosatsu")
 
   private val reproPackage = PackageName.parts("Repro", "Issue2087")
   private val opaqueName = Identifier.Name("opaque_Int")
@@ -109,7 +110,10 @@ main = [thunk_let, thunk_share]
             case (acc, TypedExpr.Branch(_, guard, branchExpr)) =>
               val guardCount =
                 guard.fold((0, 0))(countOpaqueCalls(_, inSuspension))
-              add(add(acc, guardCount), countOpaqueCalls(branchExpr, inSuspension))
+              add(
+                add(acc, guardCount),
+                countOpaqueCalls(branchExpr, inSuspension)
+              )
           }
       case TypedExpr.Local(_, _, _) | TypedExpr.Global(_, _, _, _) |
           TypedExpr.Literal(_, _, _) =>
@@ -129,9 +133,7 @@ main = [thunk_let, thunk_share]
     TestUtils.testInferred(
       List(lazyPack, reproPack),
       reproPackage.asString,
-      { (pm, _) =>
-        out = pm.toMap.get(reproPackage)
-      }
+      (pm, _) => out = pm.toMap.get(reproPackage)
     )
 
     val pack = out.getOrElse(

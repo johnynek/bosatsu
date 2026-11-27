@@ -76,11 +76,11 @@ object Toposort {
       def depth(node: A): Eval[Option[Int]] = Eval.defer {
         depths.get(node) match {
           case Some(cached) => Eval.now(cached)
-          case None =>
+          case None         =>
             depths = depths.updated(node, None)
             def children(todo: List[A], level: Int): Eval[Option[Int]] =
               todo match {
-                case Nil => Eval.now(Some(level))
+                case Nil           => Eval.now(Some(level))
                 case child :: rest =>
                   depth(child).flatMap {
                     case None    => Eval.now(None)

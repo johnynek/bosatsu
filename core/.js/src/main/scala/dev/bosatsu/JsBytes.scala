@@ -21,7 +21,9 @@ private[bosatsu] object JsBytes {
     */
   def fromUint8Array(view: Uint8Array): Bytes =
     Bytes.unsafeFromArray(
-      int8Array2ByteArray(new Int8Array(view.buffer, view.byteOffset, view.length))
+      int8Array2ByteArray(
+        new Int8Array(view.buffer, view.byteOffset, view.length)
+      )
     )
 
   /** Copy Bytes into a fresh Uint8Array that the caller may keep or mutate. */

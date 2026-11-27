@@ -15,7 +15,8 @@ class TypedTotalityTest extends munit.FunSuite {
     val target = Name(name)
     lets.collectFirst { case (`target`, _, expr) => expr } match {
       case Some(expr) => expr
-      case None       => fail(s"missing let: $name in ${lets.map(_._1).mkString(", ")}")
+      case None       =>
+        fail(s"missing let: $name in ${lets.map(_._1).mkString(", ")}")
     }
   }
 
@@ -23,7 +24,7 @@ class TypedTotalityTest extends munit.FunSuite {
     checkEnvExpr(statement) { (env, lets) =>
       val expr = findLetExpr(lets, letName)
       TotalityCheck(env).checkExpr(expr) match {
-        case Validated.Valid(())    => ()
+        case Validated.Valid(())     => ()
         case Validated.Invalid(errs) => fail(errs.toList.mkString(", "))
       }
     }
@@ -98,9 +99,9 @@ class TypedTotalityTest extends munit.FunSuite {
       }
 
     val errs = res match {
-      case Ior.Left(es)     => es.toList
-      case Ior.Both(es, _)  => es.toList
-      case Ior.Right(_) => Nil
+      case Ior.Left(es)    => es.toList
+      case Ior.Both(es, _) => es.toList
+      case Ior.Right(_)    => Nil
     }
     val hasAlwaysTrue = errs.exists {
       case PackageError.TotalityCheckError(
@@ -216,7 +217,9 @@ def vacuous(z: Never) -> Never:
     )
   }
 
-  test("effectively-trivial match branch guards participate like unguarded branches") {
+  test(
+    "effectively-trivial match branch guards participate like unguarded branches"
+  ) {
     assertTotal(
       """main = match 1:
         |  case x if x matches y:
@@ -270,7 +273,8 @@ def vacuous(z: Never) -> Never:
     val hasTotalityDiagnostic = errs.exists {
       case PackageError.TotalityCheckError(
             _,
-            TotalityCheck.MatchesAlwaysTrue(_) | TotalityCheck.UnreachableBranches(_, _)
+            TotalityCheck.MatchesAlwaysTrue(_) |
+            TotalityCheck.UnreachableBranches(_, _)
           ) =>
         true
       case _ => false
@@ -305,7 +309,9 @@ def is_good(res: forall e. Result[e, r]) -> r:
     )
   }
 
-  test("constructor existential named like the scrutinee variable is not captured") {
+  test(
+    "constructor existential named like the scrutinee variable is not captured"
+  ) {
     // Type.normalize renames `forall b` to `forall a`, the name of Step's
     // existential. Step(Base(1)) has type forall b. T[b], so HasT is reachable.
     assertNonTotal(
@@ -321,7 +327,9 @@ def f(q: Q) -> Int:
     )
   }
 
-  test("nested field quantifier named like the scrutinee variable is not captured") {
+  test(
+    "nested field quantifier named like the scrutinee variable is not captured"
+  ) {
     // Both `forall b. D[b]` and B's field `exists y. D[y]` normalize their
     // binder to `a`. B(A(1)) has type D[b] for every b, so HasD is reachable.
     assertNonTotal(
@@ -337,7 +345,9 @@ def f(q: Q) -> Int:
     )
   }
 
-  test("constructor existential named like an outer variable in a type argument is not captured") {
+  test(
+    "constructor existential named like an outer variable in a type argument is not captured"
+  ) {
     // `exists b. Box[b]` normalizes to `exists a. Box[a]`, and the outer `a`
     // is substituted for MkBox's `x` next to its existential `a`.
     // HasBox(MkBox(1, x -> x)) is a value (with a = Never), so HasBox is
@@ -356,7 +366,9 @@ def f(q: Q) -> Int:
     )
   }
 
-  test("totality check finishes on a type whose expansion opens many variables") {
+  test(
+    "totality check finishes on a type whose expansion opens many variables"
+  ) {
     // Every expansion of P opens four existentials, giving 16 data-type keys and
     // up to 16! paths for a search that only stops at keys on its current
     // path. The least-fixed-point solver needs 16 equations.
@@ -409,7 +421,9 @@ def h(q: Q) -> Int:
     )
   }
 
-  test("double negation through a data-type wrapper can be left out of a match") {
+  test(
+    "double negation through a data-type wrapper can be left out of a match"
+  ) {
     // DN2 = Neg[Neg[DN2]] occurs covariantly and has no value, so HasDN can be
     // left out. Its keys read each other under function arguments, so the
     // solver uses the depth-first search for them.
@@ -452,7 +466,7 @@ def deep_total(x: Result[Value, Value]) -> Value:
       }
 
       TotalityCheck(env).checkExpr(expr) match {
-        case Validated.Valid(())    => ()
+        case Validated.Valid(())     => ()
         case Validated.Invalid(errs) => fail(errs.toList.mkString(", "))
       }
     }

@@ -1,7 +1,8 @@
 package dev.bosatsu
 
 class Issue2031Test extends munit.FunSuite with ParTest {
-  private val lazyPack = Predef.loadFileInCompile("test_workspace/Bosatsu/Lazy.bosatsu")
+  private val lazyPack =
+    Predef.loadFileInCompile("test_workspace/Bosatsu/Lazy.bosatsu")
 
   private val reproPack = """
 package Repro/Issue2031
@@ -22,7 +23,9 @@ empty_LazyList: forall a. LazyList[a] = LazyList(0, Empty)
 lazy_empty: forall a. Lazy[LazyList[a]] = lazy(() -> empty_LazyList)
 """
 
-  test("issue 2031: annotated polymorphic constructor result typechecks in lambda") {
+  test(
+    "issue 2031: annotated polymorphic constructor result typechecks in lambda"
+  ) {
     TestUtils.testInferred(
       List(lazyPack, reproPack),
       "Repro/Issue2031",

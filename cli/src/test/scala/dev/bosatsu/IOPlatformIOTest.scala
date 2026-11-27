@@ -5,7 +5,13 @@ import cats.collections.HashMap
 import cats.effect.{IO, Resource}
 import cats.implicits._
 import cats.effect.unsafe.implicits.global
-import java.io.{ByteArrayInputStream, ByteArrayOutputStream, File, InputStream, PrintStream}
+import java.io.{
+  ByteArrayInputStream,
+  ByteArrayOutputStream,
+  File,
+  InputStream,
+  PrintStream
+}
 import java.nio.file.{Files, Path, Paths}
 import java.util.Comparator
 import org.scalacheck.Gen
@@ -67,7 +73,9 @@ class IOPlatformIOTest extends munit.ScalaCheckSuite {
         override protected def stdout: PrintStream = stream
       }
       try {
-        platform.writeStdoutBytes(Bytes.copyFromArray(values.toArray)).unsafeRunSync()
+        platform
+          .writeStdoutBytes(Bytes.copyFromArray(values.toArray))
+          .unsafeRunSync()
         assertEquals(output.toByteArray.toList, values)
       } finally stream.close()
     }
@@ -79,7 +87,10 @@ class IOPlatformIOTest extends munit.ScalaCheckSuite {
       val platform = new IOPlatformIO(CompilerBuildInfo.constant) {
         override protected def stdin: InputStream = input
       }
-      assertEquals(platform.readStdinBytes.unsafeRunSync().copyToArray.toList, values)
+      assertEquals(
+        platform.readStdinBytes.unsafeRunSync().copyToArray.toList,
+        values
+      )
     }
   }
 
@@ -88,9 +99,11 @@ class IOPlatformIOTest extends munit.ScalaCheckSuite {
       val original = Files.writeString(root.resolve("original"), "contents")
       val other = Files.writeString(root.resolve("other"), "contents")
       val hard = Files.createLink(root.resolve("hard"), original)
-      val symbolic = Files.createSymbolicLink(root.resolve("symbolic"), original)
+      val symbolic =
+        Files.createSymbolicLink(root.resolve("symbolic"), original)
       val paths = List(original, original, hard, symbolic, other)
-      val keys = paths.traverse(IOPlatformIO.existingFileKey).unsafeRunSync().flatten
+      val keys =
+        paths.traverse(IOPlatformIO.existingFileKey).unsafeRunSync().flatten
       assertEquals(keys.size, paths.size)
       // This fixture must exercise native identities. A resolved-path fallback
       // alone cannot equate distinct hard-link names.

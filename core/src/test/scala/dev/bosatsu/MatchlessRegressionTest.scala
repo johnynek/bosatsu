@@ -89,7 +89,9 @@ class MatchlessRegressionTest extends munit.FunSuite {
 
     failure match {
       case Some(_: StackOverflowError) =>
-        fail("Matchless.fromLet should not overflow on deeply nested TypedExpr lets")
+        fail(
+          "Matchless.fromLet should not overflow on deeply nested TypedExpr lets"
+        )
       case Some(other) =>
         fail(s"unexpected failure compiling deep TypedExpr let-chain: $other")
       case None =>
@@ -218,8 +220,9 @@ class MatchlessRegressionTest extends munit.FunSuite {
           val recNamesInLambda = activeRecNames -- argNames
           val recNamesInBody =
             recursiveName match {
-              case Some(fnName) if !argNames(fnName) => recNamesInLambda + fnName
-              case _                                  => recNamesInLambda
+              case Some(fnName) if !argNames(fnName) =>
+                recNamesInLambda + fnName
+              case _ => recNamesInLambda
             }
           captures.map(loopExpr(_, recNamesInLambda)).sum +
             loopExpr(body, recNamesInBody)
@@ -259,9 +262,8 @@ class MatchlessRegressionTest extends munit.FunSuite {
         case Matchless.Local(_) | Matchless.Global(_, _, _) |
             Matchless.ClosureSlot(_) | Matchless.LocalAnon(_) |
             Matchless.LocalAnonMut(_) | Matchless.Literal(_) |
-            Matchless.LitInt64(_) |
-            Matchless.MakeEnum(_, _, _) | Matchless.MakeStruct(_) |
-            Matchless.ZeroNat | Matchless.SuccNat =>
+            Matchless.LitInt64(_) | Matchless.MakeEnum(_, _, _) |
+            Matchless.MakeStruct(_) | Matchless.ZeroNat | Matchless.SuccNat =>
           0
       }
 
@@ -271,7 +273,9 @@ class MatchlessRegressionTest extends munit.FunSuite {
   private def collectBoolExprs(
       expr: Matchless.Expr[Unit]
   ): List[Matchless.BoolExpr[Unit]] = {
-    def loopCheap(cheap: Matchless.CheapExpr[Unit]): List[Matchless.BoolExpr[Unit]] =
+    def loopCheap(
+        cheap: Matchless.CheapExpr[Unit]
+    ): List[Matchless.BoolExpr[Unit]] =
       cheap match {
         case Matchless.GetEnumElement(arg, _, _, _) =>
           loopCheap(arg)
@@ -284,7 +288,9 @@ class MatchlessRegressionTest extends munit.FunSuite {
           Nil
       }
 
-    def loopBool(boolExpr: Matchless.BoolExpr[Unit]): List[Matchless.BoolExpr[Unit]] = {
+    def loopBool(
+        boolExpr: Matchless.BoolExpr[Unit]
+    ): List[Matchless.BoolExpr[Unit]] = {
       val nested =
         boolExpr match {
           case Matchless.CompareLit(expr, _, _) =>
@@ -339,7 +345,8 @@ class MatchlessRegressionTest extends munit.FunSuite {
         case Matchless.PrevNat(of) =>
           loopExpr(of)
         case Matchless.MakeEnum(_, _, _) | Matchless.MakeStruct(_) |
-            Matchless.ZeroNat | Matchless.SuccNat | (_: Matchless.CheapExpr[Unit]) =>
+            Matchless.ZeroNat | Matchless.SuccNat |
+            (_: Matchless.CheapExpr[Unit]) =>
           Nil
       }
 
@@ -437,7 +444,9 @@ def branch_blowup(args: L) -> Nat:
     assertMatchlessToValueNoStackOverflow(nestedLetMut(20000))
   }
 
-  test("MatchlessToValue evaluates static If conditions without dynamic branching") {
+  test(
+    "MatchlessToValue evaluates static If conditions without dynamic branching"
+  ) {
     val trueIf =
       Matchless.If(
         Matchless.TrueConst,
@@ -453,7 +462,9 @@ def branch_blowup(args: L) -> Nat:
 
     val evaluated =
       MatchlessToValue
-        .traverse(Vector(trueIf, falseIf))((_, _, _) => Eval.now(Value.UnitValue))
+        .traverse(Vector(trueIf, falseIf))((_, _, _) =>
+          Eval.now(Value.UnitValue)
+        )
         .map(_.value)
 
     assertEquals(evaluated, Vector(Value.VInt(1), Value.VInt(4)))
@@ -492,7 +503,9 @@ def branch_blowup(args: L) -> Nat:
 
     val evaluated =
       MatchlessToValue
-        .traverse[Vector, Unit](evalExprs)((_, _, _) => Eval.now(Value.UnitValue))
+        .traverse[Vector, Unit](evalExprs)((_, _, _) =>
+          Eval.now(Value.UnitValue)
+        )
         .map(_.value)
     assertEquals(evaluated, Vector(Value.VInt(1), Value.VInt(0)))
   }
@@ -540,7 +553,9 @@ def branch_blowup(args: L) -> Nat:
 
     val evaluated =
       MatchlessToValue
-        .traverse[Vector, Unit](evalExprs)((_, _, _) => Eval.now(Value.UnitValue))
+        .traverse[Vector, Unit](evalExprs)((_, _, _) =>
+          Eval.now(Value.UnitValue)
+        )
         .map(_.value)
     assertEquals(
       evaluated,
@@ -621,9 +636,12 @@ main = observe
   }
 
   Platform.onJvm(
-    test("deep TypedExpr non-rec let chains lower to Matchless without stack overflow") {
+    test(
+      "deep TypedExpr non-rec let chains lower to Matchless without stack overflow"
+    ) {
       val depth = sys.props.get("repro.typedLetDepth").fold(10000)(_.toInt)
-      val stackBytes = sys.props.get("repro.stackBytes").fold(96L * 1024L)(_.toLong)
+      val stackBytes =
+        sys.props.get("repro.stackBytes").fold(96L * 1024L)(_.toLong)
       assertMatchlessFromLetNoStackOverflow(nestedTypedLet(depth), stackBytes)
     }
   )
@@ -687,7 +705,9 @@ main = observe
 
     val evaluated =
       MatchlessToValue
-        .traverse[Vector, Unit](evalExprs)((_, _, _) => Eval.now(Value.UnitValue))
+        .traverse[Vector, Unit](evalExprs)((_, _, _) =>
+          Eval.now(Value.UnitValue)
+        )
         .map(_.value)
     assertEquals(
       evaluated,

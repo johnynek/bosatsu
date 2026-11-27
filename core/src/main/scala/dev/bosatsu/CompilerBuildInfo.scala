@@ -22,8 +22,8 @@ trait CompilerBuildInfo {
 
 object CompilerBuildInfo {
 
-  /** Fixed values for code that has no entry point to supply real ones, such
-    * as tests. It never changes, so depending on it doesn't invalidate builds.
+  /** Fixed values for code that has no entry point to supply real ones, such as
+    * tests. It never changes, so depending on it doesn't invalidate builds.
     */
   val constant: CompilerBuildInfo =
     new CompilerBuildInfo {

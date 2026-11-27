@@ -10,7 +10,8 @@ object ProtocPluginNodeMain {
 
   def runFromStdio(): Unit = {
     val fs = global.require("fs")
-    val requestBytes = JsBytes.fromUint8Array(fs.readFileSync(0).asInstanceOf[Uint8Array])
+    val requestBytes =
+      JsBytes.fromUint8Array(fs.readFileSync(0).asInstanceOf[Uint8Array])
     val responseBytes = CodeGenerator.generateResponseBytes(requestBytes)
     val _ = fs.writeFileSync(1, JsBytes.toUint8Array(responseBytes))
     ()

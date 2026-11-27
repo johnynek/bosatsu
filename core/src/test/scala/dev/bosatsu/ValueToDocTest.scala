@@ -118,7 +118,9 @@ enum MyNat: Z, S(prev: MyNat)
     toDoc(Value.Str("ab")) match {
       case Left(_)    => ()
       case Right(doc) =>
-        fail(s"expected ill-typed char rendering failure, got ${doc.render(80)}")
+        fail(
+          s"expected ill-typed char rendering failure, got ${doc.render(80)}"
+        )
     }
   }
 
@@ -165,7 +167,11 @@ enum MyNat: Z, S(prev: MyNat)
     val bytesType =
       Type.const(PackageName.parts("Bosatsu", "IO", "Bytes"), TypeName("Bytes"))
     val bytes = Value.ExternalValue(
-      PredefImpl.BytesValue(Bytes.copyFromArray(Array[Byte](0.toByte, 10.toByte, 255.toByte)), 0, 3)
+      PredefImpl.BytesValue(
+        Bytes.copyFromArray(Array[Byte](0.toByte, 10.toByte, 255.toByte)),
+        0,
+        3
+      )
     )
 
     conv.toDoc(bytesType)(bytes) match {
@@ -200,7 +206,8 @@ enum MyNat: Z, S(prev: MyNat)
       ),
       Type.UnitType
     )
-    val progValue = Value.SumValue(0, Value.ProductValue.single(Value.UnitValue))
+    val progValue =
+      Value.SumValue(0, Value.ProductValue.single(Value.UnitValue))
 
     conv.toDoc(progType)(progValue) match {
       case Right(doc) => assertEquals(doc.render(80), "Prog(...)")

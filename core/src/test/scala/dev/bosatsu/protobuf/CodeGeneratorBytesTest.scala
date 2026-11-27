@@ -9,7 +9,9 @@ class CodeGeneratorBytesTest extends munit.FunSuite {
       CodeGenerator.generateResponseBytes(request).unsafeReadOnlyView
     )
 
-  test("generateResponseBytes answers an empty request with an empty response") {
+  test(
+    "generateResponseBytes answers an empty request with an empty response"
+  ) {
     val response = respond(Bytes.empty)
     assertEquals(response.error, None)
     assertEquals(response.file, Nil)

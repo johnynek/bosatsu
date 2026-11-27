@@ -128,8 +128,13 @@ class ValueTest extends munit.ScalaCheckSuite {
         prefix.length,
         view.length
       )
-      val exact = PredefImpl.BytesValue(Bytes.copyFromArray(view.toArray), 0, view.length)
-      val different = PredefImpl.BytesValue(Bytes.copyFromArray(other.toArray), 0, other.length)
+      val exact =
+        PredefImpl.BytesValue(Bytes.copyFromArray(view.toArray), 0, view.length)
+      val different = PredefImpl.BytesValue(
+        Bytes.copyFromArray(other.toArray),
+        0,
+        other.length
+      )
       assert(shifted.equals(exact))
       assertEquals(shifted.hashCode, exact.hashCode)
       assertEquals(exact.hashCode, exact.data.contentHashCode)

@@ -20,13 +20,16 @@ object Bytes {
   /** Copy caller-owned mutable storage. */
   inline def copyFromArray(value: Array[Byte]): Bytes = value.clone()
 
-  /** Take ownership of fresh storage. The caller must not retain a mutable alias. */
+  /** Take ownership of fresh storage. The caller must not retain a mutable
+    * alias.
+    */
   private[bosatsu] inline def unsafeFromArray(value: Array[Byte]): Bytes = value
 
   // Share Eq between Hash and Order so implicit Eq lookup is unambiguous.
   given bytesInstances: (Hash[Bytes] & Order[Bytes]) =
     new Hash[Bytes] with Order[Bytes] {
-      override def eqv(left: Bytes, right: Bytes): Boolean = left.sameBytes(right)
+      override def eqv(left: Bytes, right: Bytes): Boolean =
+        left.sameBytes(right)
 
       def hash(bytes: Bytes): Int = bytes.contentHashCode
 

@@ -12,10 +12,10 @@ import Identifier.Bindable
 import LinearBoundsGens.{Env, byZeroChoices, evalBool, evalInt}
 import TypedExprRecursionCheck.{LeafPathFacts, LoweredDefBody, LoweredTerm}
 
-/** The recursion check proves Int recursion terminates by lowering Bosatsu
-  * Int, Bool and Comparison expressions to SMT-LIB terms. If a term means
-  * something other than the expression it came from, the check can accept a
-  * def that does not terminate.
+/** The recursion check proves Int recursion terminates by lowering Bosatsu Int,
+  * Bool and Comparison expressions to SMT-LIB terms. If a term means something
+  * other than the expression it came from, the check can accept a def that does
+  * not terminate.
   *
   * These properties generate well-typed Bosatsu expressions over a few
   * arguments, using the constructs the lowering understands, typecheck them,
@@ -25,8 +25,8 @@ import TypedExprRecursionCheck.{LeafPathFacts, LoweredDefBody, LoweredTerm}
   *
   * The check also assumes path facts on the way to a recursive call: that a
   * branch's pattern and guard matched, and that the earlier branches did not.
-  * If one of those is false when Bosatsu takes the branch, the check can
-  * accept a def that does not terminate, so a property checks those too.
+  * If one of those is false when Bosatsu takes the branch, the check can accept
+  * a def that does not terminate, so a property checks those too.
   */
 class TypedExprRecursionLoweringTest extends munit.ScalaCheckSuite {
   import TypedExprRecursionLoweringTest.*
@@ -46,7 +46,7 @@ class TypedExprRecursionLoweringTest extends munit.ScalaCheckSuite {
   // normalize), and a package map to evaluate it with. normalizedPm has the
   // lets after loop lowering and normalization, as inferBody gives them to
   // `tool eval` and codegen; it is only made when used.
-  private final class Compiled(
+  final private class Compiled(
       val fullTypeEnv: TypeEnv[Kind.Arg],
       val lets: List[(Bindable, RecursionKind, TypedExpr[Declaration])],
       val pm: PackageMap.Typed[Declaration],
@@ -63,7 +63,9 @@ class TypedExprRecursionLoweringTest extends munit.ScalaCheckSuite {
       TestUtils.statementsOf(source)
     )
     val compiled = result.map { case (fullTypeEnv, program) =>
-      def packageMap(typed: Package.Typed[Declaration]): PackageMap.Typed[Declaration] =
+      def packageMap(
+          typed: Package.Typed[Declaration]
+      ): PackageMap.Typed[Declaration] =
         PackageMap.empty + typed + PackageMap.predefInferred
       def normalized = TypedExprNormalization.normalizeProgram(
         pack,
@@ -80,7 +82,7 @@ class TypedExprRecursionLoweringTest extends munit.ScalaCheckSuite {
     compiled match {
       // postponable errors, such as unused bindings and unreachable
       // branches, still give a program to run
-      case Ior.Right(c) => Right(c)
+      case Ior.Right(c)                               => Right(c)
       case Ior.Both(errs, c) if errs.forall(runnable) =>
         Right(c)
       case Ior.Both(errs, _) => Left(messages(source, errs))
@@ -94,10 +96,13 @@ class TypedExprRecursionLoweringTest extends munit.ScalaCheckSuite {
   private def runnable(err: PackageError): Boolean =
     err match {
       case _: PackageError.ShadowedBindingTypeError => false
-      case other                                    => PackageError.isPostponable(other)
+      case other => PackageError.isPostponable(other)
     }
 
-  private def messages(source: String, errs: NonEmptyList[PackageError]): String = {
+  private def messages(
+      source: String,
+      errs: NonEmptyList[PackageError]
+  ): String = {
     val sm = Map(pack -> (LocationMap(source), "<generated>"))
     errs.toList
       .map(_.message(sm, LocationMap.Colorize.None))
@@ -157,7 +162,9 @@ class TypedExprRecursionLoweringTest extends munit.ScalaCheckSuite {
       case Some(term) =>
         val used = termVars(term) ++ lowered.pathFacts.flatMap(vars(_))
         if (!used.subsetOf(argSyms))
-          Left(s"open term, free: ${(used -- argSyms).toList.sorted.mkString(", ")}")
+          Left(
+            s"open term, free: ${(used -- argSyms).toList.sorted.mkString(", ")}"
+          )
         else
           Right(argss.flatMap { args =>
             val actual = run(args)
@@ -214,7 +221,9 @@ class TypedExprRecursionLoweringTest extends munit.ScalaCheckSuite {
     }
   }
 
-  property("every lowered Int, Bool and Comparison term evaluates to Bosatsu's value") {
+  property(
+    "every lowered Int, Bool and Comparison term evaluates to Bosatsu's value"
+  ) {
     given Shrink[Program] = Shrink.withLazyList(shrinkProgram)
     // a failure reports the failing arguments, so they need no shrinking
     given Shrink[List[Args]] = Shrink.withLazyList(_ => LazyList.empty)
@@ -237,16 +246,21 @@ class TypedExprRecursionLoweringTest extends munit.ScalaCheckSuite {
           val v = run(args)
           val vn = runNormalized(args)
           if (v == vn) Nil
-          else List(s"$args: Bosatsu gives $v, the normalized program gives $vn")
+          else
+            List(s"$args: Bosatsu gives $v, the normalized program gives $vn")
         } match {
           case Nil => Prop.passed
           case bad =>
-            Prop.falsified :| (s"source:\n$source\n\n" + bad.take(10).mkString("\n"))
+            Prop.falsified :| (s"source:\n$source\n\n" + bad
+              .take(10)
+              .mkString("\n"))
         }
     }
   }
 
-  property("loop lowering and normalization do not change what a program computes") {
+  property(
+    "loop lowering and normalization do not change what a program computes"
+  ) {
     given Shrink[Program] = Shrink.withLazyList(shrinkProgram)
     given Shrink[List[Args]] = Shrink.withLazyList(_ => LazyList.empty)
     forAll(programGen, argsListGen)(checkNormalized)
@@ -266,7 +280,9 @@ class TypedExprRecursionLoweringTest extends munit.ScalaCheckSuite {
         case Value.VInt(leaf) =>
           facts.leaves.get(BigInt(leaf)) match {
             case None =>
-              List(s"$args: Bosatsu returns leaf $leaf, which the walk did not reach")
+              List(
+                s"$args: Bosatsu returns leaf $leaf, which the walk did not reach"
+              )
             case Some(pathFacts) =>
               val closed = pathFacts.filter(vars(_).subsetOf(syms.all))
               byZeroChoices.zipWithIndex.flatMap { case (bz, bzIdx) =>
@@ -333,12 +349,15 @@ class TypedExprRecursionLoweringTest extends munit.ScalaCheckSuite {
     test(name) {
       compile(source) match {
         case Left(err) => fail(err)
-        case Right(c) =>
+        case Right(c)  =>
           val lowered = lowerTarget(c).getOrElse(fail("no target def"))
           assert(lowered.term.nonEmpty, "expected a term")
           mismatches(lowered, runTarget(c), gridArgs) match {
             case Left(open) =>
-              assert(!closed, s"expected a term over the arguments, got an $open")
+              assert(
+                !closed,
+                s"expected a term over the arguments, got an $open"
+              )
             case Right(bad) =>
               assert(closed, s"expected a fresh symbol, got ${lowered.term}")
               assertEquals(bad, Nil)
@@ -511,7 +530,9 @@ def target(x: Int, y: Int, z: Int, p: Bool, q: Comparison) -> Int:
   // the path facts at the branch were not(m < 1), about the outer m, but
   // were read as not(x < 1), so target(0, 5, ...) reached a leaf whose fact
   // was false
-  test("an earlier guard about an outer name the pattern rebinds gives no fact") {
+  test(
+    "an earlier guard about an outer name the pattern rebinds gives no fact"
+  ) {
     val source = """
 def target(x: Int, y: Int, z: Int, p: Bool, q: Comparison) -> Int:
   match x:
@@ -520,7 +541,7 @@ def target(x: Int, y: Int, z: Int, p: Bool, q: Comparison) -> Int:
 """
     compile(source) match {
       case Left(err) => fail(err)
-      case Right(c) =>
+      case Right(c)  =>
         val facts = leafPathFacts(c).getOrElse(fail("no target def"))
         assertEquals(falsePathFacts(facts, runTarget(c), gridArgs), Nil)
     }
@@ -530,7 +551,9 @@ def target(x: Int, y: Int, z: Int, p: Bool, q: Comparison) -> Int:
   // branch binds its own k to y, which must not become the outer k the
   // second guard reads: if it did, the facts at leaf 1 would be
   // not(y < 1) and y < 1, false for target(0, 2, ...).
-  test("a name an earlier branch binds is not the outer name a later guard reads") {
+  test(
+    "a name an earlier branch binds is not the outer name a later guard reads"
+  ) {
     val source = """
 def pair(a, b):
   (a, b)
@@ -545,14 +568,16 @@ def target(x: Int, y: Int, z: Int, p: Bool, q: Comparison) -> Int:
 """
     compile(source) match {
       case Left(err) => fail(err)
-      case Right(c) =>
+      case Right(c)  =>
         val facts = leafPathFacts(c).getOrElse(fail("no target def"))
         assertEquals(falsePathFacts(facts, runTarget(c), gridArgs), Nil)
     }
   }
 
   // The same for a name a `matches` guard binds: the first guard's k is y.
-  test("a name an earlier guard pattern binds is not the outer name a later guard reads") {
+  test(
+    "a name an earlier guard pattern binds is not the outer name a later guard reads"
+  ) {
     val source = """
 def pair(a, b):
   (a, b)
@@ -567,7 +592,7 @@ def target(x: Int, y: Int, z: Int, p: Bool, q: Comparison) -> Int:
 """
     compile(source) match {
       case Left(err) => fail(err)
-      case Right(c) =>
+      case Right(c)  =>
         val facts = leafPathFacts(c).getOrElse(fail("no target def"))
         assertEquals(falsePathFacts(facts, runTarget(c), gridArgs), Nil)
     }
@@ -583,11 +608,15 @@ def target(x: Int, y: Int, z: Int, p: Bool, q: Comparison) -> Int:
     val checked = progs.count { prog =>
       val source = prog.render
       compile(source) match {
-        case Left(err) => fail(s"generated program does not compile:\n$source\n$err")
+        case Left(err) =>
+          fail(s"generated program does not compile:\n$source\n$err")
         case Right(c) =>
           val facts = leafPathFacts(c).getOrElse(fail("no target def"))
-          val syms = ArgSymbols(facts.intArgs, facts.boolArgs, facts.comparisonArgs)
-          facts.leaves.valuesIterator.exists(_.exists(vars(_).subsetOf(syms.all)))
+          val syms =
+            ArgSymbols(facts.intArgs, facts.boolArgs, facts.comparisonArgs)
+          facts.leaves.valuesIterator.exists(
+            _.exists(vars(_).subsetOf(syms.all))
+          )
       }
     }
     assert(
@@ -598,7 +627,9 @@ def target(x: Int, y: Int, z: Int, p: Bool, q: Comparison) -> Int:
 
   // Bosatsu's semantics give -1: the first branch's y is not in scope in the
   // second. Normalizing it used to give 2 (EvaluationTest has more of these).
-  test("programs are evaluated with a guarded branch's names out of the next branch") {
+  test(
+    "programs are evaluated with a guarded branch's names out of the next branch"
+  ) {
     val source = """
 def target(x: Int, y: Int, z: Int, p: Bool, q: Comparison) -> Int:
   match x:
@@ -607,7 +638,7 @@ def target(x: Int, y: Int, z: Int, p: Bool, q: Comparison) -> Int:
 """
     compile(source) match {
       case Left(err) => fail(err)
-      case Right(c) =>
+      case Right(c)  =>
         val args = Args(BigInt(2), BigInt(-1), BigInt(0), false, 0)
         List(runTarget(c), runTargetIn(c.normalizedPm)).foreach { run =>
           run(args) match {
@@ -628,7 +659,8 @@ def target(x: Int, y: Int, z: Int, p: Bool, q: Comparison) -> Int:
     val outcomes = progs.map { prog =>
       val source = prog.render
       compile(source) match {
-        case Left(err) => fail(s"generated program does not compile:\n$source\n$err")
+        case Left(err) =>
+          fail(s"generated program does not compile:\n$source\n$err")
         case Right(c) =>
           lowerTarget(c) match {
             case Some(lowered) if lowered.term.nonEmpty =>
@@ -657,25 +689,25 @@ object TypedExprRecursionLoweringTest {
   def vars[S <: SmtSort](e: SmtExpr[S]): Set[String] =
     e match {
       case IntConst(_) | BoolConst(_) => Set.empty
-      case Var(n)                      => Set(n)
-      case Ite(c, a, b)                => vars(c) ++ vars(a) ++ vars(b)
-      case Add(args)                   => args.iterator.flatMap(vars(_)).toSet
-      case Sub(args)                   => args.iterator.flatMap(vars(_)).toSet
-      case Mul(args)                   => args.iterator.flatMap(vars(_)).toSet
-      case Div(a, b)                   => vars(a) ++ vars(b)
-      case Mod(a, b)                   => vars(a) ++ vars(b)
-      case Lt(a, b)                    => vars(a) ++ vars(b)
-      case Lte(a, b)                   => vars(a) ++ vars(b)
-      case Gt(a, b)                    => vars(a) ++ vars(b)
-      case Gte(a, b)                   => vars(a) ++ vars(b)
-      case EqInt(a, b)                 => vars(a) ++ vars(b)
-      case EqBool(a, b)                => vars(a) ++ vars(b)
-      case Not(a)                      => vars(a)
-      case And(args)                   => args.iterator.flatMap(vars(_)).toSet
-      case Or(args)                    => args.iterator.flatMap(vars(_)).toSet
-      case Xor(a, b)                   => vars(a) ++ vars(b)
-      case Implies(a, b)               => vars(a) ++ vars(b)
-      case other                       => sys.error(s"unexpected SMT term: $other")
+      case Var(n)                     => Set(n)
+      case Ite(c, a, b)               => vars(c) ++ vars(a) ++ vars(b)
+      case Add(args)                  => args.iterator.flatMap(vars(_)).toSet
+      case Sub(args)                  => args.iterator.flatMap(vars(_)).toSet
+      case Mul(args)                  => args.iterator.flatMap(vars(_)).toSet
+      case Div(a, b)                  => vars(a) ++ vars(b)
+      case Mod(a, b)                  => vars(a) ++ vars(b)
+      case Lt(a, b)                   => vars(a) ++ vars(b)
+      case Lte(a, b)                  => vars(a) ++ vars(b)
+      case Gt(a, b)                   => vars(a) ++ vars(b)
+      case Gte(a, b)                  => vars(a) ++ vars(b)
+      case EqInt(a, b)                => vars(a) ++ vars(b)
+      case EqBool(a, b)               => vars(a) ++ vars(b)
+      case Not(a)                     => vars(a)
+      case And(args)                  => args.iterator.flatMap(vars(_)).toSet
+      case Or(args)                   => args.iterator.flatMap(vars(_)).toSet
+      case Xor(a, b)                  => vars(a) ++ vars(b)
+      case Implies(a, b)              => vars(a) ++ vars(b)
+      case other => sys.error(s"unexpected SMT term: $other")
     }
 
   def termVars(t: LoweredTerm): Set[String] =
@@ -688,23 +720,25 @@ object TypedExprRecursionLoweringTest {
   // Int and Comparison terms evaluate to an Int, Bool terms to 0 or 1
   def evalTerm(t: LoweredTerm, env: Env): BigInt =
     t match {
-      case LoweredTerm.IntTerm(e)        => evalInt(e, env)
-      case LoweredTerm.BoolTerm(e)       => if (evalBool(e, env)) BigInt(1) else BigInt(0)
+      case LoweredTerm.IntTerm(e)  => evalInt(e, env)
+      case LoweredTerm.BoolTerm(e) =>
+        if (evalBool(e, env)) BigInt(1) else BigInt(0)
       case LoweredTerm.ComparisonTerm(e) => evalInt(e, env)
     }
 
   // the same, after the normalization the term gets before it goes to z3
   def evalNormalized(t: LoweredTerm, env: Env): BigInt =
     t match {
-      case LoweredTerm.IntTerm(e)        => evalInt(normalizeIntForSolver(e), env)
-      case LoweredTerm.BoolTerm(e)       =>
+      case LoweredTerm.IntTerm(e)  => evalInt(normalizeIntForSolver(e), env)
+      case LoweredTerm.BoolTerm(e) =>
         if (evalBool(normalizeBoolForSolver(e), env)) BigInt(1) else BigInt(0)
-      case LoweredTerm.ComparisonTerm(e) => evalInt(normalizeIntForSolver(e), env)
+      case LoweredTerm.ComparisonTerm(e) =>
+        evalInt(normalizeIntForSolver(e), env)
     }
 
   def expectedValue(t: LoweredTerm, v: Value): BigInt =
     (t, v) match {
-      case (LoweredTerm.IntTerm(_), Value.VInt(i)) => BigInt(i)
+      case (LoweredTerm.IntTerm(_), Value.VInt(i))      => BigInt(i)
       case (LoweredTerm.BoolTerm(_), s: Value.SumValue) =>
         // False is variant 0 and True is variant 1
         BigInt(s.variant)
@@ -716,7 +750,13 @@ object TypedExprRecursionLoweringTest {
     }
 
   // The SMT symbols bound to the target's arguments x, y, z, p and q
-  final case class ArgSymbols(x: String, y: String, z: String, p: String, q: String) {
+  final case class ArgSymbols(
+      x: String,
+      y: String,
+      z: String,
+      p: String,
+      q: String
+  ) {
     def all: Set[String] = Set(x, y, z, p, q)
 
     def env(args: Args, byZero: BigInt => BigInt): Env =
@@ -732,10 +772,14 @@ object TypedExprRecursionLoweringTest {
         boolArgs: Map[Bindable, BoolExpr],
         comparisonArgs: Map[Bindable, IntExpr]
     ): ArgSymbols = {
-      def symbol[S <: SmtSort](m: Map[Bindable, SmtExpr[S]], n: String): String =
+      def symbol[S <: SmtSort](
+          m: Map[Bindable, SmtExpr[S]],
+          n: String
+      ): String =
         m.get(Identifier.Name(n)) match {
           case Some(Var(sym)) => sym
-          case other          => sys.error(s"argument $n is not bound to a symbol: $other")
+          case other          =>
+            sys.error(s"argument $n is not bound to a symbol: $other")
         }
       ArgSymbols(
         symbol(intArgs, "x"),
@@ -778,10 +822,10 @@ object TypedExprRecursionLoweringTest {
 
     def names: List[String] =
       this match {
-        case Bind(n)        => n :: Nil
-        case Named(p, n)    => n :: p.names
-        case Union(ps)      => ps.flatMap(_.names)
-        case _              => Nil
+        case Bind(n)     => n :: Nil
+        case Named(p, n) => n :: p.names
+        case Union(ps)   => ps.flatMap(_.names)
+        case _           => Nil
       }
 
     def isCatchAll: Boolean =
@@ -820,7 +864,13 @@ object TypedExprRecursionLoweringTest {
     // elif renders an If in the else branch as `elif`
     case If(cond: Ex, ifTrue: Ex, ifFalse: Ex, elif: Boolean)
     // `if arg matches pat if guard: ifTrue else: ifFalse`
-    case IfMatches(arg: Ex, pat: Pat, guard: Option[Ex], ifTrue: Ex, ifFalse: Ex)
+    case IfMatches(
+        arg: Ex,
+        pat: Pat,
+        guard: Option[Ex],
+        ifTrue: Ex,
+        ifFalse: Ex
+    )
     case Match(arg: Ex, branches: List[Branch])
     // `arg matches pat if guard`, a Bool
     case Matches(arg: Ex, pat: Pat, guard: Option[Ex])
@@ -849,7 +899,9 @@ object TypedExprRecursionLoweringTest {
       body: Ex
   ) {
     def scope(outer: Scope, firstSort: Sort, secondSort: Sort): Scope =
-      outer ++ first.names.map(_ -> firstSort) ++ second.names.map(_ -> secondSort)
+      outer ++ first.names.map(_ -> firstSort) ++ second.names.map(
+        _ -> secondSort
+      )
   }
 
   // An extra top level def the target can call. With a forwarding body of
@@ -876,7 +928,9 @@ object TypedExprRecursionLoweringTest {
             s"${h.name} = $fn" :: "" :: Nil
           case HelperBody.Body(ex) =>
             val params =
-              h.params.map { case (n, s) => s"$n: ${s.typeName}" }.mkString(", ")
+              h.params
+                .map { case (n, s) => s"$n: ${s.typeName}" }
+                .mkString(", ")
             s"def ${h.name}($params) -> ${h.result.typeName}:" ::
               (renderBlock(ex, "  ") :+ "")
         }
@@ -896,10 +950,10 @@ object TypedExprRecursionLoweringTest {
 
   private def isBlock(e: Ex): Boolean =
     e match {
-      case If(_, _, _, _) | IfMatches(_, _, _, _, _) | Match(_, _) | Let(_, _, _) |
-          TupleMatch(_, _, _, _, _, _) =>
+      case If(_, _, _, _) | IfMatches(_, _, _, _, _) | Match(_, _) |
+          Let(_, _, _) | TupleMatch(_, _, _, _, _, _) =>
         true
-      case _                                                                     => false
+      case _ => false
     }
 
   def renderBlock(e: Ex, ind: String): List[String] = {
@@ -910,14 +964,20 @@ object TypedExprRecursionLoweringTest {
       case Match(arg, branches) =>
         s"${ind}match ${renderInline(arg, ind)}:" :: branches.flatMap { b =>
           val guard = b.guard.fold("")(g => " if " + renderGuard(g, inner))
-          s"${inner}case ${b.pat.render}$guard:" :: renderBlock(b.body, inner + "  ")
+          s"${inner}case ${b.pat.render}$guard:" :: renderBlock(
+            b.body,
+            inner + "  "
+          )
         }
       case If(c, t, f, elif) =>
         val head = s"${ind}if ${renderInline(c, ind)}:" :: renderBlock(t, inner)
         def elses(f: Ex): List[String] =
           f match {
             case If(c1, t1, f1, _) if elif =>
-              (s"${ind}elif ${renderInline(c1, ind)}:" :: renderBlock(t1, inner)) ::: elses(f1)
+              (s"${ind}elif ${renderInline(c1, ind)}:" :: renderBlock(
+                t1,
+                inner
+              )) ::: elses(f1)
             case _ =>
               s"${ind}else:" :: renderBlock(f, inner)
           }
@@ -932,7 +992,10 @@ object TypedExprRecursionLoweringTest {
         }
       case IfMatches(arg, pat, guard, t, f) =>
         val g = guard.fold("")(g => " if " + renderInline(g, ind))
-        (s"${ind}if ${renderInline(arg, ind)} matches ${pat.render}$g:" :: renderBlock(t, inner)) :::
+        (s"${ind}if ${renderInline(arg, ind)} matches ${pat.render}$g:" :: renderBlock(
+          t,
+          inner
+        )) :::
           (s"${ind}else:" :: renderBlock(f, inner))
       case other =>
         (ind + renderInline(other, ind)) :: Nil
@@ -941,7 +1004,7 @@ object TypedExprRecursionLoweringTest {
 
   def renderGuard(g: Guard, ind: String): String =
     g match {
-      case Guard.BoolG(c)                  => renderInline(c, ind)
+      case Guard.BoolG(c)                   => renderInline(c, ind)
       case Guard.MatchG(arg, _, pat, inner) =>
         val in = inner.fold("")(i => " if " + renderInline(i, ind))
         s"(${renderInline(arg, ind)} matches ${pat.render}$in)"
@@ -951,13 +1014,15 @@ object TypedExprRecursionLoweringTest {
   // past ind
   def renderInline(e: Ex, ind: String): String =
     e match {
-      case IntLit(v)          => v.toString
-      case BoolLit(b)         => if (b) "True" else "False"
-      case CmpLit(c)          => cmpName(c)
-      case Ref(n)             => n
-      case Call(fn, args)     => args.map(renderInline(_, ind)).mkString(s"$fn(", ", ", ")")
-      case Opaque(a, b)       => s"opaque(${renderInline(a, ind)})(${renderInline(b, ind)})"
-      case Matches(a, p, g)   =>
+      case IntLit(v)      => v.toString
+      case BoolLit(b)     => if (b) "True" else "False"
+      case CmpLit(c)      => cmpName(c)
+      case Ref(n)         => n
+      case Call(fn, args) =>
+        args.map(renderInline(_, ind)).mkString(s"$fn(", ", ", ")")
+      case Opaque(a, b) =>
+        s"opaque(${renderInline(a, ind)})(${renderInline(b, ind)})"
+      case Matches(a, p, g) =>
         val gs = g.fold("")(g => " if " + renderInline(g, ind))
         s"(${renderInline(a, ind)} matches ${p.render}$gs)"
       case block if isBlock(block) =>
@@ -973,22 +1038,22 @@ object TypedExprRecursionLoweringTest {
 
   def sortOf(e: Ex, scope: Scope, helpers: List[Helper]): Sort =
     e match {
-      case IntLit(_) | Opaque(_, _)     => IntS
+      case IntLit(_) | Opaque(_, _)      => IntS
       case BoolLit(_) | Matches(_, _, _) => BoolS
-      case CmpLit(_)                    => CmpS
-      case Ref(n)                       => scope.getOrElse(n, IntS)
-      case Call(fn, _)                  =>
+      case CmpLit(_)                     => CmpS
+      case Ref(n)                        => scope.getOrElse(n, IntS)
+      case Call(fn, _)                   =>
         predefFns
           .collectFirst { case (`fn`, _, res) => res }
           .orElse(helpers.collectFirst { case h if h.name == fn => h.result })
           .getOrElse(IntS)
-      case If(_, t, _, _)               => sortOf(t, scope, helpers)
-      case IfMatches(_, _, _, _, f)     => sortOf(f, scope, helpers)
-      case Match(arg, branches)         =>
+      case If(_, t, _, _)           => sortOf(t, scope, helpers)
+      case IfMatches(_, _, _, _, f) => sortOf(f, scope, helpers)
+      case Match(arg, branches)     =>
         val last = branches.last
         val s = sortOf(arg, scope, helpers)
         sortOf(last.body, scope ++ last.pat.names.map(_ -> s), helpers)
-      case Let(n, v, body)              =>
+      case Let(n, v, body) =>
         sortOf(body, scope + (n -> sortOf(v, scope, helpers)), helpers)
       case TupleMatch(_, s1, _, s2, _, branches) =>
         val last = branches.last
@@ -1004,22 +1069,30 @@ object TypedExprRecursionLoweringTest {
 
   def shrinkPat(p: Pat): LazyList[Pat] =
     p match {
-      case Pat.Named(inner, _)  => LazyList(inner)
-      case Pat.Union(h :: _)    => LazyList(h)
+      case Pat.Named(inner, _)   => LazyList(inner)
+      case Pat.Union(h :: _)     => LazyList(h)
       case Pat.IntP(v) if v != 0 => LazyList(Pat.IntP(BigInt(0)))
-      case _                    => LazyList.empty
+      case _                     => LazyList.empty
     }
 
-  def shrinkGuard(g: Guard, scope: Scope, helpers: List[Helper]): LazyList[Guard] =
+  def shrinkGuard(
+      g: Guard,
+      scope: Scope,
+      helpers: List[Helper]
+  ): LazyList[Guard] =
     g match {
       case Guard.BoolG(c) => shrinkEx(c, scope, helpers).map(Guard.BoolG(_))
       case Guard.MatchG(arg, s, pat, inner) =>
         val scope1 = scope ++ pat.names.map(_ -> s)
-        inner.fold(LazyList.empty[Guard])(_ => LazyList(Guard.MatchG(arg, s, pat, None))) #:::
+        inner.fold(LazyList.empty[Guard])(_ =>
+          LazyList(Guard.MatchG(arg, s, pat, None))
+        ) #:::
           shrinkPat(pat).map(Guard.MatchG(arg, s, _, inner)) #:::
           shrinkEx(arg, scope, helpers).map(Guard.MatchG(_, s, pat, inner)) #:::
           inner.fold(LazyList.empty[Guard])(i =>
-            shrinkEx(i, scope1, helpers).map(i1 => Guard.MatchG(arg, s, pat, Some(i1)))
+            shrinkEx(i, scope1, helpers).map(i1 =>
+              Guard.MatchG(arg, s, pat, Some(i1))
+            )
           )
     }
 
@@ -1039,11 +1112,18 @@ object TypedExprRecursionLoweringTest {
     }
     guard.fold(LazyList.empty[B])(_ => LazyList(rebuild(None, body))) #:::
       patShrinks #:::
-      guard.fold(LazyList.empty[Guard])(shrinkGuard(_, scope1, helpers)).map(g => rebuild(Some(g), body)) #:::
+      guard
+        .fold(LazyList.empty[Guard])(shrinkGuard(_, scope1, helpers))
+        .map(g => rebuild(Some(g), body)) #:::
       shrinkEx(body, scope2, helpers).map(rebuild(guard, _))
   }
 
-  def shrinkBranch(b: Branch, argSort: Sort, scope: Scope, helpers: List[Helper]): LazyList[Branch] =
+  def shrinkBranch(
+      b: Branch,
+      argSort: Sort,
+      scope: Scope,
+      helpers: List[Helper]
+  ): LazyList[Branch] =
     shrinkBranchParts(
       b.guard,
       b.body,
@@ -1085,9 +1165,11 @@ object TypedExprRecursionLoweringTest {
     val smaller: LazyList[Ex] =
       e match {
         case IntLit(v) =>
-          LazyList(v / 2).filter(v1 => (v1 != v) && (v1 != BigInt(0))).map(IntLit(_))
+          LazyList(v / 2)
+            .filter(v1 => (v1 != v) && (v1 != BigInt(0)))
+            .map(IntLit(_))
         case BoolLit(_) | CmpLit(_) | Ref(_) => LazyList.empty
-        case Call(fn, args) =>
+        case Call(fn, args)                  =>
           sameSort(args.map(_ -> scope)) #:::
             shrinkEach(args)(shrinkEx(_, scope, helpers)).map(Call(fn, _))
         case If(c, t, f, elif) =>
@@ -1099,30 +1181,46 @@ object TypedExprRecursionLoweringTest {
           val s = sortOf(arg, scope, helpers)
           val scope1 = scope ++ pat.names.map(_ -> s)
           LazyList(f, t) #:::
-            guard.fold(LazyList.empty[Ex])(_ => LazyList(IfMatches(arg, pat, None, t, f))) #:::
-            shrinkPat(pat).map(IfMatches(arg, _, guard, t, f)) #:::
-            shrinkEx(arg, scope, helpers).map(IfMatches(_, pat, guard, t, f)) #:::
-            guard.fold(LazyList.empty[Ex])(g =>
-              shrinkEx(g, scope1, helpers).map(g1 => IfMatches(arg, pat, Some(g1), t, f))
+            guard.fold(LazyList.empty[Ex])(_ =>
+              LazyList(IfMatches(arg, pat, None, t, f))
             ) #:::
-            shrinkEx(t, scope1, helpers).map(IfMatches(arg, pat, guard, _, f)) #:::
+            shrinkPat(pat).map(IfMatches(arg, _, guard, t, f)) #:::
+            shrinkEx(arg, scope, helpers).map(
+              IfMatches(_, pat, guard, t, f)
+            ) #:::
+            guard.fold(LazyList.empty[Ex])(g =>
+              shrinkEx(g, scope1, helpers).map(g1 =>
+                IfMatches(arg, pat, Some(g1), t, f)
+              )
+            ) #:::
+            shrinkEx(t, scope1, helpers).map(
+              IfMatches(arg, pat, guard, _, f)
+            ) #:::
             shrinkEx(f, scope, helpers).map(IfMatches(arg, pat, guard, t, _))
         case Match(arg, branches) =>
           val s = sortOf(arg, scope, helpers)
-          val bodies = branches.map(b => b.body -> (scope ++ b.pat.names.map(_ -> s)))
+          val bodies =
+            branches.map(b => b.body -> (scope ++ b.pat.names.map(_ -> s)))
           // drop a branch other than the last, which keeps the match total
           val dropped =
-            LazyList.from(branches.indices.init).map(i => Match(arg, branches.patch(i, Nil, 1)))
+            LazyList
+              .from(branches.indices.init)
+              .map(i => Match(arg, branches.patch(i, Nil, 1)))
           sameSort(bodies) #::: dropped #:::
             shrinkEx(arg, scope, helpers).map(Match(_, branches)) #:::
-            shrinkEach(branches)(shrinkBranch(_, s, scope, helpers)).map(Match(arg, _))
+            shrinkEach(branches)(shrinkBranch(_, s, scope, helpers))
+              .map(Match(arg, _))
         case Matches(arg, pat, guard) =>
           val s = sortOf(arg, scope, helpers)
-          guard.fold(LazyList.empty[Ex])(_ => LazyList(Matches(arg, pat, None))) #:::
+          guard.fold(LazyList.empty[Ex])(_ =>
+            LazyList(Matches(arg, pat, None))
+          ) #:::
             shrinkPat(pat).map(Matches(arg, _, guard)) #:::
             shrinkEx(arg, scope, helpers).map(Matches(_, pat, guard)) #:::
             guard.fold(LazyList.empty[Ex])(g =>
-              shrinkEx(g, scope ++ pat.names.map(_ -> s), helpers).map(g1 => Matches(arg, pat, Some(g1)))
+              shrinkEx(g, scope ++ pat.names.map(_ -> s), helpers).map(g1 =>
+                Matches(arg, pat, Some(g1))
+              )
             )
         case Opaque(a, b) =>
           LazyList(a, b) #:::
@@ -1136,8 +1234,12 @@ object TypedExprRecursionLoweringTest {
               TupleMatch(a, s1, b, s2, built, branches.patch(i, Nil, 1))
             }
           sameSort(bodies) #::: dropped #:::
-            shrinkEx(a, scope, helpers).map(TupleMatch(_, s1, b, s2, built, branches)) #:::
-            shrinkEx(b, scope, helpers).map(TupleMatch(a, s1, _, s2, built, branches)) #:::
+            shrinkEx(a, scope, helpers).map(
+              TupleMatch(_, s1, b, s2, built, branches)
+            ) #:::
+            shrinkEx(b, scope, helpers).map(
+              TupleMatch(a, s1, _, s2, built, branches)
+            ) #:::
             shrinkEach(branches)(shrinkTupleBranch(_, s1, s2, scope, helpers))
               .map(TupleMatch(a, s1, b, s2, built, _))
         case Let(n, v, body) =>
@@ -1153,8 +1255,11 @@ object TypedExprRecursionLoweringTest {
   def shrinkProgram(p: Program): LazyList[Program] = {
     // drop helpers, then shrink the body
     val fewerHelpers =
-      LazyList.from(p.helpers.indices).map(i => p.copy(helpers = p.helpers.patch(i, Nil, 1)))
-    val bodies = shrinkEx(p.body, argScope, p.helpers).map(b => p.copy(body = b))
+      LazyList
+        .from(p.helpers.indices)
+        .map(i => p.copy(helpers = p.helpers.patch(i, Nil, 1)))
+    val bodies =
+      shrinkEx(p.body, argScope, p.helpers).map(b => p.copy(body = b))
     fewerHelpers #::: bodies
   }
 
@@ -1186,7 +1291,8 @@ object TypedExprRecursionLoweringTest {
     Gen.listOfN(16, argsGen).map(Args(0, 0, 0, false, 0) :: _)
 
   // binders shadow the arguments and each other
-  val binderNames: Vector[String] = Vector("x", "y", "z", "p", "q", "a", "b", "c")
+  val binderNames: Vector[String] =
+    Vector("x", "y", "z", "p", "q", "a", "b", "c")
 
   val intLitGen: Gen[BigInt] =
     Gen.frequency(
@@ -1217,7 +1323,10 @@ object TypedExprRecursionLoweringTest {
       fallbacks: Boolean
   ) {
     def bind(names: List[String], sort: Sort): Ctx =
-      copy(scope = scope ++ names.map(_ -> sort), recent = (names ::: recent).take(3))
+      copy(
+        scope = scope ++ names.map(_ -> sort),
+        recent = (names ::: recent).take(3)
+      )
     def namesOf(sort: Sort): List[String] =
       scope.iterator.collect { case (n, s) if s == sort => n }.toList.sorted
   }
@@ -1237,7 +1346,9 @@ object TypedExprRecursionLoweringTest {
         val recentGen =
           if (recent.isEmpty) Nil else List(3 -> Gen.oneOf(recent).map(Ref(_)))
         Gen.frequency(
-          (1 -> litGen(sort)) :: (3 -> Gen.oneOf(names).map(Ref(_))) :: recentGen*
+          (1 -> litGen(sort)) :: (3 -> Gen
+            .oneOf(names)
+            .map(Ref(_))) :: recentGen*
         )
     }
 
@@ -1303,10 +1414,12 @@ object TypedExprRecursionLoweringTest {
   // binding shadows. Bosatsu rejects a shadowing binding that changes the
   // type, so never a name in scope with another sort.
   def binderGen(ctx: Ctx, sort: Sort): Gen[String] = {
-    val free = spareName(sort) :: binderNames.filterNot(ctx.scope.contains).toList
+    val free =
+      spareName(sort) :: binderNames.filterNot(ctx.scope.contains).toList
     ctx.namesOf(sort) match {
       case Nil     => Gen.oneOf(free)
-      case inScope => Gen.frequency(2 -> Gen.oneOf(inScope), 1 -> Gen.oneOf(free))
+      case inScope =>
+        Gen.frequency(2 -> Gen.oneOf(inScope), 1 -> Gen.oneOf(free))
     }
   }
 
@@ -1317,8 +1430,9 @@ object TypedExprRecursionLoweringTest {
     Gen.frequency(
       5 -> lit,
       2 -> union,
-      2 -> Gen.zip(Gen.oneOf(lit, union), binderGen(ctx, sort)).map { case (p, n) =>
-        Pat.Named(p, n)
+      2 -> Gen.zip(Gen.oneOf(lit, union), binderGen(ctx, sort)).map {
+        case (p, n) =>
+          Pat.Named(p, n)
       }
     )
   }
@@ -1326,7 +1440,8 @@ object TypedExprRecursionLoweringTest {
   // `x matches True | False` is an error, since it is always True
   def notTotal(p: Pat): Pat =
     p match {
-      case Pat.Union(items) if items.toSet == Set(Pat.BoolP(true), Pat.BoolP(false)) =>
+      case Pat.Union(items)
+          if items.toSet == Set(Pat.BoolP(true), Pat.BoolP(false)) =>
         items.head
       case Pat.Named(inner, n) => Pat.Named(notTotal(inner), n)
       case other               => other
@@ -1376,10 +1491,13 @@ object TypedExprRecursionLoweringTest {
   def guardGen(ctx: Ctx, depth: Int): Gen[Option[Guard]] = {
     // usually about the names the branch's pattern binds
     val nameTests = ctx.recent.flatMap { n =>
-      ctx.scope.get(n).map(s => 2 -> nameTestGen(n, s).map(c => Some(Guard.BoolG(c))))
+      ctx.scope
+        .get(n)
+        .map(s => 2 -> nameTestGen(n, s).map(c => Some(Guard.BoolG(c))))
     }
     Gen.frequency(
-      (3 -> Gen.const(None)) :: (3 -> guardExprGen(ctx, depth)) :: nameTests.take(1)*
+      (3 -> Gen.const(None)) :: (3 -> guardExprGen(ctx, depth)) :: nameTests
+        .take(1)*
     )
   }
 
@@ -1389,7 +1507,8 @@ object TypedExprRecursionLoweringTest {
       2 -> (for {
         s <- sortGen
         arg <- exGen(s, ctx, depth - 1)
-        pat <- Gen.frequency(3 -> refutablePatGen(s, ctx), 1 -> catchAllGen(ctx, s))
+        pat <- Gen
+          .frequency(3 -> refutablePatGen(s, ctx), 1 -> catchAllGen(ctx, s))
         inner <- Gen.option(condGen(ctx.bind(pat.names, s), depth - 1))
       } yield Some(Guard.MatchG(arg, s, pat, inner)))
     )
@@ -1408,16 +1527,26 @@ object TypedExprRecursionLoweringTest {
       init <- Gen.listOfN(
         n,
         for {
-          pat <- Gen.frequency(4 -> refutablePatGen(s, ctx), 1 -> catchAllGen(ctx, s))
+          pat <- Gen
+            .frequency(4 -> refutablePatGen(s, ctx), 1 -> catchAllGen(ctx, s))
           guard <- guardGen(ctx.bind(pat.names, s), depth)
-          body <- exGen(sort, guardNames(guard)(ctx.bind(pat.names, s)), depth - 1)
+          body <- exGen(
+            sort,
+            guardNames(guard)(ctx.bind(pat.names, s)),
+            depth - 1
+          )
         } yield Branch(pat, guard, body)
       )
       last <- lastBranchesGen(s, sort, ctx, depth)
     } yield Match(arg, init ::: last)
 
   // unguarded branches that make the match total
-  def lastBranchesGen(s: Sort, sort: Sort, ctx: Ctx, depth: Int): Gen[List[Branch]] = {
+  def lastBranchesGen(
+      s: Sort,
+      sort: Sort,
+      ctx: Ctx,
+      depth: Int
+  ): Gen[List[Branch]] = {
     val catchAll =
       for {
         pat <- catchAllGen(ctx, s)
@@ -1427,7 +1556,8 @@ object TypedExprRecursionLoweringTest {
       s match {
         case IntS  => Nil
         case BoolS => List(Pat.BoolP(true), Pat.BoolP(false))
-        case CmpS  => List(Pat.Union(List(Pat.CmpP(-1), Pat.CmpP(0))), Pat.CmpP(1))
+        case CmpS  =>
+          List(Pat.Union(List(Pat.CmpP(-1), Pat.CmpP(0))), Pat.CmpP(1))
       }
     val literals =
       Gen.sequence[List[Branch], Branch](pats.map { p =>
@@ -1442,7 +1572,10 @@ object TypedExprRecursionLoweringTest {
       name <- binderGen(ctx, s)
       value <-
         if (ctx.fallbacks && (s == IntS))
-          Gen.frequency(2 -> exGen(s, ctx, depth - 1), 1 -> opaqueGen(ctx, depth - 1))
+          Gen.frequency(
+            2 -> exGen(s, ctx, depth - 1),
+            1 -> opaqueGen(ctx, depth - 1)
+          )
         else exGen(s, ctx, depth - 1)
       body <- exGen(sort, ctx.bind(name :: Nil, s), depth - 1)
     } yield Let(name, value, body)
@@ -1497,7 +1630,8 @@ object TypedExprRecursionLoweringTest {
     def branchGen(s1: Sort, s2: Sort, last: Boolean): Gen[TupleBranch] = {
       def partGen(s: Sort): Gen[Pat] =
         if (last) catchAllGen(ctx, s)
-        else Gen.frequency(3 -> refutablePatGen(s, ctx), 2 -> catchAllGen(ctx, s))
+        else
+          Gen.frequency(3 -> refutablePatGen(s, ctx), 2 -> catchAllGen(ctx, s))
       for {
         p1 <- partGen(s1)
         // a pattern binds each name at most once
@@ -1560,7 +1694,12 @@ object TypedExprRecursionLoweringTest {
         val params = argSorts.zip(List("a", "b"))
         Gen.frequency(
           2 -> Gen.const(
-            Helper(name, params.map { case (s, n) => (n, s) }, res, HelperBody.ValueAlias(fn))
+            Helper(
+              name,
+              params.map { case (s, n) => (n, s) },
+              res,
+              HelperBody.ValueAlias(fn)
+            )
           ),
           // forwards its arguments, maybe in a different order
           3 -> Gen.oneOf(params.permutations.toList).map { perm =>
@@ -1579,7 +1718,11 @@ object TypedExprRecursionLoweringTest {
         sorts <- Gen.listOfN(nparams, sortGen)
         res <- sortGen
         params = sorts.zip(List("a", "b")).map { case (s, n) => (n, s) }
-        body <- exGen(res, Ctx(params.toMap, Nil, earlier, fallbacks = false), 2)
+        body <- exGen(
+          res,
+          Ctx(params.toMap, Nil, earlier, fallbacks = false),
+          2
+        )
       } yield Helper(name, params, res, HelperBody.Body(body))
     Gen.frequency(1 -> forwarding, 2 -> general)
   }
@@ -1612,7 +1755,7 @@ object TypedExprRecursionLoweringTest {
       case Match(_, branches) => branches.forall(b => isPathTree(b.body))
       case TupleMatch(_, _, _, _, _, branches) =>
         branches.forall(b => isPathTree(b.body))
-      case _                  => false
+      case _ => false
     }
 
   // number the leaves 0, 1, 2, ... in order
@@ -1624,16 +1767,18 @@ object TypedExprRecursionLoweringTest {
           (Let(n, v, body1), next1)
         case Match(arg, branches) =>
           val (revBranches, nextN) =
-            branches.foldLeft((List.empty[Branch], next)) { case ((acc, n), b) =>
-              val (body1, n1) = go(b.body, n)
-              (b.copy(body = body1) :: acc, n1)
+            branches.foldLeft((List.empty[Branch], next)) {
+              case ((acc, n), b) =>
+                val (body1, n1) = go(b.body, n)
+                (b.copy(body = body1) :: acc, n1)
             }
           (Match(arg, revBranches.reverse), nextN)
         case TupleMatch(a, s1, b, s2, built, branches) =>
           val (revBranches, nextN) =
-            branches.foldLeft((List.empty[TupleBranch], next)) { case ((acc, n), br) =>
-              val (body1, n1) = go(br.body, n)
-              (br.copy(body = body1) :: acc, n1)
+            branches.foldLeft((List.empty[TupleBranch], next)) {
+              case ((acc, n), br) =>
+                val (body1, n1) = go(br.body, n)
+                (br.copy(body = body1) :: acc, n1)
             }
           (TupleMatch(a, s1, b, s2, built, revBranches.reverse), nextN)
         case _ =>
@@ -1655,7 +1800,9 @@ object TypedExprRecursionLoweringTest {
           1 -> Gen.const(leafPlaceholder),
           2 -> pathLetGen(ctx, depth),
           5 -> pathMatchGen(ctx, depth),
-          2 -> tupleMatchOf(ctx, pathExDepth, pathExDepth)(pathGen(_, depth - 1))
+          2 -> tupleMatchOf(ctx, pathExDepth, pathExDepth)(
+            pathGen(_, depth - 1)
+          )
         )
       )
 
@@ -1673,7 +1820,8 @@ object TypedExprRecursionLoweringTest {
   def shadowNameGen(ctx: Ctx, s: Sort): Gen[Option[String]] =
     ctx.namesOf(s) match {
       case Nil   => Gen.const(None)
-      case names => Gen.frequency(1 -> Gen.const(None), 2 -> Gen.oneOf(names).map(Some(_)))
+      case names =>
+        Gen.frequency(1 -> Gen.const(None), 2 -> Gen.oneOf(names).map(Some(_)))
     }
 
   // a catch-all pattern, which subsumes the later branches, that may rebind
@@ -1681,7 +1829,8 @@ object TypedExprRecursionLoweringTest {
   def pathCatchAllGen(ctx: Ctx, sort: Sort, shadow: Option[String]): Gen[Pat] =
     shadow match {
       case None    => catchAllGen(ctx, sort)
-      case Some(n) => Gen.frequency(2 -> catchAllGen(ctx, sort), 1 -> Gen.const(Pat.Bind(n)))
+      case Some(n) =>
+        Gen.frequency(2 -> catchAllGen(ctx, sort), 1 -> Gen.const(Pat.Bind(n)))
     }
 
   def pathMatchGen(ctx: Ctx, depth: Int): Gen[Ex] =
@@ -1691,12 +1840,17 @@ object TypedExprRecursionLoweringTest {
       shadow <- shadowNameGen(ctx, s)
       // guards test the most recent name, which is the shadow name when the
       // pattern binds none
-      guardCtx = shadow.fold(ctx)(n => ctx.copy(recent = (n :: ctx.recent).take(3)))
+      guardCtx = shadow.fold(ctx)(n =>
+        ctx.copy(recent = (n :: ctx.recent).take(3))
+      )
       n <- Gen.chooseNum(1, 3)
       init <- Gen.listOfN(
         n,
         for {
-          pat <- Gen.frequency(3 -> refutablePatGen(s, ctx), 2 -> pathCatchAllGen(ctx, s, shadow))
+          pat <- Gen.frequency(
+            3 -> refutablePatGen(s, ctx),
+            2 -> pathCatchAllGen(ctx, s, shadow)
+          )
           guard <- guardGen(guardCtx.bind(pat.names, s), pathExDepth)
           body <- pathGen(guardNames(guard)(ctx.bind(pat.names, s)), depth - 1)
         } yield Branch(pat, guard, body)
@@ -1720,7 +1874,8 @@ object TypedExprRecursionLoweringTest {
       s match {
         case IntS  => Nil
         case BoolS => List(Pat.BoolP(true), Pat.BoolP(false))
-        case CmpS  => List(Pat.Union(List(Pat.CmpP(-1), Pat.CmpP(0))), Pat.CmpP(1))
+        case CmpS  =>
+          List(Pat.Union(List(Pat.CmpP(-1), Pat.CmpP(0))), Pat.CmpP(1))
       }
     val literals =
       Gen.sequence[List[Branch], Branch](pats.map { p =>

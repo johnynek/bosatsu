@@ -18,9 +18,11 @@ object LinearBoundsGens {
       6 -> Gen.chooseNum(-10, 10).map(BigInt(_)),
       3 -> Gen.chooseNum(-1000, 1000).map(BigInt(_)),
       2 -> Gen.chooseNum(Long.MinValue, Long.MaxValue).map(BigInt(_)),
-      1 -> Gen.zip(Gen.chooseNum(Long.MinValue, Long.MaxValue), Gen.chooseNum(1, 64)).map {
-        case (l, s) => BigInt(l) << s
-      },
+      1 -> Gen
+        .zip(Gen.chooseNum(Long.MinValue, Long.MaxValue), Gen.chooseNum(1, 64))
+        .map { case (l, s) =>
+          BigInt(l) << s
+        },
       1 -> Gen.oneOf(BigInt(0), BigInt(1), BigInt(-1))
     )
 
@@ -40,7 +42,10 @@ object LinearBoundsGens {
       n <- Gen.choose(0, 4)
       terms <- Gen.listOfN(
         n,
-        Gen.zip(Gen.oneOf(linVarNames), Gen.frequency(5 -> bigIntGen, 1 -> Gen.const(BigInt(0))))
+        Gen.zip(
+          Gen.oneOf(linVarNames),
+          Gen.frequency(5 -> bigIntGen, 1 -> Gen.const(BigInt(0)))
+        )
       )
     } yield Lin.of(c, terms.toMap)
 
@@ -69,7 +74,9 @@ object LinearBoundsGens {
   val linGen: Gen[Lin] = linOpsGen(3)
 
   val linEnvGen: Gen[Map[String, BigInt]] =
-    Gen.listOfN(linVarNames.size, bigIntGen).map(vs => linVarNames.zip(vs).toMap)
+    Gen
+      .listOfN(linVarNames.size, bigIntGen)
+      .map(vs => linVarNames.zip(vs).toMap)
 
   // ---------------------------------------------------------------------------
   // Interval
@@ -98,11 +105,18 @@ object LinearBoundsGens {
 
   /** Members of a nonempty interval, often at or next to its bounds. */
   def memberGen(i: Interval): Gen[BigInt] = {
-    val offset = Gen.frequency(3 -> Gen.chooseNum(0, 3).map(BigInt(_)), 1 -> positiveBigIntGen)
+    val offset = Gen.frequency(
+      3 -> Gen.chooseNum(0, 3).map(BigInt(_)),
+      1 -> positiveBigIntGen
+    )
     (i.lo, i.hi) match {
       case (Some(l), Some(h)) =>
         require(l <= h, s"empty interval $i")
-        Gen.frequency(2 -> Gen.const(l), 2 -> Gen.const(h), 4 -> Gen.choose(l, h))
+        Gen.frequency(
+          2 -> Gen.const(l),
+          2 -> Gen.const(h),
+          4 -> Gen.choose(l, h)
+        )
       case (Some(l), None) => offset.map(l + _)
       case (None, Some(h)) => offset.map(h - _)
       case (None, None)    => bigIntGen
@@ -134,7 +148,9 @@ object LinearBoundsGens {
     val small = Gen.chooseNum(-8, 8).map(BigInt(_))
     val ivGen: Gen[Interval] =
       Gen.frequency(
-        4 -> Gen.zip(small, Gen.chooseNum(0, 8)).map { case (l, w) => Interval(Some(l), Some(l + w)) },
+        4 -> Gen.zip(small, Gen.chooseNum(0, 8)).map { case (l, w) =>
+          Interval(Some(l), Some(l + w))
+        },
         1 -> small.map(l => Interval(Some(l), None)),
         1 -> small.map(h => Interval(None, Some(h))),
         1 -> Gen.const(Interval.all)
@@ -146,13 +162,19 @@ object LinearBoundsGens {
       }
       if (!wide) Gen.const(Set.empty)
       else {
-        val near = (i.lo.toList.flatMap(l => List(l, l + 1)) ::: i.hi.toList.flatMap(h => List(h, h - 1)))
+        val near = (i.lo.toList.flatMap(l => List(l, l + 1)) ::: i.hi.toList
+          .flatMap(h => List(h, h - 1)))
         val candidates = if (near.isEmpty) List(BigInt(0), BigInt(1)) else near
-        Gen.frequency(2 -> Gen.const(Set.empty[BigInt]), 1 -> Gen.someOf(candidates).map(_.toSet.take(2)))
+        Gen.frequency(
+          2 -> Gen.const(Set.empty[BigInt]),
+          1 -> Gen.someOf(candidates).map(_.toSet.take(2))
+        )
       }
     }
     Gen
-      .sequence[List[Option[(String, Interval, Set[BigInt])]], Option[(String, Interval, Set[BigInt])]](
+      .sequence[List[Option[(String, Interval, Set[BigInt])]], Option[
+        (String, Interval, Set[BigInt])
+      ]](
         boxVarNames.toList.map { v =>
           Gen.frequency(
             1 -> Gen.const(None),
@@ -186,7 +208,10 @@ object LinearBoundsGens {
     Gen
       .sequence[List[(String, BigInt)], (String, BigInt)](
         boxVarNames.toList.map { v =>
-          val near = b.excluded.getOrElse(v, Set.empty[BigInt]).toList.flatMap(x => List(x - 1, x, x + 1))
+          val near = b.excluded
+            .getOrElse(v, Set.empty[BigInt])
+            .toList
+            .flatMap(x => List(x - 1, x, x + 1))
           Gen.oneOf(probes(b.interval(v)) ::: near).map((v, _))
         }
       )
@@ -196,15 +221,18 @@ object LinearBoundsGens {
   def envInBoxGen(b: Box): Gen[Map[String, BigInt]] =
     envNearBoxGen(b).retryUntil(b.contains)
 
-  /** An env in the box with one variable moved to a probe point of its
-    * interval or next to an excluded value. The other variables stay inside,
-    * so membership turns on that one variable.
+  /** An env in the box with one variable moved to a probe point of its interval
+    * or next to an excluded value. The other variables stay inside, so
+    * membership turns on that one variable.
     */
   def envEdgeOfBoxGen(b: Box): Gen[Map[String, BigInt]] =
     for {
       env <- envInBoxGen(b)
       v <- Gen.oneOf(boxVarNames)
-      near = b.excluded.getOrElse(v, Set.empty[BigInt]).toList.flatMap(x => List(x - 1, x, x + 1))
+      near = b.excluded
+        .getOrElse(v, Set.empty[BigInt])
+        .toList
+        .flatMap(x => List(x - 1, x, x + 1))
       x <- Gen.oneOf(probes(b.interval(v)) ::: near)
     } yield env.updated(v, x)
 
@@ -220,12 +248,20 @@ object LinearBoundsGens {
       n <- Gen.choose(0, 2)
       terms <- Gen.listOfN(
         n,
-        Gen.zip(Gen.oneOf(boxVarNames), Gen.oneOf(-3, -2, -1, 1, 2, 3).map(BigInt(_)))
+        Gen.zip(
+          Gen.oneOf(boxVarNames),
+          Gen.oneOf(-3, -2, -1, 1, 2, 3).map(BigInt(_))
+        )
       )
     } yield Lin.of(c, terms.toMap)
 
   val relGen: Gen[LinearBounds.Rel] =
-    Gen.oneOf(LinearBounds.Rel.Le, LinearBounds.Rel.Ge, LinearBounds.Rel.Eq, LinearBounds.Rel.Ne)
+    Gen.oneOf(
+      LinearBounds.Rel.Le,
+      LinearBounds.Rel.Ge,
+      LinearBounds.Rel.Eq,
+      LinearBounds.Rel.Ne
+    )
 
   // ---------------------------------------------------------------------------
   // SMT expressions
@@ -243,8 +279,14 @@ object LinearBoundsGens {
   // properties use linear arithmetic with nonzero constant divisors. The grid
   // property also covers products, and zero and variable divisors.
   def divisorGen(z3Safe: Boolean): Gen[Int] =
-    if (z3Safe) Gen.frequency(6 -> Gen.chooseNum(1, 5), 2 -> Gen.chooseNum(-4, -1))
-    else Gen.frequency(6 -> Gen.chooseNum(1, 5), 1 -> Gen.const(0), 2 -> Gen.chooseNum(-4, -1))
+    if (z3Safe)
+      Gen.frequency(6 -> Gen.chooseNum(1, 5), 2 -> Gen.chooseNum(-4, -1))
+    else
+      Gen.frequency(
+        6 -> Gen.chooseNum(1, 5),
+        1 -> Gen.const(0),
+        2 -> Gen.chooseNum(-4, -1)
+      )
 
   def cmpGen(l: Gen[IntExpr], r: Gen[IntExpr]): Gen[BoolExpr] =
     for {
@@ -269,18 +311,32 @@ object LinearBoundsGens {
       Gen.frequency(
         6 -> leaf,
         2 -> Gen.zip(rec, rec).map { case (a, b) => Add(Vector(a, b)) },
-        1 -> Gen.choose(2, 4).flatMap(Gen.listOfN(_, rec)).map(as => Add(as.toVector)),
+        1 -> Gen
+          .choose(2, 4)
+          .flatMap(Gen.listOfN(_, rec))
+          .map(as => Add(as.toVector)),
         2 -> Gen.zip(rec, rec).map { case (a, b) => Sub(Vector(a, b)) },
         // rendered as the argument itself, not a negation
         1 -> rec.map(a => Sub(Vector(a))),
-        1 -> Gen.choose(2, 4).flatMap(Gen.listOfN(_, rec)).map(as => Sub(as.toVector)),
-        2 -> Gen.zip(Gen.chooseNum(-3, 3), rec).map { case (k, a) => Mul(Vector(c(k), a)) },
+        1 -> Gen
+          .choose(2, 4)
+          .flatMap(Gen.listOfN(_, rec))
+          .map(as => Sub(as.toVector)),
+        2 -> Gen.zip(Gen.chooseNum(-3, 3), rec).map { case (k, a) =>
+          Mul(Vector(c(k), a))
+        },
         nonlinear -> Gen.zip(rec, rec).map { case (a, b) => Mul(Vector(a, b)) },
-        3 -> Gen.zip(rec, divisorGen(z3Safe)).map { case (a, k) => Div(a, c(k)) },
+        3 -> Gen.zip(rec, divisorGen(z3Safe)).map { case (a, k) =>
+          Div(a, c(k))
+        },
         nonlinear -> Gen.zip(rec, rec).map { case (a, b) => Div(a, b) },
-        2 -> Gen.zip(rec, divisorGen(z3Safe)).map { case (a, k) => Mod(a, c(k)) },
+        2 -> Gen.zip(rec, divisorGen(z3Safe)).map { case (a, k) =>
+          Mod(a, c(k))
+        },
         nonlinear -> Gen.zip(rec, rec).map { case (a, b) => Mod(a, b) },
-        1 -> Gen.zip(constIteCond, rec, rec).map { case (p, a, b) => Ite[SmtSort.IntSort](p, a, b) },
+        1 -> Gen.zip(constIteCond, rec, rec).map { case (p, a, b) =>
+          Ite[SmtSort.IntSort](p, a, b)
+        },
         1 -> Gen.zip(cmpGen(varGen, constGen), rec, rec).map { case (p, a, b) =>
           Ite[SmtSort.IntSort](p, a, b)
         }
@@ -290,19 +346,31 @@ object LinearBoundsGens {
 
   // conditions with no variables, like the `(= 2 0)` guards on div
   lazy val constIteCond: Gen[BoolExpr] =
-    Gen.oneOf(cmpGen(constGen, constGen), Gen.oneOf(true, false).map(BoolConst(_)))
+    Gen.oneOf(
+      cmpGen(constGen, constGen),
+      Gen.oneOf(true, false).map(BoolConst(_))
+    )
 
   /** Booleans over comparisons of the given Int expressions. */
   def boolExprGen(depth: Int, ints: Gen[IntExpr]): Gen[BoolExpr] = {
-    val leaf = Gen.frequency(4 -> cmpGen(ints, ints), 1 -> Gen.oneOf(true, false).map(BoolConst(_)))
+    val leaf = Gen.frequency(
+      4 -> cmpGen(ints, ints),
+      1 -> Gen.oneOf(true, false).map(BoolConst(_))
+    )
     if (depth <= 0) leaf
     else {
       val rec = boolExprGen(depth - 1, ints)
       Gen.frequency(
         3 -> leaf,
         2 -> rec.map(Not(_)),
-        1 -> Gen.choose(0, 3).flatMap(Gen.listOfN(_, rec)).map(as => And(as.toVector)),
-        1 -> Gen.choose(0, 3).flatMap(Gen.listOfN(_, rec)).map(as => Or(as.toVector))
+        1 -> Gen
+          .choose(0, 3)
+          .flatMap(Gen.listOfN(_, rec))
+          .map(as => And(as.toVector)),
+        1 -> Gen
+          .choose(0, 3)
+          .flatMap(Gen.listOfN(_, rec))
+          .map(as => Or(as.toVector))
       )
     }
   }
@@ -346,7 +414,9 @@ object LinearBoundsGens {
     Gen.frequency(
       8 -> singleVarFactGen,
       2 -> noiseFactGen(z3Safe),
-      1 -> Gen.zip(singleVarFactGen, singleVarFactGen).map { case (a, b) => And(Vector(a, b)) }
+      1 -> Gen.zip(singleVarFactGen, singleVarFactGen).map { case (a, b) =>
+        And(Vector(a, b))
+      }
     )
 
   // most facts bound a variable, so a good share of goals are provable
@@ -401,7 +471,15 @@ object LinearBoundsGens {
   // SMT-LIB leaves division and mod by zero unspecified (any function of the
   // numerator), so a law must hold for every one of these choices.
   val byZeroChoices: List[BigInt => BigInt] =
-    List(_ => BigInt(0), _ => BigInt(1), _ => BigInt(-1), _ => BigInt(7), _ => BigInt(-7), n => n, n => -n)
+    List(
+      _ => BigInt(0),
+      _ => BigInt(1),
+      _ => BigInt(-1),
+      _ => BigInt(7),
+      _ => BigInt(-7),
+      n => n,
+      n => -n
+    )
 
   final case class Env(
       vars: Map[String, BigInt],
@@ -416,10 +494,11 @@ object LinearBoundsGens {
       case Add(args)   => args.iterator.map(evalInt(_, env)).sum
       case Sub(args)   =>
         args.toList match {
-          case Nil          => BigInt(0)
+          case Nil => BigInt(0)
           // SmtToSExpr renders a one-argument `-` as the argument itself
           case one :: Nil   => evalInt(one, env)
-          case head :: rest => rest.foldLeft(evalInt(head, env))(_ - evalInt(_, env))
+          case head :: rest =>
+            rest.foldLeft(evalInt(head, env))(_ - evalInt(_, env))
         }
       case Mul(args) => args.iterator.map(evalInt(_, env)).product
       case Div(n, d) =>
@@ -428,8 +507,9 @@ object LinearBoundsGens {
       case Mod(n, d) =>
         val (nv, dv) = (evalInt(n, env), evalInt(d, env))
         if (dv == 0) env.byZero(nv) else euclid(nv, dv)._2
-      case Ite(p, a, b) => if (evalBool(p, env)) evalInt(a, env) else evalInt(b, env)
-      case other        => sys.error(s"unexpected int expression: $other")
+      case Ite(p, a, b) =>
+        if (evalBool(p, env)) evalInt(a, env) else evalInt(b, env)
+      case other => sys.error(s"unexpected int expression: $other")
     }
 
   def evalBool(e: BoolExpr, env: Env): Boolean =
@@ -447,18 +527,24 @@ object LinearBoundsGens {
       case EqBool(a, b)  => evalBool(a, env) == evalBool(b, env)
       case Xor(a, b)     => evalBool(a, env) != evalBool(b, env)
       case Implies(a, b) => !evalBool(a, env) || evalBool(b, env)
-      case Ite(p, a, b)  => if (evalBool(p, env)) evalBool(a, env) else evalBool(b, env)
-      case other         => sys.error(s"unexpected bool expression: $other")
+      case Ite(p, a, b)  =>
+        if (evalBool(p, env)) evalBool(a, env) else evalBool(b, env)
+      case other => sys.error(s"unexpected bool expression: $other")
     }
 
-  /** Every point of [-6, 6]^3, under each interpretation of division by zero. */
+  /** Every point of [-6, 6]^3, under each interpretation of division by zero.
+    */
   val grid: List[Env] =
     (for {
       x <- -6 to 6
       y <- -6 to 6
       z <- -6 to 6
       byZero <- byZeroChoices
-    } yield Env(Map("x" -> BigInt(x), "y" -> BigInt(y), "z" -> BigInt(z)), Map.empty, byZero)).toList
+    } yield Env(
+      Map("x" -> BigInt(x), "y" -> BigInt(y), "z" -> BigInt(z)),
+      Map.empty,
+      byZero
+    )).toList
 
   def gridCounterexample(facts: List[BoolExpr], goal: BoolExpr): Option[Env] =
     grid.find(env => facts.forall(evalBool(_, env)) && !evalBool(goal, env))

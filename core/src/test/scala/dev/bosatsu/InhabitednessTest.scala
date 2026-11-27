@@ -235,14 +235,24 @@ class InhabitednessTest extends munit.ScalaCheckSuite {
   }
 
   private val edgeOpaqueType: Type.TyConst = localType("EdgeOpaque")
-  private val edgeMissingBuiltinType: Type.TyConst = localType("EdgeMissingBuiltin")
+  private val edgeMissingBuiltinType: Type.TyConst = localType(
+    "EdgeMissingBuiltin"
+  )
   private val edgeFreeVarType: Type.TyConst = localType("EdgeFreeVar")
   private val edgeBadApplyType: Type.TyConst = localType("EdgeBadApply")
-  private val edgeNonConstApplyType: Type.TyConst = localType("EdgeNonConstApply")
-  private val edgeExistsNonTypeType: Type.TyConst = localType("EdgeExistsNonType")
+  private val edgeNonConstApplyType: Type.TyConst = localType(
+    "EdgeNonConstApply"
+  )
+  private val edgeExistsNonTypeType: Type.TyConst = localType(
+    "EdgeExistsNonType"
+  )
   private val edgeExistsManyType: Type.TyConst = localType("EdgeExistsMany")
-  private val edgeExistsUnknownType: Type.TyConst = localType("EdgeExistsUnknown")
-  private val edgeUnknownOrNeverType: Type.TyConst = localType("EdgeUnknownOrNever")
+  private val edgeExistsUnknownType: Type.TyConst = localType(
+    "EdgeExistsUnknown"
+  )
+  private val edgeUnknownOrNeverType: Type.TyConst = localType(
+    "EdgeUnknownOrNever"
+  )
   private val edgeFnUnknownType: Type.TyConst = localType("EdgeFnUnknown")
 
   private def typeIfPresent(
@@ -373,13 +383,16 @@ class InhabitednessTest extends munit.ScalaCheckSuite {
       case _                               => false
     }
 
-    expectInvalid(Inhabitedness.check(Type.TyVar(Type.Var.Bound("u")), nonTrivialEnv)) {
+    expectInvalid(
+      Inhabitedness.check(Type.TyVar(Type.Var.Bound("u")), nonTrivialEnv)
+    ) {
       case Error.UnknownTypeVariable(_) => true
       case _                            => false
     }
 
     expectInvalid(
-      Inhabitedness.check(Type.TyApply(Type.IntType, Type.IntType), nonTrivialEnv)
+      Inhabitedness
+        .check(Type.TyApply(Type.IntType, Type.IntType), nonTrivialEnv)
     ) {
       case Error.IllKindedTypeApply(_) => true
       case _                           => false
@@ -397,8 +410,10 @@ class InhabitednessTest extends munit.ScalaCheckSuite {
   }
 
   test("checkMatch reports pattern validation errors and accumulates them") {
-    val unknown1 = Pattern.PositionalStruct((localPackage, Constructor("Nope1")), Nil)
-    val unknown2 = Pattern.PositionalStruct((localPackage, Constructor("Nope2")), Nil)
+    val unknown1 =
+      Pattern.PositionalStruct((localPackage, Constructor("Nope1")), Nil)
+    val unknown2 =
+      Pattern.PositionalStruct((localPackage, Constructor("Nope2")), Nil)
     val badAnn = Pattern.Annotation(Pattern.WildCard, Type.OptionType)
 
     val pattern =
@@ -412,8 +427,12 @@ class InhabitednessTest extends munit.ScalaCheckSuite {
       case Validated.Valid(state) =>
         fail(s"expected accumulated validation errors, got state: $state")
       case Validated.Invalid(errs) =>
-        assert(errs.exists { case Error.UnknownConstructor(_) => true; case _ => false })
-        assert(errs.exists { case Error.TypeNotValueKind(_, _) => true; case _ => false })
+        assert(errs.exists {
+          case Error.UnknownConstructor(_) => true; case _ => false
+        })
+        assert(errs.exists {
+          case Error.TypeNotValueKind(_, _) => true; case _ => false
+        })
         assert(errs.size >= 3, errs.toList.toString)
     }
   }
@@ -460,11 +479,13 @@ class InhabitednessTest extends munit.ScalaCheckSuite {
       State.Inhabited
     )
     assertState(
-      Inhabitedness.checkMatch(Type.IntType, prefixedListOnNonList, nonTrivialEnv),
+      Inhabitedness
+        .checkMatch(Type.IntType, prefixedListOnNonList, nonTrivialEnv),
       State.Unknown
     )
     assertState(
-      Inhabitedness.checkMatch(listType, prefixedListWithBadItem, nonTrivialEnv),
+      Inhabitedness
+        .checkMatch(listType, prefixedListWithBadItem, nonTrivialEnv),
       State.Uninhabited
     )
     assertState(
@@ -478,13 +499,22 @@ class InhabitednessTest extends munit.ScalaCheckSuite {
   }
 
   test("check covers unknown-state and malformed environment fallbacks") {
-    assertState(Inhabitedness.check(edgeOpaqueType, edgeNoPredefEnv), State.Unknown)
+    assertState(
+      Inhabitedness.check(edgeOpaqueType, edgeNoPredefEnv),
+      State.Unknown
+    )
     assertState(
       Inhabitedness.check(edgeMissingBuiltinType, edgeNoPredefEnv),
       State.Unknown
     )
-    assertState(Inhabitedness.check(edgeFreeVarType, edgeNoPredefEnv), State.Unknown)
-    assertState(Inhabitedness.check(edgeBadApplyType, edgeNoPredefEnv), State.Unknown)
+    assertState(
+      Inhabitedness.check(edgeFreeVarType, edgeNoPredefEnv),
+      State.Unknown
+    )
+    assertState(
+      Inhabitedness.check(edgeBadApplyType, edgeNoPredefEnv),
+      State.Unknown
+    )
     assertState(
       Inhabitedness.check(edgeNonConstApplyType, edgeNoPredefEnv),
       State.Unknown
@@ -505,7 +535,10 @@ class InhabitednessTest extends munit.ScalaCheckSuite {
       Inhabitedness.check(edgeUnknownOrNeverType, edgeNoPredefEnv),
       State.Unknown
     )
-    assertState(Inhabitedness.check(edgeFnUnknownType, edgeNoPredefEnv), State.Unknown)
+    assertState(
+      Inhabitedness.check(edgeFnUnknownType, edgeNoPredefEnv),
+      State.Unknown
+    )
   }
 
   test("check handles existential and quantifier edge cases") {
@@ -519,18 +552,32 @@ class InhabitednessTest extends munit.ScalaCheckSuite {
     assertState(Inhabitedness.check(hugeForAll, nonTrivialEnv), State.Unknown)
 
     val listUnknownForAll =
-      Type.forAll(List((a, Kind.Type)), Type.apply1(Type.ListType, Type.TyVar(a)))
+      Type.forAll(
+        List((a, Kind.Type)),
+        Type.apply1(Type.ListType, Type.TyVar(a))
+      )
     val listUnknownExists =
-      Type.exists(List((a, Kind.Type)), Type.apply1(Type.ListType, Type.TyVar(a)))
-    assertState(Inhabitedness.check(listUnknownForAll, predefTypeEnv), State.Inhabited)
-    assertState(Inhabitedness.check(listUnknownExists, predefTypeEnv), State.Inhabited)
+      Type.exists(
+        List((a, Kind.Type)),
+        Type.apply1(Type.ListType, Type.TyVar(a))
+      )
+    assertState(
+      Inhabitedness.check(listUnknownForAll, predefTypeEnv),
+      State.Inhabited
+    )
+    assertState(
+      Inhabitedness.check(listUnknownExists, predefTypeEnv),
+      State.Inhabited
+    )
 
     val skolem =
       Type.TyVar(Type.Var.Skolem("s", Kind.Type, existential = false, id = 7L))
     assertState(Inhabitedness.check(skolem, nonTrivialEnv), State.Unknown)
   }
 
-  test("checkMatch covers named, annotation, union and positional unknown paths") {
+  test(
+    "checkMatch covers named, annotation, union and positional unknown paths"
+  ) {
     val namedPat = Pattern.Named(Identifier.Name("x"), Pattern.WildCard)
     assertState(
       Inhabitedness.checkMatch(Type.IntType, namedPat, nonTrivialEnv),
@@ -658,17 +705,24 @@ class InhabitednessTest extends munit.ScalaCheckSuite {
     val badApplyPattern =
       Pattern.PositionalStruct(
         (localPackage, Constructor("EdgeBadApply")),
-        Pattern.PositionalStruct((localPackage, Constructor("Good")), Nil) :: Nil
+        Pattern.PositionalStruct(
+          (localPackage, Constructor("Good")),
+          Nil
+        ) :: Nil
       )
     assertState(
-      Inhabitedness.checkMatch(edgeBadApplyType, badApplyPattern, edgeNoPredefEnv),
+      Inhabitedness
+        .checkMatch(edgeBadApplyType, badApplyPattern, edgeNoPredefEnv),
       State.Unknown
     )
 
     val nonConstApplyPattern =
       Pattern.PositionalStruct(
         (localPackage, Constructor("EdgeNonConstApply")),
-        Pattern.PositionalStruct((localPackage, Constructor("Good")), Nil) :: Nil
+        Pattern.PositionalStruct(
+          (localPackage, Constructor("Good")),
+          Nil
+        ) :: Nil
       )
     assertState(
       Inhabitedness.checkMatch(
@@ -707,7 +761,9 @@ class InhabitednessTest extends munit.ScalaCheckSuite {
   }
 
   private def sourceTypeEnv(src: String): TypeEnv[Kind.Arg] =
-    predefTypeEnv ++ toKindedTypeEnv(TestUtils.parsedTypeEnvOf(localPackage, src))
+    predefTypeEnv ++ toKindedTypeEnv(
+      TestUtils.parsedTypeEnvOf(localPackage, src)
+    )
 
   private val captureEnv: TypeEnv[Kind.Arg] =
     sourceTypeEnv("""#
@@ -762,7 +818,9 @@ struct Wr[x, a](f: a -> x)
     q(List((v, Kind.Type)), Type.apply1(tc, Type.TyVar(v)))
   }
 
-  test("constructor existentials do not capture an outer variable in a recursive field") {
+  test(
+    "constructor existentials do not capture an outer variable in a recursive field"
+  ) {
     // Type.normalize names the quantified variable `a`, the same name as
     // Step's existential. Step(Base(1)) has type forall a. T[a].
     List("a", "b").foreach { name =>
@@ -776,7 +834,9 @@ struct Wr[x, a](f: a -> x)
     }
   }
 
-  test("constructor existentials do not capture an outer variable through type arguments") {
+  test(
+    "constructor existentials do not capture an outer variable through type arguments"
+  ) {
     // MkBox(1, x -> x) has type Box[Int] (with a = Never), so exists a. Box[a]
     // has a value. Substituting the outer `a` for `x` must not let MkBox's
     // existential `a` capture it.
@@ -793,7 +853,9 @@ struct Wr[x, a](f: a -> x)
     )
   }
 
-  test("quantifiers inside field types do not capture an outer variable in a recursive field") {
+  test(
+    "quantifiers inside field types do not capture an outer variable in a recursive field"
+  ) {
     // `forall a. D[a]` and B's field `exists y. D[y]` (normalized to
     // `exists a. D[a]`) use the same name for different variables.
     // B(A(1)) has type forall a. D[a].
@@ -839,15 +901,30 @@ struct Wr[x, a](f: a -> x)
     val ints = List.fill(4)(Type.IntType: Type)
     val vars = List("a", "b", "c", "d").map(Type.Var.Bound(_))
     def forall4(name: String): Type =
-      Type.forAll(vars.map((_, Kind.Type)), applied4(name, vars.map(Type.TyVar(_))))
+      Type.forAll(
+        vars.map((_, Kind.Type)),
+        applied4(name, vars.map(Type.TyVar(_)))
+      )
 
-    assertState(Inhabitedness.check(applied4("P4", ints), captureEnv), State.Inhabited)
-    assertState(Inhabitedness.check(applied4("Q4", ints), captureEnv), State.Inhabited)
+    assertState(
+      Inhabitedness.check(applied4("P4", ints), captureEnv),
+      State.Inhabited
+    )
+    assertState(
+      Inhabitedness.check(applied4("Q4", ints), captureEnv),
+      State.Inhabited
+    )
     // P4[a, b, c, d] has Step4(Base4(1, 1, 1, 1)) for every a, b, c, d.
     assertState(Inhabitedness.check(forall4("P4"), captureEnv), State.Inhabited)
     // Loop4 has no base case.
-    assertState(Inhabitedness.check(forall4("Loop4"), captureEnv), State.Uninhabited)
-    assertState(Inhabitedness.check(applied4("Loop4", ints), captureEnv), State.Uninhabited)
+    assertState(
+      Inhabitedness.check(forall4("Loop4"), captureEnv),
+      State.Uninhabited
+    )
+    assertState(
+      Inhabitedness.check(applied4("Loop4", ints), captureEnv),
+      State.Uninhabited
+    )
   }
 
   test("recursion through two function arguments is covariant and solved") {
@@ -865,10 +942,15 @@ struct Wr[x, a](f: a -> x)
     // it. Liar = Liar -> Never has no least fixed point: assuming Liar empty
     // makes it inhabited, and assuming it inhabited makes it empty. The
     // solver answers Unknown rather than rely on KindFormula.
-    assertState(Inhabitedness.check(localType("Liar"), captureEnv), State.Unknown)
+    assertState(
+      Inhabitedness.check(localType("Liar"), captureEnv),
+      State.Unknown
+    )
   }
 
-  test("a component read under an even number of function arguments is searched") {
+  test(
+    "a component read under an even number of function arguments is searched"
+  ) {
     // Rec = Wrapper[Wrapper[Rec, Tok], Rec] = Rec or not Wrapper[Rec, Tok],
     // and Wrapper[Rec, Tok] = Tok or not Rec, which is Inhabited. So Rec is
     // empty. Iterating all three keys up from Uninhabited would instead read
@@ -888,7 +970,10 @@ struct Wr[x, a](f: a -> x)
     assertState(Inhabitedness.check(tuple, captureEnv), State.Inhabited)
 
     // DN2 = Neg[Neg[DN2]] = not not DN2, so it is empty.
-    assertState(Inhabitedness.check(localType("DN2"), captureEnv), State.Uninhabited)
+    assertState(
+      Inhabitedness.check(localType("DN2"), captureEnv),
+      State.Uninhabited
+    )
   }
 
   test("a function from an empty type is inhabited, inside a data type too") {
@@ -1004,8 +1089,14 @@ enum RG[f: * -> *]: RG1(r: RG[f]), RG2(g: f[Never] -> Never)
 struct G[a](h: RG[G] -> a)
 """)
     val g = localType("G")
-    assertState(Inhabitedness.check(Type.apply1(localType("RG"), g), env), State.Unknown)
-    assertState(Inhabitedness.check(Type.apply1(g, neverType), env), State.Unknown)
+    assertState(
+      Inhabitedness.check(Type.apply1(localType("RG"), g), env),
+      State.Unknown
+    )
+    assertState(
+      Inhabitedness.check(Type.apply1(g, neverType), env),
+      State.Unknown
+    )
   }
 
   test("a kind-checked cycle of uses makes a component Unknown") {
@@ -1076,29 +1167,34 @@ struct MB(g: MA -> Never)
   test("polymorphic recursion stops at the data-type key limits") {
     // Nested[Int] reaches Nested[Wrap[Int]], Nested[Wrap[Wrap[Int]]], ...
     assertState(
-      Inhabitedness.check(Type.apply1(localType("Nested"), Type.IntType), captureEnv),
+      Inhabitedness
+        .check(Type.apply1(localType("Nested"), Type.IntType), captureEnv),
       State.Inhabited
     )
     // NestedLoop has no value, but proving that needs every key, so the
     // check runs out of keys and answers Unknown.
     assertState(
-      Inhabitedness.check(Type.apply1(localType("NestedLoop"), Type.IntType), captureEnv),
+      Inhabitedness
+        .check(Type.apply1(localType("NestedLoop"), Type.IntType), captureEnv),
       State.Unknown
     )
     // Twice doubles its argument at each step, so its keys hit the size
     // limit after a few steps, long before the number of keys matters.
     assertState(
-      Inhabitedness.check(Type.apply1(localType("Twice"), Type.IntType), captureEnv),
+      Inhabitedness
+        .check(Type.apply1(localType("Twice"), Type.IntType), captureEnv),
       State.Inhabited
     )
     assertState(
-      Inhabitedness.check(Type.apply1(localType("TwiceLoop"), Type.IntType), captureEnv),
+      Inhabitedness
+        .check(Type.apply1(localType("TwiceLoop"), Type.IntType), captureEnv),
       State.Unknown
     )
     // Branch reaches 2^k keys of size k + 2 at depth k, so it runs out of
     // keys long before any key is too large.
     assertState(
-      Inhabitedness.check(Type.apply1(localType("Branch"), Type.IntType), captureEnv),
+      Inhabitedness
+        .check(Type.apply1(localType("Branch"), Type.IntType), captureEnv),
       State.Unknown
     )
   }
@@ -1121,7 +1217,8 @@ struct MB(g: MA -> Never)
         List(
           rankn.ConstructorFn[Kind.Arg](
             name = Constructor("EdgeFreeVarKey"),
-            args = List(mkParam("x", Type.apply1(Type.OptionType, Type.TyVar(q))))
+            args =
+              List(mkParam("x", Type.apply1(Type.OptionType, Type.TyVar(q))))
           )
         )
       ) :: Nil

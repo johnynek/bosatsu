@@ -9,7 +9,12 @@ class InferEnvTest extends munit.ScalaCheckSuite {
 
   private def metaType(id: Long): Type.TyMeta =
     Type.TyMeta(
-      Type.Meta(Kind.Type, id, existential = id % 2 == 0, RefSpace.constRef(None))
+      Type.Meta(
+        Kind.Type,
+        id,
+        existential = id % 2 == 0,
+        RefSpace.constRef(None)
+      )
     )
 
   // Closed and open types: generated types (some with free variables), metas
@@ -43,7 +48,13 @@ class InferEnvTest extends munit.ScalaCheckSuite {
   property("addVars keeps openVars equal to the open entries of vars") {
     forAll(Gen.mapOf(genBinding), genBatches) { (init, batches) =>
       val env0 =
-        new Infer.Env(RefSpace.constRef(0L), init, Map.empty, Map.empty, Map.empty)
+        new Infer.Env(
+          RefSpace.constRef(0L),
+          init,
+          Map.empty,
+          Map.empty,
+          Map.empty
+        )
       val env = batches.foldLeft(env0)(_.addVars(_))
 
       assertEquals(

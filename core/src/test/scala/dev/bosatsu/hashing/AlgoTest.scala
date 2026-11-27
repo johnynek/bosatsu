@@ -52,11 +52,13 @@ class AlgoTest extends munit.ScalaCheckSuite {
       "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
     )
     assertEquals(
-      sha256.hashBytes(
-        bytes(
-          "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"
+      sha256
+        .hashBytes(
+          bytes(
+            "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"
+          )
         )
-      ).hex,
+        .hex,
       "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1"
     )
     assertEquals(
@@ -78,14 +80,20 @@ class AlgoTest extends munit.ScalaCheckSuite {
 
   property("SHA-256 one-shot and incremental hashing agree") {
     forAll(bytesGen, chunkSizesGen) { (value, chunkSizes) =>
-      assertEquals(incrementallyHash(value, chunkSizes), sha256.hashBytes(value))
+      assertEquals(
+        incrementallyHash(value, chunkSizes),
+        sha256.hashBytes(value)
+      )
     }
   }
 
-  property("SHA-256 and BLAKE3 identifiers round-trip through the shared parser") {
+  property(
+    "SHA-256 and BLAKE3 identifiers round-trip through the shared parser"
+  ) {
     forAll(bytesGen) { value =>
       val shaIdent = sha256.hashBytes(value).toIdent(using sha256)
-      val blake3Ident = Algo.blake3Algo.hashBytes(value).toIdent(using Algo.blake3Algo)
+      val blake3Ident =
+        Algo.blake3Algo.hashBytes(value).toIdent(using Algo.blake3Algo)
 
       assertEquals(
         Algo.parseIdent.parseAll(shaIdent).map(_.toIdent),
@@ -98,7 +106,9 @@ class AlgoTest extends munit.ScalaCheckSuite {
     }
   }
 
-  test("the shared identifier parser rejects unsupported and malformed digests") {
+  test(
+    "the shared identifier parser rejects unsupported and malformed digests"
+  ) {
     val validSha = sha256.hashBytes(Array.emptyByteArray).toIdent(using sha256)
     val validBlake3 = Algo.blake3Algo
       .hashBytes(Array.emptyByteArray)

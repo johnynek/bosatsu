@@ -25,7 +25,7 @@ object Z3Oracle {
   def isNonlinear(e: SmtExpr[?]): Boolean = {
     def isConst(i: IntExpr) = LinearBounds.linear(i).exists(_.coeffs.isEmpty)
     e match {
-      case Mul(args)     =>
+      case Mul(args) =>
         args.count(a => !isConst(a)) > 1 || args.exists(isNonlinear)
       case Div(n, d)     => !isConst(d) || isNonlinear(n) || isNonlinear(d)
       case Mod(n, d)     => !isConst(d) || isNonlinear(n) || isNonlinear(d)
@@ -70,9 +70,9 @@ object Z3Oracle {
   }
 
   /** z3's answer for "facts imply goal": Right(Some(true)) if facts and not
-    * goal is unsat, Right(Some(false)) if sat, Right(None) if z3 says
-    * unknown, and Left if z3 failed (the embedded z3 traps on some valid
-    * queries, such as division by a variable).
+    * goal is unsat, Right(Some(false)) if sat, Right(None) if z3 says unknown,
+    * and Left if z3 failed (the embedded z3 traps on some valid queries, such
+    * as division by a variable).
     */
   def implies(
       goal: BoolExpr,
@@ -80,7 +80,11 @@ object Z3Oracle {
       ints: Iterable[String],
       bools: Iterable[String]
   ): Either[String, Option[Boolean]] =
-    Z3Api.run(script(goal, facts, ints, bools), parseModel = false, runner) match {
+    Z3Api.run(
+      script(goal, facts, ints, bools),
+      parseModel = false,
+      runner
+    ) match {
       case Right(res) =>
         Right(res.status match {
           case Z3Api.Status.Unsat   => Some(true)

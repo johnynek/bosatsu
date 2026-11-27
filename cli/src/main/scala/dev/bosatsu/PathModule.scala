@@ -37,15 +37,16 @@ object PathModule extends MainModule[IO, Path](CliPlatformIO) {
         }
       case parameterFile :: Nil
           if parameterFile.startsWith("@") && parameterFile.length > 1 =>
-        BazelWorker.readParameterFile(directory, parameterFile).flatMap { parsed =>
-          FileCommandRunner.resource(platformIO.buildInfo).use { runner =>
-            runner.runWorkerTo(
-              directory,
-              parsed.commandArguments,
-              System.out,
-              System.err
-            )
-          }
+        BazelWorker.readParameterFile(directory, parameterFile).flatMap {
+          parsed =>
+            FileCommandRunner.resource(platformIO.buildInfo).use { runner =>
+              runner.runWorkerTo(
+                directory,
+                parsed.commandArguments,
+                System.out,
+                System.err
+              )
+            }
         }
       case _ =>
         IO.raiseError[ExitCode](

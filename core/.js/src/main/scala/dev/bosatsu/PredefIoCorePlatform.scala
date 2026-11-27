@@ -41,11 +41,11 @@ private[bosatsu] object PredefIoCorePlatform {
 
   private var nodeRuntimeOverride: Option[Boolean] = None
 
-  private sealed trait NodeHandle derives CanEqual
+  sealed private trait NodeHandle derives CanEqual
   private case object HandleStdin extends NodeHandle
   private case object HandleStdout extends NodeHandle
   private case object HandleStderr extends NodeHandle
-  private final case class NodeFileHandle(
+  final private case class NodeFileHandle(
       fd: Int,
       readable: Boolean,
       writable: Boolean,
@@ -121,47 +121,50 @@ private[bosatsu] object PredefIoCorePlatform {
 
   private def intFromAny(value: Any): Option[Int] =
     value match {
-      case i: Int                                  => Some(i)
+      case i: Int                                 => Some(i)
       case d: Double if !d.isNaN && !d.isInfinity =>
         if (d.isValidInt) Some(d.toInt)
         else None
-      case s: String                               => Try(s.toInt).toOption
-      case _                                       => None
+      case s: String => Try(s.toInt).toOption
+      case _         => None
     }
 
   private def ioerror_from_js(context: String, err: Any): Value = {
     val code = jsField(err, "code").map(_.toString)
     val errno = jsField(err, "errno").flatMap(intFromAny).getOrElse(0)
-    val message = jsField(err, "message").map(_.toString).getOrElse(err.toString)
+    val message =
+      jsField(err, "message").map(_.toString).getOrElse(err.toString)
 
     code match {
-      case Some("ENOENT")                         => ioerror_known(IOErrorTagNotFound, context)
-      case Some("EACCES") | Some("EPERM")       => ioerror_known(IOErrorTagAccessDenied, context)
-      case Some("EEXIST")                         => ioerror_known(IOErrorTagAlreadyExists, context)
-      case Some("ENOTDIR")                        => ioerror_known(IOErrorTagNotDirectory, context)
-      case Some("EISDIR")                         => ioerror_known(IOErrorTagIsDirectory, context)
-      case Some("ENOTEMPTY")                      => ioerror_known(IOErrorTagNotEmpty, context)
-      case Some("EMFILE") | Some("ENFILE")       => ioerror_known(IOErrorTagTooManyOpenFiles, context)
-      case Some("EROFS")                          => ioerror_known(IOErrorTagReadOnlyFileSystem, context)
-      case Some("EXDEV")                          => ioerror_known(IOErrorTagCrossDeviceLink, context)
-      case Some("ENOSPC")                         => ioerror_known(IOErrorTagNoSpace, context)
-      case Some("EDQUOT")                         => ioerror_known(IOErrorTagQuotaExceeded, context)
-      case Some("ENAMETOOLONG")                   => ioerror_known(IOErrorTagNameTooLong, context)
-      case Some("EINVAL")                         => ioerror_invalid_argument(context)
-      case Some("EBADF")                          => ioerror_known(IOErrorTagBadFileDescriptor, context)
-      case Some("EINTR")                          => ioerror_known(IOErrorTagInterrupted, context)
+      case Some("ENOENT") => ioerror_known(IOErrorTagNotFound, context)
+      case Some("EACCES") | Some("EPERM") =>
+        ioerror_known(IOErrorTagAccessDenied, context)
+      case Some("EEXIST")    => ioerror_known(IOErrorTagAlreadyExists, context)
+      case Some("ENOTDIR")   => ioerror_known(IOErrorTagNotDirectory, context)
+      case Some("EISDIR")    => ioerror_known(IOErrorTagIsDirectory, context)
+      case Some("ENOTEMPTY") => ioerror_known(IOErrorTagNotEmpty, context)
+      case Some("EMFILE") | Some("ENFILE") =>
+        ioerror_known(IOErrorTagTooManyOpenFiles, context)
+      case Some("EROFS") => ioerror_known(IOErrorTagReadOnlyFileSystem, context)
+      case Some("EXDEV") => ioerror_known(IOErrorTagCrossDeviceLink, context)
+      case Some("ENOSPC") => ioerror_known(IOErrorTagNoSpace, context)
+      case Some("EDQUOT") => ioerror_known(IOErrorTagQuotaExceeded, context)
+      case Some("ENAMETOOLONG") => ioerror_known(IOErrorTagNameTooLong, context)
+      case Some("EINVAL")       => ioerror_invalid_argument(context)
+      case Some("EBADF") => ioerror_known(IOErrorTagBadFileDescriptor, context)
+      case Some("EINTR") => ioerror_known(IOErrorTagInterrupted, context)
       case Some("EAGAIN") | Some("EWOULDBLOCK") =>
         ioerror_known(IOErrorTagWouldBlock, context)
-      case Some("ETIMEDOUT")                      => ioerror_known(IOErrorTagTimedOut, context)
-      case Some("EPIPE")                          => ioerror_known(IOErrorTagBrokenPipe, context)
+      case Some("ETIMEDOUT") => ioerror_known(IOErrorTagTimedOut, context)
+      case Some("EPIPE")     => ioerror_known(IOErrorTagBrokenPipe, context)
       case Some("ENOSYS") | Some("ENOTSUP") | Some("EOPNOTSUPP") =>
         ioerror_known(IOErrorTagUnsupported, context)
       case Some("ERR_INVALID_ARG_TYPE") | Some("ERR_INVALID_ARG_VALUE") |
           Some("ERR_OUT_OF_RANGE") =>
         ioerror_invalid_argument(context)
-      case Some(codeStr)                           =>
+      case Some(codeStr) =>
         ioerror_other(context, errno, s"$codeStr: $message")
-      case None                                    =>
+      case None =>
         ioerror_other(context, errno, message)
     }
   }
@@ -242,9 +245,13 @@ private[bosatsu] object PredefIoCorePlatform {
       context: String
   ): Either[Value, Option[String]] =
     value match {
-      case VOption(None)             => Right(None)
-      case VOption(Some(pathValue))  => asPathString(pathValue).map(Some(_)).left.map(_ => ioerror_invalid_argument(context))
-      case _                         => Left(ioerror_invalid_argument(context))
+      case VOption(None)            => Right(None)
+      case VOption(Some(pathValue)) =>
+        asPathString(pathValue)
+          .map(Some(_))
+          .left
+          .map(_ => ioerror_invalid_argument(context))
+      case _ => Left(ioerror_invalid_argument(context))
     }
 
   private def asString(value: Value, context: String): Either[Value, String] =
@@ -256,19 +263,21 @@ private[bosatsu] object PredefIoCorePlatform {
   private def asOpenModeTag(v: Value, context: String): Either[Value, Int] =
     v match {
       case s: SumValue if s.variant >= 0 && s.variant <= 3 => Right(s.variant)
-      case _                                               => Left(ioerror_invalid_argument(context))
+      case _ => Left(ioerror_invalid_argument(context))
     }
 
   private def asHandleValue(v: Value): Either[Value, NodeHandle] =
     v match {
       case ExternalValue(h: NodeHandle) => Right(h)
-      case _                            => Left(ioerror_invalid_argument("expected Handle"))
+      case _ => Left(ioerror_invalid_argument("expected Handle"))
     }
 
   private def asBool(v: Value): Either[Value, Boolean] =
     v match {
-      case s: SumValue if s.variant == 1 && (s.value == UnitValue) => Right(true)
-      case s: SumValue if s.variant == 0 && (s.value == UnitValue) => Right(false)
+      case s: SumValue if s.variant == 1 && (s.value == UnitValue) =>
+        Right(true)
+      case s: SumValue if s.variant == 0 && (s.value == UnitValue) =>
+        Right(false)
       case _ =>
         Left(ioerror_invalid_argument("expected Bool"))
     }
@@ -284,7 +293,11 @@ private[bosatsu] object PredefIoCorePlatform {
       context: String
   ): Either[Value, Int] =
     asInt(value, context).flatMap { bi =>
-      if (bi.signum < 0 || bi.compareTo(BigInteger.valueOf(PosixModeMask.toLong)) > 0)
+      if (
+        bi.signum < 0 || bi.compareTo(
+          BigInteger.valueOf(PosixModeMask.toLong)
+        ) > 0
+      )
         Left(ioerror_invalid_argument(context))
       else Right(bi.intValue)
     }
@@ -311,11 +324,11 @@ private[bosatsu] object PredefIoCorePlatform {
 
   private def asDurationNanos(v: Value): Either[Value, BigInteger] =
     v match {
-      case VInt(i) => Right(i)
+      case VInt(i)                                 => Right(i)
       case p: ProductValue if p.values.length == 1 =>
         p.get(0) match {
           case VInt(i) => Right(i)
-          case _       => Left(ioerror_invalid_argument("invalid Duration value"))
+          case _ => Left(ioerror_invalid_argument("invalid Duration value"))
         }
       case _ =>
         Left(ioerror_invalid_argument("invalid Duration value"))
@@ -341,8 +354,13 @@ private[bosatsu] object PredefIoCorePlatform {
     nodeBuffer.from(view.buffer, view.byteOffset, view.length)
   }
 
-  private def bytesFromBuffer(buffer: js.Dynamic, length: Int): PredefImpl.BytesValue = {
-    val bytes = JsBytes.fromUint8Array(buffer.asInstanceOf[Uint8Array].subarray(0, length))
+  private def bytesFromBuffer(
+      buffer: js.Dynamic,
+      length: Int
+  ): PredefImpl.BytesValue = {
+    val bytes = JsBytes.fromUint8Array(
+      buffer.asInstanceOf[Uint8Array].subarray(0, length)
+    )
     PredefImpl.BytesValue(bytes, 0, bytes.length)
   }
 
@@ -415,7 +433,7 @@ private[bosatsu] object PredefIoCorePlatform {
             // During runProgMain, stdin is captured in the in-memory runtime buffers.
             if (read.length == 0) Right(None)
             else Right(Some(PredefImpl.BytesValue(read, 0, read.length)))
-          case None       =>
+          case None =>
             try {
               val buffer = nodeBuffer.alloc(maxBytes)
               val count =
@@ -438,9 +456,16 @@ private[bosatsu] object PredefIoCorePlatform {
         )
       case fileHandle: NodeFileHandle =>
         if (fileHandle.closed)
-          Left(ioerror_known(IOErrorTagBadFileDescriptor, "reading closed handle"))
+          Left(
+            ioerror_known(IOErrorTagBadFileDescriptor, "reading closed handle")
+          )
         else if (!fileHandle.readable)
-          Left(ioerror_known(IOErrorTagBadFileDescriptor, "reading from write-only handle"))
+          Left(
+            ioerror_known(
+              IOErrorTagBadFileDescriptor,
+              "reading from write-only handle"
+            )
+          )
         else {
           try {
             val buffer = nodeBuffer.alloc(maxBytes)
@@ -496,12 +521,24 @@ private[bosatsu] object PredefIoCorePlatform {
           }
         }
       case HandleStdin =>
-        Left(ioerror_known(IOErrorTagBadFileDescriptor, "writing to read-only handle"))
+        Left(
+          ioerror_known(
+            IOErrorTagBadFileDescriptor,
+            "writing to read-only handle"
+          )
+        )
       case fileHandle: NodeFileHandle =>
         if (fileHandle.closed)
-          Left(ioerror_known(IOErrorTagBadFileDescriptor, "writing closed handle"))
+          Left(
+            ioerror_known(IOErrorTagBadFileDescriptor, "writing closed handle")
+          )
         else if (!fileHandle.writable)
-          Left(ioerror_known(IOErrorTagBadFileDescriptor, "writing to read-only handle"))
+          Left(
+            ioerror_known(
+              IOErrorTagBadFileDescriptor,
+              "writing to read-only handle"
+            )
+          )
         else {
           val total = buffer.length.asInstanceOf[Int]
           try {
@@ -551,16 +588,24 @@ private[bosatsu] object PredefIoCorePlatform {
       handle <- asHandleValue(handleValue)
       bytes <- bytesValue0 match {
         case ExternalValue(_: PredefImpl.BytesValue) =>
-          Right(bytesValue0.asExternal.toAny.asInstanceOf[PredefImpl.BytesValue])
+          Right(
+            bytesValue0.asExternal.toAny.asInstanceOf[PredefImpl.BytesValue]
+          )
         case _ =>
           Left(ioerror_invalid_argument("expected Bytes for write_bytes"))
       }
-      _ <- writeNodeBuffer(handle, bufferFromBytes(bytes), "writing bytes to handle")
+      _ <- writeNodeBuffer(
+        handle,
+        bufferFromBytes(bytes),
+        "writing bytes to handle"
+      )
     } yield ()
 
   // Node's lenient decode, not the strict Bytes.decodeUtf8: it matches the
   // JVM's InputStreamReader-backed handles, which replace malformed input.
-  private def decodeUtf8(bytes: PredefImpl.BytesValue): Either[Value, String] = {
+  private def decodeUtf8(
+      bytes: PredefImpl.BytesValue
+  ): Either[Value, String] = {
     val buffer = bufferFromBytes(bytes)
     try {
       Right(
@@ -569,8 +614,7 @@ private[bosatsu] object PredefIoCorePlatform {
           .applyDynamic("toString")("utf8")
           .asInstanceOf[String]
       )
-    }
-    catch {
+    } catch {
       case t: Throwable =>
         Left(ioerror_from_throwable("decoding bytes as utf8", t))
     }
@@ -589,7 +633,8 @@ private[bosatsu] object PredefIoCorePlatform {
         else if (maxCharsBI.compareTo(MaxIntBI) > 0) Right(Int.MaxValue)
         else Right(maxCharsBI.intValue)
       }
-      maxBytes = if (maxChars >= Int.MaxValue / 4) Int.MaxValue else maxChars * 4
+      maxBytes =
+        if (maxChars >= Int.MaxValue / 4) Int.MaxValue else maxChars * 4
       out <- handle match {
         case HandleStdin =>
           runtimeReadUtf8Chunk(maxCharsBI) match {
@@ -597,13 +642,13 @@ private[bosatsu] object PredefIoCorePlatform {
               result.map { chunk =>
                 if (chunk.isEmpty) None else Some(chunk)
               }
-            case None         =>
+            case None =>
               readNodeBytes(handle, maxBytes).flatMap {
                 case None        => Right(None)
                 case Some(chunk) =>
                   decodeUtf8(chunk).map(Some(_)).left.map {
                     case s: SumValue if s.variant == IOErrorTagInvalidUtf8 => s
-                    case _                                                 => ioerror_invalid_utf8("reading utf8 from stdin")
+                    case _ => ioerror_invalid_utf8("reading utf8 from stdin")
                   }
               }
           }
@@ -613,7 +658,7 @@ private[bosatsu] object PredefIoCorePlatform {
             case Some(chunk) =>
               decodeUtf8(chunk).map(Some(_)).left.map {
                 case s: SumValue if s.variant == IOErrorTagInvalidUtf8 => s
-                case _                                                 => ioerror_invalid_utf8("reading utf8 from handle")
+                case _ => ioerror_invalid_utf8("reading utf8 from handle")
               }
           }
       }
@@ -650,10 +695,14 @@ private[bosatsu] object PredefIoCorePlatform {
 
         while (!done && err.isEmpty) {
           readNodeBytes(handle, chunkSize) match {
-            case Left(e)          => err = Some(e)
-            case Right(None)      => done = true
+            case Left(e)            => err = Some(e)
+            case Right(None)        => done = true
             case Right(Some(chunk)) =>
-              builder.addAll(chunk.data.unsafeReadOnlyView, chunk.offset, chunk.len)
+              builder.addAll(
+                chunk.data.unsafeReadOnlyView,
+                chunk.offset,
+                chunk.len
+              )
           }
         }
 
@@ -662,7 +711,11 @@ private[bosatsu] object PredefIoCorePlatform {
           case None    =>
             val data = builder.result()
             if (data.isEmpty) Right(PredefImpl.BytesValue(Bytes.empty, 0, 0))
-            else Right(PredefImpl.BytesValue(Bytes.unsafeFromArray(data), 0, data.length))
+            else
+              Right(
+                PredefImpl
+                  .BytesValue(Bytes.unsafeFromArray(data), 0, data.length)
+              )
         }
       }
     } yield result
@@ -687,13 +740,13 @@ private[bosatsu] object PredefIoCorePlatform {
       _ <- maxTotal match {
         case Some(i) if i.signum < 0 =>
           Left(ioerror_invalid_argument("copy_bytes max_total must be >= 0"))
-        case _                        => Right(())
+        case _ => Right(())
       }
       copied <- {
         maxTotal match {
           case Some(i) if i.signum == 0 =>
             Right(BigInteger.ZERO)
-          case _                        =>
+          case _ =>
             var done = false
             var total = BigInteger.ZERO
             var err: Option[Value] = None
@@ -716,8 +769,8 @@ private[bosatsu] object PredefIoCorePlatform {
 
               if (!done && toRead > 0) {
                 readNodeBytes(src, toRead) match {
-                  case Left(e)          => err = Some(e)
-                  case Right(None)      => done = true
+                  case Left(e)            => err = Some(e)
+                  case Right(None)        => done = true
                   case Right(Some(chunk)) =>
                     writeNodeBuffer(
                       dst,
@@ -748,7 +801,12 @@ private[bosatsu] object PredefIoCorePlatform {
           Right(())
         case fileHandle: NodeFileHandle =>
           if (fileHandle.closed)
-            Left(ioerror_known(IOErrorTagBadFileDescriptor, "flushing closed handle"))
+            Left(
+              ioerror_known(
+                IOErrorTagBadFileDescriptor,
+                "flushing closed handle"
+              )
+            )
           else if (!fileHandle.writable) Right(())
           else {
             try {
@@ -783,12 +841,17 @@ private[bosatsu] object PredefIoCorePlatform {
       }
     } yield ()
 
-  private def core_open_file_impl(path: Value, mode: Value): Either[Value, Value] = {
+  private def core_open_file_impl(
+      path: Value,
+      mode: Value
+  ): Either[Value, Value] = {
     val invalidPathContext =
       s"open_file(path=<invalid Path>, mode=${openModePreview(mode)}): invalid path"
 
     for {
-      pathStr <- asPathString(path).left.map(_ => ioerror_invalid_argument(invalidPathContext))
+      pathStr <- asPathString(path).left.map(_ =>
+        ioerror_invalid_argument(invalidPathContext)
+      )
       modeTag <- asOpenModeTag(
         mode,
         s"open_file(path=$pathStr, mode=<invalid OpenMode>): invalid OpenMode value"
@@ -805,17 +868,22 @@ private[bosatsu] object PredefIoCorePlatform {
             case _ => ""
           }
         if (flags.isEmpty)
-          Left(ioerror_invalid_argument(s"$openContext: invalid OpenMode value"))
+          Left(
+            ioerror_invalid_argument(s"$openContext: invalid OpenMode value")
+          )
         else {
           try {
             val fd = nodeFs.openSync(pathStr, flags).asInstanceOf[Int]
             val handle =
-              if (modeTag == 0) NodeFileHandle(fd, readable = true, writable = false)
+              if (modeTag == 0)
+                NodeFileHandle(fd, readable = true, writable = false)
               else NodeFileHandle(fd, readable = false, writable = true)
             Right(ExternalValue(handle))
           } catch {
             case t: Throwable =>
-              Left(ioerror_from_throwable(s"$openContext: opening file failed", t))
+              Left(
+                ioerror_from_throwable(s"$openContext: opening file failed", t)
+              )
           }
         }
       }
@@ -857,7 +925,7 @@ private[bosatsu] object PredefIoCorePlatform {
           err match {
             case s: SumValue if s.variant == IOErrorTagAlreadyExists =>
               attempts = attempts + 1
-            case _                                                   =>
+            case _ =>
               return Left(err)
           }
       }
@@ -898,10 +966,16 @@ private[bosatsu] object PredefIoCorePlatform {
         s"create_temp_file(dir=${resolvedTempDirPreview(dirOpt)}, prefix=$rawPrefix, suffix=$rawSuffix)"
       _ <-
         if (isValidTempNamePart(rawPrefix)) Right(())
-        else Left(ioerror_invalid_argument(s"$callContext: invalid temp file prefix"))
+        else
+          Left(
+            ioerror_invalid_argument(s"$callContext: invalid temp file prefix")
+          )
       _ <-
         if (isValidTempNamePart(rawSuffix)) Right(())
-        else Left(ioerror_invalid_argument(s"$callContext: invalid temp file suffix"))
+        else
+          Left(
+            ioerror_invalid_argument(s"$callContext: invalid temp file suffix")
+          )
       tempFile <- createTempFileNode(dirOpt, rawPrefix, rawSuffix, callContext)
     } yield tempFile
   }
@@ -922,19 +996,30 @@ private[bosatsu] object PredefIoCorePlatform {
         prefix,
         s"create_temp_dir(dir=$dirPreview, prefix=<invalid String>): invalid temp dir prefix"
       )
-      callContext = s"create_temp_dir(dir=${resolvedTempDirPreview(dirOpt)}, prefix=$rawPrefix)"
+      callContext =
+        s"create_temp_dir(dir=${resolvedTempDirPreview(dirOpt)}, prefix=$rawPrefix)"
       _ <-
         if (isValidTempNamePart(rawPrefix)) Right(())
-        else Left(ioerror_invalid_argument(s"$callContext: invalid temp dir prefix"))
+        else
+          Left(
+            ioerror_invalid_argument(s"$callContext: invalid temp dir prefix")
+          )
       out <- {
         val base = dirOpt.getOrElse(nodeOs.tmpdir().asInstanceOf[String])
-        val seed = nodePath.join(base, normalizeTempPrefix(rawPrefix)).asInstanceOf[String]
+        val seed = nodePath
+          .join(base, normalizeTempPrefix(rawPrefix))
+          .asInstanceOf[String]
         try {
           val created = nodeFs.mkdtempSync(seed).asInstanceOf[String]
           Right(pathValueFromString(created))
         } catch {
           case t: Throwable =>
-            Left(ioerror_from_throwable(s"$callContext: Files.createTempDirectory failed", t))
+            Left(
+              ioerror_from_throwable(
+                s"$callContext: Files.createTempDirectory failed",
+                t
+              )
+            )
         }
       }
     } yield out
@@ -942,13 +1027,19 @@ private[bosatsu] object PredefIoCorePlatform {
 
   private def core_list_dir_impl(path: Value): Either[Value, Value] =
     for {
-      pathStr <- asPathString(path).left.map(_ => ioerror_invalid_argument("invalid path for list_dir"))
+      pathStr <- asPathString(path).left.map(_ =>
+        ioerror_invalid_argument("invalid path for list_dir")
+      )
       entries <- {
         try {
           val arr = nodeFs.readdirSync(pathStr).asInstanceOf[js.Array[Any]]
           val list = arr.iterator
             .map(_.toString)
-            .map(name => normalizePathString(nodePath.join(pathStr, name).asInstanceOf[String]))
+            .map(name =>
+              normalizePathString(
+                nodePath.join(pathStr, name).asInstanceOf[String]
+              )
+            )
             .toList
             .sorted
             // Path is a struct-1 and represented as identity at runtime.
@@ -985,7 +1076,10 @@ private[bosatsu] object PredefIoCorePlatform {
       BigInteger.valueOf(js.Math.floor(mtimeRaw * 1000000d).toLong)
     val posixMode =
       if (isNodeWindows) None
-      else jsField(attrs, "mode").map(mode => VInt(BigInteger.valueOf(mode.toString.toLong & PosixModeMask.toLong)))
+      else
+        jsField(attrs, "mode").map(mode =>
+          VInt(BigInteger.valueOf(mode.toString.toLong & PosixModeMask.toLong))
+        )
 
     ProductValue.fromList(
       fileKindValue(kindTag) ::
@@ -1053,7 +1147,7 @@ private[bosatsu] object PredefIoCorePlatform {
       val attrs = nodeFs.lstatSync(currentPath)
       jsField(attrs, "mode") match {
         case Some(modeAny) => Right(modeAny.toString.toInt & PosixModeMask)
-        case None          => Left(ioerror_known(IOErrorTagUnsupported, context))
+        case None => Left(ioerror_known(IOErrorTagUnsupported, context))
       }
     } catch {
       case t: Throwable =>
@@ -1067,7 +1161,8 @@ private[bosatsu] object PredefIoCorePlatform {
   ): Either[Value, Unit] = {
     val (root, parts) = splitNormalizedPath(pathStr)
     if (parts.isEmpty) {
-      if (root.nonEmpty) ensureNodeDirectoryExists(pathStr, context, leaf = true)
+      if (root.nonEmpty)
+        ensureNodeDirectoryExists(pathStr, context, leaf = true)
       else Right(())
     } else {
       var current = root
@@ -1084,7 +1179,11 @@ private[bosatsu] object PredefIoCorePlatform {
               val err = ioerror_from_throwable(context, t)
               err match {
                 case s: SumValue if s.variant == IOErrorTagAlreadyExists =>
-                  ensureNodeDirectoryExists(current, context, leaf = isLeaf) match {
+                  ensureNodeDirectoryExists(
+                    current,
+                    context,
+                    leaf = isLeaf
+                  ) match {
                     case Right(_)  => false
                     case Left(err) => return Left(err)
                   }
@@ -1123,7 +1222,9 @@ private[bosatsu] object PredefIoCorePlatform {
 
   private def core_stat_impl(path: Value): Either[Value, Value] =
     for {
-      pathStr <- asPathString(path).left.map(_ => ioerror_invalid_argument("invalid path for stat"))
+      pathStr <- asPathString(path).left.map(_ =>
+        ioerror_invalid_argument("invalid path for stat")
+      )
       stat <- {
         try {
           val attrs = nodeFs.lstatSync(pathStr)
@@ -1135,16 +1236,21 @@ private[bosatsu] object PredefIoCorePlatform {
             err match {
               case s: SumValue if s.variant == IOErrorTagNotFound =>
                 Right(optionValue(None))
-              case _                                              =>
+              case _ =>
                 Left(err)
             }
         }
       }
     } yield stat
 
-  private def core_mkdir_impl(path: Value, recursive: Value): Either[Value, Unit] =
+  private def core_mkdir_impl(
+      path: Value,
+      recursive: Value
+  ): Either[Value, Unit] =
     for {
-      pathStr <- asPathString(path).left.map(_ => ioerror_invalid_argument("invalid path for mkdir"))
+      pathStr <- asPathString(path).left.map(_ =>
+        ioerror_invalid_argument("invalid path for mkdir")
+      )
       recursiveFlag <- asBool(recursive)
       _ <- {
         try {
@@ -1164,7 +1270,9 @@ private[bosatsu] object PredefIoCorePlatform {
       mode: Value
   ): Either[Value, Unit] =
     for {
-      pathStr <- asPathString(path).left.map(_ => ioerror_invalid_argument("invalid path for mkdir_with_mode"))
+      pathStr <- asPathString(path).left.map(_ =>
+        ioerror_invalid_argument("invalid path for mkdir_with_mode")
+      )
       recursiveFlag <- asBool(recursive)
       modeBits <- asPosixModeBits(mode, "invalid PosixMode for mkdir_with_mode")
       callContext = s"mkdir_with_mode(path=$pathStr, recursive=$recursiveFlag)"
@@ -1183,13 +1291,19 @@ private[bosatsu] object PredefIoCorePlatform {
           }
     } yield ()
 
-  private def core_remove_impl(path: Value, recursive: Value): Either[Value, Unit] =
+  private def core_remove_impl(
+      path: Value,
+      recursive: Value
+  ): Either[Value, Unit] =
     for {
-      pathStr <- asPathString(path).left.map(_ => ioerror_invalid_argument("invalid path for remove"))
+      pathStr <- asPathString(path).left.map(_ =>
+        ioerror_invalid_argument("invalid path for remove")
+      )
       recursiveFlag <- asBool(recursive)
       _ <- {
         try {
-          val opts = js.Dynamic.literal(recursive = recursiveFlag, force = false)
+          val opts =
+            js.Dynamic.literal(recursive = recursiveFlag, force = false)
           val _ = nodeFs.rmSync(pathStr, opts)
           Right(())
         } catch {
@@ -1201,8 +1315,12 @@ private[bosatsu] object PredefIoCorePlatform {
 
   private def core_rename_impl(from: Value, to: Value): Either[Value, Unit] =
     for {
-      fromPath <- asPathString(from).left.map(_ => ioerror_invalid_argument("invalid source path for rename"))
-      toPath <- asPathString(to).left.map(_ => ioerror_invalid_argument("invalid destination path for rename"))
+      fromPath <- asPathString(from).left.map(_ =>
+        ioerror_invalid_argument("invalid source path for rename")
+      )
+      toPath <- asPathString(to).left.map(_ =>
+        ioerror_invalid_argument("invalid destination path for rename")
+      )
       _ <- {
         try {
           val _ = nodeFs.renameSync(fromPath, toPath)
@@ -1227,7 +1345,7 @@ private[bosatsu] object PredefIoCorePlatform {
   private def nowWallEpochNanos(): BigInteger =
     BigInteger.valueOf(js.Math.floor(js.Date.now() * 1000000d).toLong)
 
-  private def nowMonoNanos(): BigInteger = {
+  private def nowMonoNanos(): BigInteger =
     if (isNodeRuntime) {
       val hrtime = nodeProcess.selectDynamic("hrtime")
       val bigIntFn = hrtime.selectDynamic("bigint")
@@ -1237,9 +1355,8 @@ private[bosatsu] object PredefIoCorePlatform {
     } else {
       BigInteger.valueOf(js.Math.floor(js.Date.now() * 1000000d).toLong)
     }
-  }
 
-  private def sleepNanos(nanos: BigInteger): Either[Value, Unit] = {
+  private def sleepNanos(nanos: BigInteger): Either[Value, Unit] =
     if (nanos.signum < 0)
       Left(ioerror_invalid_argument("sleep duration must be non-negative"))
     else {
@@ -1255,7 +1372,6 @@ private[bosatsu] object PredefIoCorePlatform {
       }
       Right(())
     }
-  }
 
   val core_path_sep: Value =
     if (isNodeRuntime) Str(nodePath.sep.asInstanceOf[String])
@@ -1275,7 +1391,7 @@ private[bosatsu] object PredefIoCorePlatform {
           core_read_utf8_impl(h, n) match {
             case Right(result) =>
               PredefImpl.prog_pure(optionValue(result.map(Str(_))))
-            case Left(err)     =>
+            case Left(err) =>
               PredefImpl.prog_raise_error(err)
           }
       )
@@ -1303,7 +1419,7 @@ private[bosatsu] object PredefIoCorePlatform {
           core_read_bytes_impl(h, n) match {
             case Right(result) =>
               PredefImpl.prog_pure(optionValue(result.map(bytesValue)))
-            case Left(err)     =>
+            case Left(err) =>
               PredefImpl.prog_raise_error(err)
           }
       )
@@ -1331,7 +1447,7 @@ private[bosatsu] object PredefIoCorePlatform {
           core_read_all_bytes_impl(h, c) match {
             case Right(result) =>
               PredefImpl.prog_pure(bytesValue(result))
-            case Left(err)     =>
+            case Left(err) =>
               PredefImpl.prog_raise_error(err)
           }
       )
@@ -1513,8 +1629,9 @@ private[bosatsu] object PredefIoCorePlatform {
         name,
         n =>
           core_get_env_impl(n) match {
-            case Right(result) => PredefImpl.prog_pure(optionValue(result.map(Str(_))))
-            case Left(err)     => PredefImpl.prog_raise_error(err)
+            case Right(result) =>
+              PredefImpl.prog_pure(optionValue(result.map(Str(_))))
+            case Left(err) => PredefImpl.prog_raise_error(err)
           }
       )
 
@@ -1616,11 +1733,31 @@ private[bosatsu] object PredefIoCorePlatform {
       .add(ioCorePackageName, "stdin", FfiCall.Const(core_stdin))
       .add(ioCorePackageName, "stdout", FfiCall.Const(core_stdout))
       .add(ioCorePackageName, "stderr", FfiCall.Const(core_stderr))
-      .add(ioCorePackageName, "read_utf8", FfiCall.Fn2(prog_core_read_utf8(_, _)))
-      .add(ioCorePackageName, "write_utf8", FfiCall.Fn2(prog_core_write_utf8(_, _)))
-      .add(ioCorePackageName, "read_bytes", FfiCall.Fn2(prog_core_read_bytes(_, _)))
-      .add(ioCorePackageName, "write_bytes", FfiCall.Fn2(prog_core_write_bytes(_, _)))
-      .add(ioCorePackageName, "read_all_bytes", FfiCall.Fn2(prog_core_read_all_bytes(_, _)))
+      .add(
+        ioCorePackageName,
+        "read_utf8",
+        FfiCall.Fn2(prog_core_read_utf8(_, _))
+      )
+      .add(
+        ioCorePackageName,
+        "write_utf8",
+        FfiCall.Fn2(prog_core_write_utf8(_, _))
+      )
+      .add(
+        ioCorePackageName,
+        "read_bytes",
+        FfiCall.Fn2(prog_core_read_bytes(_, _))
+      )
+      .add(
+        ioCorePackageName,
+        "write_bytes",
+        FfiCall.Fn2(prog_core_write_bytes(_, _))
+      )
+      .add(
+        ioCorePackageName,
+        "read_all_bytes",
+        FfiCall.Fn2(prog_core_read_all_bytes(_, _))
+      )
       .add(
         ioCorePackageName,
         "copy_bytes",
@@ -1628,7 +1765,11 @@ private[bosatsu] object PredefIoCorePlatform {
       )
       .add(ioCorePackageName, "flush", FfiCall.Fn1(prog_core_flush(_)))
       .add(ioCorePackageName, "close", FfiCall.Fn1(prog_core_close(_)))
-      .add(ioCorePackageName, "open_file", FfiCall.Fn2(prog_core_open_file(_, _)))
+      .add(
+        ioCorePackageName,
+        "open_file",
+        FfiCall.Fn2(prog_core_open_file(_, _))
+      )
       .add(
         ioCorePackageName,
         "create_temp_file",

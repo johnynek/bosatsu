@@ -3,17 +3,41 @@ package dev.bosatsu.tool_command
 import cats.syntax.all._
 import com.monovore.decline.Opts
 import dev.bosatsu.{CompileOptions, LocationMap, PlatformIO}
-import dev.bosatsu.tool.{CliException, CompilerApi, InterfaceLabels, Output, PackageResolver}
+import dev.bosatsu.tool.{
+  CliException,
+  CompilerApi,
+  InterfaceLabels,
+  Output,
+  PackageResolver
+}
 
 object CompilePackagesCommand {
   def opts[F[_], Path](platform: PlatformIO[F, Path]): Opts[F[Output[Path]]] = {
     import platform.{moduleIOMonad, pathArg}
-    Opts.subcommand("compile-packages", "compile a group of explicit sources for a build") {
+    Opts.subcommand(
+      "compile-packages",
+      "compile a group of explicit sources for a build"
+    ) {
       (
         Opts.options[Path]("src", "Bosatsu source file (repeatable)"),
-        Opts.options[Path]("direct-interface", "dependency signature (repeatable)").orEmpty,
-        Opts.option[Path]("interface-labels", "JSON map of declared signature files to labels").orNone,
-        Opts.flag("error-unused-interfaces", "reject any unused direct interface file").orFalse,
+        Opts
+          .options[Path](
+            "direct-interface",
+            "dependency signature (repeatable)"
+          )
+          .orEmpty,
+        Opts
+          .option[Path](
+            "interface-labels",
+            "JSON map of declared signature files to labels"
+          )
+          .orNone,
+        Opts
+          .flag(
+            "error-unused-interfaces",
+            "reject any unused direct interface file"
+          )
+          .orFalse,
         Opts.option[Path]("packages-out", "compiled implementation bundle"),
         Opts.option[Path]("sig-out", "public package signature")
       ).mapN { (srcs, deps, labelMap, strict, packagesOut, sigOut) =>
@@ -22,20 +46,42 @@ object CompilePackagesCommand {
           val paths = deps.distinct.sortBy(platform.pathToString)
           for {
             sources <- CompilerApi.loadSources(
-              platform, srcs.distinctBy(platform.pathToString).sortBy(platform.pathToString),
-              PackageResolver.ExplicitOnly(), color
+              platform,
+              srcs
+                .distinctBy(platform.pathToString)
+                .sortBy(platform.pathToString),
+              PackageResolver.ExplicitOnly(),
+              color
             )
-            _ <- moduleIOMonad.raiseWhen(sources.exists(_.packageName.isPredef))(
-              CliException.Basic("Bosatsu/Predef is implicit in compile-packages")
+            _ <- moduleIOMonad.raiseWhen(
+              sources.exists(_.packageName.isPredef)
+            )(
+              CliException.Basic(
+                "Bosatsu/Predef is implicit in compile-packages"
+              )
             )
-            labels <- labelMap.fold(moduleIOMonad.pure(Map.empty[Path, String]))(
+            labels <- labelMap.fold(
+              moduleIOMonad.pure(Map.empty[Path, String])
+            )(
               InterfaceLabels.read(platform, _, paths)
             )
             group <- CompilerApi.compileWithSignatures(
-              platform, sources, paths.map(p => p -> labels.get(p)), Nil,
-              useExplicitPredef = false, errorUnusedInterfaces = strict, color, CompileOptions.Default, None
+              platform,
+              sources,
+              paths.map(p => p -> labels.get(p)),
+              Nil,
+              useExplicitPredef = false,
+              errorUnusedInterfaces = strict,
+              color,
+              CompileOptions.Default,
+              None
             )
-          } yield Output.PackageGroup(group.members, group.dependencies, packagesOut, sigOut): Output[Path]
+          } yield Output.PackageGroup(
+            group.members,
+            group.dependencies,
+            packagesOut,
+            sigOut
+          ): Output[Path]
         }
       }
     }

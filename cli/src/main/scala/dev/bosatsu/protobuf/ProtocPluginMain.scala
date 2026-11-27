@@ -8,9 +8,8 @@ import dev.bosatsu.Bytes
 
 object ProtocPluginMain {
 
-  def main(args: Array[String]): Unit = {
+  def main(args: Array[String]): Unit =
     runFromStdio()
-  }
 
   def runFromStdio(): Unit = {
     val requestBytes = Bytes.unsafeFromArray(System.in.readAllBytes())

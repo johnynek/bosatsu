@@ -191,7 +191,9 @@ case class TotalityCheck(inEnv: TypeEnv[Kind.Arg]) {
       case Declaration.Binding(BindingStatement(pat, _, _)) =>
         validateParsedPattern(pat)
       case Declaration.DefFn(defstmt) =>
-        defstmt.args.toList.flatMap(_.toList).parTraverse_(validateParsedPattern)
+        defstmt.args.toList
+          .flatMap(_.toList)
+          .parTraverse_(validateParsedPattern)
       case Declaration.Lambda(args, _) =>
         args.toList.parTraverse_(validateParsedPattern)
       case Declaration.LeftApply(arg, _, _, _) =>
@@ -237,7 +239,7 @@ case class TotalityCheck(inEnv: TypeEnv[Kind.Arg]) {
       // or unknown case stays potentially inhabited, which keeps pruning
       // conservative and sound.
       case Validated.Valid(Inhabitedness.State.Uninhabited) => true
-      case _                                                 => false
+      case _                                                => false
     }
 
   // after patterns have been validated we can call this.
@@ -264,12 +266,13 @@ case class TotalityCheck(inEnv: TypeEnv[Kind.Arg]) {
       )
     val branchesList = branches.toList
 
-    inline def onEmptyErr[P](bs: List[P])(inline fn: NonEmptyList[P] => ExprError[A]): ValidatedNel[ExprError[A], Unit] =
+    inline def onEmptyErr[P](bs: List[P])(
+        inline fn: NonEmptyList[P] => ExprError[A]
+    ): ValidatedNel[ExprError[A], Unit] =
       NonEmptyList.fromList(bs) match {
         case Some(nel) => Validated.invalidNel(fn(nel))
-        case None => Validated.unit
+        case None      => Validated.unit
       }
-
 
     val missing: ValidatedNel[ExprError[A], Unit] = {
       val mis =
@@ -379,9 +382,7 @@ case class TotalityCheck(inEnv: TypeEnv[Kind.Arg]) {
       validateParsedMatchTag(matchExpr.tag)
         .parProductR(branches.parTraverse_(b => validatePattern(b.pattern)))
         .leftMap { nel =>
-          nel.map(err =>
-            InvalidPattern(matchExpr, err): ExprError[Declaration]
-          )
+          nel.map(err => InvalidPattern(matchExpr, err): ExprError[Declaration])
         }
         .toValidated
 
@@ -399,9 +400,7 @@ case class TotalityCheck(inEnv: TypeEnv[Kind.Arg]) {
     branches
       .parTraverse_(b => validatePattern(b.pattern))
       .leftMap { nel =>
-        nel.map(err =>
-          InvalidPattern(matchExpr, err): ExprError[A]
-        )
+        nel.map(err => InvalidPattern(matchExpr, err): ExprError[A])
       }
       .toValidated
       .andThen(_ => matchCoverageReplay(matchExpr))
@@ -425,20 +424,20 @@ case class TotalityCheck(inEnv: TypeEnv[Kind.Arg]) {
         errsRev: List[ExprError[A]]
     ): List[ExprError[A]] =
       work match {
-        case Nil => errsRev.reverse
+        case Nil                           => errsRev.reverse
         case CheckMatch(matchExpr) :: tail =>
           val errs1 =
             validateMatchExpr(matchExpr) match {
-              case Validated.Valid(())   => errsRev
+              case Validated.Valid(())    => errsRev
               case Validated.Invalid(nel) =>
                 nel.toList.foldLeft(errsRev)((acc, err) => err :: acc)
             }
           loop(tail, errs1)
         case Visit(current) :: tail =>
           current match {
-            case Annotation(e, _, _)      =>
+            case Annotation(e, _, _) =>
               loop(Visit(e) :: tail, errsRev)
-            case Generic(_, e)            =>
+            case Generic(_, e) =>
               loop(Visit(e) :: tail, errsRev)
             case AnnotatedLambda(_, e, _) =>
               loop(Visit(e) :: tail, errsRev)
@@ -486,8 +485,8 @@ case class TotalityCheck(inEnv: TypeEnv[Kind.Arg]) {
   ): ValidatedNel[ExprError[Declaration], Unit] =
     checkExprMatches(expr)(validateMatchExpr)
 
-  /** Replay-only totality checks that rely on typed structure plus regions,
-    * but not on source Declaration tags.
+  /** Replay-only totality checks that rely on typed structure plus regions, but
+    * not on source Declaration tags.
     */
   def checkExprReplay[A](
       expr: TypedExpr[A]

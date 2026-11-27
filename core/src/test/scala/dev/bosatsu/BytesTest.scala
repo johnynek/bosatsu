@@ -8,7 +8,9 @@ import java.nio.charset.StandardCharsets
 import org.scalacheck.Prop.forAll
 
 class BytesTest extends munit.ScalaCheckSuite {
-  property("Hash, Order and Eq compare contents across independent allocations") {
+  property(
+    "Hash, Order and Eq compare contents across independent allocations"
+  ) {
     forAll { (left: List[Byte], right: List[Byte]) =>
       val a = Bytes.copyFromArray(left.toArray)
       val b = Bytes.copyFromArray(right.toArray)
@@ -22,7 +24,8 @@ class BytesTest extends munit.ScalaCheckSuite {
       assertEquals(Eq[Bytes].eqv(a, b), left == right)
       assertEquals(order.eqv(a, b), hash.eqv(a, b))
       val expected = Order[List[Int]].compare(
-        left.map(_ & 0xff), right.map(_ & 0xff)
+        left.map(_ & 0xff),
+        right.map(_ & 0xff)
       )
       assertEquals(math.signum(order.compare(a, b)), math.signum(expected))
       assertEquals(math.signum(order.compare(b, a)), -math.signum(expected))
@@ -53,7 +56,9 @@ class BytesTest extends munit.ScalaCheckSuite {
       val input = values.toArray
       val bytes = Bytes.copyFromArray(input)
       val copy = bytes.copyToArray
-      input.indices.foreach(index => input(index) = (input(index) ^ 0xff).toByte)
+      input.indices.foreach(index =>
+        input(index) = (input(index) ^ 0xff).toByte
+      )
       copy.indices.foreach(index => copy(index) = (copy(index) ^ 0xff).toByte)
       assertEquals(bytes.unsafeReadOnlyView.toList, values)
       assert(bytes.unsafeReadOnlyView eq bytes.unsafeReadOnlyView)
@@ -74,7 +79,10 @@ class BytesTest extends munit.ScalaCheckSuite {
       val textBytes = text.getBytes(StandardCharsets.UTF_8)
       val all = prefixBytes ++ textBytes
       val bytes = Bytes.copyFromArray(all)
-      assertEquals(bytes.decodeUtf8.toOption, Some(new String(all, StandardCharsets.UTF_8)))
+      assertEquals(
+        bytes.decodeUtf8.toOption,
+        Some(new String(all, StandardCharsets.UTF_8))
+      )
       assertEquals(
         bytes.decodeUtf8Slice(prefixBytes.length, textBytes.length).toOption,
         Some(new String(textBytes, StandardCharsets.UTF_8))
@@ -83,7 +91,8 @@ class BytesTest extends munit.ScalaCheckSuite {
   }
 
   test("decodeUtf8 reports malformed input instead of replacing it") {
-    val malformed = Bytes.copyFromArray(Array(0x61.toByte, 0xc3.toByte, 0x28.toByte))
+    val malformed =
+      Bytes.copyFromArray(Array(0x61.toByte, 0xc3.toByte, 0x28.toByte))
     assert(malformed.decodeUtf8.isLeft)
     assertEquals(malformed.decodeUtf8Slice(0, 1).toOption, Some("a"))
     assert(Bytes.copyFromArray(Array(0x80.toByte)).decodeUtf8.isLeft)
@@ -92,9 +101,15 @@ class BytesTest extends munit.ScalaCheckSuite {
   property("UTF-8 and protobuf constructors preserve serialization") {
     forAll { (text: String) =>
       val bytes = Bytes.fromUTF8String(text)
-      assertEquals(bytes.unsafeReadOnlyView.toList, text.getBytes(StandardCharsets.UTF_8).toList)
+      assertEquals(
+        bytes.unsafeReadOnlyView.toList,
+        text.getBytes(StandardCharsets.UTF_8).toList
+      )
       val message = proto.Library(name = text)
-      assertEquals(proto.Library.parseFrom(Bytes.fromMessage(message).unsafeReadOnlyView), message)
+      assertEquals(
+        proto.Library.parseFrom(Bytes.fromMessage(message).unsafeReadOnlyView),
+        message
+      )
     }
   }
 }
