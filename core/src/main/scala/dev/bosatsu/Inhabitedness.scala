@@ -82,6 +82,15 @@ object Inhabitedness {
   /** A data type the check reaches, as `dataKey` makes it: `tpe` is `dt`, a
     * type of the env, applied to `args`. Keys are equal and hash as their
     * types do, and `Type` caches its hash.
+    *
+    * `tpe` is always in normal form: `checkType` normalizes a type before
+    * making its key, and `dataKey` normalizes again after substituting the
+    * state markers. Normalizing is idempotent, so on keys plain `==` is the
+    * same as `sameAs` (alpha-equivalence) without normalizing again. It also
+    * agrees with `hashCode`, the cached structural hash. Comparing with
+    * `sameAs` would need `hashCode` to hash the normal form too, or two
+    * equal keys could hash apart. So keep every key normalized when it is
+    * built, rather than comparing more loosely here.
     */
   private final class DataKey(
       val tpe: Type,
