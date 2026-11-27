@@ -7610,9 +7610,9 @@ object Matchless {
     // Invariant: every row has the same arity as occs, and that arity is
     // preserved in the returned rows/occs.
     def dropWildColumns(
-        rows: List[MatchRow[HeadPat]],
+        rows: NonEmptyList[MatchRow[HeadPat]],
         occs: List[CheapExpr[B]]
-    ): (List[MatchRow[HeadPat]], List[CheapExpr[B]]) = {
+    ): (NonEmptyList[MatchRow[HeadPat]], List[CheapExpr[B]]) = {
       val keepIdxs = occs.indices.filter { idx =>
         rows.exists(r => r.pats(idx) != Pattern.WildCard)
       }.toList
@@ -7696,12 +7696,10 @@ object Matchless {
     // 3) then lower arity expansion cost,
     // 4) then leftmost for deterministic ties.
     def chooseColumnByScore(
-        rows: List[MatchRow[HeadPat]]
+        rowsNel: NonEmptyList[MatchRow[HeadPat]]
     ): (Int, List[HeadSig]) = {
-      val colCount = rows.headOption match {
-        case Some(row) => row.pats.length
-        case None      => 0
-      }
+      val rows = rowsNel.toList
+      val colCount = rowsNel.head.pats.length
 
       // $COVERAGE-OFF$
       if (colCount == 0)
@@ -8390,7 +8388,7 @@ object Matchless {
         branches: NonEmptyList[MatchBranch],
         inlinedRoot: Option[InlinedStructRoot]
     ): F[Expr[B]] = {
-      val rows0 = branches.toList.map(MatchRow.fromBranch)
+      val rows0 = branches.map(MatchRow.fromBranch)
 
       // Matches have already passed totality checking, so the initial matrix
       // must match. We thread this through recursive submatrices so the last
@@ -8446,18 +8444,18 @@ object Matchless {
       // rowsIn.forall(r => r.pats.length == occsIn.length).
       // Also, rowsIn order matches source branch order (left-to-right).
       def compileRows(
-          rowsIn: List[MatchRow[Pat]],
+          rowsIn: NonEmptyList[MatchRow[Pat]],
           occsIn: List[CheapExpr[B]],
           mustMatch: Boolean
       ): F[Expr[B]] =
         Defer[F].defer(materializeOccs(occsIn).flatMap { case (occLets, occsMemoed) =>
           val expanded =
-            rowsIn.flatMap(normalizeRow(_, occsMemoed, arg, inlinedRoot).toList)
-          val (rows, occs) = dropWildColumns(expanded, occsMemoed)
+            rowsIn.flatMap(normalizeRow(_, occsMemoed, arg, inlinedRoot))
+          val (rowsNel, occs) = dropWildColumns(expanded, occsMemoed)
 
           val compiled: F[Expr[B]] =
-            rows match {
-              case MatchRow(p0, g0, r0, b0) :: tail
+            rowsNel match {
+              case NonEmptyList(MatchRow(p0, g0, r0, b0), tail)
                   if p0.forall(_ == Pattern.WildCard) =>
                 val rhsExpr = lets(b0, r0)
                 g0 match {
@@ -8466,36 +8464,37 @@ object Matchless {
                   case Some(guard) =>
                     val guardExpr = lets(b0, guard)
                     guardToBoolExpr(guardExpr).flatMap { guardCond =>
-                      if (tail.nonEmpty) {
-                        // A guarded wildcard row does not constrain the scrutinee shape;
-                        // if this matrix must match, then when the guard is false the tail
-                        // must still be total.
-                        compileRows(tail, occs, mustMatch).map {
-                          fallback =>
-                            If(guardCond, rhsExpr, fallback)
-                        }
-                      } else {
-                        // totality checking rejects this shape; keep defensive
-                        // fallback behavior in case malformed TypedExpr reaches here.
-                        Monad[F].pure(If(guardCond, rhsExpr, UnitExpr))
+                      NonEmptyList.fromList(tail) match {
+                        case Some(tailRows) =>
+                          // A guarded wildcard row does not constrain the scrutinee shape;
+                          // if this matrix must match, then when the guard is false the tail
+                          // must still be total.
+                          compileRows(tailRows, occs, mustMatch).map {
+                            fallback =>
+                              If(guardCond, rhsExpr, fallback)
+                          }
+                        case None =>
+                          // totality checking rejects this shape; keep defensive
+                          // fallback behavior in case malformed TypedExpr reaches here.
+                          Monad[F].pure(If(guardCond, rhsExpr, UnitExpr))
                       }
                     }
                 }
-              case Nil =>
-                // this should be impossible in well-typed code
-                Monad[F].pure(UnitExpr)
               case _ =>
-                val (colIdx, sigs) = chooseColumnByScore(rows)
+                val (colIdx, sigs) = chooseColumnByScore(rowsNel)
+                val rows = rowsNel.toList
 
                 val occ = occs(colIdx)
 
                 val defaultRows =
-                  rows
-                    .mapFilter(r =>
-                      if r.pats(colIdx) == Pattern.WildCard then
-                        Some(r.patchPats(colIdx, Nil))
-                      else None
-                    )
+                  NonEmptyList.fromList(
+                    rows
+                      .mapFilter(r =>
+                        if r.pats(colIdx) == Pattern.WildCard then
+                          Some(r.patchPats(colIdx, Nil))
+                        else None
+                      )
+                  )
 
                 val defaultOccs = occs.patch(colIdx, Nil, 1)
 
@@ -8647,9 +8646,12 @@ object Matchless {
                 ): F[Expr[B]] =
                   Defer[F].defer(sigs match {
                     case Nil =>
-                      if (defaultRows.nonEmpty)
-                        compileRows(defaultRows, defaultOccs, mustMatch)
-                      else Monad[F].pure(UnitExpr)
+                      defaultRows match {
+                        case Some(defaults) =>
+                          compileRows(defaults, defaultOccs, mustMatch)
+                        case None =>
+                          Monad[F].pure(UnitExpr)
+                      }
                     case sig :: rest =>
                       val caseMustMatch =
                         mustMatch &&
@@ -8657,36 +8659,37 @@ object Matchless {
                           defaultRows.isEmpty
                       buildCase(sig, caseMustMatch).flatMap {
                         case (cond, preLets, newRows, newOccs) =>
-                          if (newRows.isEmpty) compileCases(rest, mustMatch)
-                          else {
-                            val subMustMatch =
-                              mustMatch
-                            compileRows(newRows, newOccs, subMustMatch).flatMap {
-                              thenExpr =>
-                                cond match {
-                                  case TrueConst =>
-                                    Monad[F].pure(letMutAll(preLets, thenExpr))
-                                  case _ =>
-                                    val hasElse =
-                                      rest.nonEmpty || defaultRows.nonEmpty
+                          NonEmptyList.fromList(newRows) match {
+                            case None => compileCases(rest, mustMatch)
+                            case Some(newRowsNel) =>
+                              val subMustMatch =
+                                mustMatch
+                              compileRows(newRowsNel, newOccs, subMustMatch).flatMap {
+                                thenExpr =>
+                                  cond match {
+                                    case TrueConst =>
+                                      Monad[F].pure(letMutAll(preLets, thenExpr))
+                                    case _ =>
+                                      val hasElse =
+                                        rest.nonEmpty || defaultRows.nonEmpty
 
-                                    val branchF: F[Expr[B]] =
-                                      if (!hasElse)
-                                        if (mustMatch)
-                                          Monad[F].pure(always(cond, thenExpr))
+                                      val branchF: F[Expr[B]] =
+                                        if (!hasElse)
+                                          if (mustMatch)
+                                            Monad[F].pure(always(cond, thenExpr))
+                                          else
+                                            Monad[F].pure(
+                                              If(cond, thenExpr, UnitExpr)
+                                            )
                                         else
-                                          Monad[F].pure(
-                                            If(cond, thenExpr, UnitExpr)
-                                          )
-                                      else
-                                        compileCases(rest, mustMatch).map {
-                                          elseExpr =>
-                                            If(cond, thenExpr, elseExpr)
-                                        }
+                                          compileCases(rest, mustMatch).map {
+                                            elseExpr =>
+                                              If(cond, thenExpr, elseExpr)
+                                          }
 
-                                    branchF.map(letMutAll(preLets, _))
-                                }
-                            }
+                                      branchF.map(letMutAll(preLets, _))
+                                  }
+                              }
                           }
                       }
                   })
@@ -8701,21 +8704,27 @@ object Matchless {
                     val newOccs = occs.patch(colIdx, Nil, 1)
                     // Sorting only changes test order; specialization by `lit`
                     // still selects the exact original rows/rhs for that literal.
-                    if (newRows.isEmpty) {
-                      // $COVERAGE-OFF$
-                      throw new IllegalStateException(
-                        s"expected literal specialization rows for $lit in $sigs"
-                      )
-                    // $COVERAGE-ON$
-                    } else compileRows(newRows, newOccs, mustMatch).map((lit, _))
+                    NonEmptyList.fromList(newRows) match {
+                      case Some(newRowsNel) =>
+                        compileRows(newRowsNel, newOccs, mustMatch).map((lit, _))
+                      case None =>
+                        // $COVERAGE-OFF$
+                        throw new IllegalStateException(
+                          s"expected literal specialization rows for $lit in $sigs"
+                        )
+                      // $COVERAGE-ON$
+                    }
                   }
 
                   def fallbackExpr: F[Expr[B]] =
                     // Wildcard rows become `defaultRows` and represent `_`.
                     // We compile those once here as the shared fallback path.
-                    if (defaultRows.nonEmpty)
-                      compileRows(defaultRows, defaultOccs, mustMatch)
-                    else Monad[F].pure(UnitExpr)
+                    defaultRows match {
+                      case Some(defaults) =>
+                        compileRows(defaults, defaultOccs, mustMatch)
+                      case None =>
+                        Monad[F].pure(UnitExpr)
+                    }
 
                   def buildTree(
                       lits: Vector[(Lit, Expr[B])],
@@ -8778,22 +8787,26 @@ object Matchless {
                         )
                         val newOccs = occs.patch(colIdx, fields, 1)
 
-                        if (newRows.isEmpty) Monad[F].pure((variant, UnitExpr))
-                        else {
-                          val subMustMatch = mustMatch
-                          compileRows(newRows, newOccs, subMustMatch).map {
-                            (variant, _)
-                          }
+                        NonEmptyList.fromList(newRows) match {
+                          case None => Monad[F].pure((variant, UnitExpr))
+                          case Some(newRowsNel) =>
+                            val subMustMatch = mustMatch
+                            compileRows(newRowsNel, newOccs, subMustMatch).map {
+                              (variant, _)
+                            }
                         }
                     }
 
                   val hasAllVariants = enumSigs.length == famArities.length
                   val defaultExprF: F[Option[Expr[B]]] =
-                    if (defaultRows.nonEmpty)
-                      compileRows(defaultRows, defaultOccs, mustMatch).map(Some(_))
-                    else if (!mustMatch && !hasAllVariants)
-                      Monad[F].pure(Some(UnitExpr))
-                    else Monad[F].pure(None)
+                    defaultRows match {
+                      case Some(defaults) =>
+                        compileRows(defaults, defaultOccs, mustMatch).map(Some(_))
+                      case None =>
+                        if (!mustMatch && !hasAllVariants)
+                          Monad[F].pure(Some(UnitExpr))
+                        else Monad[F].pure(None)
+                    }
 
                   (enumSigs.traverse(compileCase), defaultExprF).mapN {
                     (compiledCases, defaultExpr) =>
@@ -8900,9 +8913,9 @@ object Matchless {
       case class TaggedRow[+P](row: MatchRow[P], isFallback: Boolean)
 
       def dropWildColumnsTagged(
-          rows: List[TaggedRow[HeadPat]],
+          rows: NonEmptyList[TaggedRow[HeadPat]],
           occs: List[CheapExpr[B]]
-      ): (List[TaggedRow[HeadPat]], List[CheapExpr[B]]) = {
+      ): (NonEmptyList[TaggedRow[HeadPat]], List[CheapExpr[B]]) = {
         val keepIdxs = occs.indices.filter { idx =>
           rows.exists(tr => tr.row.pats(idx) != Pattern.WildCard)
         }.toList
@@ -8994,39 +9007,43 @@ object Matchless {
         }
 
       def compileRowsCount(
-          rowsIn: List[TaggedRow[Pat]],
+          rowsIn: NonEmptyList[TaggedRow[Pat]],
           occsIn: List[CheapExpr[B]],
           mustMatch: Boolean
       ): Int = {
         val expanded = rowsIn.flatMap { tr =>
-          normalizeRow(tr.row, occsIn, dummyMut, None).toList
+          normalizeRow(tr.row, occsIn, dummyMut, None)
             .map(row => tr.copy(row = row))
         }
-        val (rows, occs) = dropWildColumnsTagged(expanded, occsIn)
+        val (rowsNel, occs) = dropWildColumnsTagged(expanded, occsIn)
 
-        rows match {
-          case TaggedRow(MatchRow(p0, g0, _, _), isFallback) :: tail
+        rowsNel match {
+          case NonEmptyList(TaggedRow(MatchRow(p0, g0, _, _), isFallback), tail)
               if p0.forall(_ == Pattern.WildCard) =>
             val thisLeaf = if (isFallback) 1 else 0
             g0 match {
               case None =>
                 thisLeaf
               case Some(_) =>
-                if (tail.nonEmpty)
-                  thisLeaf + compileRowsCount(tail, occs, mustMatch = false)
-                else thisLeaf
+                NonEmptyList.fromList(tail) match {
+                  case Some(tailRows) =>
+                    thisLeaf + compileRowsCount(tailRows, occs, mustMatch = false)
+                  case None =>
+                    thisLeaf
+                }
             }
-          case Nil =>
-            0
           case _ =>
-            val (colIdx, sigs) = chooseColumnByScore(rows.map(_.row))
+            val (colIdx, sigs) = chooseColumnByScore(rowsNel.map(_.row))
+            val rows = rowsNel.toList
             val occ = occs(colIdx)
             val defaultRows =
-              rows.mapFilter { tr =>
-                if (tr.row.pats(colIdx) == Pattern.WildCard)
-                  Some(tr.copy(row = tr.row.patchPats(colIdx, Nil)))
-                else None
-              }
+              NonEmptyList.fromList(
+                rows.mapFilter { tr =>
+                  if (tr.row.pats(colIdx) == Pattern.WildCard)
+                    Some(tr.copy(row = tr.row.patchPats(colIdx, Nil)))
+                  else None
+                }
+              )
             val defaultOccs = occs.patch(colIdx, Nil, 1)
 
             def compileCasesCount(
@@ -9035,21 +9052,25 @@ object Matchless {
             ): Int =
               sigs match {
                 case Nil =>
-                  if (defaultRows.nonEmpty)
-                    compileRowsCount(defaultRows, defaultOccs, mustMatch)
-                  else 0
+                  defaultRows match {
+                    case Some(defaults) =>
+                      compileRowsCount(defaults, defaultOccs, mustMatch)
+                    case None =>
+                      0
+                  }
                 case sig :: rest =>
                   val (newRows, newOccs) =
                     specializeTaggedCase(sig, rows, occ, occs, colIdx)
-                  if (newRows.isEmpty) compileCasesCount(rest, mustMatch)
-                  else {
-                    val subMustMatch =
-                      mustMatch && newRows.forall(_.row.guard.isEmpty)
-                    val thenCount =
-                      compileRowsCount(newRows, newOccs, subMustMatch)
-                    val hasElse = rest.nonEmpty || defaultRows.nonEmpty
-                    if (hasElse) thenCount + compileCasesCount(rest, mustMatch)
-                    else thenCount
+                  NonEmptyList.fromList(newRows) match {
+                    case None => compileCasesCount(rest, mustMatch)
+                    case Some(newRowsNel) =>
+                      val subMustMatch =
+                        mustMatch && newRowsNel.forall(_.row.guard.isEmpty)
+                      val thenCount =
+                        compileRowsCount(newRowsNel, newOccs, subMustMatch)
+                      val hasElse = rest.nonEmpty || defaultRows.nonEmpty
+                      if (hasElse) thenCount + compileCasesCount(rest, mustMatch)
+                      else thenCount
                   }
               }
 
@@ -9057,7 +9078,7 @@ object Matchless {
         }
       }
 
-      val rows0 = branches.toList.zipWithIndex.map { case (branch, idx) =>
+      val rows0 = branches.zipWithIndex.map { case (branch, idx) =>
         TaggedRow(MatchRow.fromBranch(branch), idx == branches.length - 1)
       }
       compileRowsCount(
