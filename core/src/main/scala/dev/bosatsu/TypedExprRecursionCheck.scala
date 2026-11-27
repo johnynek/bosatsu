@@ -154,8 +154,16 @@ object TypedExprRecursionCheck {
 
     val unitValid: Res[Unit] = Validated.valid(())
 
-    case class RecurTargetItem(group: Int, index: Int, paramName: Bindable)
-        derives CanEqual
+    // The parameter at `index` of argument group `group`, its type, and its
+    // term in the SMT state recur branches start from, when it is an Int,
+    // Bool or Comparison.
+    case class RecurTargetItem(
+        group: Int,
+        index: Int,
+        paramName: Bindable,
+        tpe: Type,
+        entryTerm: Option[LoweredTerm]
+    ) derives CanEqual
     type RecurTarget = NonEmptyList[RecurTargetItem]
     type TypedPattern = Pattern[(PackageName, Identifier.Constructor), Type]
 
@@ -416,8 +424,8 @@ object TypedExprRecursionCheck {
       final def inDef: InDef =
         this match {
           case id @ InDef(_, _, _, _, _, _, _, _, _)    => id
-          case InDefRecurred(ir, _, _)                  => ir.inDef
-          case InRecurBranch(InDefRecurred(ir, _, _), _, _, _) =>
+          case InDefRecurred(ir, _, _, _)               => ir.inDef
+          case InRecurBranch(InDefRecurred(ir, _, _, _), _, _, _) =>
             ir.inDef
         }
 
@@ -453,8 +461,23 @@ object TypedExprRecursionCheck {
           scope
         )
 
-      def setRecur(target: RecurTarget, m: Declaration.Match): InDefRecurred =
-        InDefRecurred(this, target, m)
+      // The SMT state every recur branch of this def starts from, with one
+      // symbol for each Int, Bool or Comparison argument, and each
+      // argument's term in it, in the shape of typedArgs.
+      def recurEntry: (SmtBranchState, NonEmptyList[NonEmptyList[Option[LoweredTerm]]]) =
+        initSmtTerms(
+          typedArgs,
+          types.totalityCheck,
+          topLevelLowerableAliases,
+          topLevelPredefAliases
+        )
+
+      def setRecur(
+          target: RecurTarget,
+          m: Declaration.Match,
+          entrySmtState: SmtBranchState
+      ): InDefRecurred =
+        InDefRecurred(this, target, m, entrySmtState)
 
       // This is eta-expansion of the function name as a lambda so we can check
       // using the lambda rule.
@@ -498,16 +521,16 @@ object TypedExprRecursionCheck {
       }
     }
 
+    // entrySmtState is the SMT state every recur branch starts from, from
+    // inRec.recurEntry: one symbol for each Int, Bool or Comparison
+    // argument. A target's value is its symbol there, whatever a let or
+    // pattern later rebinds its name to.
     case class InDefRecurred(
         inRec: InDef,
         target: RecurTarget,
-        recur: Declaration.Match
+        recur: Declaration.Match,
+        entrySmtState: SmtBranchState
     ) extends InDefState {
-      // The SMT state every recur branch starts from: one symbol for each
-      // Int, Bool or Comparison argument. A target's value is its symbol
-      // here, whatever a let or pattern later rebinds its name to.
-      lazy val entrySmtState: SmtBranchState = initBranchSmtState(this)
-
       // `recur (a,)` matches a 1-tuple holding a, and `recur a` matches a
       // itself, so the branch patterns of a one-name target are read by how
       // the target was written
@@ -570,24 +593,26 @@ object TypedExprRecursionCheck {
     ): String =
       RecursionCheck.renderArgs(args)(Pattern.document[TypeRef].document)
 
+    // sourceArgsForDef gives `args` the shape of `typedArgs`, and
+    // InDef.recurEntry gives `entryTerms` that shape, so the zips drop
+    // nothing.
     private def getRecurTargetItemsByName(
         args: NonEmptyList[NonEmptyList[Pattern.Parsed]],
-        typedArgs: NonEmptyList[NonEmptyList[(Bindable, Type)]]
+        typedArgs: NonEmptyList[NonEmptyList[(Bindable, Type)]],
+        entryTerms: NonEmptyList[NonEmptyList[Option[LoweredTerm]]]
     ): Map[Bindable, RecurTargetItem] =
       args.iterator
+        .zip(typedArgs.iterator.zip(entryTerms.iterator))
         .zipWithIndex
-        .flatMap { case (group, gidx) =>
-          group.iterator.zipWithIndex.flatMap { case (item, idx) =>
-            val maybeTypedName =
-              typedArgs
-                .get(gidx.toLong)
-                .flatMap(_.get(idx.toLong))
-                .map(_._1)
-            item.topNames.iterator.map { topName =>
-              val bindName = maybeTypedName.getOrElse(topName)
-              topName -> RecurTargetItem(gidx, idx, bindName)
+        .flatMap { case ((group, (typedGroup, termGroup)), gidx) =>
+          group.iterator
+            .zip(typedGroup.iterator.zip(termGroup.iterator))
+            .zipWithIndex
+            .flatMap { case ((item, ((bindName, tpe), entryTerm)), idx) =>
+              val targetItem =
+                RecurTargetItem(gidx, idx, bindName, tpe, entryTerm)
+              item.topNames.iterator.map(_ -> targetItem)
             }
-          }
         }
         .toMap
 
@@ -627,11 +652,13 @@ object TypedExprRecursionCheck {
         fnname: Bindable,
         args: NonEmptyList[NonEmptyList[Pattern.Parsed]],
         typedArgs: NonEmptyList[NonEmptyList[(Bindable, Type)]],
+        entryTerms: NonEmptyList[NonEmptyList[Option[LoweredTerm]]],
         m: Declaration.Match,
         locals: Set[Bindable]
     ): Res[RecurTarget] = {
       import Declaration._
-      val targetItemsByName = getRecurTargetItemsByName(args, typedArgs)
+      val targetItemsByName =
+        getRecurTargetItemsByName(args, typedArgs, entryTerms)
       val argsMessage = argsRepr(args)
 
       def checkDuplicates(
@@ -847,7 +874,9 @@ object TypedExprRecursionCheck {
 
     // Bind `alias` to the target's value at recur entry. Reading the target
     // by name would see an earlier alias that rebinds the name, as in
-    // `recur (i, j): case (j, i):`.
+    // `recur (i, j): case (j, i):`. The entry state is read by the target's
+    // name, so if a shadowed parameter has the same name and another sort,
+    // its symbol can be the one found.
     private def bindAliasToTarget(
         alias: Bindable,
         inrec: InDefRecurred,
@@ -867,18 +896,6 @@ object TypedExprRecursionCheck {
         )
         .getOrElse(state)
     }
-
-    // The SMT symbol for an Int recur target's value at recur entry.
-    private def targetIntSymbol(
-        inrec: InDefRecurred,
-        targetItem: RecurTargetItem
-    ): SmtExpr.IntExpr =
-      inrec.entrySmtState.intBindings.getOrElse(
-        targetItem.paramName,
-        // $COVERAGE-OFF$ every Int argument has a symbol at entry
-        sys.error(s"no SMT symbol for Int recur target: $targetItem")
-        // $COVERAGE-ON$
-      )
 
     private def bindSourcePatternAliases(
         inrec: InDefRecurred,
@@ -986,7 +1003,7 @@ object TypedExprRecursionCheck {
       finalState match {
         case InDef(_, _, _, _, _, _, _, _, _) =>
           unitValid
-        case InDefRecurred(_, _, recur) =>
+        case InDefRecurred(_, _, recur, _) =>
           val selfCallKind = SelfCallKind(fnname, body)
           recur.kind match {
             case Declaration.MatchKind.Loop
@@ -2650,20 +2667,6 @@ object TypedExprRecursionCheck {
       }
     }
 
-    private def targetItemType(
-        inrec: InDefRecurred,
-        targetItem: RecurTargetItem
-    ): Type =
-      inrec.inRec.typedArgs
-        .get(targetItem.group.toLong)
-        .flatMap(_.get(targetItem.index.toLong))
-        .map(_._2)
-        .getOrElse {
-          // $COVERAGE-OFF$ this should be unreachable when target indices are valid
-          sys.error(s"invalid recur target index: $targetItem")
-          // $COVERAGE-ON$
-        }
-
     private def bindSymbolForType(
         name: Bindable,
         tpe: Type,
@@ -2671,29 +2674,39 @@ object TypedExprRecursionCheck {
     ): SmtBranchState =
       freshTerm(name, tpe, state)._2
 
-    private def initBranchSmtState(inrec: InDefRecurred): SmtBranchState =
-      initSmtState(
-        inrec.inRec.typedArgs,
-        inrec.inRec.types.totalityCheck,
-        inrec.inRec.topLevelLowerableAliases,
-        inrec.inRec.topLevelPredefAliases
-      )
+    // One SMT symbol for each Int, Bool or Comparison argument of a def,
+    // bound in order, and each argument's term, in the shape of
+    // `typedArgs`. A term is an IntTerm exactly when its argument is an
+    // Int (see freshTerm).
+    private def initSmtTerms(
+        typedArgs: NonEmptyList[NonEmptyList[(Bindable, Type)]],
+        totalityCheck: TotalityCheck,
+        topLevelLowerableAliases: TopLevelLowerableAliases,
+        topLevelPredefAliases: TopLevelPredefAliases
+    ): (SmtBranchState, NonEmptyList[NonEmptyList[Option[LoweredTerm]]]) =
+      typedArgs.mapAccumulate(
+        SmtBranchState.empty(totalityCheck).copy(
+          topLevelLowerableAliases = topLevelLowerableAliases,
+          topLevelPredefAliases = topLevelPredefAliases
+        )
+      ) { (state, group) =>
+        group.mapAccumulate(state) { case (st, (name, tpe)) =>
+          freshTerm(name, tpe, st).swap
+        }
+      }
 
-    // One SMT symbol for each Int, Bool or Comparison argument of a def.
     private def initSmtState(
         typedArgs: NonEmptyList[NonEmptyList[(Bindable, Type)]],
         totalityCheck: TotalityCheck,
         topLevelLowerableAliases: TopLevelLowerableAliases,
         topLevelPredefAliases: TopLevelPredefAliases
     ): SmtBranchState =
-      typedArgs.iterator.flatMap(_.iterator).foldLeft(
-        SmtBranchState.empty(totalityCheck).copy(
-          topLevelLowerableAliases = topLevelLowerableAliases,
-          topLevelPredefAliases = topLevelPredefAliases
-        )
-      ) { case (state, (name, tpe)) =>
-        bindSymbolForType(name, tpe, state)
-      }
+      initSmtTerms(
+        typedArgs,
+        totalityCheck,
+        topLevelLowerableAliases,
+        topLevelPredefAliases
+      )._1
 
     def lowerDefBodyForTest(
         currentPackage: PackageName,
@@ -3603,7 +3616,7 @@ object TypedExprRecursionCheck {
           target,
           proof,
           arg,
-          targetItemType(inrec, target)
+          target.tpe
         ),
         None,
         None
@@ -3775,25 +3788,28 @@ object TypedExprRecursionCheck {
         val proof = proofItems(idx)
         val argExpr = callItems(idx)
         val step =
-          if (isIntType(targetItemType(inrec, targetItem))) {
-            val (intStep, smt1) =
-              classifyIntArg(
-                fnname,
+          targetItem.entryTerm match {
+            // the target is an Int
+            case Some(LoweredTerm.IntTerm(currInt)) =>
+              val (intStep, smt1) =
+                classifyIntArg(
+                  fnname,
+                  targetItem,
+                  currInt,
+                  argExpr,
+                  smtState,
+                  region
+                )
+              smtState = smt1
+              intStep
+            case _ =>
+              classifyStructuralArg(
+                inrec,
                 targetItem,
-                targetIntSymbol(inrec, targetItem),
-                argExpr,
-                smtState,
-                region
+                proof,
+                argExpr
               )
-            smtState = smt1
-            intStep
-          } else
-            classifyStructuralArg(
-              inrec,
-              targetItem,
-              proof,
-              argExpr
-            )
+          }
 
         step.order match {
           case Smaller =>
@@ -4018,7 +4034,7 @@ object TypedExprRecursionCheck {
                 getSt.flatMap {
                   case idEnd @ InDef(_, _, _, _, _, _, _, _, _) =>
                     setSt(idEnd.withLocalScope(outerScope)).as(a)
-                  case irEnd @ InDefRecurred(inRec, _, _) =>
+                  case irEnd @ InDefRecurred(inRec, _, _, _) =>
                     setSt(
                       irEnd.copy(inRec = inRec.withLocalScope(outerScope))
                     ).as(a)
@@ -4386,7 +4402,7 @@ object TypedExprRecursionCheck {
       val targetConsts: List[Type.Const] =
         inrec.target.toList
           .traverse { targetItem =>
-            expandAliasHead(typeEnv, targetItemType(inrec, targetItem))
+            expandAliasHead(typeEnv, targetItem.tpe)
               .map(Type.unapplyAll(_)._1)
               .collect { case Type.TyConst(c) => c }
           }
@@ -4766,13 +4782,23 @@ object TypedExprRecursionCheck {
               // this is a state change
               getSt.flatMap {
                 case TopLevel(_) | InRecurBranch(_, _, _, _) |
-                    InDefRecurred(_, _, _) =>
+                    InDefRecurred(_, _, _, _) =>
                   failSt(RecursionCheck.UnexpectedRecur(recur.region))
                 case ir @ InDef(_, defname, typedArgs, sourceArgs, _, _, _, _, locals) =>
-                  toSt(getRecurTarget(defname, sourceArgs, typedArgs, recur, locals)).flatMap {
+                  val (entrySmtState, entryTerms) = ir.recurEntry
+                  toSt(
+                    getRecurTarget(
+                      defname,
+                      sourceArgs,
+                      typedArgs,
+                      entryTerms,
+                      recur,
+                      locals
+                    )
+                  ).flatMap {
                     target =>
                       val sourcePatterns = recur.cases.get.map(_.pattern).toList.toVector
-                      val inrec = ir.setRecur(target, recur)
+                      val inrec = ir.setRecur(target, recur, entrySmtState)
                       // Same order and length as `branches`. The source
                       // patterns' whole-value aliases of the targets are bound
                       // before the earlier branches' guards are read.
