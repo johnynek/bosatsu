@@ -1654,6 +1654,46 @@ object TypedExpr {
     loop(te, None)
   }
 
+  /** A branch guard whose expressions have been traversed into F. */
+  private enum GuardF[F[_], B] {
+    case NoGuard()
+    case Bool(exprF: F[TypedExpr[B]])
+    case Mtch(
+        argF: F[TypedExpr[B]],
+        pattern: Pattern[(PackageName, Constructor), Type],
+        innerF: Option[F[TypedExpr[B]]],
+        patternRegion: Region
+    )
+  }
+
+  private object GuardF {
+    // Rebuild the branch, keeping the guard pattern.
+    def branch[F[_]: Applicative, B](
+        pattern: Pattern[(PackageName, Constructor), Type],
+        patternRegion: Region,
+        guard: GuardF[F, B],
+        exprF: F[TypedExpr[B]]
+    ): F[Branch[B]] =
+      guard match {
+        case NoGuard() =>
+          exprF.map(Branch.fromGuardNode(pattern, None, _)(using patternRegion))
+        case Bool(guardF) =>
+          (guardF, exprF).mapN { (guardExpr, expr) =>
+            Branch.fromGuardNode(pattern, Some(BoolGuard(guardExpr)), expr)(using
+              patternRegion
+            )
+          }
+        case Mtch(argF, guardPattern, innerF, guardRegion) =>
+          (argF, innerF.sequence, exprF).mapN { (argExpr, inner, expr) =>
+            Branch.fromGuardNode(
+              pattern,
+              Some(MatchGuard(argExpr, guardPattern, inner)(using guardRegion)),
+              expr
+            )(using patternRegion)
+          }
+      }
+  }
+
   private trait StackTraverseHandler[F[_], A, B, C] {
     type BranchPattern = Pattern[(PackageName, Constructor), Type]
 
@@ -1728,8 +1768,7 @@ object TypedExpr {
         pattern: BranchPattern,
         patternRegion: Region,
         ctx: C,
-        originalGuardNode: Option[BranchGuard[A]],
-        guardF: Option[F[BranchGuard[B]]],
+        guard: GuardF[F, B],
         exprF: F[TypedExpr[B]]
     ): F[Branch[B]]
     def mtch(
@@ -1746,8 +1785,6 @@ object TypedExpr {
       rootCtx: C,
       handler: StackTraverseHandler[F, A, B, C]
   ): F[TypedExpr[B]] = {
-    type BranchPattern = Pattern[(PackageName, Constructor), Type]
-
     sealed trait Work
     case class Visit(expr: TypedExpr[A], ctx: C) extends Work
     case class RebuildGeneric(
@@ -1781,17 +1818,9 @@ object TypedExpr {
     ) extends Work
     case class RebuildRecur(result: Type, tag: A, argCount: Int, ctx: C)
         extends Work
-    sealed trait RebuildGuard
-    object RebuildGuard {
-      case object Bool extends RebuildGuard
-      final case class Match(
-          hasInnerGuard: Boolean,
-          guardRegion: Region
-      ) extends RebuildGuard
-    }
-
+    // the original branches give the patterns and the guard shapes
     case class RebuildMatch(
-        branches: NonEmptyList[(BranchPattern, Option[BranchGuard[A]], Option[RebuildGuard], Region)],
+        branches: NonEmptyList[Branch[A]],
         tag: A,
         matchKind: MatchKind,
         ctx: C
@@ -1871,25 +1900,7 @@ object TypedExpr {
             case Literal(lit, tpe, tag) =>
               pushBuilt(handler.literal(lit, tpe, tag, ctx))
             case m @ Match(arg, branches, tag) =>
-              work =
-                RebuildMatch(
-                  branches.map(b =>
-                    (
-                      b.pattern,
-                      b.guardNode,
-                      b.guardNode.map {
-                        case BoolGuard(_) =>
-                          RebuildGuard.Bool
-                        case guard @ MatchGuard(_, _, guardOpt) =>
-                          RebuildGuard.Match(guardOpt.nonEmpty, guard.patternRegion)
-                      },
-                      b.patternRegion
-                    )
-                  ),
-                  tag,
-                  m.matchKind,
-                  ctx
-                ) :: work
+              work = RebuildMatch(branches, tag, m.matchKind, ctx) :: work
               val revBranches = branches.toList.reverseIterator
               while (revBranches.hasNext) {
                 val branch = revBranches.next()
@@ -1945,35 +1956,24 @@ object TypedExpr {
           val branchFsRev = List.newBuilder[F[Branch[B]]]
           val revBranches = branches.toList.reverseIterator
           while (revBranches.hasNext) {
-            val (pattern, originalGuardNode, guardKind, patternRegion) = revBranches.next()
+            val branch = revBranches.next()
             val exprF = popBuilt()
-            val guardF = guardKind match {
-              case Some(kind) =>
-                kind match {
-                  case _: RebuildGuard.Bool.type =>
-                    Some(popBuilt().map[BranchGuard[B]](BoolGuard(_)))
-                  case RebuildGuard.Match(hasInnerGuard, guardRegion) =>
-                    val innerGuardF =
-                      if (hasInnerGuard) Some(popBuilt()) else None
-                    val argF = popBuilt()
-                    Some(
-                      (argF, innerGuardF.sequence).mapN { (argExpr, guardExpr) =>
-                        originalGuardNode match {
-                          case Some(MatchGuard(_, pattern1, _)) =>
-                            MatchGuard(argExpr, pattern1, guardExpr)(using guardRegion)
-                          case other =>
-                            throw new IllegalStateException(
-                              s"expected MatchGuard when rebuilding guard, found: $other"
-                            )
-                        }
-                      }
-                    )
-                }
-              case None    =>
-                None
+            val guardF: GuardF[F, B] = branch.guardNode match {
+              case None               => GuardF.NoGuard()
+              case Some(BoolGuard(_)) => GuardF.Bool(popBuilt())
+              case Some(guard @ MatchGuard(_, pattern, innerGuard)) =>
+                val innerF = innerGuard.map(_ => popBuilt())
+                val argF = popBuilt()
+                GuardF.Mtch(argF, pattern, innerF, guard.patternRegion)
             }
             branchFsRev +=
-              handler.matchBranch(pattern, patternRegion, ctx, originalGuardNode, guardF, exprF)
+              handler.matchBranch(
+                branch.pattern,
+                branch.patternRegion,
+                ctx,
+                guardF,
+                exprF
+              )
           }
           val argF = popBuilt()
           val branchesF =
@@ -2413,43 +2413,23 @@ object TypedExpr {
               pattern: BranchPattern,
               patternRegion: Region,
               ctx: Set[Type.Var.Bound],
-              originalGuardNode: Option[BranchGuard[A]],
-              guardF: Option[F[BranchGuard[A]]],
+              guard: GuardF[F, A],
               exprF: F[TypedExpr[A]]
           ): F[Branch[A]] = {
             val patternF = pattern.traverseType(t => applyFn(t, ctx))
-            val guardNodeF =
-              originalGuardNode match {
-                case Some(original @ MatchGuard(_, guardPattern, _)) =>
-                  val rebuiltGuardF = guardF.getOrElse(
-                    throw new IllegalStateException(
-                      s"missing rebuilt MatchGuard for branch: $original"
-                    )
-                  )
+            val guardNodeF: F[Option[BranchGuard[A]]] =
+              guard match {
+                case GuardF.Mtch(argF, guardPattern, innerF, guardRegion) =>
                   (
                     guardPattern.traverseType(t => applyFn(t, ctx)),
-                    rebuiltGuardF
-                  ).mapN { (guardPattern1, guard) =>
-                    guard match {
-                      case MatchGuard(argExpr, _, guardExpr) =>
-                        Some(
-                          MatchGuard(argExpr, guardPattern1, guardExpr)(using
-                            original.patternRegion
-                          )
-                        )
-                      case other =>
-                        throw new IllegalStateException(
-                          s"expected rebuilt MatchGuard, found: $other"
-                        )
-                    }
+                    argF,
+                    innerF.sequence
+                  ).mapN { (guardPattern1, argExpr, inner) =>
+                    Some(MatchGuard(argExpr, guardPattern1, inner)(using guardRegion))
                   }
-                case Some(_: BoolGuard[A]) =>
-                  guardF.getOrElse(
-                    throw new IllegalStateException(
-                      "missing rebuilt BoolGuard for branch"
-                    )
-                  ).map(Some(_))
-                case None                  =>
+                case GuardF.Bool(guardF) =>
+                  guardF.map(guardExpr => Some(BoolGuard(guardExpr)))
+                case GuardF.NoGuard() =>
                   summon[Applicative[F]].pure(None)
               }
             (patternF, guardNodeF, exprF).mapN((pat, guard, expr) =>
@@ -2574,18 +2554,10 @@ object TypedExpr {
             pattern: BranchPattern,
             patternRegion: Region,
             ctx: Unit,
-            originalGuardNode: Option[BranchGuard[A]],
-            guardF: Option[F[BranchGuard[A]]],
+            guard: GuardF[F, A],
             exprF: F[TypedExpr[A]]
         ): F[Branch[A]] =
-          guardF match {
-            case Some(gf) =>
-              mon.map2(gf, exprF)((guard, expr) =>
-                Branch.fromGuardNode(pattern, Some(guard), expr)(using patternRegion)
-              )
-            case None     =>
-              exprF.map(expr => Branch(pattern, None, expr)(using patternRegion))
-          }
+          GuardF.branch(pattern, patternRegion, guard, exprF)
 
         def mtch(
             tag: A,
@@ -3009,18 +2981,10 @@ object TypedExpr {
               pattern: BranchPattern,
               patternRegion: Region,
               ctx: Unit,
-              originalGuardNode: Option[BranchGuard[T]],
-              guardF: Option[F[BranchGuard[S]]],
+              guard: GuardF[F, S],
               exprF: F[TypedExpr[S]]
           ): F[Branch[S]] =
-            guardF match {
-              case Some(gf) =>
-                (gf, exprF).mapN((guard, expr) =>
-                  Branch.fromGuardNode(pattern, Some(guard), expr)(using patternRegion)
-                )
-              case None     =>
-                exprF.map(expr => Branch(pattern, None, expr)(using patternRegion))
-            }
+            GuardF.branch(pattern, patternRegion, guard, exprF)
 
           def mtch(
               tag: T,
