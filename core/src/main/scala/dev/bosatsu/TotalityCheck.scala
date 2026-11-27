@@ -524,10 +524,10 @@ case class TotalityCheck(inEnv: TypeEnv[Kind.Arg]) {
       args: List[Pattern[Cons, Type]]
   ): Option[Pattern.ListPat[Cons, Type]] =
     (n, args) match {
-      case ((PackageName.PredefName, Constructor("EmptyList")), Nil) =>
+      case ((PackageName.PredefName, PredefNames.EmptyList), Nil) =>
         Some(Pattern.ListPat(Nil))
       case (
-            (PackageName.PredefName, Constructor("NonEmptyList")),
+            (PackageName.PredefName, PredefNames.NonEmptyList),
             h :: t :: Nil
           ) =>
         val tailRes = t match {

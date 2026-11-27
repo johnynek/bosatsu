@@ -231,17 +231,17 @@ object TypedExprRecursionCheck {
     )
 
     private val comparisonType: Type =
-      Type.TyConst(Type.Const.predef("Comparison"))
+      Type.TyConst(Type.Const.predef(PredefName.typeName("Comparison")))
     private val emptyListSingletonCtor =
-      SingletonCtor(PackageName.PredefName, Identifier.Constructor("EmptyList"))
+      SingletonCtor(PackageName.PredefName, PredefNames.EmptyList)
     private val emptyListKnownCtor =
       KnownCtor(
         emptyListSingletonCtor.pack,
         emptyListSingletonCtor.cons
       )
     private val nonEmptyListKnownCtor =
-      KnownCtor(PackageName.PredefName, Identifier.Constructor("NonEmptyList"))
-    private val unitCtorName = Identifier.Constructor("Unit")
+      KnownCtor(PackageName.PredefName, PredefNames.NonEmptyList)
+    private val unitCtorName = PredefNames.Unit
     private val lazyPackageName = PackageName.parts("Bosatsu", "Lazy")
     private val getLazyName = Identifier.Name("get_Lazy")
     private val lazyTypeConst =
@@ -1568,18 +1568,18 @@ object TypedExprRecursionCheck {
     // The one table of the Predef functions that lower to SMT
     private val lowerablePredefOps: Map[Identifier.Name, PredefOp] =
       Map(
-        Identifier.Name("add") -> PredefOp.IntResult(IntOp.Add),
-        Identifier.Name("sub") -> PredefOp.IntResult(IntOp.Sub),
-        Identifier.Name("mul") -> PredefOp.IntResult(IntOp.Mul),
-        Identifier.Name("div") -> PredefOp.IntResult(IntOp.Div),
-        Identifier.Name("mod_Int") -> PredefOp.IntResult(IntOp.Mod),
-        Identifier.Name("cmp_Int") -> PredefOp.CmpInt,
-        Identifier.Name("eq_Int") -> PredefOp.BoolResult(BoolOp.EqInt),
-        Identifier.Name("and") -> PredefOp.BoolResult(BoolOp.And),
-        Identifier.Name("or") -> PredefOp.BoolResult(BoolOp.Or),
-        Identifier.Name("not") -> PredefOp.BoolResult(BoolOp.Not),
-        Identifier.Name("xor") -> PredefOp.BoolResult(BoolOp.Xor),
-        Identifier.Name("implies") -> PredefOp.BoolResult(BoolOp.Implies)
+        PredefNames.add -> PredefOp.IntResult(IntOp.Add),
+        PredefNames.sub -> PredefOp.IntResult(IntOp.Sub),
+        PredefNames.mul -> PredefOp.IntResult(IntOp.Mul),
+        PredefName.value("div") -> PredefOp.IntResult(IntOp.Div),
+        PredefName.value("mod_Int") -> PredefOp.IntResult(IntOp.Mod),
+        PredefNames.cmp_Int -> PredefOp.CmpInt,
+        PredefNames.eq_Int -> PredefOp.BoolResult(BoolOp.EqInt),
+        PredefName.value("and") -> PredefOp.BoolResult(BoolOp.And),
+        PredefName.value("or") -> PredefOp.BoolResult(BoolOp.Or),
+        PredefName.value("not") -> PredefOp.BoolResult(BoolOp.Not),
+        PredefName.value("xor") -> PredefOp.BoolResult(BoolOp.Xor),
+        PredefName.value("implies") -> PredefOp.BoolResult(BoolOp.Implies)
       )
 
     // The constructors of Predef's Comparison, with the Int each one is
@@ -1592,9 +1592,9 @@ object TypedExprRecursionCheck {
 
     private val comparisonCtors: Map[Identifier.Constructor, ComparisonCtor] =
       Map(
-        Identifier.Constructor("LT") -> ComparisonCtor.LT,
-        Identifier.Constructor("EQ") -> ComparisonCtor.EQ,
-        Identifier.Constructor("GT") -> ComparisonCtor.GT
+        PredefNames.LT -> ComparisonCtor.LT,
+        PredefNames.EQ -> ComparisonCtor.EQ,
+        PredefNames.GT -> ComparisonCtor.GT
       )
 
     // `fn` is a Predef function that lowers to SMT
@@ -1825,11 +1825,11 @@ object TypedExprRecursionCheck {
             if trueBranch.guard.isEmpty &&
               falseBranch.guard.isEmpty &&
               (trueBranch.pattern == Pattern.PositionalStruct(
-                (PackageName.PredefName, Identifier.Constructor("True")),
+                (PackageName.PredefName, PredefNames.True),
                 Nil
               )) &&
               (falseBranch.pattern == Pattern.PositionalStruct(
-                (PackageName.PredefName, Identifier.Constructor("False")),
+                (PackageName.PredefName, PredefNames.False),
                 Nil
               )) =>
           val (condOpt, state1) = lowerBoolExpr(arg, state)

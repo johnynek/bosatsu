@@ -653,14 +653,14 @@ object TypedExprNormalization {
         boolConst(in)
       case Global(
             PackageName.PredefName,
-            Identifier.Constructor("True"),
+            Identifier.Constructor(PredefNames.True.asString),
             _,
             _
           ) =>
         Some(true)
       case Global(
             PackageName.PredefName,
-            Identifier.Constructor("False"),
+            Identifier.Constructor(PredefNames.False.asString),
             _,
             _
           ) =>
@@ -670,9 +670,9 @@ object TypedExprNormalization {
     }
 
   private val TruePattern: Pattern[(PackageName, Constructor), Type] =
-    Pattern.PositionalStruct((PackageName.PredefName, Constructor("True")), Nil)
+    Pattern.PositionalStruct((PackageName.PredefName, PredefNames.True), Nil)
   private val FalsePattern: Pattern[(PackageName, Constructor), Type] =
-    Pattern.PositionalStruct((PackageName.PredefName, Constructor("False")), Nil)
+    Pattern.PositionalStruct((PackageName.PredefName, PredefNames.False), Nil)
 
   private def ifThenElse[A](
       cond: TypedExpr[A],
@@ -3021,13 +3021,13 @@ object TypedExprNormalization {
           evaluate(te1, scope, totalityCheck).flatMap {
             case EvalResult.Cons(
                   PackageName.PredefName,
-                  Constructor("True"),
+                  PredefNames.True,
                   Nil
                 ) =>
               Some(true)
             case EvalResult.Cons(
                   PackageName.PredefName,
-                  Constructor("False"),
+                  PredefNames.False,
                   Nil
                 ) =>
               Some(false)
@@ -3513,7 +3513,7 @@ object TypedExprNormalization {
               // pos + (-neg) == pos - neg
               val untaggedFn = Global(
                 PackageName.PredefName,
-                Identifier.Name("sub"),
+                PredefNames.sub,
                 Fn2Int,
                 ()
               )
@@ -3528,7 +3528,7 @@ object TypedExprNormalization {
               // (-neg) + pos == pos - neg
               val untaggedFn = Global(
                 PackageName.PredefName,
-                Identifier.Name("sub"),
+                PredefNames.sub,
                 Fn2Int,
                 ()
               )
@@ -3542,7 +3542,7 @@ object TypedExprNormalization {
             case RingOpt.Add(left, right) =>
               val untaggedFn = Global(
                 PackageName.PredefName,
-                Identifier.Name("add"),
+                PredefNames.add,
                 Fn2Int,
                 ()
               )
@@ -3556,7 +3556,7 @@ object TypedExprNormalization {
             case RingOpt.Mult(left, right) =>
               val untaggedFn = Global(
                 PackageName.PredefName,
-                Identifier.Name("mul"),
+                PredefNames.mul,
                 Fn2Int,
                 ()
               )
@@ -3798,7 +3798,7 @@ object TypedExprNormalization {
           case App(
                 addFn @ Global(
                   PackageName.PredefName,
-                  Identifier.Name("add"),
+                  Identifier.Name(PredefNames.add.asString),
                   Fn2Int,
                   _
                 ),
@@ -3812,7 +3812,7 @@ object TypedExprNormalization {
           case App(
                 timesFn @ Global(
                   PackageName.PredefName,
-                  Identifier.Name("mul"),
+                  Identifier.Name(PredefNames.mul.asString),
                   Fn2Int,
                   _
                 ),
@@ -3826,7 +3826,7 @@ object TypedExprNormalization {
           case App(
                 subFn @ Global(
                   PackageName.PredefName,
-                  Identifier.Name("sub"),
+                  Identifier.Name(PredefNames.sub.asString),
                   Fn2Int,
                   _
                 ),

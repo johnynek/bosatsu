@@ -1090,14 +1090,14 @@ object TypedExpr {
           val trueExpr =
             TypedExpr.Global(
               PackageName.PredefName,
-              Constructor("True"),
+              PredefNames.True,
               Type.BoolType,
               arg.tag
             )
           val falseExpr =
             TypedExpr.Global(
               PackageName.PredefName,
-              Constructor("False"),
+              PredefNames.False,
               Type.BoolType,
               arg.tag
             )

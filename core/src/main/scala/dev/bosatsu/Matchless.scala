@@ -4058,13 +4058,14 @@ object Matchless {
   object StringMatcher {
     private val emptyStringLit: Lit = Lit.Str("")
     private val emptyStringExpr: Expr[Nothing] = Literal(emptyStringLit)
-    private val concatStringName = Identifier.Name("concat_String")
-    private val charToStringName = Identifier.Name("char_to_String")
-    private val partitionStringName = Identifier.Name("partition_String")
-    private val unconsStringName = Identifier.Name("uncons_String")
-    private val tailOrEmptyStringName = Identifier.Name("tail_or_empty_String")
-    private val someCons = Constructor("Some")
-    private val tuple2Cons = Constructor("Tuple2")
+    private val concatStringName = PredefNames.concat_String
+    private val charToStringName = PredefNames.char_to_String
+    private val partitionStringName = PredefName.value("partition_String")
+    private val unconsStringName = PredefName.value("uncons_String")
+    private val tailOrEmptyStringName =
+      PredefName.value("tail_or_empty_String")
+    private val someCons = PredefNames.Some
+    private val tuple2Cons = PredefName.constructor("Tuple2")
 
     final private case class Ctx[F[_], A](
         from: A,
@@ -5190,8 +5191,8 @@ object Matchless {
     }
   }
 
-  private val empty = (PackageName.PredefName, Constructor("EmptyList"))
-  private val cons = (PackageName.PredefName, Constructor("NonEmptyList"))
+  private val empty = (PackageName.PredefName, PredefNames.EmptyList)
+  private val cons = (PackageName.PredefName, PredefNames.NonEmptyList)
 
   // A constructor a pattern names, with its data representation. Lowering a
   // match resolves each pattern constructor once, so the pattern compilers
@@ -5202,7 +5203,7 @@ object Matchless {
       repr: DataRepr
   ) derives CanEqual
 
-  private val revName = Identifier.Name("reverse")
+  private val revName = PredefName.value("reverse")
   private def reverseFn[A](from: A) =
     Global[A](from, PackageName.PredefName, revName)
 
@@ -5477,12 +5478,12 @@ object Matchless {
       case IntDomain, Int64Domain, Float64Domain
     }
 
-    val eqIntName = Identifier.Name("eq_Int")
-    val cmpIntName = Identifier.Name("cmp_Int")
-    val eqFloat64Name = Identifier.Name("eq_Float64")
-    val cmpFloat64Name = Identifier.Name("cmp_Float64")
-    val someConstructor = Constructor("Some")
-    val noneConstructor = Constructor("None")
+    val eqIntName = PredefNames.eq_Int
+    val cmpIntName = PredefNames.cmp_Int
+    val eqFloat64Name = PredefName.value("eq_Float64")
+    val cmpFloat64Name = PredefName.value("cmp_Float64")
+    val someConstructor = PredefNames.Some
+    val noneConstructor = PredefName.constructor("None")
 
     lazy val optionSomeData: (Int, Int, List[Int]) =
       variantOf(PackageName.PredefName, someConstructor) match {
@@ -9150,8 +9151,8 @@ object Matchless {
       def boolSelectorBranches(
           bs: NonEmptyList[MatchBranch]
       ): Option[(Expr[B], Expr[B])] = {
-        val trueCons = Constructor("True")
-        val falseCons = Constructor("False")
+        val trueCons = PredefNames.True
+        val falseCons = PredefNames.False
 
         def normalizedNoNames(
             p: Pat
@@ -9190,9 +9191,9 @@ object Matchless {
           selectorExpr: Expr[B],
           bs: NonEmptyList[MatchBranch]
       ): Option[F[Expr[B]]] = {
-        val ltCons = Constructor("LT")
-        val eqCons = Constructor("EQ")
-        val gtCons = Constructor("GT")
+        val ltCons = PredefNames.LT
+        val eqCons = PredefNames.EQ
+        val gtCons = PredefNames.GT
 
         def normalizedNoNames(
             p: Pat

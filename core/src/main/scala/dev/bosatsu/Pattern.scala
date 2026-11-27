@@ -1315,7 +1315,7 @@ object Pattern {
         ): Option[List[Doc]] =
           p match {
             case PositionalStruct(
-                  (PackageName.PredefName, Constructor("Unit")),
+                  (PackageName.PredefName, PredefNames.Unit),
                   Nil
                 ) =>
               Some(Nil)

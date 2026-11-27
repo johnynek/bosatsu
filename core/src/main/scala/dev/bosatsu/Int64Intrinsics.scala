@@ -42,7 +42,7 @@ object Int64Intrinsics {
     Type.TyConst(Type.Const.Defined(packageName, typeName))
 
   private val comparisonType: Type =
-    Type.TyConst(Type.Const.predef("Comparison"))
+    Type.TyConst(Type.Const.predef(PredefName.typeName("Comparison")))
 
   private def binary(result: Type): Type =
     Type.Fun(NonEmptyList.of(int64Type, int64Type), result)

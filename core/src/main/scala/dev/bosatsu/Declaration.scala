@@ -109,7 +109,11 @@ sealed abstract class Declaration derives CanEqual {
         val parts = (Doc.text("if ") + checkBody(ifCases.head)) :: (ifCases.tail
           .map(Doc.text("elif ") + checkBody(_))) ::: tail
         Doc.intercalate(Doc.line, parts)
-      case Ternary(Var(Identifier.Constructor("True")), m @ Matches(_, _, Some(_)), falseCase) =>
+      case Ternary(
+            Var(Identifier.Constructor(PredefNames.True.asString)),
+            m @ Matches(_, _, Some(_)),
+            falseCase
+          ) =>
         m.toDoc + Doc.text(" else ") + falseCase.toDoc
       case Ternary(trueCase, cond, falseCase) =>
         Doc.intercalate(
@@ -1872,7 +1876,7 @@ object Declaration {
             ((spaces *> keySpace("else")).backtrack *> ternaryElseP).?.map {
               case Some(falseCase) =>
                 val trueCase =
-                  Var(Identifier.Constructor("True"))(using m.region)
+                  Var(PredefNames.True)(using m.region)
                 Ternary(trueCase, m, falseCase)
               case None =>
                 m

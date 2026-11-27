@@ -11,6 +11,7 @@ import dev.bosatsu.{
   TypeName,
   Identifier,
   Parser,
+  PredefName,
   TypeParser,
   Require,
   Variance
@@ -1636,8 +1637,10 @@ object Type {
   /** These are upper-case to leverage scala's pattern matching on upper-cased
     * vals
     */
-  val BoolType: Type.TyConst = TyConst(Const.predef("Bool"))
-  val DictType: Type.TyConst = TyConst(Const.predef("Dict"))
+  val BoolType: Type.TyConst =
+    TyConst(Const.predef(PredefName.typeName("Bool")))
+  val DictType: Type.TyConst =
+    TyConst(Const.predef(PredefName.typeName("Dict")))
 
   /** The largest arity of the predef function types, Fn1 to FnN, and of the
     * predef tuple types, Tuple1 to TupleN.
@@ -1692,13 +1695,19 @@ object Type {
       }.toList
     }
   }
-  val IntType: Type.TyConst = TyConst(Const.predef("Int"))
-  val Float64Type: Type.TyConst = TyConst(Const.predef("Float64"))
-  val ListType: Type.TyConst = TyConst(Const.predef("List"))
-  val OptionType: Type.TyConst = TyConst(Const.predef("Option"))
-  val StrType: Type.TyConst = TyConst(Const.predef("String"))
-  val CharType: Type.TyConst = TyConst(Const.predef("Char"))
-  val TestType: Type.TyConst = TyConst(Const.predef("Test"))
+  val IntType: Type.TyConst = TyConst(Const.predef(PredefName.typeName("Int")))
+  val Float64Type: Type.TyConst =
+    TyConst(Const.predef(PredefName.typeName("Float64")))
+  val ListType: Type.TyConst =
+    TyConst(Const.predef(PredefName.typeName("List")))
+  val OptionType: Type.TyConst =
+    TyConst(Const.predef(PredefName.typeName("Option")))
+  val StrType: Type.TyConst =
+    TyConst(Const.predef(PredefName.typeName("String")))
+  val CharType: Type.TyConst =
+    TyConst(Const.predef(PredefName.typeName("Char")))
+  val TestType: Type.TyConst =
+    TyConst(Const.predef(PredefName.typeName("Test")))
   val ProgTestType: Type.TyConst =
     TyConst(
       Const.Defined(
@@ -1706,7 +1715,8 @@ object Type {
         TypeName("ProgTest")
       )
     )
-  val UnitType: Type.TyConst = TyConst(Type.Const.predef("Unit"))
+  val UnitType: Type.TyConst =
+    TyConst(Const.predef(PredefName.typeName("Unit")))
 
   def const(pn: PackageName, name: TypeName): Type.Leaf =
     TyConst(Type.Const.Defined(pn, name))
@@ -1904,6 +1914,10 @@ object Type {
 
     def predef(name: String): Defined =
       Defined(PackageName.PredefName, TypeName(Identifier.Constructor(name)))
+
+    /** A Predef type, such as a checked `PredefName.typeName("Bool")` */
+    def predef(name: TypeName): Defined =
+      Defined(PackageName.PredefName, name)
 
     object Predef {
       def unapply(c: Const): Option[Identifier.Constructor] =

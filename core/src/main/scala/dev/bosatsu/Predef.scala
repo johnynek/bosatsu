@@ -53,7 +53,7 @@ object Predef {
   /** String representation of the predef.
     */
   val predefString: String =
-    loadFileInCompile("core/src/main/resources/bosatsu/predef.bosatsu")
+    loadFileInCompile(PredefName.source)
 
   private def predefPackageName: PackageName =
     PackageName.PredefName

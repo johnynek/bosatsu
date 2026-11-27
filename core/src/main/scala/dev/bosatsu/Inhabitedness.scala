@@ -50,9 +50,9 @@ object Inhabitedness {
   type Result[+A] = ValidatedNec[Error, A]
 
   private val EmptyListCons: (PackageName, Constructor) =
-    (PackageName.PredefName, Constructor("EmptyList"))
+    (PackageName.PredefName, PredefNames.EmptyList)
   private val NonEmptyListCons: (PackageName, Constructor) =
-    (PackageName.PredefName, Constructor("NonEmptyList"))
+    (PackageName.PredefName, PredefNames.NonEmptyList)
 
   // Keep quantifier expansion finite and fast in adversarial inputs.
   private val MaxQuantifierVars = 10
