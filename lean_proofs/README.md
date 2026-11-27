@@ -24,6 +24,29 @@ It also contains a second proof over a naive `Eval`:
 - this is packaged as `exists_fuel_of_terminates` and
   `exists_fuel_if_total`, with direct corollary `exists_fuel_for_all`
 
+There is also a model of the inhabitedness checker
+(`core/src/main/scala/dev/bosatsu/Inhabitedness.scala`, `Analyzer.checkType`)
+in `Inhabitedness`:
+
+- `check` is an executable model of `checkType`: data types with type
+  parameters and existential constructor variables, function types, `forall`
+  and `exists`, bound variables, the `seen` cycle rule, the two-state
+  abstraction of quantified variables, and the `MaxQuantifierVars` cap
+- `sem` says which closed types have values (finite constructor trees, total
+  functions, `forall` instantiation, `exists` packing), relative to a `Model`
+  of the environment
+- `uninhabited_sound`: if `check` says Uninhabited, the type has no value
+- `example_P_has_no_value`: `struct P(f: (P -> Never) -> Never)` has no value,
+  through the cycle rule and function arguments, and `exampleModel` shows the
+  `Model` hypotheses hold for that environment
+- the "Assumptions" section at the end of the file lists what the proof
+  assumes about the rest of Bosatsu. The model is of the search-based
+  checker from before johnynek/bosatsu#2520, which could confuse a
+  constructor's existential with an outer variable of the same name
+  (`capture_example`). The Scala checker now solves data types as a least
+  fixed point over keys that name no stated variable, which the proof does
+  not cover yet
+
 Run locally:
 
 ```bash

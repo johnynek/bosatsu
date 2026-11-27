@@ -3,7 +3,7 @@ package dev.bosatsu.library
 import _root_.bosatsu.{TypedAst => proto}
 import cats.data.NonEmptyList
 import cats.syntax.all._
-import dev.bosatsu.PlatformIO
+import dev.bosatsu.{Bytes, PlatformIO}
 import dev.bosatsu.hashing.{Algo, HashValue}
 import dev.bosatsu.tool.CliException
 import dev.bosatsu.tool.LibraryInspection
@@ -33,11 +33,11 @@ private[bosatsu] final class VerifiedLibrarySnapshot[Path] private (
     val blake3: HashValue[Algo.Blake3],
     val sha256: HashValue[Algo.Sha256],
     val protoLib: proto.Library,
-    private val bytes: Array[Byte]
+    private val bytes: Bytes
 ) {
   /** Compare aliases by their bytes, not only by their digest identifiers. */
   private[bosatsu] def hasSameBytes(other: VerifiedLibrarySnapshot[?]): Boolean =
-    java.util.Arrays.equals(bytes, other.bytes)
+    bytes.sameBytes(other.bytes)
 
   private[bosatsu] def authenticatePins(
       path: String,
@@ -130,14 +130,13 @@ private[bosatsu] object VerifiedLibrarySnapshot {
       .adaptError { case error =>
         CliException.Basic(show"cannot read pinned library $path: ${error.getMessage}")
       }
-      .flatMap { readBytes =>
-        val snapshotBytes = readBytes.clone()
-        val blake3 = Algo.hashBytes[Algo.Blake3](snapshotBytes)
-        val sha256 = Algo.hashBytes[Algo.Sha256](snapshotBytes)
+      .flatMap { snapshotBytes =>
+        val blake3 = Algo.hash[Algo.Blake3](snapshotBytes)
+        val sha256 = Algo.hash[Algo.Sha256](snapshotBytes)
         val pathString = showPath.show(path)
         val result = for {
           _ <- checkPins(pathString, expectedHashes, blake3, sha256)
-          library <- Try(proto.Library.parseFrom(snapshotBytes)).toEither.leftMap {
+          library <- Try(proto.Library.parseFrom(snapshotBytes.unsafeReadOnlyView)).toEither.leftMap {
             error => s"cannot parse pinned library $pathString: ${error.getMessage}"
           }
           _ <- Either.cond(

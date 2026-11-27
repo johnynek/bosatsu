@@ -3518,7 +3518,9 @@ def check_transport_failures(java: str, jar: Path, work: Path) -> None:
 
 def test_bosatsuj(java: str, jar: Path, work: Path) -> None:
     repo = work / "bosatsuj fixture"
-    assembly_dir = repo / "cli" / "target" / jar.parent.name
+    # Mirror the sbt 2 output layout that bosatsuj searches:
+    # target/out/jvm/scala-<version>/compiler-cli/bosatsu-cli-assembly-*.jar
+    assembly_dir = repo / "target" / "out" / "jvm" / "scala-3" / "compiler-cli"
     assembly_dir.mkdir(parents=True)
     shutil.copyfile(jar, assembly_dir / jar.name)
     shutil.copyfile(ROOT / "bosatsuj", repo / "bosatsuj")

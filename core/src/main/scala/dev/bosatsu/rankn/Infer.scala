@@ -59,6 +59,12 @@ sealed abstract class Infer[+A] {
   final def mapError(fn: Error => Error): Infer[A] =
     Infer.Impl.MapError(this, fn)
 
+  /** On an error, discard this computation's state changes, then run fn in the
+    * state it started from. On success, keep its state changes as usual.
+    */
+  final def recoverWithReset[B >: A](fn: Error => Infer[B]): Infer[B] =
+    Infer.Impl.RecoverWithReset(this, fn)
+
   final def runVar(
       v: Map[Infer.Name, Type],
       tpes: Map[(PackageName, Constructor), Infer.Cons],
@@ -143,25 +149,58 @@ object Infer {
   )
   type Name = (Option[PackageName], Identifier)
 
-  class Env(
+  class Env private (
       val uniq: Ref[Long],
       val vars: Map[Name, Type],
+      /** The entries of `vars` whose types are open: they contain a meta
+        * variable or a free type variable (including skolems).
+        *
+        * Escape checks and generalization only look for metas and free type
+        * variables in the environment, and a closed type can never gain one:
+        * zonking only replaces metas. Most of the environment is closed (the
+        * types of imported values, constructors and inferred top-level
+        * values), so those checks scan this map instead of `vars`, which keeps
+        * them from costing time proportional to everything in scope.
+        */
+      val openVars: Map[Name, Type],
       val typeCons: Map[(PackageName, Constructor), Cons],
       val variances: Map[Type.Const.Defined, Kind],
       val aliases: Map[Type.Const.Defined, TypeAlias[Kind.Arg]]
   ) {
 
-    override def toString() =
-      s"Env($uniq, $vars, $typeCons, $variances, $aliases)"
-
-    def addVars(vt: NonEmptyList[(Name, Type)]): Env =
-      new Env(
+    def this(
+        uniq: Ref[Long],
+        vars: Map[Name, Type],
+        typeCons: Map[(PackageName, Constructor), Cons],
+        variances: Map[Type.Const.Defined, Kind],
+        aliases: Map[Type.Const.Defined, TypeAlias[Kind.Arg]]
+    ) =
+      this(
         uniq,
-        vars = (vars + vt.head) ++ vt.tail,
+        vars,
+        vars.filter { case (_, t) => Env.isOpen(t) },
         typeCons,
         variances,
         aliases
       )
+
+    override def toString() =
+      s"Env($uniq, $vars, $typeCons, $variances, $aliases)"
+
+    def addVars(vt: NonEmptyList[(Name, Type)]): Env = {
+      // later bindings shadow earlier ones, in vt and in vars
+      val open = vt.foldLeft(openVars) { case (acc, nt @ (n, t)) =>
+        if (Env.isOpen(t)) acc + nt else acc - n
+      }
+      new Env(
+        uniq,
+        vars = (vars + vt.head) ++ vt.tail,
+        open,
+        typeCons,
+        variances,
+        aliases
+      )
+    }
 
     @annotation.tailrec
     final def normalizeAliasHead(t: Type): Type =
@@ -250,9 +289,27 @@ object Infer {
         aliases: Map[Type.Const.Defined, TypeAlias[Kind.Arg]]
     ): RefSpace[Env] =
       RefSpace.newRef(0L).map(new Env(_, vars, tpes, kinds, aliases))
+
+    private def hasMeta(t: Type): Boolean =
+      t match {
+        case Type.TyMeta(_)        => true
+        case Type.TyApply(on, arg) => hasMeta(on) || hasMeta(arg)
+        case Type.ForAll(_, in)    => hasMeta(in)
+        case Type.Exists(_, in)    => hasMeta(in)
+        case _                     => false
+      }
+
+    /** True if t has a meta variable or a free type variable (including
+      * skolems), so it can matter to escape checks and generalization.
+      */
+    private[rankn] def isOpen(t: Type): Boolean =
+      hasMeta(t) || Type.freeTyVars(t :: Nil).nonEmpty
   }
 
   def getEnv: Infer[Map[Name, Type]] = GetEnv.map(_.vars)
+
+  /** The variables in scope whose types are open (see Env.openVars). */
+  def getOpenEnv: Infer[Map[Name, Type]] = GetEnv.map(_.openVars)
 
   def lift[A](rs: RefSpace[A]): Infer[A] =
     Lift(rs.map(Right(_)))
@@ -569,6 +626,15 @@ object Infer {
         fa.run(env).map {
           case right @ Right(_) => right
           case Left(err)        => Left(fn(err))
+        }
+    }
+
+    case class RecoverWithReset[A, B >: A](fa: Infer[A], fn: Error => Infer[B])
+        extends Infer[B] {
+      def run(env: Env) =
+        fa.run(env).resetOnLeft(identity).flatMap {
+          case Left(err)        => fn(err).run(env)
+          case right @ Right(_) => RefSpace.pure(right)
         }
     }
 
@@ -2829,24 +2895,32 @@ object Infer {
         // If they still contain metas, the guard and body share those same
         // refs, so the body is not re-inferring a fresh environment here.
         branchBindings = bindings ++ guardBindings
-        inferredResType <- extendEnvList(branchBindings)(
-          inferRho(branch.expr).peek.map {
-            case Right((_, inferred)) => Some(inferred: Type)
-            case Left(_)              => None
-          }
-        )
         tres <- extendEnvList(branchBindings)(
           checkRho(branch.expr, resT)
-            .mapError { err =>
-              contextualTypeError(
-                Error.MismatchSite.MatchBranchResult(
-                  expectedResultType = resT,
-                  inferredResultType = inferredResType,
-                  scrutineeRegion = sigma.value._2,
-                  patternRegion = branch.patternRegion,
-                  branchRegion = region(branch.expr)
+            .recoverWithReset { err =>
+              // The inferred type is only used to explain a failed check, so
+              // infer it only then. The failed check's state changes are
+              // discarded first, so this infers from the same state the check
+              // started in. Inferring on every branch would type check each
+              // branch body twice, which is exponential in how deeply matches
+              // nest in branches (an if/elif chain nests one match per elif).
+              inferRho(branch.expr).peek.flatMap { inferResult =>
+                val inferredResType = inferResult match {
+                  case Right((_, inferred)) => Some(inferred: Type)
+                  case Left(_)              => None
+                }
+                fail(
+                  contextualTypeError(
+                    Error.MismatchSite.MatchBranchResult(
+                      expectedResultType = resT,
+                      inferredResultType = inferredResType,
+                      scrutineeRegion = sigma.value._2,
+                      patternRegion = branch.patternRegion,
+                      branchRegion = region(branch.expr)
+                    )
+                  )(err)
                 )
-              )(err)
+              }
             }
         )
       } yield TypedExpr.Branch.fromGuardNode(pattern, tguard, tres)(using
@@ -3309,7 +3383,9 @@ object Infer {
 
       def unifySelf(rho: Type.Rho): Infer[Map[Name, Type]] =
         meta match {
-          case None             => getEnv
+          // quantify only looks for metas and free type variables in the
+          // environment, so the closed types can be left out.
+          case None             => getOpenEnv
           case Some((nm, m, r)) =>
             (unifyRho(
               rho,
@@ -3317,7 +3393,7 @@ object Infer {
               recursiveBindingRegion(e),
               r,
               Error.Direction.ExpectRight
-            ) *> getEnv).map { envTys =>
+            ) *> getOpenEnv).map { envTys =>
               // we have to remove the recursive binding from the environment
               envTys - ((None, nm))
             }
@@ -3365,8 +3441,9 @@ object Infer {
         q <- TypedExpr.quantify(e, zrho, readMeta, writeMeta)
       } yield q
 
-    // allocate this once and reuse
-    private val envTypes = getEnv.map(_.values.toList)
+    // allocate this once and reuse. Callers only look for metas and free type
+    // variables in these types, so closed types are left out (see Env.openVars).
+    private val envTypes = getOpenEnv.map(_.values.toList)
 
     def quantifyMetas(
         metas: List[Type.TyMeta]

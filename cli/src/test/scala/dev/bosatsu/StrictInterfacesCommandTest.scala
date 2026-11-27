@@ -333,7 +333,7 @@ class StrictInterfacesCommandTest extends FileCommandFixtures {
         warm <- runner.run(root, argv)
         _ = failure(warm)
         _ = assert(warm.stderr.contains("unused direct interfaces: leaf.sig, y.sig"), warm.stderr)
-        cold <- FileCommandRunner.resource.use(_.run(root, argv))
+        cold <- FileCommandRunner.resource(CompilerBuildInfo.constant).use(_.run(root, argv))
         _ = assertEquals(warm, cold)
         _ = assertEquals(Files.readAllBytes(root.resolve("result.pkg")).toList, before)
         recovered <- runner.run(root, args("result", List("Client"), List("wide.sig")) ::: strict)

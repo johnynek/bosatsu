@@ -864,7 +864,6 @@ object PackageMap {
                             source.sourceHash,
                             depIfaces,
                             compileOptions,
-                            CompileCache.compilerIdentity,
                             phases.id,
                             scoped.flatMap(_.bindingFingerprints.get(nm))
                           )

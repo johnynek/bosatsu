@@ -7,9 +7,11 @@
   </head>
   <body>
     <div id="app"></div>
-    <!-- Include Scala.js compiled code -->
-    <!-- <script type="text/javascript" src=".js/target/scala-3.7.4/scalajs-bundler/main/compiler-jsui-fastopt-bundle.js"></script> -->
-    <!-- <script type="text/javascript" src=".js/target/scala-3.7.4/scalajs-bundler/main/compiler-jsui-opt-bundle.js"></script> -->
+    <!-- Include Scala.js compiled code. bosatsu_ui.js is a copy of the output of
+         `sbt jsuiJS/fullLinkJS`
+         (target/out/sjs1/scala-*/compiler-jsui/compiler-jsui-opt/main.js at the
+         repo root); for local development, `sbt jsuiJS/fastLinkJS` writes
+         target/out/sjs1/scala-*/compiler-jsui/compiler-jsui-fastopt/main.js. -->
     <script type="text/javascript" src="bosatsu_ui.js"></script>
   </body>
 </html>

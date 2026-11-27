@@ -45,7 +45,16 @@ object MemoryMain {
   sealed abstract class FileContent
   object FileContent {
     case class Str(str: String) extends FileContent
-    case class Bytes(bytes: ImmutableBytes) extends FileContent
+    case class Bytes(bytes: ImmutableBytes) extends FileContent {
+      // Compare contents: synthesized equality would compare Bytes by reference.
+      override def equals(other: Any): Boolean =
+        other match {
+          case that: Bytes => bytes.sameBytes(that.bytes)
+          case _           => false
+        }
+
+      override def hashCode: Int = bytes.contentHashCode
+    }
     case class Packages(ps: List[Package.Compiled]) extends FileContent
     case class Interfaces(ifs: List[Package.Interface]) extends FileContent
     case class Lib(lib: Hashed[Algo.Blake3, proto.Library]) extends FileContent
@@ -179,9 +188,19 @@ object MemoryMain {
   def apply[G[_]](implicit
       innerMonad: MonadError[G, Throwable]
   ): MemoryMain[G] =
-    new MemoryMain(memoryPlatformIO[G])
+    withBuildInfo[G](CompilerBuildInfo.constant)
+
+  def withBuildInfo[G[_]](compilerBuildInfo: CompilerBuildInfo)(implicit
+      innerMonad: MonadError[G, Throwable]
+  ): MemoryMain[G] =
+    new MemoryMain(memoryPlatformIOWith[G](compilerBuildInfo))
 
   def memoryPlatformIO[G[_]](implicit
+      innerMonad: MonadError[G, Throwable]
+  ): PlatformIO[StateF[G], Chain[String]] =
+    memoryPlatformIOWith[G](CompilerBuildInfo.constant)
+
+  def memoryPlatformIOWith[G[_]](compilerBuildInfo: CompilerBuildInfo)(implicit
       innerMonad: MonadError[G, Throwable]
   ): PlatformIO[StateF[G], Chain[String]] = {
 
@@ -192,6 +211,7 @@ object MemoryMain {
       type Path = Chain[String]
       type FileKey = Chain[String]
       val fileKeyHash: Hash[FileKey] = Hash[FileKey]
+      def buildInfo: CompilerBuildInfo = compilerBuildInfo
 
       private sealed trait PromiseState[+A]
       private object PromiseState {
@@ -373,6 +393,8 @@ object MemoryMain {
               case Some(Right(MemoryMain.FileContent.Str(res))) =>
                 moduleIOMonad.pure(res)
               case Some(Right(MemoryMain.FileContent.Bytes(bytes))) =>
+                // Lenient like the disk platforms' readUtf8, so this does not
+                // use the strict Bytes.decodeUtf8: malformed input becomes U+FFFD.
                 moduleIOMonad.pure(new String(bytes.unsafeReadOnlyView, StandardCharsets.UTF_8))
               case other =>
                 moduleIOMonad.raiseError(
@@ -381,25 +403,25 @@ object MemoryMain {
             }
           }
 
-      def readBytes(p: Path): F[Array[Byte]] =
+      def readBytes(p: Path): F[Bytes] =
         StateT
           .get[G, State]
           .flatMap { files =>
             files.get(p) match {
               case Some(Right(MemoryMain.FileContent.Bytes(bytes))) =>
-                moduleIOMonad.pure(bytes.copyToArray)
+                moduleIOMonad.pure(bytes)
               case Some(Right(MemoryMain.FileContent.Str(res))) =>
-                moduleIOMonad.pure(res.getBytes(StandardCharsets.UTF_8))
+                moduleIOMonad.pure(Bytes.fromUTF8String(res))
               case Some(Right(MemoryMain.FileContent.Packages(packs))) =>
                 moduleIOMonad.fromTry(
-                  ProtoConverter.packagesToProto(packs).map(_.toByteArray)
+                  ProtoConverter.packagesToProto(packs).map(Bytes.fromMessage(_))
                 )
               case Some(Right(MemoryMain.FileContent.Interfaces(ifs))) =>
                 moduleIOMonad.fromTry(
-                  ProtoConverter.interfacesToProto(ifs).map(_.toByteArray)
+                  ProtoConverter.interfacesToProto(ifs).map(Bytes.fromMessage(_))
                 )
               case Some(Right(MemoryMain.FileContent.Lib(lib))) =>
-                moduleIOMonad.pure(lib.arg.toByteArray)
+                moduleIOMonad.pure(Bytes.fromMessage(lib.arg))
               case other =>
                 moduleIOMonad.raiseError(
                   new Exception(s"expect binary content, found: $other")
@@ -581,8 +603,8 @@ object MemoryMain {
       def writePackages(packs: List[Package.Compiled], path: Path): F[Unit] =
         writeFC(path, FileContent.Packages(packs))
 
-      def writeBytes(path: Path, bytes: Array[Byte]): F[Unit] =
-        writeFC(path, FileContent.Bytes(Bytes.copyFromArray(bytes)))
+      def writeBytes(path: Path, bytes: Bytes): F[Unit] =
+        writeFC(path, FileContent.Bytes(bytes))
 
       def writeLibrary(lib: proto.Library, path: Path): F[Unit] = {
         val hash = Algo.hashBytes[Algo.Blake3](lib.toByteArray)
@@ -600,8 +622,8 @@ object MemoryMain {
           state.copy(stdErr = state.stdErr + (doc + Doc.hardLine))
         }
 
-      def readStdinBytes: F[Array[Byte]] =
-        moduleIOMonad.pure(Array.emptyByteArray)
+      def readStdinBytes: F[Bytes] =
+        moduleIOMonad.pure(Bytes.empty)
 
       def writeStdoutBytes(bytes: Bytes): F[Unit] =
         writeStdout(Doc.text(new String(bytes.unsafeReadOnlyView, StandardCharsets.ISO_8859_1)))

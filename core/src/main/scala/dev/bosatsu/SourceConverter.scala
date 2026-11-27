@@ -357,6 +357,12 @@ final class SourceConverter(
       }
     }
 
+    // Each `as` in a binding pattern binds its value to the next of these
+    // names (see solveBindingFrame). `decl` heads the chain of bindings, so
+    // the names avoid every name in each binding's pattern, value and rest,
+    // and since the chain shares the iterator, no two of them are the same.
+    lazy val asValueNames: Iterator[Bindable] = unusedNames(decl.allNames)
+
     def solveBindingFrame(
         erest: Result[Expr[Declaration]],
         bindingDecl: Declaration,
@@ -366,6 +372,20 @@ final class SourceConverter(
     ): Result[Expr[Declaration]] = {
       val assignRegion = bindingDecl.region - value.region
       val rrhs = fromDecl(value, boundBefore, topBound, typeBound)
+
+      // `(p as a) as b` binds both names to the same value: return the names
+      // outermost first, and the pattern under them.
+      @annotation.tailrec
+      def peelNamed(
+          pat: Pattern.Parsed,
+          namesRev: List[Bindable]
+      ): (List[Bindable], Pattern.Parsed) =
+        pat match {
+          case Pattern.Named(nm, innerPat) =>
+            peelNamed(innerPat, nm :: namesRev)
+          case other =>
+            (namesRev.reverse, other)
+        }
 
       def solvePat(
           pat: Pattern.Parsed,
@@ -391,17 +411,42 @@ final class SourceConverter(
               }
               solvePat(innerPat, annotatedRhs)
             }
-          case Pattern.Named(nm, innerPat) =>
-            // This is equivalent to creating a let nm = value before solving the
-            // underlying pattern.
-            (solvePat(innerPat, rhs), rhs).parMapN { (innerExpr, rhsExpr) =>
-              Expr.Let(
-                nm,
-                rhsExpr,
-                innerExpr,
-                RecursionKind.NonRecursive,
-                bindingDecl
-              )
+          case named @ Pattern.Named(_, _) =>
+            // `p as n = value` evaluates `value` once: `n` names that value
+            // and `p` destructures the same value. Solving `p` against a
+            // second copy of `value` would evaluate it twice, and inside the
+            // scope of `n`, where a `value` that mentions a name `n` shadows
+            // would see the new `n` instead.
+            //
+            // So we bind the value once to a fresh synthetic name, alias
+            // each name to it, and solve `p` against it. Solving `p` against
+            // `n` itself would also work, but would count as a use of `n`
+            // and hide an unused `n` from UnusedLetCheck. A `p` that has
+            // another `as` under an annotation, as in `((q as m): T) as n`,
+            // takes the next fresh name, so no level shadows another.
+            val (names, innerPat) = peelNamed(named, Nil)
+            val valueName = asValueNames.next()
+            // tag the reference with the value, so errors about what `p`
+            // matches point at the value, as they do without the `as`
+            val shared: Expr[Declaration] = Expr.Local(valueName, value)
+            (rhs, solvePat(innerPat, success(shared))).parMapN {
+              (rhsExpr, innerExpr) =>
+                val aliased = names.foldRight(innerExpr) { (n, body) =>
+                  Expr.Let(
+                    n,
+                    shared,
+                    body,
+                    RecursionKind.NonRecursive,
+                    bindingDecl
+                  )
+                }
+                Expr.Let(
+                  valueName,
+                  rhsExpr,
+                  aliased,
+                  RecursionKind.NonRecursive,
+                  bindingDecl
+                )
             }
           case matchPat =>
             // TODO: we need the region on the pattern...
@@ -704,45 +749,16 @@ final class SourceConverter(
           Expr.buildApp(opVar, l :: r :: Nil, decl)
         }
       case Binding(BindingStatement(pat, value, Padding(_, rest))) =>
-        val erest = withBound(rest, pat.names)
-
-        val assignRegion = decl.region - value.region
-        def solvePat(
-            pat: Pattern.Parsed,
-            rrhs: Result[Expr[Declaration]]
-        ): Result[Expr[Declaration]] =
-          pat match {
-            case Pattern.Var(arg) =>
-              (erest, rrhs).parMapN { (e, rhs) =>
-                Expr.Let(arg, rhs, e, RecursionKind.NonRecursive, decl)
-              }
-            case Pattern.Annotation(pat, tpe) =>
-              toType(tpe, assignRegion).flatMap { realTpe =>
-                // move the annotation to the right
-                // it's not ideal to use the Declaration of rhs, but it's better
-                // than the entire let
-                val newRhs = rrhs.map { r =>
-                  Expr.Annotation(r, realTpe, r.tag)
-                }
-                solvePat(pat, newRhs)
-              }
-            case Pattern.Named(nm, p) =>
-              // this is the same as creating a let nm = value first
-              (solvePat(p, rrhs), rrhs).parMapN { (inner, rhs) =>
-                Expr.Let(nm, rhs, inner, RecursionKind.NonRecursive, decl)
-              }
-            case pat =>
-              // TODO: we need the region on the pattern... (https://github.com/johnynek/bosatsu/issues/132)
-              (convertPattern(pat, assignRegion), erest, rrhs).parMapN {
-                (newPattern, e, rhs) =>
-                  val expBranches = NonEmptyList.of(
-                    Expr.Branch(newPattern, None, e)(using assignRegion)
-                  )
-                  Expr.Match(rhs, expBranches, decl)
-              }
-          }
-
-        solvePat(pat, loop(value))
+        // collectLinearDeclFrames turns every binding into a BindingFrame, so
+        // this case is not reached today; share the lowering so they can't
+        // drift apart.
+        solveBindingFrame(
+          withBound(rest, pat.names),
+          decl,
+          pat,
+          value,
+          bound
+        )
       case Comment(CommentStatement(_, Padding(_, decl))) =>
         loop(decl).map(_.replaceTag(decl))
       case CommentNB(CommentStatement(_, Padding(_, decl))) =>

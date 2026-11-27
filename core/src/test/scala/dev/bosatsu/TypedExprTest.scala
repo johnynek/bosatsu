@@ -1037,6 +1037,66 @@ foo = _ -> 1
     }
   }
 
+  test("substituteAll renames a branch pattern name but not a guard pattern's rebinding of it") {
+    // substituting y := p into
+    //   match 0: case p if (p matches p if eq_Int(p, 7)): add(y, p)
+    // renames the branch's p so it does not capture the new p. The inner guard
+    // and the body's second p read the guard pattern's p, not the branch's.
+    val pName = Identifier.Name("p")
+    val yName = Identifier.Name("y")
+    val pLocal = TypedExpr.Local(pName, intTpe, ())
+    val yLocal = TypedExpr.Local(yName, intTpe, ())
+    val branch = TypedExpr.Branch.fromGuardNode(
+      Pattern.Var(pName): Pattern[(PackageName, Constructor), Type],
+      Some(
+        TypedExpr.MatchGuard(
+          pLocal,
+          Pattern.Var(pName): Pattern[(PackageName, Constructor), Type],
+          Some(
+            TypedExpr.App(
+              PredefEqInt,
+              NonEmptyList.of(pLocal, int(7)),
+              boolTpe,
+              ()
+            )
+          )
+        )(using Region.empty)
+      ),
+      TypedExpr.App(PredefAdd, NonEmptyList.of(yLocal, pLocal), intTpe, ())
+    )(using Region.empty)
+    val expr = TypedExpr.Match(int(0), NonEmptyList.one(branch), ())
+
+    val substituted = TypedExpr.substituteAll(
+      Map(yName -> { (_: TypedExpr.Local[Unit]) => pLocal }),
+      expr,
+      enterLambda = true
+    ).get
+
+    substituted match {
+      case TypedExpr.Match(_, NonEmptyList(branch1, Nil), _) =>
+        (branch1.pattern, branch1.guardNode, branch1.expr) match {
+          case (
+                Pattern.Var(outer1),
+                Some(
+                  TypedExpr.MatchGuard(argExpr, Pattern.Var(inner1), Some(innerGuard))
+                ),
+                TypedExpr.App(_, NonEmptyList(first, second :: Nil), _, _)
+              ) =>
+            assert(outer1 != pName)
+            assert(inner1 != pName)
+            assert(inner1 != outer1)
+            assertEquals(argExpr, TypedExpr.Local(outer1, intTpe, ()))
+            assertEquals(TypedExpr.freeVarsSet(innerGuard :: Nil).toSet, Set(inner1))
+            assertEquals(first, pLocal)
+            assertEquals(second, TypedExpr.Local(inner1, intTpe, ()))
+          case other =>
+            fail(s"expected renamed branch and MatchGuard, got: $other")
+        }
+      case other =>
+        fail(s"expected single-branch match after substitution, got: $other")
+    }
+  }
+
   test("mapGuardNodeExprScoped preserves and rebuilds MatchGuard nodes correctly") {
     val region = Region(1, 2)
     val argExpr = TypedExpr.Local(Identifier.Name("x"), intTpe, ())
@@ -1422,6 +1482,257 @@ main = match two:
       ()
     )
     assertEquals(TypedExprNormalization.normalize(minusTwo), Some(int(-2)))
+  }
+
+  private def arith(
+      fn: TypedExpr[Unit],
+      left: TypedExpr[Unit],
+      right: TypedExpr[Unit]
+  ): TypedExpr[Unit] =
+    TypedExpr.App(fn, NonEmptyList.of(left, right), intTpe, ())
+
+  // the value of Int arithmetic over Locals and non-recursive lets (which
+  // normalization adds to share repeated values), or None for anything else
+  private def evalArith(
+      te: TypedExpr[Unit],
+      env: Map[Bindable, BigInt]
+  ): Option[BigInt] =
+    te match {
+      case TypedExpr.Literal(Lit.Integer(bi), _, _) => Some(BigInt(bi))
+      case TypedExpr.Local(n, _, _)                 => env.get(n)
+      case TypedExpr.Let(n, value, in, RecursionKind.NonRecursive, _) =>
+        evalArith(value, env).flatMap(v => evalArith(in, env.updated(n, v)))
+      case TypedExpr.App(
+            TypedExpr.Global(PackageName.PredefName, Identifier.Name(op), _, _),
+            NonEmptyList(left, right :: Nil),
+            _,
+            _
+          ) =>
+        (evalArith(left, env), evalArith(right, env)).flatMapN { (l, r) =>
+          op match {
+            case "add" => Some(l + r)
+            case "sub" => Some(l - r)
+            case "mul" => Some(l * r)
+            case _     => None
+          }
+        }
+      case _ => None
+    }
+
+  test("normalizing Int arithmetic reaches a fixed point") {
+    // RingOpt kept mul(z, sub(add(y, x), z)) as it was, but rewrote its
+    // argument sub(add(y, x), z) on its own into add(y, sub(x, z)), and
+    // rewrote mul(z, add(y, sub(x, z))) back, so this never settled
+    val x = varTE("x", intTpe)
+    val y = varTE("y", intTpe)
+    val z = varTE("z", intTpe)
+    val expr =
+      arith(PredefMul, z, arith(PredefAdd, arith(PredefSub, y, z), x))
+    val norm = TypedExprNormalization.normalize(expr).getOrElse(expr)
+    assertEquals(
+      TypedExprNormalization.normalize(norm).map(_.reprString),
+      None,
+      norm.reprString
+    )
+    val env = Map[Bindable, BigInt](
+      Identifier.Name("x") -> BigInt(1),
+      Identifier.Name("y") -> BigInt(2),
+      Identifier.Name("z") -> BigInt(3)
+    )
+    assertEquals(evalArith(norm, env), Some(BigInt(0)), norm.reprString)
+  }
+
+  test("normalizing Int arithmetic settles when RingOpt alternates") {
+    // RingOpt rewrites this, then rewrites the result into a second form and
+    // the second form back into the first, so repeating it never settles
+    // without stopping at the form that repeats
+    val x = varTE("x", intTpe)
+    val y = varTE("y", intTpe)
+    val z = varTE("z", intTpe)
+    val expr =
+      arith(
+        PredefSub,
+        arith(
+          PredefAdd,
+          arith(
+            PredefMul,
+            arith(PredefSub, x, z),
+            arith(PredefSub, z, int(1))
+          ),
+          arith(PredefAdd, arith(PredefSub, y, y), arith(PredefMul, x, x))
+        ),
+        z
+      )
+    val norm = TypedExprNormalization.normalize(expr)
+    assert(norm.nonEmpty)
+    val norm1 = norm.getOrElse(expr)
+    assertEquals(
+      TypedExprNormalization.normalize(norm1).map(_.reprString),
+      None,
+      norm1.reprString
+    )
+    val env = Map[Bindable, BigInt](
+      Identifier.Name("x") -> BigInt(3),
+      Identifier.Name("y") -> BigInt(-2),
+      Identifier.Name("z") -> BigInt(5)
+    )
+    assertEquals(evalArith(norm1, env), evalArith(expr, env), norm1.reprString)
+
+    // `normalize` returns None for a result equal to its input, which hides
+    // a pass that reports a change without making one. A match re-normalizes
+    // its branches while any reports a change, so in a branch such a pass
+    // never stops.
+    val inMatch = TypedExpr.Match(
+      varTE("w", intTpe),
+      NonEmptyList.of(
+        branch(Pattern.Literal(Lit.fromInt(0)), expr),
+        branch(Pattern.WildCard, int(0))
+      ),
+      ()
+    )
+    assert(TypedExprNormalization.normalize(inMatch).nonEmpty)
+  }
+
+  // Normalizing settles Int arithmetic, and keeps its value. `normalize` ends
+  // with shareImmutableValues, which may bind a repeated subterm such as
+  // add(z, z) to a let. Normalizing that again sees the let's name as an
+  // opaque leaf, a different tree that RingOpt may still rewrite. That pass
+  // runs once, outside the passes that repeat until nothing changes, so
+  // settling is only checked when it shared nothing.
+  property("normalizing Int arithmetic settles and keeps its value") {
+    def hasLet(te: TypedExpr[Unit]): Boolean =
+      te match {
+        case TypedExpr.Let(_, _, _, _, _) => true
+        case TypedExpr.App(_, args, _, _) => args.exists(hasLet)
+        case _                            => false
+      }
+    val names = List("x", "y", "z").map(Identifier.Name(_))
+    val leafGen: Gen[TypedExpr[Unit]] =
+      Gen.frequency(
+        3 -> Gen.oneOf(names).map(TypedExpr.Local(_, intTpe, ())),
+        1 -> Gen.choose(-3, 3).map(int)
+      )
+    def arithGen(depth: Int): Gen[TypedExpr[Unit]] =
+      if (depth <= 0) leafGen
+      else
+        Gen.frequency(
+          1 -> leafGen,
+          3 -> Gen.zip(
+            Gen.oneOf(PredefAdd, PredefSub, PredefMul),
+            Gen.lzy(arithGen(depth - 1)),
+            Gen.lzy(arithGen(depth - 1))
+          ).map { case (fn, l, r) => arith(fn, l, r) }
+        )
+    val envGen: Gen[Map[Bindable, BigInt]] =
+      Gen
+        .listOfN(names.length, Gen.choose(-5, 5))
+        .map(vs => names.zip(vs.map(BigInt(_))).toMap)
+
+    forAll(arithGen(4), envGen) { (expr, env) =>
+      val norm = TypedExprNormalization.normalize(expr).getOrElse(expr)
+      if (!hasLet(norm)) {
+        assertEquals(
+          TypedExprNormalization.normalize(norm).map(_.reprString),
+          None,
+          s"${expr.reprString} normalized to ${norm.reprString}"
+        )
+      }
+      assertEquals(
+        evalArith(norm, env),
+        evalArith(expr, env),
+        s"${expr.reprString} normalized to ${norm.reprString}"
+      )
+    }
+  }
+
+  private val allIntOps: Set[String] = Set("add", "sub", "mul")
+
+  // the number of references to the Predef Int functions in ops inside te,
+  // which in these tests are all calls
+  private def intCalls[A](te: TypedExpr[A], ops: Set[String]): Int = {
+    type W[X] = Writer[Int, X]
+    te.traverseUp[W] {
+      case g @ TypedExpr.Global(
+            PackageName.PredefName,
+            Identifier.Name(op),
+            _,
+            _
+          ) if ops(op) =>
+        Writer(1, g)
+      case other => Writer(0, other)
+    }.written
+  }
+
+  test("normalizing a literal minus a value keeps one sub") {
+    // RingOpt priced c - x as an add and a Neg, the same as -(-c + x), and
+    // picked the second, which is sub(0, add(-c, x)): two calls for one
+    val x = varTE("x", intTpe)
+    List(64, -1, 0).foreach { c =>
+      val expr = arith(PredefSub, int(c), x)
+      val norm = TypedExprNormalization.normalize(expr).getOrElse(expr)
+      assertEquals(intCalls(norm, allIntOps), 1, norm.reprString)
+      val env = Map[Bindable, BigInt](Identifier.Name("x") -> BigInt(5))
+      assertEquals(evalArith(norm, env), Some(BigInt(c - 5)), norm.reprString)
+    }
+  }
+
+  test("normalizing multiplication by a small constant") {
+    // an Int mul costs about what an add does: x * 2 becomes x + x, but
+    // x * 3 stays one mul, and 2 * w + 2 * h becomes 2 * (w + h)
+    val x = varTE("x", intTpe)
+    val w = varTE("w", intTpe)
+    val h = varTE("h", intTpe)
+    def norm(e: TypedExpr[Unit]) =
+      TypedExprNormalization.normalize(e).getOrElse(e)
+
+    val times2 = norm(arith(PredefMul, x, int(2)))
+    assertEquals(intCalls(times2, allIntOps), 1, times2.reprString)
+    assertEquals(intCalls(times2, Set("add")), 1, times2.reprString)
+
+    val times3 = norm(arith(PredefMul, x, int(3)))
+    assertEquals(intCalls(times3, allIntOps), 1, times3.reprString)
+    assertEquals(intCalls(times3, Set("mul")), 1, times3.reprString)
+
+    val perimeter = norm(
+      arith(
+        PredefAdd,
+        arith(PredefMul, int(2), w),
+        arith(PredefMul, int(2), h)
+      )
+    )
+    assertEquals(intCalls(perimeter, allIntOps), 2, perimeter.reprString)
+    val env = Map[Bindable, BigInt](
+      Identifier.Name("w") -> BigInt(3),
+      Identifier.Name("h") -> BigInt(4)
+    )
+    assertEquals(evalArith(perimeter, env), Some(BigInt(14)))
+  }
+
+  test("normalizing Int arithmetic written with operator aliases") {
+    // `operator - = sub` is inlined to Predef sub by the App case, which
+    // returned the result without letting RingOpt see the arithmetic
+    checkLast("""
+operator + = add
+operator - = sub
+def f(a: Int, b: Int) -> Int: (a + b) - a
+""") { te =>
+      assertEquals(intCalls(te, allIntOps), 0, te.reprString)
+    }
+
+    // RingOpt rewrites the inner sub(add(y, x), z) on its own here before
+    // the whole tree, which must still settle (see the fixed point test above)
+    checkLast("""
+operator + = add
+operator - = sub
+operator * = mul
+def g(x: Int, y: Int, z: Int) -> Int: z * ((y - z) + x)
+""") { te =>
+      assertEquals(
+        TypedExprNormalization.normalize(te.void).map(_.reprString),
+        None,
+        te.reprString
+      )
+    }
   }
 
   test("normalization rewrites opaque arithmetic with identity elements") {

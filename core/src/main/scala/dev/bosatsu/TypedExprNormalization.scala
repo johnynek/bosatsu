@@ -13,50 +13,87 @@ import java.math.BigInteger
 object TypedExprNormalization {
   import TypedExpr._
 
-  type ScopeT[A, S] =
-    Map[(Option[PackageName], Bindable), (RecursionKind, TypedExpr[A], S)]
+  /** What a scope knows about a name: a value with the scope it was defined
+    * in, or, for a name a lambda, a pattern, a loop or a recursive let binds,
+    * only which binding it is. Such a name still hides the outer binding of
+    * the same name; removing it instead would make a lambda argument `y` and a
+    * pattern's `y` look the same (both absent), and `evaluate` could then read
+    * an expression that uses one under the other.
+    *
+    * An opaque binding is identified by `opaqueCount` at the point it was
+    * made. Every scope is built from the scope around it, and each `shadow`
+    * increases the count, so ids differ along any chain of nested scopes.
+    * `scopeMatches` only compares a scope with one nested in it (a value's
+    * defining scope with a scope where the value is used), so equal ids there
+    * mean the same binding.
+    */
+  type ScopeBinding[A, S] = Either[Long, (RecursionKind, TypedExpr[A], S)]
+
+  final case class ScopeT[A, S](
+      bindings: Map[(Option[PackageName], Bindable), ScopeBinding[A, S]],
+      opaqueCount: Long
+  )
   type ScopeTF[A] = [S] =>> ScopeT[A, S]
   type Scope[A] = FixType.Fix[ScopeTF[A]]
 
   def emptyScope[A]: Scope[A] =
-    FixType.fix[ScopeTF[A]](Map.empty)
+    FixType.fix[ScopeTF[A]](ScopeT(Map.empty, 0L))
 
   implicit final class ScopeOps[A](private val scope: Scope[A]) extends AnyVal {
+    private def bind(
+        key: (Option[PackageName], Bindable),
+        value: ScopeBinding[A, Scope[A]]
+    ): Scope[A] = {
+      val st = FixType.unfix[ScopeTF[A]](scope)
+      FixType.fix[ScopeTF[A]](st.copy(bindings = st.bindings.updated(key, value)))
+    }
+
     def updated(
         key: Bindable,
         value: (RecursionKind, TypedExpr[A], Scope[A])
     ): Scope[A] =
-      FixType.fix[ScopeTF[A]](
-        FixType.unfix[ScopeTF[A]](scope).updated((None, key), value)
-      )
+      bind((None, key), Right(value))
 
     def updatedGlobal(
         pack: PackageName,
         key: Bindable,
         value: (RecursionKind, TypedExpr[A], Scope[A])
     ): Scope[A] =
-      FixType.fix[ScopeTF[A]](
-        FixType.unfix[ScopeTF[A]](scope).updated((Some(pack), key), value)
-      )
+      bind((Some(pack), key), Right(value))
 
-    def -(key: Bindable): Scope[A] =
-      FixType.fix[ScopeTF[A]](
-        FixType.unfix[ScopeTF[A]](scope) - (None -> key)
-      )
+    // bind these names to values the scope does not know
+    def shadow(keys: Iterable[Bindable]): Scope[A] = {
+      val iter = keys.iterator
+      if (!iter.hasNext) scope
+      else {
+        val st = FixType.unfix[ScopeTF[A]](scope)
+        val id: ScopeBinding[A, Scope[A]] = Left(st.opaqueCount)
+        FixType.fix[ScopeTF[A]](
+          ScopeT(
+            iter.foldLeft(st.bindings)((m, key) => m.updated((None, key), id)),
+            st.opaqueCount + 1L
+          )
+        )
+      }
+    }
 
-    def --(keys: Iterable[Bindable]): Scope[A] =
-      keys.foldLeft(scope)(_ - _)
+    def getLocalBinding(key: Bindable): Option[ScopeBinding[A, Scope[A]]] =
+      FixType.unfix[ScopeTF[A]](scope).bindings.get((None, key))
 
     def getLocal(
         key: Bindable
     ): Option[(RecursionKind, TypedExpr[A], Scope[A])] =
-      FixType.unfix[ScopeTF[A]](scope).get((None, key))
+      getLocalBinding(key).flatMap(_.toOption)
 
     def getGlobal(
         pack: PackageName,
         n: Bindable
     ): Option[(RecursionKind, TypedExpr[A], Scope[A])] =
-      FixType.unfix[ScopeTF[A]](scope).get((Some(pack), n))
+      FixType
+        .unfix[ScopeTF[A]](scope)
+        .bindings
+        .get((Some(pack), n))
+        .flatMap(_.toOption)
   }
 
   private def nameScope[A](
@@ -64,7 +101,7 @@ object TypedExprNormalization {
       r: RecursionKind,
       scope: Scope[A]
   ): (Option[Bindable], Scope[A]) =
-    if (r.isRecursive) (Some(b), scope - b)
+    if (r.isRecursive) (Some(b), scope.shadow(b :: Nil))
     else (None, scope)
 
   private def isSuspensionLambdaArgs(
@@ -400,7 +437,8 @@ object TypedExprNormalization {
             )
               RecursionKind.NonRecursive
             else r
-          val scope1 = scope.updatedGlobal(pack, b, (rec1, normTE, s0))
+          // built from s0 so opaque ids keep increasing (see ScopeBinding)
+          val scope1 = s0.updatedGlobal(pack, b, (rec1, normTE, s0))
           loop(scope1, tail, (b, rec1, normTE) :: acc)
       }
 
@@ -462,18 +500,14 @@ object TypedExprNormalization {
     val outerClashes = branch.pattern.names.filter(avoid)
     val branch1 =
       if (outerClashes.isEmpty) branch
-      else {
-        val argRenames =
-          freshRenames(outerClashes, branchAvoid ++ branch.pattern.names.toSet)
-        val resSub = replacementSubstitution(argRenames)
-        val expr1 =
-          TypedExpr.substituteAll(resSub, branch.expr, enterLambda = true).get
-        val guard1 = branch.mapGuardNodeExpr(
-          TypedExpr.substituteAll(resSub, _, enterLambda = true).get
+      else
+        TypedExpr.renameBranchPatternNames(
+          branch,
+          freshRenames(
+            outerClashes,
+            branchAvoid ++ branch.pattern.names.toSet ++ branch.guardBindings.toSet
+          )
         )
-        val pattern1 = branch.pattern.substitute(argRenames)
-        branch.copyNode(pattern1, guard1, expr1)(using branch.patternRegion)
-      }
 
     val outerAvoid = avoid ++ branch1.pattern.names.toSet
     val branch2 =
@@ -689,13 +723,24 @@ object TypedExprNormalization {
 
     (stripTypeWrappers(arg), asBoolSelector(branches)) match {
       case (inner @ Match(innerArg, innerBranches, _), Some((ifTrue, ifFalse))) =>
+        // ifTrue and ifFalse move under each inner branch's pattern and guard
+        // pattern, so none of their names may be free in the one that moves
+        // there: in `match (match a: case x: False): ...` an outer x would
+        // read the pattern's x.
+        lazy val trueFree = ifTrue.freeVarsDup.toSet
+        lazy val falseFree = ifFalse.freeVarsDup.toSet
         innerBranches.traverse { inner =>
-          boolConst(inner.expr).map { cond =>
+          boolConst(inner.expr).flatMap { cond =>
             val selected = if (cond) ifTrue else ifFalse
-            if (selected eq inner.expr) inner
-            else inner.copyNode(inner.pattern, inner.guardNode, selected)(using
-              inner.patternRegion
-            )
+            if (selected eq inner.expr) Some(inner)
+            else {
+              val selectedFree = if (cond) trueFree else falseFree
+              if (inner.allBindings.exists(selectedFree)) None
+              else
+                Some(inner.copyNode(inner.pattern, inner.guardNode, selected)(using
+                  inner.patternRegion
+                ))
+            }
           }
         }.map { mapped =>
           Match(inner.matchKind, innerArg, mapped, tag)
@@ -1486,18 +1531,36 @@ object TypedExprNormalization {
           // when z is not free in x, and at least one branch is not free in x.
           // We recurse through type wrappers so annotations/generics do not
           // block the branch-sinking rewrite after inlining.
-          val b1 = branches.map { branch =>
+          //
+          // The let moves under the branch's pattern (and, for an inner guard
+          // or the body, its guard pattern), so none of those names may be
+          // free in y: in `case x: ... ww` the sunk `y` would read the
+          // pattern's x. We do not sink when one would be captured.
+          lazy val exprFree = expr.freeVarsDup.toSet
+          def captures(bound: Iterable[Bindable]): Boolean =
+            bound.iterator.exists(exprFree)
+
+          val b1 = branches.traverse { branch =>
             val p = branch.pattern
             val r = branch.expr
             val outerShadowed = p.names.contains(arg)
             val bodyShadowed = branch.allBindings.contains(arg)
-            if (
-              outerShadowed || (branch.foldGuardExprScoped(true)(
-                (acc, guardExpr) => acc && guardExpr.notFree(arg),
-                (acc, guardExpr) => acc && (bodyShadowed || guardExpr.notFree(arg))
-              ) && (bodyShadowed || r.notFree(arg)))
+            // does the outer guard (in the pattern's scope) read x, and do the
+            // inner guard or the body (also in the guard pattern's scope)?
+            val outerUses = !outerShadowed && branch.foldGuardExprScoped(false)(
+              (acc, guardExpr) => acc || !guardExpr.notFree(arg),
+              (acc, _) => acc
             )
-              branch
+            val innerUses = !bodyShadowed && (!r.notFree(arg) ||
+              branch.foldGuardExprScoped(false)(
+                (acc, _) => acc,
+                (acc, guardExpr) => acc || !guardExpr.notFree(arg)
+              ))
+            if (!outerUses && !innerUses) Some(branch)
+            else if (
+              (outerUses && captures(p.names)) ||
+              (innerUses && captures(branch.allBindings))
+            ) None
             else {
               val guard1 = branch.mapGuardNodeExprScoped(
                 g =>
@@ -1510,10 +1573,14 @@ object TypedExprNormalization {
               val r1 =
                 if (bodyShadowed || r.notFree(arg)) r
                 else Let(arg, expr, r, rec, tag)
-              branch.copyNode(branch.pattern, guard1, r1)(using branch.patternRegion)
+              Some(
+                branch.copyNode(branch.pattern, guard1, r1)(using
+                  branch.patternRegion
+                )
+              )
             }
           }
-          Some(Match(m.matchKind, marg, b1, mtag))
+          b1.map(Match(m.matchKind, marg, _, mtag))
         case _ =>
           None
       }
@@ -1576,7 +1643,7 @@ object TypedExprNormalization {
         lazy val anons: Iterator[Bindable] =
           Identifier.Bindable.freshSyntheticIterator(expr.freeVarsDup.toSet)
 
-        val bodyScope = scope -- lamArgs0.toList.map(_._1)
+        val bodyScope = scope.shadow(lamArgs0.toList.map(_._1))
         val e1 = normalize1(None, expr, bodyScope, typeEnv).get
 
         var changed = false
@@ -1710,8 +1777,26 @@ object TypedExprNormalization {
         val tpe = Type.normalize(tpe0)
         if (tpe == tpe0) None
         else Some(Local(n, tpe, tag))
-      case Impl.IntAlgebraic.Optimized(optTE) =>
-        Some(optTE)
+      case Impl.IntAlgebraic(ia) =>
+        // Int arithmetic (add, sub and mul of literals and other Int
+        // expressions) is normalized one whole tree at a time: normalize only
+        // the leaves that are not arithmetic, then let RingOpt rewrite the
+        // whole tree. Never normalize an arithmetic subterm on its own:
+        // RingOpt can rewrite a subterm alone into a form of the same cost
+        // other than the one it picks inside the whole tree, and the
+        // whole-tree rewrite then turns it back, forever. For instance, it
+        // keeps mul(z, sub(add(y, x), z)) as it is, but turns the argument
+        // sub(add(y, x), z) alone into add(y, sub(x, z)), and turns
+        // mul(z, add(y, sub(x, z))) back into mul(z, sub(add(y, x), z)).
+        Impl.IntAlgebraic.mapOpaque(ia)(
+          normalizeLetOpt(None, _, scope, typeEnv)
+        ) match {
+          case None =>
+            Impl.IntAlgebraic.optimize(ia, te)
+          case Some(ia1) =>
+            val te1 = ia1.toTypedExpr
+            Impl.IntAlgebraic.optimize(ia1, te1).orElse(Some(te1))
+        }
       // TODO: we could implement much of the predef at compile time
       case App(fn, args, tpe0, tag) =>
         val tpe = Type.normalize(tpe0)
@@ -1743,8 +1828,21 @@ object TypedExprNormalization {
                 val l = appLambda[A](lam, args, tpe, tag)
                 normalize1(namerec, l, scope, typeEnv)
               case None =>
-                if ((f1 eq fn) && (tpe == tpe0) && (a1 eq args)) None
-                else Some(App(f1, a1, tpe, tag))
+                App(f1, args, tpe, tag) match {
+                  case intApp @ Impl.IntAlgebraic(_) =>
+                    // fn normalized to Predef add, sub or mul, as an alias
+                    // such as `operator + = add` does when it is inlined. The
+                    // Impl.IntAlgebraic case above only matches those Predef
+                    // functions themselves, so it never saw this tree:
+                    // normalize it again to optimize the arithmetic. Use args,
+                    // not a1: that case normalizes the arguments that are not
+                    // arithmetic itself, and normalizing an arithmetic
+                    // argument on its own first is what it avoids.
+                    normalize1(namerec, intApp, scope, typeEnv)
+                  case _ =>
+                    if ((f1 eq fn) && (tpe == tpe0) && (a1 eq args)) None
+                    else Some(App(f1, a1, tpe, tag))
+                }
             }
         }
       case Let(arg, ex, in, rec, tag) =>
@@ -1883,7 +1981,7 @@ object TypedExprNormalization {
         val args1 = ListUtil.mapConserveNel(args) { case (n, expr) =>
           (n, normalize1(None, expr, scope, typeEnv).get)
         }
-        val bodyScope = scope -- args1.toList.map(_._1)
+        val bodyScope = scope.shadow(args1.toList.map(_._1))
         val body1 = normalize1(None, body, bodyScope, typeEnv).get
 
         if (!hasOuterRecur(body1, inNestedLoop = false)) {
@@ -1984,7 +2082,7 @@ object TypedExprNormalization {
             e: TypedExpr[A]
         ): (Int, TypedExpr[A]) =
           // the final result of the branch is what is assigned to the name
-          normalizeLetOpt(None, e, scope -- shadows, typeEnv) match {
+          normalizeLetOpt(None, e, scope.shadow(shadows), typeEnv) match {
             case None    => (0, e)
             case Some(e) => (1, e)
           }
@@ -1998,11 +2096,11 @@ object TypedExprNormalization {
             val p = branch.pattern
             val outerShadowed = p.names.toSet
             val innerShadowed = branch.guardBindings.toSet
-            val branchScope = scope -- outerShadowed
+            val branchScope = scope.shadow(outerShadowed)
 
             val guardNorm0 = branch.mapGuardNodeExprScoped(
               normalize1(None, _, branchScope, typeEnv).get,
-              normalize1(None, _, branchScope -- innerShadowed, typeEnv).get
+              normalize1(None, _, branchScope.shadow(innerShadowed), typeEnv).get
             )
             val (guardChanged, guard1, dropped) =
               guardNorm0 match {
@@ -2105,10 +2203,16 @@ object TypedExprNormalization {
               val p2 = tailBranch.pattern
               val e2 = tailBranch.expr
               head.guard match {
+                // The rewrite moves e2 under the head pattern's binders, so a
+                // name the head binds must not be free in e2: in
+                // `case y if g: e1; case _: y` the second y is the outer one.
                 case Some(g)
                     if head.pattern.ambiguousBindings
                       .intersect(g.freeVarsDup.toSet)
-                      .isEmpty =>
+                      .isEmpty && {
+                        val e2Free = e2.freeVarsDup.toSet
+                        !head.pattern.names.exists(e2Free)
+                      } =>
                   val rewrittenHead =
                     Branch(head.pattern, None, ifThenElse(g, head.expr, e2))(using
                       head.patternRegion
@@ -2182,9 +2286,12 @@ object TypedExprNormalization {
         scope1: Scope[A]
     ): Boolean =
       names.forall { b =>
-        (scope.getLocal(b), scope1.getLocal(b)) match {
+        (scope.getLocalBinding(b), scope1.getLocalBinding(b)) match {
           case (None, None)                             => true
-          case (Some((r1, t1, s1)), Some((r2, t2, s2))) =>
+          case (Some(Left(id1)), Some(Left(id2)))       =>
+            // the same lambda, pattern or loop binding (see ScopeBinding)
+            id1 == id2
+          case (Some(Right((r1, t1, s1))), Some(Right((r2, t2, s2)))) =>
             (r1 == r2) &&
             (t1.void === t2.void) &&
             scopeMatches(t1.freeVarsDup.toSet, s1, s2)
@@ -2818,6 +2925,24 @@ object TypedExprNormalization {
           }
       }
 
+    // The constructor arguments of a result are expressions in the scope it
+    // was evaluated in. Callers use them in `to`, so the names they read must
+    // mean the same there.
+    private def resultIn[A](
+        result: EvalResult[A],
+        from: Scope[A],
+        to: Scope[A]
+    ): Option[EvalResult[A]] =
+      result match {
+        case EvalResult.Cons(_, _, args)
+            if !scopeMatches(TypedExpr.freeVarsSet(args).toSet, from, to) =>
+          None
+        case _ => Some(result)
+      }
+
+    /** Evaluate te to a constructor or literal. The arguments of a
+      * constructor are expressions in `scope`.
+      */
     def evaluate[A: Eq](
         te: TypedExpr[A],
         scope: Scope[A],
@@ -2831,7 +2956,7 @@ object TypedExprNormalization {
               // local values may have free values defined in
               // their scope. we could handle these with let bindings
               if (scopeMatches(t.freeVarsDup.toSet, s, scope))
-                evaluate(t, s, totalityCheck)
+                evaluate(t, s, totalityCheck).flatMap(resultIn(_, s, scope))
               else None
             case _ => None
           }
@@ -2840,7 +2965,8 @@ object TypedExprNormalization {
           val scope1 = lets.foldLeft(scope) { case (accScope, (arg, expr, _)) =>
             accScope.updated(arg, (RecursionKind.NonRecursive, expr, accScope))
           }
-          evaluate(tail, scope1, totalityCheck)
+          // the result can read the let-bound names, which are not in scope
+          evaluate(tail, scope1, totalityCheck).flatMap(resultIn(_, scope1, scope))
         case FnArgs(fn, args, resultTpe0) =>
           val resultTpe = Type.normalize(resultTpe0)
           evaluate(fn, scope, totalityCheck).map {
@@ -3047,12 +3173,39 @@ object TypedExprNormalization {
                       }
                   }
 
-                val res = matchAll(args.zip(pats), in)
-                Some(
-                  binds.foldRight(res)(
-                    Let(_, m.arg, _, RecursionKind.NonRecursive, m.tag)
+                // The result binds the root names, then each item's names in
+                // order, and reads each item (and the root, for every root
+                // name after the first) under the names bound before it. Bail
+                // if one of those reads would see a name the pattern just
+                // bound: in `match (0, y): case (y, b)`, b is the outer y.
+                val argPats = args.zip(pats)
+                val rootReadOk =
+                  binds.lengthCompare(1) <= 0 || {
+                    val rootFree = m.arg.freeVarsDup.toSet
+                    !binds.init.exists(rootFree)
+                  }
+                val itemReadsOk =
+                  argPats
+                    .foldLeft(Option(binds.toSet)) {
+                      case (None, _) => None
+                      case (Some(bound), (a, p)) =>
+                        p match {
+                          case Pattern.WildCard => Some(bound)
+                          case _ =>
+                            if (a.freeVarsDup.exists(bound)) None
+                            else Some(bound ++ p.names)
+                        }
+                    }
+                    .nonEmpty
+
+                if (rootReadOk && itemReadsOk) {
+                  val res = matchAll(argPats, in)
+                  Some(
+                    binds.foldRight(res)(
+                      Let(_, m.arg, _, RecursionKind.NonRecursive, m.tag)
+                    )
                   )
-                )
+                } else None
               case _ =>
                 None
             }
@@ -3274,7 +3427,8 @@ object TypedExprNormalization {
         case class Table(
             invert: Vector[TypedExpr[Unit]],
             toMap: Map[TypedExpr[Unit], (Int, NonEmptyList[TypedExpr[A]])],
-            litTags: Map[BigInteger, A]
+            litTags: Map[BigInteger, A],
+            rootTag: A
         ) {
 
           def idOf(te: TypedExpr[A]): (Table, Int) = {
@@ -3288,7 +3442,7 @@ object TypedExprNormalization {
                 val invert1 = invert :+ teVoid
                 val idx = invert.length
                 val toMap1 = toMap.updated(teVoid, (idx, NonEmptyList(te, Nil)))
-                (Table(invert1, toMap1, litTags), idx)
+                (copy(invert = invert1, toMap = toMap1), idx)
             }
           }
           def typeExpr(idx: Int): TypedExpr[A] =
@@ -3306,21 +3460,21 @@ object TypedExprNormalization {
           def tagForBi(bi: BigInteger): A =
             litTags.get(bi) match {
               case Some(a) => a
-              case None    => te.tag
+              case None    => rootTag
             }
           def tagFromUntagged(teu: TypedExpr[Unit]): A =
             toMap.get(teu) match {
               case Some((_, nel)) => nel.last.tag
               case None           =>
                 // just use the root tag
-                te.tag
+                rootTag
             }
         }
 
-        val EmptyTable: Table = {
-          val t0 = Table(Vector.empty, Map.empty, Map.empty)
+        def emptyTable(root: TypedExpr[A]): Table = {
+          val t0 = Table(Vector.empty, Map.empty, Map.empty, root.tag)
           // insert the root TypedExpr into the table
-          val (t1, _) = t0.idOf(te)
+          val (t1, _) = t0.idOf(root)
           t1
         }
 
@@ -3531,38 +3685,124 @@ object TypedExprNormalization {
           }
         }
 
-        val (table, expr) = toExpr(root, EmptyTable)
-        val w = RingOpt.Weights(mult = 3, add = 1, neg = 1)
-        val norm = RingOpt.normalize(expr, w)
+        // One RingOpt pass over `cur`, whose TypedExpr is `curTE` and whose
+        // erased TypedExpr is `curVoid` (only needed when RingOpt changes
+        // something). None when the pass leaves the TypedExpr as it is;
+        // otherwise the new tree and its erased TypedExpr.
+        def rewriteOnce(
+            cur: IntAlgebraic[A],
+            curTE: TypedExpr[A],
+            curVoid: => TypedExpr[Unit]
+        ): Option[(IntAlgebraic[A], TypedExpr[Unit])] = {
+          val (table, expr) = toExpr(cur, emptyTable(curTE))
+          val norm = RingOpt.normalize(expr, RingWeights)
 
-        if (cats.Hash[RingOpt.Expr[Int]].eqv(norm, expr)) {
-          // the expression is exactly the same
-          None
-        } else {
-          val ia1 = toAlg(norm, table)
-          val te1 = ia1.toTypedExpr
-          if (te1.void === root.toTypedExpr.void) {
-            // since the AST of RingOpt isn't the same as TypedExpr
-            // we can improve the RingOpt AST but the resulting TypedExpr
-            // AST may be exactly the same. Unfortunately, this check
-            // is safer to do.
-            // for instance: 0 - x can be optimized to -x in RingOpt
-            // but currently, the predef doesn't have negate, and just
-            // uses sub to do this (which at codegen time we can always)
-            // optimize into a negate at the top level as needed.
+          if (cats.Hash[RingOpt.Expr[Int]].eqv(norm, expr)) {
+            // the expression is exactly the same
             None
           } else {
-            Some(dedupOpaque(ia1))
+            val ia1 = toAlg(norm, table)
+            val void1 = ia1.toTypedExpr.void
+            if (void1 === curVoid) {
+              // since the AST of RingOpt isn't the same as TypedExpr
+              // we can improve the RingOpt AST but the resulting TypedExpr
+              // AST may be exactly the same. Unfortunately, this check
+              // is safer to do.
+              // for instance: 0 - x can be optimized to -x in RingOpt
+              // but currently, the predef doesn't have negate, and just
+              // uses sub to do this (which at codegen time we can always)
+              // optimize into a negate at the top level as needed.
+              None
+            } else {
+              Some((ia1, void1))
+            }
           }
         }
+
+        lazy val rootVoid = te.void
+
+        // One pass is not enough: normalization runs again on what we return
+        // (a match re-normalizes while any branch changes), and a second
+        // RingOpt pass need not leave our output alone. RingOpt numbers the
+        // opaque leaves in the order they first appear and breaks cost ties
+        // by that order, so on a rearranged tree it can pick another form of
+        // the same cost, and two forms can alternate forever. So repeat the
+        // pass until it changes nothing, or until it gives a tree seen
+        // before, and stop at that repeated tree: repeating from it goes
+        // round the same cycle back to it, so optimizing our output again
+        // returns None. `cur` came from rewriting `root` at least once,
+        // `seen` holds the trees so far, newest first, ending with `root`,
+        // and `passes` is how many more passes we may run. If the tree has
+        // not settled after MaxRewrites passes, we keep `root` as it is,
+        // which is also stable.
+        @annotation.tailrec
+        def loop(
+            cur: IntAlgebraic[A],
+            curVoid: TypedExpr[Unit],
+            seen: List[TypedExpr[Unit]],
+            passes: Int
+        ): Option[IntAlgebraic[A]] =
+          cur match {
+            case LiteralInt(_, _) | OpaqueInt(_) =>
+              // a leaf: there is nothing left to rewrite
+              Some(cur)
+            case _ if passes <= 0 =>
+              None
+            case _ =>
+              rewriteOnce(cur, cur.toTypedExpr, curVoid) match {
+                case None                   => Some(cur)
+                case Some((next, nextVoid)) =>
+                  if (seen.exists(_ === nextVoid)) {
+                    // back at `root` means no change
+                    if (nextVoid === rootVoid) None else Some(next)
+                  } else loop(next, nextVoid, nextVoid :: seen, passes - 1)
+              }
+          }
+
+        rewriteOnce(root, te, rootVoid)
+          .flatMap { case (ia1, void1) =>
+            loop(ia1, void1, void1 :: rootVoid :: Nil, MaxRewrites - 1)
+          }
+          .map(dedupOpaque)
       }
 
-      object Optimized {
-        def unapply[A](te: TypedExpr[A]): Option[TypedExpr[A]] =
-          Impl.IntAlgebraic.unapply(te) match {
-            case Some(ia) => optimize(ia, te)
-            case None     => None
+      // Each Int add, sub and mul is one call into the runtime, and on small
+      // Ints a mul costs about what an add does (within about 25% in the C
+      // runtime). So mult = 2: x * 2 still becomes x + x, but x * 3 stays
+      // one mul instead of x + (x + x), and 2 * w + 2 * h becomes
+      // 2 * (w + h) instead of w + (w + (h + h)).
+      private val RingWeights = RingOpt.Weights(mult = 2, add = 1, neg = 1)
+      // the most RingOpt passes one optimize call runs
+      private val MaxRewrites = 16
+
+      /** Rewrite each opaque leaf of `ia` with `fn`, which returns None for a
+        * leaf it leaves as it is. A leaf that `fn` turns into Int arithmetic
+        * joins the tree. None when `fn` changes no leaf.
+        */
+      def mapOpaque[A](
+          ia: IntAlgebraic[A]
+      )(fn: TypedExpr[A] => Option[TypedExpr[A]]): Option[IntAlgebraic[A]] = {
+        def both(
+            l: IntAlgebraic[A],
+            r: IntAlgebraic[A]
+        ): Option[(IntAlgebraic[A], IntAlgebraic[A])] =
+          (mapOpaque(l)(fn), mapOpaque(r)(fn)) match {
+            case (None, None) => None
+            case (l1, r1)     => Some((l1.getOrElse(l), r1.getOrElse(r)))
           }
+
+        ia match {
+          case Add(l, r, addFn, tag) =>
+            both(l, r).map { case (l1, r1) => Add(l1, r1, addFn, tag) }
+          case Times(l, r, timesFn, tag) =>
+            both(l, r).map { case (l1, r1) => Times(l1, r1, timesFn, tag) }
+          case Sub(l, r, subFn, tag) =>
+            both(l, r).map { case (l1, r1) => Sub(l1, r1, subFn, tag) }
+          case LiteralInt(_, _) =>
+            None
+          case OpaqueInt(intValue) =>
+            fn(intValue).map(v1 => unapply(v1).getOrElse(OpaqueInt(v1)))
+        }
       }
 
       def unapply[A](te: TypedExpr[A]): Option[IntAlgebraic[A]] =

@@ -8,6 +8,7 @@ import dev.bosatsu.edn.Edn
 import dev.bosatsu.hashing.{Algo, Hashed}
 import dev.bosatsu.library.{LibConfig, Libraries, Name, Version}
 import dev.bosatsu.LocationMap.Colorize
+import dev.bosatsu.protobuf.CodeGenerator
 import dev.bosatsu.tool.{
   CliException,
   CompilerApi,
@@ -1365,6 +1366,18 @@ class ToolAndLibCommandTest extends FunSuite {
         isPublic = false
       )
     } yield state4
+  }
+
+  test("tool protoc-plugin writes the generator's response for stdin to stdout") {
+    // The memory platform has empty stdin and renders stdout bytes as ISO-8859-1.
+    val expected = new String(
+      CodeGenerator.generateResponseBytes(Bytes.empty).copyToArray,
+      StandardCharsets.ISO_8859_1
+    )
+    runWithState(List("tool", "protoc-plugin"), MemoryMain.State.empty) match {
+      case Right((state, _)) => assertEquals(state.stdOut.render(80), expected + "\n")
+      case Left(err)         => fail(err.toString)
+    }
   }
 
   test("root eval parses to library mode") {

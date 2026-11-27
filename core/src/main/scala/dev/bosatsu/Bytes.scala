@@ -1,7 +1,9 @@
 package dev.bosatsu
 
 import cats.{Hash, Order, Show}
-import java.nio.charset.StandardCharsets
+import java.nio.ByteBuffer
+import java.nio.charset.{CharacterCodingException, StandardCharsets}
+import java.util.Arrays
 import scalapb.GeneratedMessage
 
 /** Immutable serialized bytes, backed by an unboxed array. */
@@ -10,16 +12,16 @@ opaque type Bytes = Array[Byte]
 object Bytes {
   val empty: Bytes = Array.emptyByteArray
 
-  def fromUTF8String(value: String): Bytes =
+  inline def fromUTF8String(value: String): Bytes =
     value.getBytes(StandardCharsets.UTF_8)
 
-  def fromMessage(message: GeneratedMessage): Bytes = message.toByteArray
+  inline def fromMessage(message: GeneratedMessage): Bytes = message.toByteArray
 
   /** Copy caller-owned mutable storage. */
-  def copyFromArray(value: Array[Byte]): Bytes = value.clone()
+  inline def copyFromArray(value: Array[Byte]): Bytes = value.clone()
 
   /** Take ownership of fresh storage. The caller must not retain a mutable alias. */
-  private[bosatsu] def unsafeFromArray(value: Array[Byte]): Bytes = value
+  private[bosatsu] inline def unsafeFromArray(value: Array[Byte]): Bytes = value
 
   // Share Eq between Hash and Order so implicit Eq lookup is unambiguous.
   given bytesInstances: (Hash[Bytes] & Order[Bytes]) =
@@ -56,15 +58,34 @@ object Bytes {
   }
 
   extension (bytes: Bytes) {
-    def copyToArray: Array[Byte] = bytes.clone()
+    inline def length: Int = bytes.length
 
-    def sameBytes(other: Bytes): Boolean = java.util.Arrays.equals(bytes, other)
+    /** Read one byte without copying. Reads cannot change the storage. */
+    inline def apply(index: Int): Byte = bytes(index)
 
-    def contentHashCode: Int = java.util.Arrays.hashCode(bytes)
+    /** Decode strict UTF-8: malformed input is an error, never replaced. */
+    inline def decodeUtf8: Either[CharacterCodingException, String] =
+      decodeUtf8Slice(0, bytes.length)
+
+    /** Decode `length` bytes starting at `offset` as strict UTF-8. */
+    inline def decodeUtf8Slice(
+        offset: Int,
+        length: Int
+    ): Either[CharacterCodingException, String] =
+      try {
+        val buffer = ByteBuffer.wrap(bytes, offset, length)
+        Right(StandardCharsets.UTF_8.newDecoder().decode(buffer).toString)
+      } catch { case error: CharacterCodingException => Left(error) }
+
+    inline def copyToArray: Array[Byte] = bytes.clone()
+
+    inline def sameBytes(other: Bytes): Boolean = Arrays.equals(bytes, other)
+
+    inline def contentHashCode: Int = Arrays.hashCode(bytes)
 
     /** Zero-copy view for read-only foreign APIs. The caller must neither
       * mutate this array nor pass it to an API that may mutate it.
       */
-    private[bosatsu] def unsafeReadOnlyView: Array[Byte] = bytes
+    private[bosatsu] inline def unsafeReadOnlyView: Array[Byte] = bytes
   }
 }

@@ -408,7 +408,7 @@ class EmitCCommandTest extends FileCommandFixtures {
         _ <- IO.blocking(Files.setLastModifiedTime(path, FileTime.fromMillis(1000000000000L)))
         before = Files.getLastModifiedTime(path)
         _ <- manifest(root, List("helper.pkg", "suite.pkg", "helper.pkg"), Nil)
-        cold <- FileCommandRunner.resource.use(emit(_, root, "suite.pkg", "test.c"))
+        cold <- FileCommandRunner.resource(CompilerBuildInfo.constant).use(emit(_, root, "suite.pkg", "test.c"))
         _ = success(cold)
         after <- read(root, "test.c")
         _ = assertEquals(after, original)

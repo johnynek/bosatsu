@@ -4,6 +4,7 @@ import cats.data.NonEmptyList
 import java.math.BigInteger
 import scala.scalajs.js
 import scala.scalajs.js.JavaScriptException
+import scala.scalajs.js.typedarray.Uint8Array
 import scala.util.Try
 
 private[bosatsu] object PredefIoCorePlatform {
@@ -78,7 +79,7 @@ private[bosatsu] object PredefIoCorePlatform {
       case None        => VOption.none
     }
 
-  private def runtimeReadBytes(count: Int): Option[Array[Byte]] =
+  private def runtimeReadBytes(count: Int): Option[Bytes] =
     PredefImpl.runtimeReadBytes(count)
 
   private def runtimeReadUtf8Chunk(
@@ -329,41 +330,20 @@ private[bosatsu] object PredefIoCorePlatform {
   private def pathValueFromString(raw: String): Value =
     Str(normalizePathString(raw))
 
-  private def bytesToArray(bytes: PredefImpl.BytesValue): Array[Byte] = {
-    val out = new Array[Byte](bytes.len)
-    var idx = 0
-    while (idx < bytes.len) {
-      out(idx) = bytes.data(bytes.offset + idx)
-      idx = idx + 1
-    }
-    out
-  }
-
   private def bytesValue(bytes: PredefImpl.BytesValue): Value =
     if (bytes.len == 0) PredefImpl.emptyBytes
     else ExternalValue(bytes)
 
+  // Buffer.from(arrayBuffer, byteOffset, length) shares the fresh copy's
+  // memory, so the only copy is the one JsBytes makes.
   private def bufferFromBytes(bytes: PredefImpl.BytesValue): js.Dynamic = {
-    if (bytes.len == 0) nodeBuffer.alloc(0)
-    else {
-      val data = new js.Array[Int](bytes.len)
-      var idx = 0
-      while (idx < bytes.len) {
-        data(idx) = bytes.data(bytes.offset + idx).toInt & 0xff
-        idx = idx + 1
-      }
-      nodeBuffer.from(data)
-    }
+    val view = JsBytes.toUint8Array(bytes.data, bytes.offset, bytes.len)
+    nodeBuffer.from(view.buffer, view.byteOffset, view.length)
   }
 
   private def bytesFromBuffer(buffer: js.Dynamic, length: Int): PredefImpl.BytesValue = {
-    val out = new Array[Byte](length)
-    var idx = 0
-    while (idx < length) {
-      out(idx) = (buffer.readUInt8(idx).asInstanceOf[Int] & 0xff).toByte
-      idx = idx + 1
-    }
-    PredefImpl.BytesValue(out, 0, out.length)
+    val bytes = JsBytes.fromUint8Array(buffer.asInstanceOf[Uint8Array].subarray(0, length))
+    PredefImpl.BytesValue(bytes, 0, bytes.length)
   }
 
   private def openModeName(modeTag: Int): String =
@@ -433,7 +413,7 @@ private[bosatsu] object PredefIoCorePlatform {
         runtimeReadBytes(maxBytes) match {
           case Some(read) =>
             // During runProgMain, stdin is captured in the in-memory runtime buffers.
-            if (read.isEmpty) Right(None)
+            if (read.length == 0) Right(None)
             else Right(Some(PredefImpl.BytesValue(read, 0, read.length)))
           case None       =>
             try {
@@ -578,6 +558,8 @@ private[bosatsu] object PredefIoCorePlatform {
       _ <- writeNodeBuffer(handle, bufferFromBytes(bytes), "writing bytes to handle")
     } yield ()
 
+  // Node's lenient decode, not the strict Bytes.decodeUtf8: it matches the
+  // JVM's InputStreamReader-backed handles, which replace malformed input.
   private def decodeUtf8(bytes: PredefImpl.BytesValue): Either[Value, String] = {
     val buffer = bufferFromBytes(bytes)
     try {
@@ -671,7 +653,7 @@ private[bosatsu] object PredefIoCorePlatform {
             case Left(e)          => err = Some(e)
             case Right(None)      => done = true
             case Right(Some(chunk)) =>
-              builder ++= bytesToArray(chunk)
+              builder.addAll(chunk.data.unsafeReadOnlyView, chunk.offset, chunk.len)
           }
         }
 
@@ -679,8 +661,8 @@ private[bosatsu] object PredefIoCorePlatform {
           case Some(e) => Left(e)
           case None    =>
             val data = builder.result()
-            if (data.isEmpty) Right(PredefImpl.BytesValue(Array.emptyByteArray, 0, 0))
-            else Right(PredefImpl.BytesValue(data, 0, data.length))
+            if (data.isEmpty) Right(PredefImpl.BytesValue(Bytes.empty, 0, 0))
+            else Right(PredefImpl.BytesValue(Bytes.unsafeFromArray(data), 0, data.length))
         }
       }
     } yield result

@@ -5,6 +5,7 @@ import cats.syntax.all._
 import dev.bosatsu.hashing.{Algo, HashValue}
 import dev.bosatsu.{
   CompileOptions,
+  Identifier,
   Json,
   Kind,
   LocationMap,
@@ -15,6 +16,7 @@ import dev.bosatsu.{
   Referant
 }
 import dev.bosatsu.IorMethods.IorExtension
+import scala.collection.immutable.SortedMap
 import scala.concurrent.duration.DurationInt
 
 class LibConfigTest extends munit.FunSuite {
@@ -347,5 +349,79 @@ class LibConfigTest extends munit.FunSuite {
       }
 
     assertEquals(err.invalid, basePack.name)
+  }
+
+  test("api diffs follow constructors of types exported with them, not of opaque types") {
+    // Built the way validatePacks builds the env: Dep's types reach the diff of
+    // Main only through exportedTypeEnv, and Dep's own exports are diffed
+    // directly.
+    val depName = PackageName.parts("Dep")
+    val mainName = PackageName.parts("Main")
+
+    def dep(extraField: Boolean): String = {
+      val extra = if (extraField) ", extra: Int" else ""
+      val extraArg = if (extraField) ", x" else ""
+      s"""package Dep
+         |export Open(), Hidden, mk_hidden
+         |
+         |struct Open(a: Int$extra)
+         |
+         |struct Hidden(b: Int$extra)
+         |
+         |def mk_hidden(x: Int) -> Hidden: Hidden(x$extraArg)
+         |""".stripMargin
+    }
+
+    val main =
+      """package Main
+        |from Dep import Open, Hidden
+        |export use_open, use_hidden
+        |exposes Dep
+        |
+        |def use_open(o: Open) -> Open: o
+        |
+        |def use_hidden(h: Hidden) -> Hidden: h
+        |""".stripMargin
+
+    val predefTypes =
+      Package.interfaceOf(PackageMap.predefCompiled).exportedTypeEnv
+
+    def version(extraField: Boolean) = {
+      val pm = typeCheckAll(List(dep(extraField), main))
+      val env = predefTypes ++
+        pm.toMap(depName).exportedTypeEnv ++
+        pm.toMap(mainName).exportedTypeEnv
+      (
+        SortedMap(
+          depName -> pm.toMap(depName).exports,
+          mainName -> pm.toMap(mainName).exports
+        ),
+        env
+      )
+    }
+
+    val (prevExports, prevEnv) = version(extraField = false)
+    val (currExports, currEnv) = version(extraField = true)
+
+    val diffs =
+      ApiDiff(prevExports, prevEnv, currExports, currEnv).fold(
+        errs => fail(errs.toList.mkString("api diff failed: ", "\n", "")),
+        _.toMap.view.mapValues(_.toList).toMap
+      )
+
+    // Open's constructor is public, so adding a field changes use_open.
+    // Hidden's is private, so use_hidden's API is unchanged.
+    assertEquals(
+      diffs.getOrElse(mainName, Nil).collect { case ApiDiff.ChangedValue(name, _) => name },
+      List[Identifier.Bindable](Identifier.Name("use_open"))
+    )
+    // Dep's own diff likewise reports Open's new field and nothing for Hidden.
+    assertEquals(
+      diffs.getOrElse(depName, Nil).map {
+        case ApiDiff.ConstructorParamAdded(_, cons, _, _, field, _) => (cons, field)
+        case other => fail(s"unexpected diff in Dep: $other")
+      }.distinct,
+      List((Identifier.Constructor("Open"), Identifier.Name("extra")))
+    )
   }
 }

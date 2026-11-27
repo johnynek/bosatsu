@@ -72,23 +72,39 @@ def int_loop[a](i: Int, state: a, fn: (Int, a) -> (Int, a)) -> a:
 
 On the recursive call path, guards provide facts to prove both `Int` obligations.
 
-## Using Existing `dev.bosatsu.smt` Support
-The repository already has useful SMT infrastructure in `core/src/main/scala/dev/bosatsu/smt`:
-1. `SmtExpr` models integer/bool terms and comparisons (`Lt`, `Gte`, `And`, `Not`, etc.).
-2. `SmtCommand`/`SmtScript` build scripts (`SetLogic`, `DeclareConst`, `Assert`, `CheckSat`, `GetModel`).
-3. `SmtLibRender` renders SMT-LIB text.
-4. `Z3Api` parses solver status/model output and returns structured results.
+## Deciding the Obligations
+The checker lowers each obligation `PC => goal` to `SmtExpr` terms
+(`intdecide/src/main/scala/dev/bosatsu/smt`) and decides it with
+`IntDecide`, which is plain Scala in the `intdecide` module, so every
+platform (JVM, Scala.js, native image) accepts the same programs and the
+compiler ships no SMT solver.
 
-For an obligation `PC => goal`, the checker can emit:
-1. declarations for free variables,
-2. `(assert PC)`,
-3. `(assert (not goal))`,
-4. `(check-sat)` (and optional `(get-model)`).
+The obligations are linear integer arithmetic with booleans (Presburger
+arithmetic): `+`, `-`, multiplication by a constant, `div` and `mod` by a
+constant (Bosatsu's rounding, built by `SmtExpr.bosatsuDiv` and
+`bosatsuMod`), `ite`, comparisons and the boolean connectives, which is
+decidable. `IntDecide`:
+1. tries `SmtExpr.pathImplies` and `LinearBounds`, which prove the common
+   goals quickly,
+2. otherwise puts `PC and not goal` in negation normal form over linear
+   constraints, with a fresh quotient and remainder for each `div` or `mod` and
+   a fresh variable for each `ite`,
+3. searches for integer values that make it true, splitting a disjunction
+   only when the values found so far make it false, and deciding each
+   conjunction of linear constraints exactly with the Omega test.
 
 Interpretation:
-1. `unsat`: obligation proven,
-2. `sat`: obligation failed (use model in diagnostics),
-3. `unknown`/execution failure: fail conservatively.
+1. no values: obligation proven,
+2. values found: obligation failed, and the values are checked against
+   `PC` and `goal` and shown in the error,
+3. a term outside the fragment (a product of variables, division by a
+   variable) is read as an unknown integer, which keeps proofs sound; values
+   that only refute the goal because of that, or reaching the work limit,
+   fail conservatively.
+
+The tests check `IntDecide` against z3 (through `scalawasiz3`, a test-only
+dependency) in both directions, and replay the obligations the checker
+produces for `test_workspace` (`core/src/test/resources/int_obligations`).
 
 ## Compiler Placement
 1. Keep existing declaration-phase recursion checks for structural shape.
@@ -102,7 +118,8 @@ When an `Int` obligation fails, report:
 1. recursive call location,
 2. failed obligation (`next_i >= 0` or `next_i < i`),
 3. simplified path condition used,
-4. model values when solver returns `sat`.
+4. values of the variables that make the path condition true and the
+   obligation false, when there are some.
 
 ## Future Direction: Enums (Not Phase 1)
 We should keep moving toward one unified, type-directed notion of decrease.
@@ -122,4 +139,5 @@ These enum refinements are intentionally out of scope for phase 1, but this type
 2. Positive typed recursion tests: accepted `Int` loops with provable decrease.
 3. Negative typed recursion tests: reject non-decreasing or non-provable `Int` calls.
 4. Structural recursion regression: existing ADT recursion behavior unchanged.
-5. Solver failure policy: `unknown`/execution failure remains conservative error.
+5. Decision procedure policy: reaching the work limit, or depending on terms
+   outside linear integer arithmetic, remains a conservative error.

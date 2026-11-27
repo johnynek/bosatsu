@@ -73,6 +73,69 @@ class PredefIoCoreTest extends munit.FunSuite {
       } finally walk.close()
     }
 
+  private def bytesValue(text: String): Value = {
+    val bytes = Bytes.fromUTF8String(text)
+    ExternalValue(PredefImpl.BytesValue(bytes, 0, bytes.length))
+  }
+
+  test("byte reads and writes on captured stdio see exactly the program's bytes") {
+    val readTwo = PredefImpl.runProg(
+      PredefImpl.prog_core_read_bytes(PredefImpl.core_stdin, VInt(2)),
+      stdin = "abc"
+    )
+    assertEquals(readTwo.result, Right(VOption.some(bytesValue("ab"))))
+
+    val readAll = PredefImpl.runProg(
+      PredefImpl.prog_core_read_all_bytes(PredefImpl.core_stdin, VInt(2)),
+      stdin = "hello"
+    )
+    assertEquals(readAll.result, Right(bytesValue("hello")))
+
+    val wroteOut = PredefImpl.runProg(
+      PredefImpl.prog_core_write_bytes(PredefImpl.core_stdout, bytesValue("out ☃"))
+    )
+    assertEquals(wroteOut.stdout, "out ☃")
+
+    val wroteErr = PredefImpl.runProg(
+      PredefImpl.prog_core_write_bytes(PredefImpl.core_stderr, bytesValue("err"))
+    )
+    assertEquals(wroteErr.stderr, "err")
+
+    // "€" is three UTF-8 bytes, so a one-character read must pull two more,
+    // and the first of those still leaves an incomplete sequence.
+    val euro = PredefImpl.runProg(
+      PredefImpl.prog_core_read_utf8(PredefImpl.core_stdin, VInt(1)),
+      stdin = "€"
+    )
+    assertEquals(euro.result, Right(VOption.some(Str("€"))))
+
+    // Outside a program run there is no captured stdin to read from.
+    assertEquals(PredefImpl.runtimeReadBytes(1), None)
+  }
+
+  test("byte writes and reads through file handles round trip") {
+    val tempDir = Files.createTempDirectory("bosatsu-file-bytes")
+    try {
+      val path = Str(tempDir.resolve("data.bin").toString)
+      val writer = expectRight(
+        runProg(PredefImpl.prog_core_open_file(path, SumValue(1, UnitValue)))
+      )
+      val _ = expectRight(
+        runProg(PredefImpl.prog_core_write_bytes(writer, bytesValue("bytes ☃")))
+      )
+      val _ = expectRight(runProg(PredefImpl.prog_core_close(writer)))
+
+      val reader = expectRight(
+        runProg(PredefImpl.prog_core_open_file(path, SumValue(0, UnitValue)))
+      )
+      assertEquals(
+        runProg(PredefImpl.prog_core_read_bytes(reader, VInt(64))),
+        Right(VOption.some(bytesValue("bytes ☃")))
+      )
+      val _ = expectRight(runProg(PredefImpl.prog_core_close(reader)))
+    } finally deleteTree(tempDir)
+  }
+
   test("prog_core_open_file CreateNew is atomic and returns context-rich errors") {
     val tempDir = Files.createTempDirectory("bosatsu-open-file")
     try {

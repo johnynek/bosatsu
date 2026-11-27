@@ -19,6 +19,7 @@ class VerifiedLibrarySnapshotTest extends munit.ScalaCheckSuite {
   private val countingPlatform = new PlatformIO[MemoryMain.StateF[Result], Path] {
     type FileKey = platform.FileKey
     export platform.{
+      buildInfo,
       moduleIOMonad,
       parallelF,
       canPromiseF,
@@ -63,7 +64,7 @@ class VerifiedLibrarySnapshotTest extends munit.ScalaCheckSuite {
     override def fileKeyHash = platform.fileKeyHash
     override def existingFileKey(path: Path) = platform.existingFileKey(path)
 
-    override def readBytes(path: Path): MemoryMain.StateF[Result][Array[Byte]] = {
+    override def readBytes(path: Path): MemoryMain.StateF[Result][Bytes] = {
       pinnedReads += 1
       platform.readBytes(path)
     }

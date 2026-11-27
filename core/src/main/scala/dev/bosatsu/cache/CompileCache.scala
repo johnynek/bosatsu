@@ -4,8 +4,9 @@ import _root_.bosatsu.{TypedAst => proto}
 import cats.syntax.all._
 import dev.bosatsu.hashing.{Algo, Hashed, HashValue}
 import dev.bosatsu.{
-  BuildInfo,
+  Bytes,
   CompileOptions,
+  CompilerBuildInfo,
   Package,
   PackageName,
   PlatformIO,
@@ -21,13 +22,15 @@ import scala.collection.immutable.SortedMap
 import scala.util.{Failure, Success, Try}
 
 object CompileCache {
+  // (package, source hash, dependency interfaces, compile options, phase id,
+  // selected-binding fingerprint). The compiler identity is not here: it is
+  // fixed for a cache instance.
   type GenerateKeyInput =
     (
         PackageName,
         HashValue[Algo.Blake3],
         SortedMap[PackageName, Package.Interface],
         CompileOptions,
-        String,
         String,
         Option[HashValue[Algo.Blake3]]
     )
@@ -37,16 +40,20 @@ object CompileCache {
   private val utf8 = StandardCharsets.UTF_8
   private val blake3 = Algo.blake3Algo
 
-  def compilerIdentity: String = {
-    val gitSha = BuildInfo.gitHeadCommit.getOrElse("nogit")
-    s"${BuildInfo.version}:$gitSha:${BuildInfo.scalaVersion}"
+  def compilerIdentity(buildInfo: CompilerBuildInfo): String = {
+    val gitSha = buildInfo.gitHeadCommit.getOrElse("nogit")
+    s"${buildInfo.version}:$gitSha:${buildInfo.scalaVersion}"
   }
 
   def filesystem[F[_], P](
       cacheDir: P,
       platformIO: PlatformIO[F, P]
   ): InferCache[F, GenerateKeyInput, Package.Compiled] { type Key = FsKey } =
-    new FilesystemCache(cacheDir, platformIO)
+    new FilesystemCache(
+      cacheDir,
+      platformIO,
+      compilerIdentity(platformIO.buildInfo)
+    )
 
   def sourceExprHash(pack: Package.Parsed): HashValue[Algo.Blake3] = {
     val normalizedStatements = pack.program.collect {
@@ -98,12 +105,12 @@ object CompileCache {
 
   private[cache] def outputHashValue(
       pack: Package.Compiled
-  ): Try[Hashed[Algo.Blake3, Array[Byte]]] =
+  ): Try[Hashed[Algo.Blake3, Bytes]] =
     ProtoConverter
       .packagesToProto(pack :: Nil)
       .map { p =>
-        val bytes = p.toByteArray
-        Hashed(Algo.hashBytes[Algo.Blake3](bytes), bytes)
+        val bytes = Bytes.fromMessage(p)
+        Hashed(Algo.hash[Algo.Blake3](bytes), bytes)
       }
 
   private def hashUtf8(str: String): HashValue[Algo.Blake3] =
@@ -145,8 +152,8 @@ object CompileCache {
 
     protected def buildKey(input: K): Try[Key]
     protected def keyHashValue(key: Key): HashValue[Algo.Blake3]
-    protected def decodeValue(key: Key, bytes: Array[Byte]): Try[Option[V]]
-    protected def encodeValue(value: V): Try[Hashed[Algo.Blake3, Array[Byte]]]
+    protected def decodeValue(key: Key, bytes: Bytes): Try[Option[V]]
+    protected def encodeValue(value: V): Try[Hashed[Algo.Blake3, Bytes]]
     protected def extraStatsFields: List[String] = Nil
 
     private def keyPath(hash: HashValue[Algo.Blake3]): P =
@@ -355,7 +362,8 @@ object CompileCache {
 
   private final class FilesystemCache[F[_], P](
       cacheDir: P,
-      platformIO: PlatformIO[F, P]
+      platformIO: PlatformIO[F, P],
+      compilerIdentity: String
   ) extends AbstractFilesystemCache[F, P, GenerateKeyInput, Package.Compiled](
         cacheDir,
         platformIO
@@ -409,7 +417,6 @@ object CompileCache {
         sourceHash,
         depInterfaces,
         compileOptions,
-        compilerIdentity,
         phaseIdentity,
         bindingFingerprint
       ) = input
@@ -452,11 +459,11 @@ object CompileCache {
 
     override protected def decodeValue(
         key: Key,
-        bytes: Array[Byte]
+        bytes: Bytes
     ): Try[Option[Package.Compiled]] = {
       val depIfaces = key.depInterfaces.valuesIterator.toList
       for {
-        protoPackages <- Try(proto.Packages.parseFrom(bytes))
+        protoPackages <- Try(proto.Packages.parseFrom(bytes.unsafeReadOnlyView))
         decoded <- ProtoConverter
           .packagesFromProto(Nil, protoPackages.packages, depIfaces)
       } yield decoded._2 match {
@@ -467,7 +474,7 @@ object CompileCache {
 
     override protected def encodeValue(
         value: Package.Compiled
-    ): Try[Hashed[Algo.Blake3, Array[Byte]]] =
+    ): Try[Hashed[Algo.Blake3, Bytes]] =
       outputHashValue(value)
 
     override protected def extraStatsFields: List[String] = {

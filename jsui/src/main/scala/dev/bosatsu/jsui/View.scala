@@ -1,10 +1,13 @@
 package dev.bosatsu.jsui
 
 import ff4s.Dsl
+import dev.bosatsu.CompilerBuildInfo
 import dev.bosatsu.jsui.State.Compiled
 import org.scalajs.dom.HTMLTextAreaElement
 
 trait View { dsl: Dsl[State, Action] =>
+  def buildInfo: CompilerBuildInfo
+
   val view = {
     import html._
 
@@ -53,6 +56,31 @@ trait View { dsl: Dsl[State, Action] =>
         div(cls := "grid-item out-col")
     }
 
-    div(cls := "grid-container", aboveCode, aboveOut, codeBox, outBox)
+    val buildInfoLine = {
+      val version = s"Bosatsu ${buildInfo.version}"
+      buildInfo.gitHeadCommit match {
+        case Some(sha) =>
+          div(
+            cls := "build-info",
+            version,
+            " at commit ",
+            a(
+              href := s"https://github.com/johnynek/bosatsu/commit/$sha",
+              sha.take(12)
+            )
+          )
+        case None =>
+          div(cls := "build-info", version)
+      }
+    }
+
+    div(
+      cls := "grid-container",
+      aboveCode,
+      aboveOut,
+      codeBox,
+      outBox,
+      buildInfoLine
+    )
   }
 }

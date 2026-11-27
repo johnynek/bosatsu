@@ -27,11 +27,12 @@ This repository is mostly Scala 3 compiler and tooling code. These are the codin
 
 1. Compile frequently during development:
    - `sbt "coreJVM/test:compile"`
-   - This compiles both main and test code in `core`, which covers most compiler logic.
+   - This compiles both main and test code in `core`, which covers most compiler logic, and in
+     `intdecide`, the Int decision procedure `core` depends on.
 
 2. Run focused tests while iterating:
    - Use `testOnly` for the suites you are touching.
-   - Run `sbt "coreJVM/test; cli/test"` before opening a PR for most Scala-only changes.
+   - Run `sbt "intdecideJVM/test; coreJVM/test; cli/test"` before opening a PR for most Scala-only changes.
 
 3. Expand test scope based on what changed:
    - If CLI behavior changed, also run `./test_cli.sh`.
@@ -42,7 +43,7 @@ This repository is mostly Scala 3 compiler and tooling code. These are the codin
 
 1. Team goal: at least 95% overall coverage, and ideally 100% on changed lines in a PR.
 2. Use the same coverage entry point as CI:
-   - `sbt "coverage; clean; coreJVM/test; cli/test; coverageReport"`
+   - `sbt "coverage; clean; intdecideJVM/test; coreJVM/test; cli/test; coverageReport"`
 3. Check `.github/workflows/ci.yml`, `.github/workflows/codecov_main.yml`, and `codecov.yml` for current coverage/reporting behavior.
 
 ## Alignment with current repo configuration

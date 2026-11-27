@@ -4,21 +4,21 @@ import cats.effect.IO
 import dev.bosatsu.tool.{CliException, ExitCode}
 import java.nio.file.{Path, Paths}
 
-object PathModule extends MainModule[IO, Path](IOPlatformIO) {
+object PathModule extends MainModule[IO, Path](CliPlatformIO) {
   def runCli(args: List[String]): IO[ExitCode] =
     args match {
       case "tool" :: "bazel-worker" :: workerArgs =>
         runBazelWorker(workerArgs)
       case "tool" :: (fileArgs @ (operation :: _))
           if FileCommandRunner.supports(operation) =>
-        FileCommandRunner.resource.use { runner =>
+        FileCommandRunner.resource(platformIO.buildInfo).use { runner =>
           runner.runTo(Paths.get("."), fileArgs, System.out, System.err)
         }
       case _ =>
         runAndReport(args) match {
           case Right(io)  => io
           case Left(help) =>
-            IOPlatformIO.errorln(help.toString).as(ExitCode.Error)
+            platformIO.errorln(help.toString).as(ExitCode.Error)
         }
     }
 
@@ -26,7 +26,7 @@ object PathModule extends MainModule[IO, Path](IOPlatformIO) {
     val directory = Paths.get(".")
     val run = args match {
       case "--persistent_worker" :: Nil =>
-        FileCommandRunner.resource.use { runner =>
+        FileCommandRunner.resource(platformIO.buildInfo).use { runner =>
           BazelWorker.runPersistent(
             directory,
             System.in,
@@ -38,7 +38,7 @@ object PathModule extends MainModule[IO, Path](IOPlatformIO) {
       case parameterFile :: Nil
           if parameterFile.startsWith("@") && parameterFile.length > 1 =>
         BazelWorker.readParameterFile(directory, parameterFile).flatMap { parsed =>
-          FileCommandRunner.resource.use { runner =>
+          FileCommandRunner.resource(platformIO.buildInfo).use { runner =>
             runner.runWorkerTo(
               directory,
               parsed.commandArguments,

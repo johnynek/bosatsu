@@ -7,6 +7,8 @@ object Sha256Hash {
   // Precomputed hexadecimal characters
   private val hexArray = "0123456789abcdef".toCharArray
 
+  // Kept as Array[Byte], not Bytes: hashing only borrows the input for this
+  // call and returns an immutable String.
   def sha256HashHex(bytes: Array[Byte]): String = {
     // Create a SHA-256 MessageDigest instance
     val digest = MessageDigest.getInstance("SHA-256")

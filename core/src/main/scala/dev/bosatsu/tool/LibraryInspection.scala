@@ -3,7 +3,7 @@ package dev.bosatsu.tool
 import _root_.bosatsu.{TypedAst => proto}
 import cats.data.NonEmptyList
 import cats.syntax.all._
-import dev.bosatsu.{Json, Kind, PackageName, PackageSignatures, PlatformIO}
+import dev.bosatsu.{Bytes, Json, Kind, PackageName, PackageSignatures, PlatformIO}
 import dev.bosatsu.graph.CanPromise
 import dev.bosatsu.hashing.Algo
 import dev.bosatsu.library.{
@@ -506,8 +506,8 @@ private[bosatsu] object LibraryInspection {
                       show"cannot read imported interface ${imported.signature.path}: ${error.getMessage}"
                     )
                   }.flatMap { bytes =>
-                    moduleIOMonad.fromTry(Try(proto.Interfaces.parseFrom(bytes))).flatMap { actual =>
-                      if (java.util.Arrays.equals(actual.toByteArray, expected.toByteArray))
+                    moduleIOMonad.fromTry(Try(proto.Interfaces.parseFrom(bytes.unsafeReadOnlyView))).flatMap { actual =>
+                      if (Bytes.fromMessage(actual).sameBytes(Bytes.fromMessage(expected)))
                         moduleIOMonad.pure(imported.identity -> actual)
                       else moduleIOMonad.raiseError(CliException.Basic(
                         show"imported interface ${imported.signature.path} does not match " +

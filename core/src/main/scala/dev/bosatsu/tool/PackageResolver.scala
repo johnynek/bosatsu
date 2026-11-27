@@ -6,6 +6,7 @@ import cats.syntax.all._
 import com.monovore.decline.Opts
 import dev.bosatsu.hashing.{Algo, HashValue}
 import dev.bosatsu.{
+  Bytes,
   ExportedName,
   Import,
   LocationMap,
@@ -43,8 +44,10 @@ sealed abstract class PackageResolver[IO[_], Path] {
             // Decoding, raw hashing, and header parsing can add up across many
             // files, so keep that pure CPU work off the caller thread.
             canPromiseF.compute {
-              val source = new String(bytes, StandardCharsets.UTF_8)
-              val rawHash = Algo.hashBytes[Algo.Blake3](bytes)
+              // Lenient like PlatformIO.readUtf8, not the strict Bytes.decodeUtf8:
+              // rejecting malformed sources here would change which files load.
+              val source = new String(bytes.unsafeReadOnlyView, StandardCharsets.UTF_8)
+              val rawHash = Algo.hash[Algo.Blake3](bytes)
               PathParseError.parseString(
                 PackageResolver.headerParserIgnoreRest,
                 path,

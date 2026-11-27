@@ -63,10 +63,35 @@ At a high level:
    A recursive call can pass an earlier constructor in source order
    (for example `Some(_) -> None`, `Even(prev) -> Odd(prev)`), including
    zero-argument constructors.
-   This still requires direct recursive payload fields (`Fi == T`) to use
-   already-proven smaller local names from the branch.
-   Wrapped recursive payloads (`Fi` contains `T` but `Fi != T`, such as
-   `List[T]`) are intentionally rejected in this version.
+   Every field whose value could hand out a value of the target type must
+   get a value already proven smaller in the branch. That is a field whose
+   type has `T` at an output position: the target type itself
+   (`Fi == T`), `T` at other type arguments (`T[List[a]]`, or an
+   existential `T[b]`), a type that can hand one out (`List[T]`, or a type
+   declared after `T` with such a field), or a function that returns one or
+   passes one to a callback (`() -> T`, `(T -> Int) -> Int`). So
+   `B(xs) -> A(xs)` with `xs: List[T]` bound by the pattern is accepted,
+   but `B(x) -> A([B(x)])` is not: the list is new, and so is its element.
+   A constructor nested inside a field is checked the same way, at that field's
+   type: with `D(y: T[T[Int]])`, the `E(t)` in `D(E(t))` is a `T[T[Int]]` whose
+   field holds a `T[Int]`. If that type mentions an existential that a sibling
+   field can hand back as a `T` (see below), the constructor is checked at its
+   own type instead, which is conservative for the rest of the field's type. One
+   bound by `let` or matched on is checked at its own type. That is conservative
+   when it is then passed to the recursive call under polymorphic recursion, as
+   in `u = E(t); g(u)` with `def g(t: T[a])`. Other fields can take any value,
+   since the `def` can never read a target value out of them. These include a
+   function that only takes a `T` (`T -> Int`, or a type whose fields only take
+   one), and a type whose constructors the package can't name. So does a field
+   whose type is a type variable of the `def`, in the recursive call's own
+   argument: every call runs the same code, which can't look inside it. A field
+   holding an existential type can too (`b`, `List[b]`, `() -> b`), unless a
+   field of the same constructor takes that existential as input and outputs a
+   `T`, directly or through another such existential. In `D[b](x: b, f: (b, T ->
+   Int) -> Int)`, `f` can hand `x` to a callback as a `T`; in `Step[b](x: b, k:
+   b -> Int)` nothing can. This is conservative: in `Step[b](x: b, out: b ->
+   T)`, `x` needs a smaller value too, though `out(x)` is never read as smaller.
+   Only callback arguments and the results of `th()`, `get_Lazy` and `eval` are.
 
 1. Bosatsu also accepts two trusted strict-child projections:
    1. `th()` (canonical `th(())`) when `th: () -> T`.
@@ -381,6 +406,9 @@ proof idea as sorting: derive a bound, decrease it, recurse.
 Bosatsu supports direct recursion on `Int` when the checker can prove the next
 recursive argument is non-negative and strictly smaller on the recursive path.
 A helper like `int_loop` can be implemented in Bosatsu using these checks.
+In a tuple target such as `recur (n, xs)`, only the target that decreases needs
+this: an `Int` passed unchanged ahead of it, as in `f(n, tail)`, may be any
+value.
 
 ## Relation To Fuel And Bove-Capretta
 The design request for this page is tracked at

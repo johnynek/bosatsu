@@ -3,8 +3,7 @@ package dev.bosatsu
 import cats.effect.IO
 import dev.bosatsu.tool.CliException
 import dev.bosatsu.tool.ExitCode
-import java.nio.ByteBuffer
-import java.nio.charset.{CodingErrorAction, StandardCharsets}
+import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Path}
 import java.io.{ByteArrayOutputStream, IOException, InputStream, OutputStream, PrintStream}
 import java.util.Base64
@@ -239,10 +238,14 @@ object BazelWorker {
       s"\"output\":\"${JsonStringUtil.escape('"', response.output)}\"," +
       s"\"wasCancelled\":${response.wasCancelled}}"
 
+  // Frames carry decoded text, never bytes: CanEqual (needed to match End and
+  // Truncated under strictEquality) would otherwise license `==` on Line that
+  // compares byte arrays by reference.
   private enum Frame derives CanEqual {
     case End
     case Truncated
-    case Line(bytes: Array[Byte])
+    case Malformed
+    case Line(text: String)
   }
 
   /** Run the singleplex worker protocol without taking ownership of its streams. */
@@ -299,18 +302,6 @@ object BazelWorker {
       response.flatMap(writeResponse)
     }
 
-    def decodeFrame(bytes: Array[Byte]): Either[String, Envelope] = {
-      val decoder = StandardCharsets.UTF_8
-        .newDecoder()
-        .onMalformedInput(CodingErrorAction.REPORT)
-        .onUnmappableCharacter(CodingErrorAction.REPORT)
-      try decodeRequest(decoder.decode(ByteBuffer.wrap(bytes)).toString)
-      catch {
-        case _: java.nio.charset.CharacterCodingException =>
-          Left("worker request is not valid UTF-8")
-      }
-    }
-
     def readFrame: IO[Frame] = IO.blocking {
       val bytes = new ByteArrayOutputStream
       var finished = false
@@ -322,7 +313,10 @@ object BazelWorker {
           result = if (sawByte) Frame.Truncated else Frame.End
           finished = true
         } else if (next == '\n') {
-          result = Frame.Line(bytes.toByteArray)
+          result = Bytes.unsafeFromArray(bytes.toByteArray).decodeUtf8 match {
+            case Right(line) => Frame.Line(line)
+            case Left(_)     => Frame.Malformed
+          }
           finished = true
         } else {
           bytes.write(next)
@@ -341,8 +335,10 @@ object BazelWorker {
         case Right(Frame.End) => IO.pure(ExitCode.Success)
         case Right(Frame.Truncated) =>
           transportError("truncated worker request: EOF before newline")
-        case Right(Frame.Line(bytes)) =>
-          decodeFrame(bytes) match {
+        case Right(Frame.Malformed) =>
+          transportError("worker request is not valid UTF-8")
+        case Right(Frame.Line(line)) =>
+          decodeRequest(line) match {
             case Left(error) => transportError(error)
             case Right(_: CancelRequest) => loop
             case Right(request: ActionRequest) => respond(request) *> loop
@@ -360,15 +356,10 @@ object BazelWorker {
         case value if value.startsWith("@") && value.length > 1 =>
           val filename = value.substring(1)
           val path = directory.resolve(filename)
-          val bytes = Files.readAllBytes(path)
-          val decoder = StandardCharsets.UTF_8
-            .newDecoder()
-            .onMalformedInput(CodingErrorAction.REPORT)
-            .onUnmappableCharacter(CodingErrorAction.REPORT)
           val content =
-            try decoder.decode(ByteBuffer.wrap(bytes)).toString
-            catch {
-              case _: java.nio.charset.CharacterCodingException =>
+            Bytes.unsafeFromArray(Files.readAllBytes(path)).decodeUtf8 match {
+              case Right(text) => text
+              case Left(_)     =>
                 throw CliException.Basic(
                   s"parameter file '$filename' is not valid UTF-8"
                 )

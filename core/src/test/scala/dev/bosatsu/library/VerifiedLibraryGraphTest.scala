@@ -24,6 +24,7 @@ class VerifiedLibraryGraphTest extends munit.ScalaCheckSuite {
     new PlatformIO[MemoryMain.StateF[ErrorOr], Path] {
       type FileKey = platform.FileKey
       export platform.{
+        buildInfo,
         moduleIOMonad,
         parallelF,
         canPromiseF,
@@ -68,7 +69,7 @@ class VerifiedLibraryGraphTest extends munit.ScalaCheckSuite {
       override def fileKeyHash = platform.fileKeyHash
       override def existingFileKey(path: Path) = platform.existingFileKey(path)
 
-      override def readBytes(path: Path): MemoryMain.StateF[ErrorOr][Array[Byte]] = {
+      override def readBytes(path: Path): MemoryMain.StateF[ErrorOr][Bytes] = {
         val key = platform.pathToString(path)
         reads.update(key, reads.getOrElse(key, 0) + 1)
         platform.readBytes(path)

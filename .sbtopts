@@ -1,3 +1,8 @@
+# sbt 2 defaults to the native client, which hands commands to a long-lived
+# server started by the first invocation. CI steps and scripts here set
+# environment variables (BOSATSU_CI, BOSATSU_NATIVE_IMAGE_*, ...) that the
+# build reads, so run each invocation in its own JVM as sbt 1 did.
+--server
 -Dsbt.global.base=.sbt-local/global
 -Dsbt.boot.directory=.sbt-local/boot
 -Dsbt.ivy.home=.sbt-local/ivy2

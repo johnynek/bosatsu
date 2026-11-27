@@ -382,14 +382,14 @@ workflow =
             name: Set("Build jar and node JS"),
             run: Set(cat_lines([
               "sbt \"cli/assembly; cliJSJS/fullOptJS\"",
-              "jar_path=\"$(ls -1t cli/target/scala-*/bosatsu-cli-assembly-*.jar 2>/dev/null | head -n 1 || true)\"",
+              "jar_path=\"$(ls -1t target/out/jvm/scala-*/compiler-cli/bosatsu-cli-assembly-*.jar 2>/dev/null | head -n 1 || true)\"",
               "if [ -z \"$jar_path\" ]; then",
-              "  echo \"Assembly jar not found under cli/target/scala-*/\" >&2",
+              "  echo \"Assembly jar not found under target/out/jvm/scala-*/compiler-cli/\" >&2",
               "  exit 1",
               "fi",
               "cp \"$jar_path\" bosatsu.jar",
               "target_dir=\"\"",
-              "for d in cliJS/.js/target/scala-*; do",
+              "for d in target/out/sjs1/scala-*/compiler-clijs; do",
               "  if [ -d \"$d\" ]; then",
               "    target_dir=\"$d\"",
               "    break",
@@ -454,7 +454,7 @@ workflow =
             name: Set("Build native image (linux static)"),
             run: Set(cat_lines([
               "sbt \"cli/nativeImage\"",
-              "cp cli/target/native-image/bosatsu-cli bosatsu-linux",
+              "cp target/out/jvm/scala-*/compiler-cli/native-image/bosatsu-cli bosatsu-linux",
               "",
             ])),
             env: Set(native_linux_env(
@@ -485,7 +485,7 @@ workflow =
             name: Set("Build native image (macos)"),
             run: Set(cat_lines([
               "sbt \"cli/nativeImage\"",
-              "cp cli/target/native-image/bosatsu-cli bosatsu-macos",
+              "cp target/out/jvm/scala-*/compiler-cli/native-image/bosatsu-cli bosatsu-macos",
               "uname -m",
               "file bosatsu-macos",
               "file bosatsu-macos | grep -q \"arm64\" || { echo \"Expected arm64 binary\"; exit 1; }",

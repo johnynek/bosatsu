@@ -87,7 +87,6 @@ class CompileCacheTest extends FunSuite {
           CompileCache.sourceExprHash(pack),
           deps,
           compileOptions,
-          "compiler-id",
           "phase-id",
           bindingFingerprint
         )
@@ -405,7 +404,6 @@ class CompileCacheTest extends FunSuite {
             CompileCache.sourceExprHash(consumer),
             SortedMap(depIface.name -> depIface),
             CompileOptions.Default,
-            "compiler-id",
             "phase-id",
             None
           )
