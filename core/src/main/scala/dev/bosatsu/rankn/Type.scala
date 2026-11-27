@@ -84,92 +84,111 @@ object Type {
   sealed abstract class Leaf extends Rho {
     override def normalize: Leaf = this
   }
-  // no forall or exists anywhere
-  // Any Rho that is not an TyApply is always a Tau
-  // TyApply is Tau
-  opaque type Tau <: Rho = Rho
 
-  object Tau {
-    given Order[Tau] = Rho.orderRho
+  /** Tau is defined in its own object, so that it is opaque in the rest of
+    * this file and only the definitions here can see it is a Rho. Use it
+    * through the export, as Type.Tau. (The object can't be private: inline
+    * methods of Tau refer to it from other files.)
+    */
+  object TauScope {
+    // no forall or exists anywhere
+    // Any Rho that is not an TyApply is always a Tau
+    // TyApply is Tau
+    opaque type Tau <: Rho = Rho
 
-    def tauConst(c: Const): Tau = TyConst(c)
-    def tauVar(v: Var): Tau = TyVar(v)
-    def tauMeta(m: Meta): Tau = TyMeta(m)
+    object Tau {
+      given Order[Tau] = Rho.orderRho
 
-    inline def apply(l: Leaf): Tau = l
+      def tauConst(c: Const): Tau = TyConst(c)
+      def tauVar(v: Var): Tau = TyVar(v)
+      def tauMeta(m: Meta): Tau = TyMeta(m)
 
-    opaque type TauApply <: Tau = TyApply
-    implicit class TauApplyMethods(private val ta: TauApply) extends AnyVal {
-      inline def on: Tau = ta.on
-      inline def arg: Tau =
-        // This cast is safe because TauApply is a Tau
-        ta.arg.asInstanceOf[Rho]
+      inline def apply(l: Leaf): Tau = l
 
-      inline def toTyApply: TyApply = ta
-    }
+      opaque type TauApply <: Tau = TyApply
+      implicit class TauApplyMethods(private val ta: TauApply) extends AnyVal {
+        inline def on: Tau = ta.on
+        inline def arg: Tau =
+          // This cast is safe because TauApply is a Tau
+          ta.arg.asInstanceOf[Rho]
 
-    object TauApply {
-      def apply(on: Leaf | TauApply, arg: Tau): TauApply =
-        TyApply(on, arg)
-
-      // a scala3 zero allocation match result
-      class TauApplyMatch(tau: Tau) extends AnyVal {
-        def isEmpty: Boolean = !tau.isInstanceOf[TyApply]
-        def get: TauApply = tau.asInstanceOf[TyApply]
+        inline def toTyApply: TyApply = ta
       }
 
-      def unapply(t: Tau): TauApplyMatch = new TauApplyMatch(t)
-    }
+      object TauApply {
+        def apply(on: Leaf | TauApply, arg: Tau): TauApply =
+          TyApply(on, arg)
 
-    opaque type TauExists <: Tau = Exists
-    implicit class TauExistsMethods(private val te: TauExists) extends AnyVal {
-      inline def vars: NonEmptyList[(Var.Bound, Kind)] = te.vars
-      inline def in: Tau = te.in
-      inline def toExists: Exists = te
-    }
-
-    object TauExists {
-      def apply(vars: NonEmptyList[(Var.Bound, Kind)], in: Tau): TauExists =
-        existsRho(vars, in)
-
-      // a scala3 zero allocation match result
-      class TauExistsMatch(tau: Tau) extends AnyVal {
-        def isEmpty: Boolean = !tau.isInstanceOf[Exists]
-        def get: TauExists = tau.asInstanceOf[Exists]
-      }
-
-      def unapply(t: Tau): TauExistsMatch = new TauExistsMatch(t)
-    }
-
-    def isTau(t: Type): Boolean = {
-      @annotation.tailrec
-      def loop(ts: List[Type]): Boolean =
-        ts match {
-          case (_: Leaf) :: rest        => loop(rest)
-          case TyApply(on, arg) :: rest =>
-            loop(on :: arg :: rest)
-          case (Exists(_, in) :: rest) =>
-            loop(in :: rest)
-          case (_: ForAll) :: _ => false
-          case Nil              => true
+        // a scala3 zero allocation match result
+        class TauApplyMatch(tau: Tau) extends AnyVal {
+          def isEmpty: Boolean = !tau.isInstanceOf[TyApply]
+          def get: TauApply = tau.asInstanceOf[TyApply]
         }
 
-      t match {
-        case _: Leaf         => true
-        case TyApply(t1, t2) => loop(t1 :: t2 :: Nil)
-        case Exists(_, in)   => loop(in :: Nil)
-        case _: ForAll       => false
+        def unapply(t: Tau): TauApplyMatch = new TauApplyMatch(t)
       }
-    }
 
-    // a scala3 zero allocation match result
-    class TauMatch(t: Type) extends AnyVal {
-      def isEmpty: Boolean = !isTau(t)
-      def get: Tau = t.asInstanceOf[Rho]
-    }
+      opaque type TauExists <: Tau = Exists
+      implicit class TauExistsMethods(private val te: TauExists) extends AnyVal {
+        inline def vars: NonEmptyList[(Var.Bound, Kind)] = te.vars
+        inline def in: Tau = te.in
+        inline def toExists: Exists = te
+      }
 
-    def unapply(t: Type): TauMatch = new TauMatch(t)
+      object TauExists {
+        def apply(vars: NonEmptyList[(Var.Bound, Kind)], in: Tau): TauExists =
+          existsRho(vars, in)
+
+        // a scala3 zero allocation match result
+        class TauExistsMatch(tau: Tau) extends AnyVal {
+          def isEmpty: Boolean = !tau.isInstanceOf[Exists]
+          def get: TauExists = tau.asInstanceOf[Exists]
+        }
+
+        def unapply(t: Tau): TauExistsMatch = new TauExistsMatch(t)
+      }
+
+      def isTau(t: Type): Boolean = {
+        @annotation.tailrec
+        def loop(ts: List[Type]): Boolean =
+          ts match {
+            case (_: Leaf) :: rest        => loop(rest)
+            case TyApply(on, arg) :: rest =>
+              loop(on :: arg :: rest)
+            case (Exists(_, in) :: rest) =>
+              loop(in :: rest)
+            case (_: ForAll) :: _ => false
+            case Nil              => true
+          }
+
+        t match {
+          case _: Leaf         => true
+          case TyApply(t1, t2) => loop(t1 :: t2 :: Nil)
+          case Exists(_, in)   => loop(in :: Nil)
+          case _: ForAll       => false
+        }
+      }
+
+      // a scala3 zero allocation match result
+      class TauMatch(t: Type) extends AnyVal {
+        def isEmpty: Boolean = !isTau(t)
+        def get: Tau = t.asInstanceOf[Rho]
+      }
+
+      def unapply(t: Type): TauMatch = new TauMatch(t)
+
+      /** Resolve known meta variables nested inside a Tau. The result is a
+        * Tau: zonking only replaces metas with taus, and lifts an exists out
+        * of the function of an apply.
+        */
+      def zonkMeta[F[_]: Applicative](t: Tau)(
+          mfn: Meta => F[Option[Tau]]
+      ): F[Tau] =
+        zonkRhoMeta(t)(mfn)
+    }
   }
+
+  export TauScope.Tau
 
   case class TyConst(tpe: Const) extends Leaf
   case class TyVar(toVar: Var) extends Leaf
@@ -2109,9 +2128,9 @@ object Type {
       writeMeta: (Meta, Tau) => F[Unit]
   ): Meta => F[Option[Tau]] = {
 
-    val pureNone = Monad[F].pure(Option.empty[Rho])
+    val pureNone = Monad[F].pure(Option.empty[Tau])
 
-    lazy val fn: Meta => F[Option[Rho]] = { (m: Meta) =>
+    lazy val fn: Meta => F[Option[Tau]] = { (m: Meta) =>
       if (m.existential && !transparent(m)) pureNone
       else
         readMeta(m).flatMap {
@@ -2122,7 +2141,7 @@ object Type {
             // that this variable is existential and can see through it
             Monad[F].pure(sm)
           case sty @ Some(ty) =>
-            zonkRhoMeta(ty)(fn).flatMap { ty1 =>
+            Tau.zonkMeta(ty)(fn).flatMap { ty1 =>
               if ((ty1: Type) == ty) Monad[F].pure(sty)
               else {
                 // we were able to resolve more of the inner metas
