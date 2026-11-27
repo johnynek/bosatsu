@@ -843,10 +843,8 @@ object Matchless {
         st: RenameState
     ): (Expr[A], RenameState) =
       ex match {
-        case LocalAnon(id) =>
-          (env.anons.get(id).fold(ex: Expr[A])(LocalAnon(_)), st)
-        case LocalAnonMut(id) =>
-          (env.muts.get(id).fold(ex: Expr[A])(LocalAnonMut(_)), st)
+        case cheap: CheapExpr[A] =>
+          loopCheap(cheap, env, st)
         case Lambda(captures, recName, args, body) =>
           val (captures1Rev, st1) =
             captures.foldLeft((List.empty[Expr[A]], st)) { case ((acc, stN), capture) =>
@@ -923,14 +921,7 @@ object Matchless {
         case PrevNat(of) =>
           val (of1, st1) = loopExpr(of, env, st)
           (PrevNat(of1), st1)
-        case ge: GetEnumElement[?] =>
-          val (arg1, st1) = loopCheap(ge.arg, env, st)
-          (ge.copy(arg = arg1), st1)
-        case gs: GetStructElement[?] =>
-          val (arg1, st1) = loopCheap(gs.arg, env, st)
-          (gs.copy(arg = arg1), st1)
-        case Global(_, _, _) | Local(_) | ClosureSlot(_) | Literal(_) |
-            LitInt64(_) | MakeEnum(_, _, _) | MakeStruct(_) | SuccNat | ZeroNat =>
+        case MakeEnum(_, _, _) | MakeStruct(_) | SuccNat | ZeroNat =>
           (ex, st)
       }
 
@@ -939,14 +930,20 @@ object Matchless {
         env: AnonRenameEnv,
         st: RenameState
     ): (CheapExpr[A], RenameState) =
-      loopExpr(ex, env, st) match {
-        case (cheap: CheapExpr[A], st1) => (cheap, st1)
-        case (notCheap, _) =>
-          // $COVERAGE-OFF$
-          sys.error(
-            s"invariant violation: expected cheap expression while refreshing anon binders, got: $notCheap"
-          )
-        // $COVERAGE-ON$
+      ex match {
+        case LocalAnon(id) =>
+          (env.anons.get(id).fold(ex)(LocalAnon(_)), st)
+        case LocalAnonMut(id) =>
+          (env.muts.get(id).fold(ex)(LocalAnonMut(_)), st)
+        case ge: GetEnumElement[?] =>
+          val (arg1, st1) = loopCheap(ge.arg, env, st)
+          (ge.copy(arg = arg1), st1)
+        case gs: GetStructElement[?] =>
+          val (arg1, st1) = loopCheap(gs.arg, env, st)
+          (gs.copy(arg = arg1), st1)
+        case Global(_, _, _) | Local(_) | ClosureSlot(_) | Literal(_) |
+            LitInt64(_) =>
+          (ex, st)
       }
 
     def loopBool(
@@ -1023,16 +1020,8 @@ object Matchless {
   ): Expr[A] = {
     def loopExpr(ex: Expr[A]): Expr[A] =
       ex match {
-        case ClosureSlot(idx) =>
-          slots.lift(idx) match {
-            case Some(ch) => ch
-            case None     =>
-              // $COVERAGE-OFF$
-              sys.error(
-                s"missing closure slot $idx in expression: $expr"
-              )
-            // $COVERAGE-ON$
-          }
+        case cheap: CheapExpr[A] =>
+          loopCheap(cheap)
         case Lambda(captures, recName, args, body) =>
           // ClosureSlot indices are local to each lambda body, so we only
           // rewrite captures and leave the inner body unchanged.
@@ -1060,25 +1049,29 @@ object Matchless {
           WhileExpr(loopBool(cond), loopExpr(effectExpr), result)
         case PrevNat(of) =>
           PrevNat(loopExpr(of))
+        case MakeEnum(_, _, _) | MakeStruct(_) | SuccNat | ZeroNat =>
+          ex
+      }
+
+    def loopCheap(ex: CheapExpr[A]): CheapExpr[A] =
+      ex match {
+        case ClosureSlot(idx) =>
+          slots.lift(idx) match {
+            case Some(ch) => ch
+            case None     =>
+              // $COVERAGE-OFF$
+              sys.error(
+                s"missing closure slot $idx in expression: $expr"
+              )
+            // $COVERAGE-ON$
+          }
         case ge: GetEnumElement[?] =>
           ge.copy(arg = loopCheap(ge.arg))
         case gs: GetStructElement[?] =>
           gs.copy(arg = loopCheap(gs.arg))
         case Local(_) | Global(_, _, _) | LocalAnon(_) | LocalAnonMut(_) |
-            Literal(_) | LitInt64(_) | MakeEnum(_, _, _) | MakeStruct(_) | SuccNat |
-            ZeroNat =>
+            Literal(_) | LitInt64(_) =>
           ex
-      }
-
-    def loopCheap(ex: CheapExpr[A]): CheapExpr[A] =
-      loopExpr(ex) match {
-        case ch: CheapExpr[A] => ch
-        case notCheap         =>
-          // $COVERAGE-OFF$
-          sys.error(
-            s"invariant violation: expected cheap expression when rewriting closure slots, got: $notCheap"
-          )
-        // $COVERAGE-ON$
       }
 
     def loopBool(ex: BoolExpr[A]): BoolExpr[A] =
@@ -1477,46 +1470,10 @@ object Matchless {
           st: RenameState
       ): (Expr[A], RenameState) =
         ex match {
-          case Local(name) =>
-            (env.bindables.get(name).fold(ex: Expr[A])(Local(_)), st)
-          case LocalAnon(id) =>
-            (env.ids.anons.get(id).fold(ex: Expr[A])(LocalAnon(_)), st)
-          case LocalAnonMut(id) =>
-            (env.ids.muts.get(id).fold(ex: Expr[A])(LocalAnonMut(_)), st)
-          case Lambda(captures, recName, lamArgs, body) =>
-            val (captures1Rev, st1) =
-              captures.foldLeft((List.empty[Expr[A]], st)) { case ((acc, stN), cap) =>
-                val (cap1, stN1) = loopExpr(cap, env, stN)
-                (cap1 :: acc, stN1)
-              }
-            val (recName1, st2, env1) =
-              recName match {
-                case Some(name) =>
-                  val (name1, stN) = st1.freshName("bsts_inline_rec")
-                  (Some(name1), stN, env.copy(bindables = env.bindables.updated(name, name1)))
-                case None =>
-                  (None, st1, env)
-              }
-            val (argsRev, st3, env2) =
-              lamArgs.toList.foldLeft((List.empty[Bindable], st2, env1)) {
-                case ((acc, stN, envN), arg) =>
-                  val (arg1, stN1) = stN.freshName("bsts_inline_arg")
-                  (
-                    arg1 :: acc,
-                    stN1,
-                    envN.copy(bindables = envN.bindables.updated(arg, arg1))
-                  )
-              }
-            val (body1, st4) = loopExpr(body, env2, st3)
-            (
-              Lambda(
-                captures1Rev.reverse,
-                recName1,
-                NonEmptyList.fromListUnsafe(argsRev.reverse),
-                body1
-              ),
-              st4
-            )
+          case cheap: CheapExpr[A] =>
+            loopCheap(cheap, env, st)
+          case lam: Lambda[A] =>
+            loopLambda(lam, env, st)
           case WhileExpr(cond, effectExpr, result) =>
             val result1 =
               env.ids.muts.get(result.ident).fold(result)(LocalAnonMut(_))
@@ -1590,30 +1547,71 @@ object Matchless {
           case PrevNat(of) =>
             val (of1, st1) = loopExpr(of, env, st)
             (PrevNat(of1), st1)
-          case ge: GetEnumElement[?] =>
-            val (arg1, st1) = loopCheap(ge.arg, env, st)
-            (ge.copy(arg = arg1), st1)
-          case gs: GetStructElement[?] =>
-            val (arg1, st1) = loopCheap(gs.arg, env, st)
-            (gs.copy(arg = arg1), st1)
-          case Global(_, _, _) | ClosureSlot(_) | Literal(_) | LitInt64(_) | MakeEnum(_, _, _) |
-              MakeStruct(_) | SuccNat | ZeroNat =>
+          case MakeEnum(_, _, _) | MakeStruct(_) | SuccNat | ZeroNat =>
             (ex, st)
         }
+
+      def loopLambda(
+          lam: Lambda[A],
+          env: RenameEnv,
+          st: RenameState
+      ): (Lambda[A], RenameState) = {
+        val Lambda(captures, recName, lamArgs, body) = lam
+        val (captures1Rev, st1) =
+          captures.foldLeft((List.empty[Expr[A]], st)) { case ((acc, stN), cap) =>
+            val (cap1, stN1) = loopExpr(cap, env, stN)
+            (cap1 :: acc, stN1)
+          }
+        val (recName1, st2, env1) =
+          recName match {
+            case Some(name) =>
+              val (name1, stN) = st1.freshName("bsts_inline_rec")
+              (Some(name1), stN, env.copy(bindables = env.bindables.updated(name, name1)))
+            case None =>
+              (None, st1, env)
+          }
+        val (argsRev, st3, env2) =
+          lamArgs.toList.foldLeft((List.empty[Bindable], st2, env1)) {
+            case ((acc, stN, envN), arg) =>
+              val (arg1, stN1) = stN.freshName("bsts_inline_arg")
+              (
+                arg1 :: acc,
+                stN1,
+                envN.copy(bindables = envN.bindables.updated(arg, arg1))
+              )
+          }
+        val (body1, st4) = loopExpr(body, env2, st3)
+        (
+          Lambda(
+            captures1Rev.reverse,
+            recName1,
+            NonEmptyList.fromListUnsafe(argsRev.reverse),
+            body1
+          ),
+          st4
+        )
+      }
 
       def loopCheap(
           ex: CheapExpr[A],
           env: RenameEnv,
           st: RenameState
       ): (CheapExpr[A], RenameState) =
-        loopExpr(ex, env, st) match {
-          case (ch: CheapExpr[A], st1) => (ch, st1)
-          case (notCheap, _)           =>
-            // $COVERAGE-OFF$
-            sys.error(
-              s"invariant violation: expected cheap expression during inlining alpha-rename, got: $notCheap"
-            )
-          // $COVERAGE-ON$
+        ex match {
+          case Local(name) =>
+            (env.bindables.get(name).fold(ex)(Local(_)), st)
+          case LocalAnon(id) =>
+            (env.ids.anons.get(id).fold(ex)(LocalAnon(_)), st)
+          case LocalAnonMut(id) =>
+            (env.ids.muts.get(id).fold(ex)(LocalAnonMut(_)), st)
+          case ge: GetEnumElement[?] =>
+            val (arg1, st1) = loopCheap(ge.arg, env, st)
+            (ge.copy(arg = arg1), st1)
+          case gs: GetStructElement[?] =>
+            val (arg1, st1) = loopCheap(gs.arg, env, st)
+            (gs.copy(arg = arg1), st1)
+          case Global(_, _, _) | ClosureSlot(_) | Literal(_) | LitInt64(_) =>
+            (ex, st)
         }
 
       def loopBool(
@@ -1688,17 +1686,11 @@ object Matchless {
           argAnonIds.foldLeft(-1L)(_ max _),
           argMutIds.foldLeft(-1L)(_ max _)
         ).max + 1L
-      loopExpr(
+      loopLambda(
         lam0,
         emptyRenameEnv,
         RenameState(usedNames, nextId)
-      ) match {
-        case (lam1: Lambda[A], _) => lam1
-        case (other, _)           =>
-          // $COVERAGE-OFF$
-          sys.error(s"expected lambda after alpha-rename, got: $other")
-        // $COVERAGE-ON$
-      }
+      )._1
     }
 
     def betaInline(lam0: Lambda[A]): Expr[A] = {
@@ -2625,57 +2617,12 @@ object Matchless {
         case (rev, st1) => (rev.reverse, st1)
       }
 
-    def recurExprCheap(
-        expr: CheapExpr[A],
-        st: CseState
-    ): (CheapExpr[A], CseState) =
-      recurExpr(expr, st) match {
-        case (expr1: CheapExpr[A], st1) =>
-          (expr1, st1)
-        case (other, _) =>
-          // $COVERAGE-OFF$
-          throw new IllegalStateException(
-            s"expected cheap expression in bool rewriting, found: $other"
-          )
-        // $COVERAGE-ON$
-      }
-
     def recurBool(b: BoolExpr[A], st: CseState): (BoolExpr[A], CseState) =
       b match {
-        case CompareLit(expr, rel, lit) =>
-          recurExprCheap(expr, st) match {
-            case (expr1, st1) => (CompareLit(expr1, rel, lit), st1)
-          }
-        case CompareInt(left, rel, right) =>
-          val (left1, st1) = recurExprCheap(left, st)
-          val (right1, st2) = recurExprCheap(right, st1)
-          (CompareInt(left1, rel, right1), st2)
-        case CompareInt64(left, rel, right) =>
-          val (left1, st1) = recurExprCheap(left, st)
-          val (right1, st2) = recurExprCheap(right, st1)
-          (CompareInt64(left1, rel, right1), st2)
-        case CompareFloat64(left, rel, right) =>
-          val (left1, st1) = recurExprCheap(left, st)
-          val (right1, st2) = recurExprCheap(right, st1)
-          (CompareFloat64(left1, rel, right1), st2)
-        case EqualsNat(expr, nat) =>
-          recurExprCheap(expr, st) match {
-            case (expr1, st1) => (EqualsNat(expr1, nat), st1)
-          }
         case And(left, right) =>
           val (l1, st1) = recurBool(left, st)
           val (r1, st2) = recurBool(right, st1)
           (And(l1, r1), st2)
-        case CheckVariant(expr, expect, size, famArities) =>
-          recurExprCheap(expr, st) match {
-            case (expr1, st1) =>
-              (CheckVariant(expr1, expect, size, famArities), st1)
-          }
-        case CheckVariantSet(expr, expect, size, famArities) =>
-          recurExprCheap(expr, st) match {
-            case (expr1, st1) =>
-              (CheckVariantSet(expr1, expect, size, famArities), st1)
-          }
         case SetMut(target, expr) =>
           val (expr1, st1) = recurExpr(expr, st)
           (SetMut(target, expr1), st1)
@@ -2686,8 +2633,12 @@ object Matchless {
         case LetMutBool(name, in) =>
           val (in1, st1) = recurBool(in, st)
           (LetMutBool(name, in1), st1)
-        case TrueConst =>
-          (TrueConst, st)
+        case CompareLit(_, _, _) | CompareInt(_, _, _) | CompareInt64(_, _, _) |
+            CompareFloat64(_, _, _) | EqualsNat(_, _) | CheckVariant(_, _, _, _) |
+            CheckVariantSet(_, _, _, _) | TrueConst =>
+          // these hold only cheap expressions, which contain no constructor
+          // application to share
+          (b, st)
       }
 
     def recurExpr(ex: Expr[A], st: CseState): (Expr[A], CseState) = {
@@ -2718,9 +2669,8 @@ object Matchless {
             val (else1, stElse) = recurExpr(elseExpr, stThen)
             ifBranchCse(cond1, then1, else1, stElse)
           case SwitchVariant(on, famArities, cases, default) =>
-            val (on1, stOn) = recurExprCheap(on, st)
             val (casesRev, stCases) =
-              cases.toList.foldLeft((List.empty[(Int, Expr[A])], stOn)) {
+              cases.toList.foldLeft((List.empty[(Int, Expr[A])], st)) {
                 case ((acc, currSt), (variant, branch)) =>
                   val (branch1, st1) = recurExpr(branch, currSt)
                   ((variant, branch1) :: acc, st1)
@@ -2735,7 +2685,7 @@ object Matchless {
               }
             (
               SwitchVariant(
-                on1,
+                on,
                 famArities,
                 NonEmptyList.fromListUnsafe(casesRev.reverse),
                 default1
@@ -2830,41 +2780,19 @@ object Matchless {
 
     def recurBool(b: BoolExpr[A]): BoolExpr[A] =
       b match {
-        case CompareLit(expr, rel, lit) =>
-          CompareLit(recurExprCheap(expr), rel, lit)
-        case CompareInt(left, rel, right) =>
-          CompareInt(recurExprCheap(left), rel, recurExprCheap(right))
-        case CompareInt64(left, rel, right) =>
-          CompareInt64(recurExprCheap(left), rel, recurExprCheap(right))
-        case CompareFloat64(left, rel, right) =>
-          CompareFloat64(recurExprCheap(left), rel, recurExprCheap(right))
-        case EqualsNat(expr, nat) =>
-          EqualsNat(recurExprCheap(expr), nat)
         case And(left, right) =>
           And(recurBool(left), recurBool(right))
-        case CheckVariant(expr, expect, size, famArities) =>
-          CheckVariant(recurExprCheap(expr), expect, size, famArities)
-        case CheckVariantSet(expr, expect, size, famArities) =>
-          CheckVariantSet(recurExprCheap(expr), expect, size, famArities)
         case SetMut(target, value) =>
           SetMut(target, recurExpr(value))
         case LetBool(arg, value, in) =>
           LetBool(arg, recurExpr(value), recurBool(in))
         case LetMutBool(name, in) =>
           LetMutBool(name, recurBool(in))
-        case TrueConst =>
-          TrueConst
-      }
-
-    def recurExprCheap(ex: CheapExpr[A]): CheapExpr[A] =
-      recurExpr(ex) match {
-        case ch: CheapExpr[A] => ch
-        case notCheap         =>
-          // $COVERAGE-OFF$
-          throw new IllegalStateException(
-            s"expected cheap expression when hoisting loop lets, got: $notCheap"
-          )
-        // $COVERAGE-ON$
+        case CompareLit(_, _, _) | CompareInt(_, _, _) | CompareInt64(_, _, _) |
+            CompareFloat64(_, _, _) | EqualsNat(_, _) | CheckVariant(_, _, _, _) |
+            CheckVariantSet(_, _, _, _) | TrueConst =>
+          // these hold only cheap expressions, which hold no loops
+          b
       }
 
     def recurExpr(ex: Expr[A]): Expr[A] =
@@ -2883,7 +2811,7 @@ object Matchless {
           If(recurBool(cond), recurExpr(thenExpr), recurExpr(elseExpr))
         case SwitchVariant(on, famArities, cases, default) =>
           SwitchVariant(
-            recurExprCheap(on),
+            on,
             famArities,
             cases.map { case (variant, branch) =>
               (variant, recurExpr(branch))
@@ -2980,41 +2908,19 @@ object Matchless {
 
     def loopBool(boolExpr: BoolExpr[A]): BoolExpr[A] =
       boolExpr match {
-        case CompareLit(expr, rel, lit) =>
-          CompareLit(loopCheap(expr), rel, lit)
-        case CompareInt(left, rel, right) =>
-          CompareInt(loopCheap(left), rel, loopCheap(right))
-        case CompareInt64(left, rel, right) =>
-          CompareInt64(loopCheap(left), rel, loopCheap(right))
-        case CompareFloat64(left, rel, right) =>
-          CompareFloat64(loopCheap(left), rel, loopCheap(right))
-        case EqualsNat(expr, nat) =>
-          EqualsNat(loopCheap(expr), nat)
         case And(left, right) =>
           And(loopBool(left), loopBool(right))
-        case CheckVariant(expr, expect, size, famArities) =>
-          CheckVariant(loopCheap(expr), expect, size, famArities)
-        case CheckVariantSet(expr, expect, size, famArities) =>
-          CheckVariantSet(loopCheap(expr), expect, size, famArities)
         case SetMut(target, value) =>
           SetMut(target, loopExpr(value))
         case LetBool(arg, value, in) =>
           LetBool(arg, loopExpr(value), loopBool(in))
         case LetMutBool(name, in) =>
           LetMutBool(name, loopBool(in))
-        case TrueConst =>
-          TrueConst
-      }
-
-    def loopCheap(ex: CheapExpr[A]): CheapExpr[A] =
-      loopExpr(ex) match {
-        case ch: CheapExpr[A] => ch
-        case notCheap         =>
-          // $COVERAGE-OFF$
-          throw new IllegalStateException(
-            s"expected cheap expression when sinking branch-only lets, got: $notCheap"
-          )
-        // $COVERAGE-ON$
+        case CompareLit(_, _, _) | CompareInt(_, _, _) | CompareInt64(_, _, _) |
+            CompareFloat64(_, _, _) | EqualsNat(_, _) | CheckVariant(_, _, _, _) |
+            CheckVariantSet(_, _, _, _) | TrueConst =>
+          // these hold only cheap expressions, which hold no lets
+          boolExpr
       }
 
     def loopExpr(ex: Expr[A]): Expr[A] =
@@ -3035,7 +2941,7 @@ object Matchless {
           If(loopBool(cond), loopExpr(thenExpr), loopExpr(elseExpr))
         case SwitchVariant(on, famArities, cases, default) =>
           SwitchVariant(
-            loopCheap(on),
+            on,
             famArities,
             cases.map { case (variant, branch) =>
               (variant, loopExpr(branch))
@@ -5821,6 +5727,8 @@ object Matchless {
 
     def substituteLocals(m: Map[Bindable, CheapExpr[B]], e: Expr[B]): Expr[B] =
       e match {
+        case cheap: CheapExpr[B] =>
+          substituteLocalsCheap(m, cheap)
         case App(fn, appArgs) =>
           applyArgs(
             substituteLocals(m, fn),
@@ -5851,16 +5759,7 @@ object Matchless {
             case _        => m
           }
           Let(n, substituteLocals(m, v), substituteLocals(m1, in))
-        case Local(n) =>
-          m.get(n) match {
-            case Some(mut) => mut
-            case None      => e
-          }
-        case PrevNat(n)            => PrevNat(substituteLocals(m, n))
-        case ge: GetEnumElement[?] =>
-          ge.copy(arg = substituteLocalsCheap(m, ge.arg))
-        case gs: GetStructElement[?] =>
-          gs.copy(arg = substituteLocalsCheap(m, gs.arg))
+        case PrevNat(n)          => PrevNat(substituteLocals(m, n))
         case Lambda(c, r, as, b) =>
           // Captures are evaluated at lambda creation site, so they see the
           // outer substitution map. The body additionally excludes lambda-bound
@@ -5871,21 +5770,26 @@ object Matchless {
           Lambda(c1, r, as, b1)
         case WhileExpr(c, ef, r) =>
           WhileExpr(substituteLocalsBool(m, c), substituteLocals(m, ef), r)
-        case ClosureSlot(_) | Global(_, _, _) | LocalAnon(_) | LocalAnonMut(_) |
-            MakeEnum(_, _, _) | MakeStruct(_) | SuccNat | Literal(_) | LitInt64(_) |
-            ZeroNat =>
+        case MakeEnum(_, _, _) | MakeStruct(_) | SuccNat | ZeroNat =>
           e
       }
     def substituteLocalsCheap(
         m: Map[Bindable, CheapExpr[B]],
         e: CheapExpr[B]
     ): CheapExpr[B] =
-      substituteLocals(m, e) match {
-        case ch: CheapExpr[B] => ch
-        case notCheap         =>
-          sys.error(
-            s"invariant violation: substitution didn't maintain cheap: $e => $notCheap"
-          )
+      e match {
+        case Local(n) =>
+          m.get(n) match {
+            case Some(mut) => mut
+            case None      => e
+          }
+        case ge: GetEnumElement[?] =>
+          ge.copy(arg = substituteLocalsCheap(m, ge.arg))
+        case gs: GetStructElement[?] =>
+          gs.copy(arg = substituteLocalsCheap(m, gs.arg))
+        case ClosureSlot(_) | Global(_, _, _) | LocalAnon(_) | LocalAnonMut(_) |
+            Literal(_) | LitInt64(_) =>
+          e
       }
 
     // assign any results to result and set the condition to false
