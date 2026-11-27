@@ -6461,6 +6461,56 @@ def make(y: Int):
     cursor
   }
 
+  // ((base: Int): Int)...: deep nesting that map walks by recursion, not by
+  // one of its App or Let loops. (A deep lambda chain would not do: getType
+  // recurses through lambdas.)
+  private def deepAnnotationChain(depth: Int): TypedExpr[Int] = {
+    val intT = Type.IntType
+    var cursor: TypedExpr[Int] =
+      TypedExpr.Local(Identifier.Name("base"), intT, -1)
+    var idx = 0
+    while (idx < depth) {
+      cursor = TypedExpr.Annotation(cursor, intT, None)
+      idx = idx + 1
+    }
+    cursor
+  }
+
+  Platform.onJvm(
+    test("TypedExpr map is stack safe on deep annotation nesting") {
+      val depth = 12000
+      @volatile var result: Either[Throwable, (TypedExpr[Int], TypedExpr[Int])] =
+        Left(new IllegalStateException("did not run"))
+
+      val thread = new Thread(
+        null,
+        new Runnable {
+          def run(): Unit =
+            result =
+              try {
+                val expr = deepAnnotationChain(depth)
+                Right((expr.map(_ + 1), expr.traverse[Id, Int](_ + 1)))
+              } catch {
+                case t: Throwable => Left(t)
+              }
+        },
+        "typed-expr-map-small-stack",
+        96L * 1024L
+      )
+      thread.start()
+      thread.join()
+
+      result match {
+        case Right((mapped, traversed)) =>
+          assertEquals(mapped, traversed)
+          assertEquals(mapped.foldLeft(0)((count, _) => count + 1), 1)
+        case Left(err) =>
+          val trace = err.getStackTrace.iterator.take(40).mkString("\n")
+          fail(s"map failed on a deep annotation chain: $err\n$trace")
+      }
+    }
+  )
+
   test("TypedExpr traverse/map/folds match recursive oracle") {
     forAll(genTypedExprInt, Gen.choose(0, 1000)) { (te, seed) =>
       val mapFn: Int => Int = i => (i * 31) + seed

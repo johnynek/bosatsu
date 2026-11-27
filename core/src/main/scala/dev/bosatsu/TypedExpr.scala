@@ -2964,6 +2964,10 @@ object TypedExpr {
     deepQuantify(env.values.toSet, rho)
   }
 
+  // How deep the direct Traverse[TypedExpr].map recurses before handing a
+  // subtree to the stack-safe traverse[Id].
+  private inline val MaxDirectMapDepth = 512
+
   implicit val traverseTypedExpr: Traverse[TypedExpr] =
     new Traverse[TypedExpr] {
       def traverse[F[_]: Applicative, T, S](
@@ -3184,96 +3188,103 @@ object TypedExpr {
       }
 
       // This calls fn on the tags in the order traverse does: children before
-      // their parent, left to right. Like substituteTypeVar, it recurses
-      // except along right-deep binary App chains, left-deep App chains
-      // (through the function) and non-recursive Let chains, so it is stack
-      // safe on those.
+      // their parent, left to right. It recurses directly, except along
+      // right-deep binary App chains, left-deep App chains (through the
+      // function) and non-recursive Let chains, which it walks in loops.
+      // Below MaxDirectMapDepth levels of other nesting, it hands the rest of
+      // the subtree to traverse[Id], which is stack safe and visits the tags
+      // in the same order, so map stays stack safe on any shape.
       override def map[A, B](te: TypedExpr[A])(fn: A => B): TypedExpr[B] = {
-        def loop(te: TypedExpr[A]): TypedExpr[B] =
-          te match {
-            case Generic(quant, in) =>
-              Generic(quant, loop(in))
-            case Annotation(term, coerce, qev) =>
-              Annotation(loop(term), coerce, qev)
-            case AnnotatedLambda(args, res, tag) =>
-              AnnotatedLambda(args, loop(res), fn(tag))
-            case Local(name, tpe, tag) =>
-              Local(name, tpe, fn(tag))
-            case Global(pack, name, tpe, tag) =>
-              Global(pack, name, tpe, fn(tag))
-            case Literal(lit, tpe, tag) =>
-              Literal(lit, tpe, fn(tag))
-            case app @ App(_, _, _, _) =>
-              flattenApp2(app) match {
-                case Some((steps, last)) =>
-                  // f0(x0, f1(x1, ... last))
-                  val stepList = steps.toList
-                  val fnArgs = stepList.map(step => (loop(step.fn), loop(step.arg)))
-                  var acc = loop(last)
-                  val rev = stepList.reverseIterator.zip(fnArgs.reverseIterator)
-                  while (rev.hasNext) {
-                    val (step, (fn1, arg1)) = rev.next()
-                    acc = App(
-                      fn1,
-                      NonEmptyList(arg1, acc :: Nil),
-                      step.result,
-                      fn(step.tag)
-                    )
-                  }
-                  acc
-                case None =>
-                  // f(x0)(x1)...: collect the Apps along the function,
-                  // innermost first
-                  var spine: List[App[? <: A]] = Nil
-                  var cursor: TypedExpr[A] = app
-                  var inSpine = true
-                  while (inSpine) {
-                    cursor match {
-                      case inner @ App(fnExpr, _, _, _) =>
-                        spine = inner :: spine
-                        cursor = fnExpr
-                      case _ =>
-                        inSpine = false
+        def loop(te: TypedExpr[A], depth: Int): TypedExpr[B] =
+          if (depth >= MaxDirectMapDepth) traverse[Id, A, B](te)(fn)
+          else {
+            def down(child: TypedExpr[A]): TypedExpr[B] = loop(child, depth + 1)
+
+            te match {
+              case Generic(quant, in) =>
+                Generic(quant, down(in))
+              case Annotation(term, coerce, qev) =>
+                Annotation(down(term), coerce, qev)
+              case AnnotatedLambda(args, res, tag) =>
+                AnnotatedLambda(args, down(res), fn(tag))
+              case Local(name, tpe, tag) =>
+                Local(name, tpe, fn(tag))
+              case Global(pack, name, tpe, tag) =>
+                Global(pack, name, tpe, fn(tag))
+              case Literal(lit, tpe, tag) =>
+                Literal(lit, tpe, fn(tag))
+              case app @ App(_, _, _, _) =>
+                flattenApp2(app) match {
+                  case Some((steps, last)) =>
+                    // f0(x0, f1(x1, ... last))
+                    val stepList = steps.toList
+                    val fnArgs = stepList.map(step => (down(step.fn), down(step.arg)))
+                    var acc = down(last)
+                    val rev = stepList.reverseIterator.zip(fnArgs.reverseIterator)
+                    while (rev.hasNext) {
+                      val (step, (fn1, arg1)) = rev.next()
+                      acc = App(
+                        fn1,
+                        NonEmptyList(arg1, acc :: Nil),
+                        step.result,
+                        fn(step.tag)
+                      )
                     }
-                  }
-                  var acc = loop(cursor)
-                  spine.foreach { inner =>
-                    acc = App(acc, inner.args.map(loop), inner.result, fn(inner.tag))
-                  }
-                  acc
-              }
-            case let @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
-              val (lets, tail) = flattenLets(let)
-              val rhss = lets.map { case (_, rhs, _) => loop(rhs) }
-              var acc = loop(tail)
-              val rev = lets.reverseIterator.zip(rhss.reverseIterator)
-              while (rev.hasNext) {
-                val ((name, _, tag), rhs1) = rev.next()
-                acc = Let(name, rhs1, acc, RecursionKind.NonRecursive, fn(tag))
-              }
-              acc
-            case Let(arg, rhs, in, rec, tag) =>
-              Let(arg, loop(rhs), loop(in), rec, fn(tag))
-            case Loop(args, body, tag) =>
-              Loop(
-                args.map { case (name, init) => (name, loop(init)) },
-                loop(body),
-                fn(tag)
-              )
-            case Recur(args, tpe, tag) =>
-              Recur(args.map(loop), tpe, fn(tag))
-            case m @ Match(arg, branches, tag) =>
-              val arg1 = loop(arg)
-              val branches1 = branches.map { branch =>
-                val guard1 = branch.guardNode.map(BranchGuard.mapExpr(_)(loop))
-                Branch.fromGuardNode(branch.pattern, guard1, loop(branch.expr))(using
-                  branch.patternRegion
+                    acc
+                  case None =>
+                    // f(x0)(x1)...: collect the Apps along the function,
+                    // innermost first
+                    var spine: List[App[? <: A]] = Nil
+                    var cursor: TypedExpr[A] = app
+                    var inSpine = true
+                    while (inSpine) {
+                      cursor match {
+                        case inner @ App(fnExpr, _, _, _) =>
+                          spine = inner :: spine
+                          cursor = fnExpr
+                        case _ =>
+                          inSpine = false
+                      }
+                    }
+                    var acc = down(cursor)
+                    spine.foreach { inner =>
+                      acc = App(acc, inner.args.map(down), inner.result, fn(inner.tag))
+                    }
+                    acc
+                }
+              case let @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
+                val (lets, tail) = flattenLets(let)
+                val rhss = lets.map { case (_, rhs, _) => down(rhs) }
+                var acc = down(tail)
+                val rev = lets.reverseIterator.zip(rhss.reverseIterator)
+                while (rev.hasNext) {
+                  val ((name, _, tag), rhs1) = rev.next()
+                  acc = Let(name, rhs1, acc, RecursionKind.NonRecursive, fn(tag))
+                }
+                acc
+              case Let(arg, rhs, in, rec, tag) =>
+                Let(arg, down(rhs), down(in), rec, fn(tag))
+              case Loop(args, body, tag) =>
+                Loop(
+                  args.map { case (name, init) => (name, down(init)) },
+                  down(body),
+                  fn(tag)
                 )
-              }
-              Match(m.matchKind, arg1, branches1, fn(tag))
+              case Recur(args, tpe, tag) =>
+                Recur(args.map(down), tpe, fn(tag))
+              case m @ Match(arg, branches, tag) =>
+                val arg1 = down(arg)
+                val branches1 = branches.map { branch =>
+                  val guard1 = branch.guardNode.map(BranchGuard.mapExpr(_)(down))
+                  Branch.fromGuardNode(branch.pattern, guard1, down(branch.expr))(using
+                    branch.patternRegion
+                  )
+                }
+                Match(m.matchKind, arg1, branches1, fn(tag))
+            }
           }
 
-        loop(te)
+        loop(te, 0)
       }
     }
 
