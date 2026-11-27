@@ -941,22 +941,23 @@ object TypedExprRecursionCheck {
         case _                         => None
       }
 
+    // the recur or loop match, with its kind
     private def recurTag(
         currentPackage: PackageName,
         matchArg: TypedExpr[Declaration],
         tag: Declaration
-    ): Option[Declaration.Match] =
+    ): Option[(Declaration.Match, Declaration.MatchKind.Recursive)] =
       tag match {
-        case m @ Declaration.Match(kind, target, _) if kind.isRecursive =>
+        case m @ Declaration.Match(kind: Declaration.MatchKind.Recursive, target, _) =>
           (recurTargetNames(target), simpleMatchArgNames(currentPackage, matchArg)) match {
             case (Some(expected), Some(actual)) =>
               val sameNames =
                 (expected.length == actual.length) && expected.iterator
                   .zip(actual.iterator)
                   .forall { case (l, r) => l == r }
-              if (sameNames) Some(m) else None
+              if (sameNames) Some((m, kind)) else None
             case _ =>
-              Some(m)
+              Some((m, kind))
           }
         case _ =>
           None
@@ -1009,7 +1010,7 @@ object TypedExprRecursionCheck {
       }
 
     private case class LintHeader[A](
-        kind: Declaration.MatchKind,
+        kind: Declaration.MatchKind.Recursive,
         region: Region,
         branches: NonEmptyList[TypedExpr.Branch[A]]
     )
@@ -1042,8 +1043,8 @@ object TypedExprRecursionCheck {
           arg: TypedExpr[Declaration],
           m: TypedExpr.MatchExpr[Declaration]
       ): Option[LintHeader[Declaration]] =
-        recurTag(currentPackage, arg, m.tag).map { recur =>
-          LintHeader(recur.kind, recur.region, m.branches)
+        recurTag(currentPackage, arg, m.tag).map { case (recur, kind) =>
+          LintHeader(kind, recur.region, m.branches)
         }
     }
 
@@ -1065,9 +1066,12 @@ object TypedExprRecursionCheck {
           arg: TypedExpr[Region],
           m: TypedExpr.MatchExpr[Region]
       ): Option[LintHeader[Region]] =
-        if (m.matchKind.isRecursive)
-          Some(LintHeader(m.matchKind, m.tag, m.branches))
-        else None
+        m.matchKind match {
+          case kind: Declaration.MatchKind.Recursive =>
+            Some(LintHeader(kind, m.tag, m.branches))
+          case Declaration.MatchKind.Match =>
+            None
+        }
     }
 
     def replayLints(
@@ -4758,7 +4762,7 @@ object TypedExprRecursionCheck {
                 }
               }
               argRes *> optRes
-            case Some(recur) =>
+            case Some((recur, _)) =>
               // this is a state change
               getSt.flatMap {
                 case TopLevel(_) | InRecurBranch(_, _, _, _) |

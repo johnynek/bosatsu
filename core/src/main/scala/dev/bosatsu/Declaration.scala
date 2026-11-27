@@ -546,6 +546,9 @@ object Declaration {
     case object Match extends MatchKind(false, "match")
     case object Recur extends MatchKind(true, "recur")
     case object Loop extends MatchKind(true, "loop")
+
+    // the kinds whose isRecursive is true
+    type Recursive = Recur.type | Loop.type
   }
 
   object ConditionalMatch {
