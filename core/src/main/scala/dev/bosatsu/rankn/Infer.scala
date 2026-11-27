@@ -692,18 +692,11 @@ object Infer {
     // in the arg a
     def varianceOfCons(ta: Type.TyApply, region: Region): Infer[Variance] =
       kindOf(ta.on, region)
-        .flatMap(varianceOfConsKind(ta, _, region))
-
-    def varianceOfConsKind(
-        ta: Type.TyApply,
-        k: Kind,
-        region: Region
-    ): Infer[Variance] =
-      k match {
-        case Kind.Cons(Kind.Arg(v, _), _) => pure(v)
-        case Kind.Type                    =>
-          fail(Error.KindCannotTyApply(ta, region))
-      }
+        .flatMap {
+          case Kind.Cons(Kind.Arg(v, _), _) => pure(v)
+          case Kind.Type                    =>
+            fail(Error.KindCannotTyApply(ta, region))
+        }
 
     /** Skolemize on a function just recurses on the result type.
       *
@@ -1146,7 +1139,7 @@ object Infer {
               (l1, r1) <- unifyTyApp(rho1, kl, kr, left, right, direction)
               // Check from right to left
               _ <- subsCheckRho2(l1, l2, left, right, direction)
-              _ <- varianceOfConsKind(ta, kl, right).flatMap {
+              _ <- kl.arg.variance match {
                 case Variance.Covariant =>
                   subsCheck(r1, r2, left, right, direction)
                 case Variance.Contravariant =>
@@ -1176,7 +1169,7 @@ object Infer {
               // Check from right to left
               _ <- subsCheckRho2(l1, l2, left, right, direction)
               // we know that l2 has kind kl
-              _ <- varianceOfConsKind(Type.TyApply(l2, r2), kl, right).flatMap {
+              _ <- kl.arg.variance match {
                 case Variance.Covariant =>
                   subsCheck(r1, r2, left, right, direction)
                 case Variance.Contravariant =>
@@ -1255,19 +1248,20 @@ object Infer {
           }
       }
 
-    def validateKinds(ta: Type.TyApply, region: Region): Infer[(Kind, Kind)] =
+    // the same check as Kind.validApply, but we keep the constructor kind
+    def validateKinds(
+        ta: Type.TyApply,
+        region: Region
+    ): Infer[(Kind.Cons, Kind)] =
       kindOf(ta.on, region)
         .parProduct(kindOf(ta.arg, region))
-        .flatMap { case tup @ (lKind, rKind) =>
-          Kind.validApply[Error](
-            lKind,
-            rKind,
-            Error.KindCannotTyApply(ta, region)
-          ) { cons =>
-            Error.KindInvalidApply(ta, cons, rKind, region)
-          } match {
-            case Right(_)  => pure(tup)
-            case Left(err) => fail(err)
+        .flatMap { case (lKind, rKind) =>
+          lKind match {
+            case cons @ Kind.Cons(Kind.Arg(_, lhs), _) =>
+              if (Kind.leftSubsumesRight(lhs, rKind)) pure((cons, rKind))
+              else fail(Error.KindInvalidApply(ta, cons, rKind, region))
+            case Kind.Type =>
+              fail(Error.KindCannotTyApply(ta, region))
           }
         }
 
@@ -2002,19 +1996,17 @@ object Infer {
                   if inT.length == args.length =>
                 // see if we can instantiate the result type
                 // if we can, we use that to fix the known parameters and continue
+                // if instantiate works, we know outT => tpe
+                // TODO: we could support frees it seems but
+                // it triggers failures in tests now
                 Type
                   .instantiate(univ.iterator.toMap, outT, Map.empty, tpe, Map.empty)
-                  .flatMap { instantiation =>
-                    // if instantiate works, we know outT => tpe
-                    if (instantiation.subs.nonEmpty && instantiation.frees.isEmpty) {
-                      // we made some progress and there are no frees
-                      // TODO: we could support frees it seems but
-                      // it triggers failures in tests now
-                      Some((fnTe, inT, instantiation))
-                    } else {
-                      // We learned nothing
-                      None
-                    }
+                  .flatMap(Type.Instantiation.Solved.fromInstantiation)
+                  .collect {
+                    // we made some progress and there are no frees,
+                    // otherwise we learned nothing
+                    case instantiation if instantiation.subs.nonEmpty =>
+                      (fnTe, inT, instantiation)
                   }
               case _ =>
                 None
@@ -2034,64 +2026,31 @@ object Infer {
             val subIn = inT.map(Type.substituteVar(_, instNoKind))
             val fnName = functionNameHint(fn)
 
+            // the instantiation is solved, so we can fully instantiate
             validKinds.parProductR {
-              val remainingFree =
-                NonEmptyList.fromList(
-                  instantiation.frees.iterator.map { case (_, (k, b)) => (b, k) }.toList
-                )
-
-              remainingFree match {
-                case None =>
-                  // we can fully instantiate
-                  args
-                    .zip(subIn)
-                    .zipWithIndex
-                    .parTraverse { case ((argExpr, argTpe), idx) =>
-                      checkSigma(argExpr, argTpe)
-                        .mapError { err =>
-                          contextualTypeError(
-                            Error.MismatchSite.AppArg(
-                              fnName,
-                              fnTe.getType,
-                              argTpe,
-                              idx,
-                              args.length,
-                              region(fn),
-                              region(argExpr),
-                              regTe
-                            )
-                          )(err)
-                        }
+              args
+                .zip(subIn)
+                .zipWithIndex
+                .parTraverse { case ((argExpr, argTpe), idx) =>
+                  checkSigma(argExpr, argTpe)
+                    .mapError { err =>
+                      contextualTypeError(
+                        Error.MismatchSite.AppArg(
+                          fnName,
+                          fnTe.getType,
+                          argTpe,
+                          idx,
+                          args.length,
+                          region(fn),
+                          region(argExpr),
+                          regTe
+                        )
+                      )(err)
                     }
-                    .map { argsTE =>
-                      Some(dom.App(fnTe, argsTE, tpe, tag))
-                    }
-
-                // $COVERAGE-OFF$
-                // case Some(remainingFree) =>
-                case Some(_) =>
-                  // Currently we are only returning infOpt as Some when
-                  // there are no remaining free variables due to unit
-                  // tests not passing
-                  sys.error("unreachable")
-                // $COVERAGE-ON$
-                /*
-                // some items are still free
-                // TODO we could use the args to try to fix these
-                val freeSub = frees.iterator
-                  .collect { case (v, (_, t)) if v != t => (v, Type.TyVar(t)) }
-                  .toMap[Type.Var, Type]
-
-                val subIn2 = subIn.map(Type.substituteVar(_, freeSub))
-                val tpe1 = Type.Quantified(
-                  Type.Quantification.ForAll(remainingFree),
-                  Type.Fun(subIn2, tpe)
-                )
-                val fn1 = Expr.Annotation(fn, tpe1, fn.tag)
-                val inner = Expr.App(fn1, args, tag)
-                checkSigma(inner, tpe)
-               */
-              }
+                }
+                .map { argsTE =>
+                  Some(dom.App(fnTe, argsTE, tpe, tag))
+                }
             }
           case None => pure(None)
         }
@@ -2200,72 +2159,60 @@ object Infer {
                     optQ.fold(Map.empty[Type.Var.Bound, Kind])(
                       _.vars.toList.toMap
                     )
-                  Type.instantiate(
-                    // `us` are function-side binders, so function domain types are
-                    // the left side (`from`) and applied args are the right side (`to`).
-                    us.toList.toMap,
-                    Type.Tuple(fnArgTypes.toList),
-                    appliedToVars,
-                    Type.Tuple(appliedArgShapes),
-                    instEnv
-                  ) match {
+                  Type
+                    .instantiate(
+                      // `us` are function-side binders, so function domain types are
+                      // the left side (`from`) and applied args are the right side (`to`).
+                      us.toList.toMap,
+                      Type.Tuple(fnArgTypes.toList),
+                      appliedToVars,
+                      Type.Tuple(appliedArgShapes),
+                      instEnv
+                    )
+                    .flatMap(Type.Instantiation.Solved.fromInstantiation)
+                    .filter(_.toFrees.isEmpty) match {
                     case None =>
-                      /*
-                          println(s"can't instantiate: ${
-                            Type.fullyResolvedDocument.document(fnTe.getType).render(80)
-                          } to ${appliedArgTypes.map(Type.fullyResolvedDocument.document(_).render(80))}")
-                       */
+                      // Either we can't instantiate, or instantiate leaves
+                      // residual frees on either side. Conservative fallback:
+                      // we defer to the general apply inference path
+                      // (`pureNone` here).
+                      //
+                      // We could extend this to lift compatible residual frees
+                      // into quantification and continue, but we currently do
+                      // not have a concrete program where doing so changes the
+                      // accepted/rejected result.
                       pureNone
                     case Some(instantiation) =>
-                      if (
-                        instantiation.frees.nonEmpty || instantiation.toFrees.nonEmpty
-                      ) {
-                        // Conservative fallback: if instantiate leaves residual
-                        // frees on either side, we defer to the general apply
-                        // inference path (`pureNone` here).
-                        //
-                        // We could extend this to lift compatible residual frees
-                        // into quantification and continue, but we currently do
-                        // not have a concrete program where doing so changes the
-                        // accepted/rejected result.
-                        /*
-                            println(s"remaining frees in ${
-                              Type.fullyResolvedDocument.document(fnTe.getType).render(80)
-                            } to ${appliedArgTypes.map(Type.fullyResolvedDocument.document(_).render(80))}: $frees")
-                         */
-                        pureNone
-                      } else {
-                        val subMap =
-                          instantiation.subs.view
-                            .mapValues(_._2)
-                            .toMap[Type.Var, Type]
-                        val fnType0 = Type.Fun(appliedArgTypes, resT)
-                        val fnType1 = Type.substituteVar(fnType0, subMap)
-                        val resType = Type.substituteVar(resT, subMap)
-                        val quantifierEvidence = quantifierEvidenceFromInstantiation(
-                          sourceAtSolve = fnTe.getType,
-                          targetAtSolve = fnType1,
-                          instantiation = instantiation
-                        )
+                      val subMap =
+                        instantiation.subs.view
+                          .mapValues(_._2)
+                          .toMap[Type.Var, Type]
+                      val fnType0 = Type.Fun(appliedArgTypes, resT)
+                      val fnType1 = Type.substituteVar(fnType0, subMap)
+                      val resType = Type.substituteVar(resT, subMap)
+                      val quantifierEvidence = quantifierEvidenceFromInstantiation(
+                        sourceAtSolve = fnTe.getType,
+                        targetAtSolve = fnType1,
+                        instantiation = instantiation
+                      )
 
-                        val resTe = TypedExpr.App(
-                          TypedExpr.Annotation(
-                            fnTe,
-                            fnType1,
-                            quantifierEvidence
-                          ),
-                          appliedArgs,
-                          resType,
-                          tag
-                        )
+                      val resTe = TypedExpr.App(
+                        TypedExpr.Annotation(
+                          fnTe,
+                          fnType1,
+                          quantifierEvidence
+                        ),
+                        appliedArgs,
+                        resType,
+                        tag
+                      )
 
-                        val maybeQuant = optQ match {
-                          case Some(q) => TypedExpr.Generic(q, resTe)
-                          case None    => resTe
-                        }
-
-                        pure(Some(maybeQuant))
+                      val maybeQuant = optQ match {
+                        case Some(q) => TypedExpr.Generic(q, resTe)
+                        case None    => resTe
                       }
+
+                      pure(Some(maybeQuant))
                   }
                 }
             case _ =>
@@ -2611,15 +2558,16 @@ object Infer {
                   simp.flatMap { te =>
                     te.getType match {
                       case Type.ForAll(fas, in) =>
-                        Type.instantiate(
-                          fas.iterator.toMap,
-                          in,
-                          Map.empty,
-                          rho,
-                          Map.empty
-                        ) match {
-                          case Some(instantiation)
-                              if instantiation.frees.isEmpty =>
+                        Type
+                          .instantiate(
+                            fas.iterator.toMap,
+                            in,
+                            Map.empty,
+                            rho,
+                            Map.empty
+                          )
+                          .flatMap(Type.Instantiation.Solved.fromInstantiation) match {
+                          case Some(instantiation) =>
                             // we know that substituting in gives rho
                             // check kinds
                             // substitute
@@ -2662,7 +2610,7 @@ object Infer {
                                   ks <- checkedKinds
                                 } yield TypedExpr.coerceRho(rho, ks)(te)
                             })
-                          case _ =>
+                          case None =>
                             default
                         }
                       case _ =>

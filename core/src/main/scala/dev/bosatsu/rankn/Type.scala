@@ -1096,6 +1096,19 @@ object Type {
       toSubs: SortedMap[Var.Bound, (Kind, Type)]
   )
 
+  object Instantiation {
+
+    /** An instantiation that left no variable of the left side free: `frees`
+      * is empty, so every one was solved in `subs`.
+      */
+    opaque type Solved <: Instantiation = Instantiation
+
+    object Solved {
+      def fromInstantiation(inst: Instantiation): Option[Solved] =
+        if (inst.frees.isEmpty) Some(inst) else None
+    }
+  }
+
   /** Attempt to instantiate `vars` in `from` so it can match `to`.
     *
     * `env` is the set of bound variables already in scope on the right side.
