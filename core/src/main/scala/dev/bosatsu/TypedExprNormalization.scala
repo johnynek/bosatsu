@@ -2321,8 +2321,8 @@ object TypedExprNormalization {
     object ResolveToLambda {
       // Bare function-value references stay conservative; the richer
       // call-site benefit model runs separately for actual applications.
-      val MaxGlobalReferenceSize = 10
-      val MaxLocalReferenceSize = 0
+      inline val MaxGlobalReferenceSize = 10
+      inline val MaxLocalReferenceSize = 0
 
       // The lambda te is, up to type wrappers, looking through small
       // non-recursive bindings in scope.
@@ -2378,20 +2378,36 @@ object TypedExprNormalization {
               case _ => None
             }
           case Local(nm, _, _) =>
-            scope.getLocal(nm).flatMap {
-              // Keep local alias inlining conservative to avoid repeated blowups.
-              case (RecursionKind.NonRecursive, te, scope1)
-                  if te.size <= MaxLocalReferenceSize =>
-                // we can't just replace variables if the scopes don't match.
-                // we could also repair the scope by making a let binding
-                // for any names that don't match (which has to be done recursively
-                ResolveToLambda(te, scope1).filter { case (_, args, expr, _) =>
-                  isScopeSafeGlobalInline(args, expr, scope, scope1)
-                }
-              case _ => None
-            }
+            resolveLocal(nm, scope)
           case _ => None
         }
+
+      // Every expression has size at least 1, so with a budget of 0 this
+      // is None at compile time, without a scope lookup.
+      private inline def resolveLocal[A](nm: Bindable, scope: Scope[A])(using
+          NormCtx
+      ): Option[
+        (
+            List[(Type.Var.Bound, Kind)],
+            NonEmptyList[(Bindable, Type)],
+            TypedExpr[A],
+            A
+        )
+      ] =
+        inline if (MaxLocalReferenceSize >= 1)
+          scope.getLocal(nm).flatMap {
+            // Keep local alias inlining conservative to avoid repeated blowups.
+            case (RecursionKind.NonRecursive, te, scope1)
+                if te.size <= MaxLocalReferenceSize =>
+              // we can't just replace variables if the scopes don't match.
+              // we could also repair the scope by making a let binding
+              // for any names that don't match (which has to be done recursively
+              ResolveToLambda(te, scope1).filter { case (_, args, expr, _) =>
+                isScopeSafeGlobalInline(args, expr, scope, scope1)
+              }
+            case _ => None
+          }
+        else None
 
       private def isScopeSafeGlobalInline[A](
           lamArgs: NonEmptyList[(Bindable, Type)],
