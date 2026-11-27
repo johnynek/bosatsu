@@ -7,8 +7,8 @@
 
 - Flow: `small_job`
 - Issue: `#2495` 0m: Preserve per-member imported bindings through validation and compilation
-- Pending steps: `1`
-- Completed steps: `15`
+- Pending steps: `0`
+- Completed steps: `16`
 - Total steps: `16`
 
 ## Summary
@@ -595,7 +595,7 @@ Complete this step when scoped compilation planning, mixed graph validation, ser
 
 Added external local signature owners and exposure closure through the shared PackageBindings resolver, scoped compilation and selection, mixed graph validation, serialized requirements, and scoped bundle decoding. Decoding recomputes closure from encoded imports and decoded public exposures, verifies persisted bindings and interface digests, and returns the resolved context. Standalone readers reject bundles that require unavailable local signature context. Added regressions for selection ambiguity, strict unused interfaces, mixed graph exposure, requirement round-trips, missing context, stale signatures, and omitted bindings. Focused JVM and Scala.js core suites, CompilePackagesCommandTest, ValidateGraphCommandTest, and StrictInterfacesCommandTest passed; `git diff --check` passed.
 
-16. [ ] `step_9_binding_closure_acceptance` Exercise repaired closures through workers and document the contract
+16. [x] `step_9_binding_closure_acceptance` Exercise repaired closures through workers and document the contract
 
 Invariant family: caller-relative-binding-closure
 
@@ -636,3 +636,7 @@ Prepare declared offline inspection fixtures with scripts/prepare_inspect_librar
 - The candidate jar compiles a consumer from a previously produced local signature plus a pinned library with strict-unused checking.
 - Empty or partial graph bindings and a source-wrapper visible conflict fail through standalone, warm and restarted validation without replacing the previous stamp.
 - Pass the named JVM/CLI/Scala.js acceptance suites, candidate assembly, CLI checks and extended offline worker harness, retaining diamond, private-core, visit-count and membership-input cases.
+
+#### Completion Notes
+
+Completed outside MergeXO after the final checkpoint (899edeb4), with origin/main (sbt 2) merged first. The equal-signature worker case now reaches Equal/Api only through the two wrappers and requires both complete routes; the different-package case asserts both routes. New candidate-jar cases compile a consumer against a jar-produced local signature plus pinned left under strict unused checking (including reordered inputs and an unbound extra signature), validate graphs with empty and partial bindings, and run a source-wrapper visible conflict through warm success, in-place failure, reordered inputs, restart and recovery while preserving the prior stamp. Updated docs/design/hermetic-bazel-rules.md and tracker 0m. A pre-PR review pass then indexed the provider graph once per validation, removed new default arguments, casts, wildcards and inline qualified names, tightened scoped requirement parsing, and restored legacy dependency order. `sbt "coreJVM/test; cli/test; coreJS/test; cliJSJS/test; cli/assembly"`, `./test_cli.sh` (including the full scripts/test_bazel_worker.py run) and `scripts/test_basic.sh` passed on macOS with JDK 25.
