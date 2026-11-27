@@ -705,15 +705,15 @@ object TypedExprNormalization {
     ): Option[(TypedExpr[A], TypedExpr[A])] =
       bs match {
         case NonEmptyList(
-              Branch(TruePattern, None, ifTrue),
-              Branch(falseOrTop, None, ifFalse) :: Nil
+              Branch.Unguarded(TruePattern, ifTrue),
+              Branch.Unguarded(falseOrTop, ifFalse) :: Nil
             ) if (falseOrTop == FalsePattern) || totalityCheck.isWildLike(
               falseOrTop
             ) =>
           Some((ifTrue, ifFalse))
         case NonEmptyList(
-              Branch(FalsePattern, None, ifFalse),
-              Branch(trueOrTop, None, ifTrue) :: Nil
+              Branch.Unguarded(FalsePattern, ifFalse),
+              Branch.Unguarded(trueOrTop, ifTrue) :: Nil
             ) if (trueOrTop == TruePattern) || totalityCheck.isWildLike(
               trueOrTop
             ) =>
@@ -2036,7 +2036,7 @@ object TypedExprNormalization {
           flattenBoolMatchArg(arg, branches, tag).get,
           scope)
 
-      case Match(_, NonEmptyList(Branch(p, None, e), Nil), _)
+      case Match(_, NonEmptyList(Branch.Unguarded(p, e), Nil), _)
           if !e.freeVarsDup.exists(p.names.toSet) =>
         // match x:
         //   foo: fn
@@ -2045,7 +2045,7 @@ object TypedExprNormalization {
         normalize1(namerec, e, scope)
       case Match(
             arg,
-            NonEmptyList(Branch(Pattern.SinglyNamed(y), None, e), Nil),
+            NonEmptyList(Branch.Unguarded(Pattern.SinglyNamed(y), e), Nil),
             tag
           ) =>
         // match x:
@@ -2175,7 +2175,7 @@ object TypedExprNormalization {
         ): Option[NonEmptyList[Branch[A]]] =
           bs.toList match {
             case init :+ head :+ tailBranch
-                if tailBranch.guard.isEmpty &&
+                if tailBranch.guardNode.isEmpty &&
                   tailBranch.pattern.names.isEmpty &&
                   head.guardBindings.isEmpty =>
               val p2 = tailBranch.pattern
@@ -3204,7 +3204,7 @@ object TypedExprNormalization {
             }
             // if we can check all the branches for a match, maybe we can evaluate
             .flatMap { branches =>
-              if (m.branches.exists(_.guard.nonEmpty)) {
+              if (m.branches.exists(_.guardNode.nonEmpty)) {
                 @annotation.tailrec
                 def chooseBranch(
                     rem: List[(Option[Pat], Branch[A])]

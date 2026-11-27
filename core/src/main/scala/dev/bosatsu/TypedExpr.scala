@@ -1263,6 +1263,17 @@ object TypedExpr {
         branch: Branch[T]
     ): Some[(Pattern[(PackageName, Constructor), Type], Option[TypedExpr[T]], TypedExpr[T])] =
       Some((branch.pattern, branch.guard, branch.expr))
+
+    /** A branch without a guard, as its pattern and body. Unlike Branch, this
+      * never builds the expression of a MatchGuard.
+      */
+    object Unguarded {
+      def unapply[T](
+          branch: Branch[T]
+      ): Option[(Pattern[(PackageName, Constructor), Type], TypedExpr[T])] =
+        if (branch.guardNode.isEmpty) Some((branch.pattern, branch.expr))
+        else None
+    }
   }
   final case class MatchExpr[+T](
       matchKind: MatchKind = MatchKind.Match,
