@@ -43,7 +43,9 @@ class TypedExprRecursionParityTest extends munit.ScalaCheckSuite with ParTest {
         if (recursionErrors.nonEmpty && recursionErrors.size == errs.length) {
           false
         } else {
-          val sourceMap = Map(packageName -> (LocationMap(source), "<generated>"))
+          val sourceMap = Map(
+            packageName -> (LocationMap(source), "<generated>")
+          )
           val msg = errs.toList
             .map(_.message(sourceMap, LocationMap.Colorize.None))
             .mkString("\n-----\n")

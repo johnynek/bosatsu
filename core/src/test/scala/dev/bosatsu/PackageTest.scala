@@ -386,7 +386,9 @@ main = Rec {}
     invalid(resolveThenInfer(List(typeOnly, consumer)))
   }
 
-  test("default-backed record construction works when constructor is exported") {
+  test(
+    "default-backed record construction works when constructor is exported"
+  ) {
     val provider = parse("""
 package P1
 export Rec()
@@ -437,7 +439,7 @@ main = helper
       inferred match {
         case Validated.Invalid(errs) =>
           fail(errs.toString)
-        case Validated.Valid(pmap)   =>
+        case Validated.Valid(pmap) =>
           pmap
             .toMap(PackageName.parts("Foo"))
             .program
@@ -461,7 +463,9 @@ main = todo(42)
     invalid(typeCheckParsed(pack :: Nil, CompileOptions.Default))
   }
 
-  test("removed kind refs are detected through MatchGuard wrapper annotations") {
+  test(
+    "removed kind refs are detected through MatchGuard wrapper annotations"
+  ) {
     val pack = parse("""
 package Foo
 
@@ -481,7 +485,7 @@ main = 1
       case Validated.Invalid(errs) =>
         errs.toList.foreach {
           case _: PackageError.KindInferenceError => ()
-          case other =>
+          case other                              =>
             fail(
               s"expected only kind inference errors after pruning removed refs, got: ${errs.toList.mkString(" | ")}; offending error: $other"
             )
@@ -514,7 +518,9 @@ package Foo
 main = 1
 """)
     val predefIface =
-      Package.interfaceOf(PackageMap.predefCompiledForMode(CompileOptions.Mode.Emit))
+      Package.interfaceOf(
+        PackageMap.predefCompiledForMode(CompileOptions.Mode.Emit)
+      )
 
     val source =
       PackageMap.SourceUnit.fromParsedWithoutLocation[Id, Int]((0, pack))
@@ -704,48 +710,50 @@ def wrap(value: Shared) -> Shared:
   value
 """)
 
-    valid(resolveThenInfer(
-      List(
-        dep,
-        opaque,
-        constructors,
-        alias,
-        inferred,
-        external,
-        sameLibraryBase,
-        sameLibraryUser
-      )
-    ).map { pmap =>
-      assertEquals(
-        pmap.toMap(PackageName.parts("Dep", "Types")).exposedDepPackages,
-        Nil
-      )
-      assertEquals(
-        pmap.toMap(PackageName.parts("Main", "Opaque")).exposedDepPackages,
-        Nil
-      )
-      assertEquals(
-        pmap.toMap(PackageName.parts("Main", "Open")).exposedDepPackages,
-        List(PackageName.parts("Dep", "Types"))
-      )
-      assertEquals(
-        pmap.toMap(PackageName.parts("Main", "Alias")).exposedDepPackages,
-        List(PackageName.parts("Dep", "Types"))
-      )
-      assertEquals(
-        pmap.toMap(PackageName.parts("Main", "Inferred")).exposedDepPackages,
-        List(PackageName.parts("Dep", "Types"))
-      )
-      assertEquals(
-        pmap.toMap(PackageName.parts("Main", "External")).exposedDepPackages,
-        List(PackageName.parts("Dep", "Types"))
-      )
-      assertEquals(
-        pmap.toMap(PackageName.parts("Same", "User")).exposedDepPackages,
-        List(PackageName.parts("Same", "Base"))
-      )
-      assertEquals(PackageMap.predefCompiled.exposedDepPackages, Nil)
-    })
+    valid(
+      resolveThenInfer(
+        List(
+          dep,
+          opaque,
+          constructors,
+          alias,
+          inferred,
+          external,
+          sameLibraryBase,
+          sameLibraryUser
+        )
+      ).map { pmap =>
+        assertEquals(
+          pmap.toMap(PackageName.parts("Dep", "Types")).exposedDepPackages,
+          Nil
+        )
+        assertEquals(
+          pmap.toMap(PackageName.parts("Main", "Opaque")).exposedDepPackages,
+          Nil
+        )
+        assertEquals(
+          pmap.toMap(PackageName.parts("Main", "Open")).exposedDepPackages,
+          List(PackageName.parts("Dep", "Types"))
+        )
+        assertEquals(
+          pmap.toMap(PackageName.parts("Main", "Alias")).exposedDepPackages,
+          List(PackageName.parts("Dep", "Types"))
+        )
+        assertEquals(
+          pmap.toMap(PackageName.parts("Main", "Inferred")).exposedDepPackages,
+          List(PackageName.parts("Dep", "Types"))
+        )
+        assertEquals(
+          pmap.toMap(PackageName.parts("Main", "External")).exposedDepPackages,
+          List(PackageName.parts("Dep", "Types"))
+        )
+        assertEquals(
+          pmap.toMap(PackageName.parts("Same", "User")).exposedDepPackages,
+          List(PackageName.parts("Same", "Base"))
+        )
+        assertEquals(PackageMap.predefCompiled.exposedDepPackages, Nil)
+      }
+    )
   }
 
   test("exportedTypeEnv keeps constructors only for types exported with them") {
@@ -794,14 +802,21 @@ def mk_hidden(x: Int) -> Hidden: HiddenB(x)
       val iface = pack.toIface
       check("typed package", pack.exportedTypeEnv)
       check("interface", iface.exportedTypeEnv)
-      check("canonical interface", PackageSignatures.canonical(iface).exportedTypeEnv)
+      check(
+        "canonical interface",
+        PackageSignatures.canonical(iface).exportedTypeEnv
+      )
     })
 
     // Predef exports List() so dependents see its constructors
-    val predefEnv = Package.interfaceOf(PackageMap.predefCompiled).exportedTypeEnv
+    val predefEnv =
+      Package.interfaceOf(PackageMap.predefCompiled).exportedTypeEnv
     assertEquals(
       predefEnv
-        .getType(PackageName.PredefName, TypeName(Identifier.Constructor("List")))
+        .getType(
+          PackageName.PredefName,
+          TypeName(Identifier.Constructor("List"))
+        )
         .map(_.constructors.map(_.name.asString)),
       Some(List("EmptyList", "NonEmptyList"))
     )

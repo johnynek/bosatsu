@@ -57,7 +57,7 @@ object CompileCache {
     val normalizedStatements = pack.program.collect {
       case _: Statement.PaddingStatement => None
       case _: Statement.Comment          => None
-      case stmt                          => Some(stmt.replaceRegions(sentinelRegion))
+      case stmt => Some(stmt.replaceRegions(sentinelRegion))
     }.flatten
     val normalized = pack.copy(program = normalizedStatements)
     val serialized = Document[Package.Parsed].document(normalized).render(200)
@@ -112,7 +112,7 @@ object CompileCache {
   private def hashUtf8(str: String): HashValue[Algo.Blake3] =
     Algo.hashBytes[Algo.Blake3](str.getBytes(utf8))
 
-  private abstract class AbstractFilesystemCache[F[_], P, K, V](
+  abstract private class AbstractFilesystemCache[F[_], P, K, V](
       cacheDir: P,
       platformIO: PlatformIO[F, P]
   ) extends InferCache[F, K, V] {
@@ -139,10 +139,10 @@ object CompileCache {
     private val putLinkWrites = new AtomicLong(0L)
     private val putLinkWriteErrors = new AtomicLong(0L)
 
-    protected final inline def statsUpdate(inline fn: => Unit): Unit =
+    final protected inline def statsUpdate(inline fn: => Unit): Unit =
       if (statsEnabled) fn
 
-    protected final def ratioPct(numerator: Long, denominator: Long): String =
+    final protected def ratioPct(numerator: Long, denominator: Long): String =
       if (denominator == 0L) "n/a"
       else f"${(numerator.toDouble * 100.0) / denominator.toDouble}%.2f%%"
 
@@ -218,7 +218,7 @@ object CompileCache {
             ()
           }
       ).flatMap {
-        case None             =>
+        case None =>
           statsUpdate { getMisses.incrementAndGet(); () }
           moduleIOMonad.pure(None)
         case Some(outputHash) =>
@@ -250,7 +250,7 @@ object CompileCache {
             case some @ Some(_) =>
               statsUpdate { getHits.incrementAndGet(); () }
               some
-            case None           =>
+            case None =>
               statsUpdate { getMisses.incrementAndGet(); () }
               None
           }
@@ -259,7 +259,7 @@ object CompileCache {
 
     final override def put(key: Key, value: V): F[Unit] =
       encodeValue(value) match {
-        case Failure(_)            =>
+        case Failure(_) =>
           statsUpdate {
             putCalls.incrementAndGet()
             putEncodeFailures.incrementAndGet()
@@ -274,7 +274,7 @@ object CompileCache {
           val writeCas: F[Boolean] =
             onError(
               platformIO.fileExists(packagePath).flatMap {
-                case true  =>
+                case true =>
                   statsUpdate { putCasAlreadyExists.incrementAndGet(); () }
                   moduleIOMonad.pure(true)
                 case false =>
@@ -291,7 +291,7 @@ object CompileCache {
           writeCas.flatMap {
             case false =>
               moduleIOMonad.unit
-            case true  =>
+            case true =>
               val keyHash = keyHashValue(key)
               val linkPath = keyPath(keyHash)
               onError(
@@ -356,7 +356,7 @@ object CompileCache {
       }
   }
 
-  private final class FilesystemCache[F[_], P](
+  final private class FilesystemCache[F[_], P](
       cacheDir: P,
       platformIO: PlatformIO[F, P],
       compilerIdentity: String
@@ -369,7 +369,7 @@ object CompileCache {
     private val interfaceMemoHits = new AtomicLong(0L)
     private val interfaceMemoMisses = new AtomicLong(0L)
 
-    private final class RefKey[A <: AnyRef](val ref: A) {
+    final private class RefKey[A <: AnyRef](val ref: A) {
       override def equals(that: Any): Boolean =
         that match {
           case other: RefKey[_] => (ref eq other.ref)
@@ -430,7 +430,7 @@ object CompileCache {
       }
 
       failure match {
-        case None      =>
+        case None =>
           Success(
             FsKey(
               packageName = packageName,
@@ -474,7 +474,8 @@ object CompileCache {
     override protected def extraStatsFields: List[String] = {
       val interfaceMemoHitsV = interfaceMemoHits.get()
       val interfaceMemoMissesV = interfaceMemoMisses.get()
-      val memoHitRate = ratioPct(interfaceMemoHitsV, interfaceMemoHitsV + interfaceMemoMissesV)
+      val memoHitRate =
+        ratioPct(interfaceMemoHitsV, interfaceMemoHitsV + interfaceMemoMissesV)
       List(
         s"memoHits=$interfaceMemoHitsV",
         s"memoMisses=$interfaceMemoMissesV",

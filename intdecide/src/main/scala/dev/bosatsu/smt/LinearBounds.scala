@@ -2,8 +2,8 @@ package dev.bosatsu.smt
 
 import SmtExpr.*
 
-/** A small, sound prover for the integer goals that recursion checking sends
-  * to the solver, so the common cases don't need z3.
+/** A small, sound prover for the integer goals that recursion checking sends to
+  * the solver, so the common cases don't need z3.
   *
   * Those goals look like "given `n > 0`, `(n - 1) div 2 >= 0`" or "given
   * `n > 0`, `n div 10 < n`". This decides them in two steps:
@@ -13,8 +13,8 @@ import SmtExpr.*
   *      single variable count, including `!=`, for example `n >= 0` and
   *      `n != 0` give `n >= 1`. All other facts are ignored, which only makes
   *      the facts weaker, so it is sound.
-  *   2. For a goal `a < b`, find linear expressions `U >= a` and `L <= b`
-  *      (over the variables), and check that `U - L <= -1` everywhere in the
+  *   2. For a goal `a < b`, find linear expressions `U >= a` and `L <= b` (over
+  *      the variables), and check that `U - L <= -1` everywhere in the
   *      variables' intervals. Linear bounds keep relations between terms, so
   *      `(n - 1) div 2 < n` works: for `n - 1 >= 0`, `(n - 1) div 2 <= n - 1`.
   *
@@ -24,20 +24,19 @@ import SmtExpr.*
   * invalid SMT-LIB, so those are never used to prove anything.
   *
   * `div` and `mod` are only read with a constant divisor `k > 0`: then
-  * `a div k` is `floor(a / k)` and `a mod k` is in `[0, k - 1]`, in SMT-LIB
-  * and in Bosatsu alike. A negative divisor is never used to prove anything,
-  * even though SMT-LIB defines it: Bosatsu's `div` and `mod_Int` round toward
+  * `a div k` is `floor(a / k)` and `a mod k` is in `[0, k - 1]`, in SMT-LIB and
+  * in Bosatsu alike. A negative divisor is never used to prove anything, even
+  * though SMT-LIB defines it: Bosatsu's `div` and `mod_Int` round toward
   * negative infinity, so for `k < 0` they differ from SMT-LIB's `div` and
   * `mod`. `SmtExpr.bosatsuDiv` and `bosatsuMod` never produce a negative
-  * divisor, and leaving it out here means a term built some other way can't
-  * be misread as Bosatsu's. Division by a variable or by zero, uninterpreted
+  * divisor, and leaving it out here means a term built some other way can't be
+  * misread as Bosatsu's. Division by a variable or by zero, uninterpreted
   * functions and booleans other than the connectives are never used to prove
   * anything either.
   *
-  * Below, an environment `env` gives every integer variable a value, and
-  * "`env` in box `b`" means `b.contains(env)`. The laws of each function are
-  * checked by LinearBoundsLawsTest, and `implies` against z3 by
-  * LinearBoundsTest.
+  * Below, an environment `env` gives every integer variable a value, and "`env`
+  * in box `b`" means `b.contains(env)`. The laws of each function are checked
+  * by LinearBoundsLawsTest, and `implies` against z3 by LinearBoundsTest.
   *
   * `implies` returning false means "not proven here": callers fall back to z3.
   */
@@ -126,12 +125,12 @@ private[smt] object LinearBounds {
       new Lin(const, coeffs.filter { case (_, c) => c != 0 })
   }
 
-  /** The integers `x` with `lo <= x <= hi`. Both bounds are inclusive, and
-    * None means unbounded on that side. The interval is empty when `lo > hi`.
+  /** The integers `x` with `lo <= x <= hi`. Both bounds are inclusive, and None
+    * means unbounded on that side. The interval is empty when `lo > hi`.
     *
-    * Every operation is exact on the sets it denotes, as stated with
-    * `contains` in each method's laws, except where a law says the result is
-    * the smallest interval containing a set that isn't itself an interval.
+    * Every operation is exact on the sets it denotes, as stated with `contains`
+    * in each method's laws, except where a law says the result is the smallest
+    * interval containing a set that isn't itself an interval.
     */
   final case class Interval(lo: Option[BigInt], hi: Option[BigInt])
       derives CanEqual {
@@ -155,17 +154,17 @@ private[smt] object LinearBounds {
 
     /** The sums `x + y` of members `x` of this and `y` of that.
       *
-      * Laws: if `a.contains(x)` and `b.contains(y)` then `(a +
-      * b).contains(x + y)`; if `(a + b).contains(z)` then there are `x`, `y`
-      * with `a.contains(x)`, `b.contains(y)` and `x + y == z`; empty if either
-      * is empty.
+      * Laws: if `a.contains(x)` and `b.contains(y)` then `(a + b).contains(x +
+      * y)`; if `(a + b).contains(z)` then there are `x`, `y` with
+      * `a.contains(x)`, `b.contains(y)` and `x + y == z`; empty if either is
+      * empty.
       */
     def +(that: Interval): Interval =
       if (isEmpty || that.isEmpty) Interval.empty
       else Interval(addOpt(lo, that.lo), addOpt(hi, that.hi))
 
-    /** Laws: `(-a).contains(-x) == a.contains(x)`; `-(-a)` contains exactly
-      * the members of `a`.
+    /** Laws: `(-a).contains(-x) == a.contains(x)`; `-(-a)` contains exactly the
+      * members of `a`.
       */
     def unary_- : Interval = Interval(negOpt(hi), negOpt(lo))
 
@@ -184,10 +183,10 @@ private[smt] object LinearBounds {
 
     /** The smallest interval containing both: the convex hull of the union.
       *
-      * Laws: if `a.contains(x) || b.contains(x)` then `(a join
-      * b).contains(x)`; every bound of `a join b` is a bound of `a` or `b`
-      * (so nothing smaller contains both); `Interval.empty` is the identity;
-      * commutative, associative and idempotent.
+      * Laws: if `a.contains(x) || b.contains(x)` then `(a join b).contains(x)`;
+      * every bound of `a join b` is a bound of `a` or `b` (so nothing smaller
+      * contains both); `Interval.empty` is the identity; commutative,
+      * associative and idempotent.
       */
     def join(that: Interval): Interval =
       if (isEmpty) that
@@ -207,8 +206,8 @@ private[smt] object LinearBounds {
     /** The intersection.
       *
       * Laws: `(a meet b).contains(x) == (a.contains(x) && b.contains(x))`;
-      * `Interval.all` is the identity; commutative, associative and
-      * idempotent; absorption with `join`.
+      * `Interval.all` is the identity; commutative, associative and idempotent;
+      * absorption with `join`.
       */
     def meet(that: Interval): Interval =
       Interval(maxOpt(lo, that.lo), minOpt(hi, that.hi))
@@ -216,9 +215,9 @@ private[smt] object LinearBounds {
     /** The smallest interval containing `floorDiv(x, k)` for every member `x`,
       * for `k > 0`.
       *
-      * Laws: if `a.contains(x)` then `a.divFloor(k).contains(floorDiv(x,
-      * k))`; every bound of the result is `floorDiv(x, k)` for a bound `x` of
-      * `a`; empty if `a` is empty.
+      * Laws: if `a.contains(x)` then `a.divFloor(k).contains(floorDiv(x, k))`;
+      * every bound of the result is `floorDiv(x, k)` for a bound `x` of `a`;
+      * empty if `a` is empty.
       */
     def divFloor(k: BigInt): Interval = {
       require(k > 0, s"divFloor needs k > 0, got $k")
@@ -338,8 +337,8 @@ private[smt] object LinearBounds {
     */
   def linear(e: IntExpr): Option[Lin] =
     e match {
-      case IntConst(c) => Some(Lin.constant(c))
-      case Var(name)   => Some(Lin.variable(name))
+      case IntConst(c)                => Some(Lin.constant(c))
+      case Var(name)                  => Some(Lin.variable(name))
       case Add(args) if args.nonEmpty =>
         args.foldLeft(Option(Lin.zero)) { (acc, a) =>
           acc match {
@@ -404,18 +403,18 @@ private[smt] object LinearBounds {
       }
 
     p match {
-      case BoolConst(v)    => Some(v)
-      case Not(in)         =>
+      case BoolConst(v) => Some(v)
+      case Not(in)      =>
         constantBool(in) match {
           case Some(v) => Some(!v)
           case None    => None
         }
-      case EqInt(l, r)     => cmp(l, r)(_ == _)
-      case Lt(l, r)        => cmp(l, r)(_ < _)
-      case Lte(l, r)       => cmp(l, r)(_ <= _)
-      case Gt(l, r)        => cmp(l, r)(_ > _)
-      case Gte(l, r)       => cmp(l, r)(_ >= _)
-      case And(args)       =>
+      case EqInt(l, r) => cmp(l, r)(_ == _)
+      case Lt(l, r)    => cmp(l, r)(_ < _)
+      case Lte(l, r)   => cmp(l, r)(_ <= _)
+      case Gt(l, r)    => cmp(l, r)(_ > _)
+      case Gte(l, r)   => cmp(l, r)(_ >= _)
+      case And(args)   =>
         val vs = args.map(constantBool)
         if (vs.contains(Some(false))) Some(false)
         else if (vs.forall(_ == Some(true))) Some(true)
@@ -436,10 +435,10 @@ private[smt] object LinearBounds {
     */
   def atoms(fact: BoolExpr): Vector[BoolExpr] =
     fact match {
-      case And(args)      => args.flatMap(atoms)
-      case Not(Or(args))  => args.flatMap(a => atoms(Not(a)))
-      case Not(Not(in))   => atoms(in)
-      case other          => Vector(other)
+      case And(args)     => args.flatMap(atoms)
+      case Not(Or(args)) => args.flatMap(a => atoms(Not(a)))
+      case Not(Not(in))  => atoms(in)
+      case other         => Vector(other)
     }
 
   /** A comparison of a linear form with 0. */
@@ -462,7 +461,12 @@ private[smt] object LinearBounds {
     * `atom` holds exactly when `rel.holds(lin.eval(env))`.
     */
   def linearAtom(atom: BoolExpr): Option[(Lin, Rel)] = {
-    def diff(l: IntExpr, r: IntExpr, adjust: BigInt, rel: Rel): Option[(Lin, Rel)] =
+    def diff(
+        l: IntExpr,
+        r: IntExpr,
+        adjust: BigInt,
+        rel: Rel
+    ): Option[(Lin, Rel)] =
       (linear(l), linear(r)) match {
         case (Some(ll), Some(rr)) => Some(((ll - rr).plus(adjust), rel))
         case _                    => None
@@ -471,17 +475,17 @@ private[smt] object LinearBounds {
 
     atom match {
       // l < r iff l - r + 1 <= 0, and l > r iff l - r - 1 >= 0 (integers)
-      case Lt(l, r)       => diff(l, r, BigInt(1), Rel.Le)
-      case Lte(l, r)      => diff(l, r, zero, Rel.Le)
-      case Gt(l, r)       => diff(l, r, BigInt(-1), Rel.Ge)
-      case Gte(l, r)      => diff(l, r, zero, Rel.Ge)
-      case EqInt(l, r)    => diff(l, r, zero, Rel.Eq)
-      case Not(Lt(l, r))  => linearAtom(Gte(l, r))
-      case Not(Lte(l, r)) => linearAtom(Gt(l, r))
-      case Not(Gt(l, r))  => linearAtom(Lte(l, r))
-      case Not(Gte(l, r)) => linearAtom(Lt(l, r))
+      case Lt(l, r)         => diff(l, r, BigInt(1), Rel.Le)
+      case Lte(l, r)        => diff(l, r, zero, Rel.Le)
+      case Gt(l, r)         => diff(l, r, BigInt(-1), Rel.Ge)
+      case Gte(l, r)        => diff(l, r, zero, Rel.Ge)
+      case EqInt(l, r)      => diff(l, r, zero, Rel.Eq)
+      case Not(Lt(l, r))    => linearAtom(Gte(l, r))
+      case Not(Lte(l, r))   => linearAtom(Gt(l, r))
+      case Not(Gt(l, r))    => linearAtom(Lte(l, r))
+      case Not(Gte(l, r))   => linearAtom(Lt(l, r))
       case Not(EqInt(l, r)) => diff(l, r, zero, Rel.Ne)
-      case _              => None
+      case _                => None
     }
   }
 
@@ -564,7 +568,7 @@ private[smt] object LinearBounds {
     */
   def tighten(b: Box): Option[Box] =
     b.excluded.foldLeft(Option(b)) {
-      case (None, _)               => None
+      case (None, _)              => None
       case (Some(acc), (v, excl)) =>
         // the excluded set is finite, so these end
         @annotation.tailrec
@@ -593,8 +597,8 @@ private[smt] object LinearBounds {
     */
   def interval(e: IntExpr, b: Box): Interval =
     e match {
-      case IntConst(c) => Interval.point(c)
-      case Var(name)   => b.interval(name)
+      case IntConst(c)                => Interval.point(c)
+      case Var(name)                  => b.interval(name)
       case Add(args) if args.nonEmpty =>
         args.foldLeft(Interval.point(BigInt(0)))(_ + interval(_, b))
       case Sub(args) =>
@@ -602,7 +606,9 @@ private[smt] object LinearBounds {
           case Nil          => Interval.all
           case one :: Nil   => interval(one, b)
           case head :: rest =>
-            rest.foldLeft(interval(head, b))((acc, a) => acc + (-interval(a, b)))
+            rest.foldLeft(interval(head, b))((acc, a) =>
+              acc + (-interval(a, b))
+            )
         }
       case Mul(args) if args.nonEmpty =>
         linear(e) match {
@@ -641,15 +647,16 @@ private[smt] object LinearBounds {
 
   /** The interval of values lin takes in the box's intervals.
     *
-    * Laws: if `b.contains(env)` then `linInterval(lin, b).contains(lin.eval(env))`.
+    * Laws: if `b.contains(env)` then
+    * `linInterval(lin, b).contains(lin.eval(env))`.
     */
   def linInterval(lin: Lin, b: Box): Interval =
     lin.coeffs.foldLeft(Interval.point(lin.const)) { case (acc, (v, c)) =>
       acc + (b.interval(v) * c)
     }
 
-  /** Linear expressions known to be <= e (lowers) and >= e (uppers), for
-    * every value of the variables within the box. Empty means none found.
+  /** Linear expressions known to be <= e (lowers) and >= e (uppers), for every
+    * value of the variables within the box. Empty means none found.
     */
   final case class Bounds(lowers: List[Lin], uppers: List[Lin])
 
@@ -674,8 +681,8 @@ private[smt] object LinearBounds {
   /** Linear lower and upper bounds of e within the box.
     *
     * Laws: if `b.contains(env)` and `v` is the value of `e` at `env` (under any
-    * interpretation of division by zero), then `l.eval(env) <= v` for every
-    * `l` in `bounds(e, b).lowers`, and `v <= u.eval(env)` for every `u` in
+    * interpretation of division by zero), then `l.eval(env) <= v` for every `l`
+    * in `bounds(e, b).lowers`, and `v <= u.eval(env)` for every `u` in
     * `bounds(e, b).uppers`.
     */
   def bounds(e: IntExpr, b: Box): Bounds =
@@ -687,9 +694,11 @@ private[smt] object LinearBounds {
       case None =>
         e match {
           case Add(args) if args.nonEmpty =>
-            args.map(bounds(_, b)).foldLeft(Bounds(Lin.zero :: Nil, Lin.zero :: Nil)) {
-              (acc, bs) => Bounds(sums(acc.lowers, bs.lowers), sums(acc.uppers, bs.uppers))
-            }
+            args
+              .map(bounds(_, b))
+              .foldLeft(Bounds(Lin.zero :: Nil, Lin.zero :: Nil)) { (acc, bs) =>
+                Bounds(sums(acc.lowers, bs.lowers), sums(acc.uppers, bs.uppers))
+              }
           case Sub(args) =>
             args.toList match {
               case Nil          => Bounds(Nil, Nil)
@@ -710,7 +719,9 @@ private[smt] object LinearBounds {
                 case _                           => None
               }
             val (consts, terms) = args.partition(constantOf(_).nonEmpty)
-            val k = consts.foldLeft(BigInt(1))((acc, c) => acc * constantOf(c).getOrElse(BigInt(1)))
+            val k = consts.foldLeft(BigInt(1))((acc, c) =>
+              acc * constantOf(c).getOrElse(BigInt(1))
+            )
             terms.toList match {
               case term :: Nil =>
                 val bs = bounds(term, b)
@@ -756,8 +767,8 @@ private[smt] object LinearBounds {
   /** The largest value of lin within the box's intervals, if it is bounded.
     *
     * Laws: if `maxOver(lin, b) == Some(m)` then `lin.eval(env) <= m` whenever
-    * `b.contains(env)`; and when every interval in `b` is nonempty, some
-    * `env` with every variable in its interval has `lin.eval(env) == m`.
+    * `b.contains(env)`; and when every interval in `b` is nonempty, some `env`
+    * with every variable in its interval has `lin.eval(env) == m`.
     */
   def maxOver(lin: Lin, b: Box): Option[BigInt] =
     lin.coeffs.foldLeft(Option(lin.const)) { case (acc, (v, c)) =>
@@ -792,35 +803,34 @@ private[smt] object LinearBounds {
   /** Laws: if `proves(goal, b)` then `goal` holds at every `env` in `b`. */
   def proves(goal: BoolExpr, b: Box): Boolean =
     goal match {
-      case BoolConst(v)    => v
-      case Lt(l, r)        => diffAtMost(l, r, BigInt(-1), b)
-      case Lte(l, r)       => diffAtMost(l, r, BigInt(0), b)
-      case Gt(l, r)        => diffAtMost(r, l, BigInt(-1), b)
-      case Gte(l, r)       => diffAtMost(r, l, BigInt(0), b)
-      case EqInt(l, r)     => proves(Lte(l, r), b) && proves(Gte(l, r), b)
-      case And(args)       => args.forall(proves(_, b))
-      case Or(args)        => args.exists(proves(_, b))
-      case Not(in)         =>
+      case BoolConst(v) => v
+      case Lt(l, r)     => diffAtMost(l, r, BigInt(-1), b)
+      case Lte(l, r)    => diffAtMost(l, r, BigInt(0), b)
+      case Gt(l, r)     => diffAtMost(r, l, BigInt(-1), b)
+      case Gte(l, r)    => diffAtMost(r, l, BigInt(0), b)
+      case EqInt(l, r)  => proves(Lte(l, r), b) && proves(Gte(l, r), b)
+      case And(args)    => args.forall(proves(_, b))
+      case Or(args)     => args.exists(proves(_, b))
+      case Not(in)      =>
         in match {
-          case BoolConst(v)  => !v
-          case Lt(l, r)      => proves(Gte(l, r), b)
-          case Lte(l, r)     => proves(Gt(l, r), b)
-          case Gt(l, r)      => proves(Lte(l, r), b)
-          case Gte(l, r)     => proves(Lt(l, r), b)
-          case EqInt(l, r)   => proves(Lt(l, r), b) || proves(Gt(l, r), b)
-          case Not(in1)      => proves(in1, b)
-          case And(args)     => args.exists(a => proves(Not(a), b))
-          case Or(args)      => args.forall(a => proves(Not(a), b))
-          case _             => false
+          case BoolConst(v) => !v
+          case Lt(l, r)     => proves(Gte(l, r), b)
+          case Lte(l, r)    => proves(Gt(l, r), b)
+          case Gt(l, r)     => proves(Lte(l, r), b)
+          case Gte(l, r)    => proves(Lt(l, r), b)
+          case EqInt(l, r)  => proves(Lt(l, r), b) || proves(Gt(l, r), b)
+          case Not(in1)     => proves(in1, b)
+          case And(args)    => args.exists(a => proves(Not(a), b))
+          case Or(args)     => args.forall(a => proves(Not(a), b))
+          case _            => false
         }
       case _ => false
     }
 
   /** True if the facts imply the goal. False means not proven here.
     *
-    * Laws: if `implies(goal, facts)` then `goal` holds at every `env` where
-    * all the facts hold. In particular z3 finds `facts and not goal`
-    * unsatisfiable.
+    * Laws: if `implies(goal, facts)` then `goal` holds at every `env` where all
+    * the facts hold. In particular z3 finds `facts and not goal` unsatisfiable.
     */
   def implies(goal: BoolExpr, facts: Iterable[BoolExpr]): Boolean =
     box(facts) match {

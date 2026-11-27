@@ -12,24 +12,31 @@ import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.{Files, Path}
 
 class VerifyToolchainCommandTest extends FileCommandFixtures {
-  test("atomic document reporting uses staged publication without a file runner") {
-    directory.use { root =>
-      val platform = new IOPlatformIO(CompilerBuildInfo.constant)
-      val target = root.resolve("stamp")
-      val blocked = root.resolve("directory")
-      for {
-        _ <- write(root, "stamp", "sentinel")
-        result <- Output.AtomicDoc(Doc.text("ok"), target).report(platform)
-        _ = assertEquals(result, ExitCode.Success)
-        content <- read(root, "stamp")
-        _ = assertEquals(content, "ok")
-        _ <- IO.blocking { val _ = Files.createDirectory(blocked); () }
-        failed <- Output.AtomicDoc(Doc.text("ok"), blocked).report(platform).attempt
-        _ = assert(failed.isLeft, failed)
-        _ = assert(Files.isDirectory(blocked))
-        _ = assertEquals(listPaths(root), List("", "directory", "stamp"))
-      } yield ()
-    }.unsafeRunSync()
+  test(
+    "atomic document reporting uses staged publication without a file runner"
+  ) {
+    directory
+      .use { root =>
+        val platform = new IOPlatformIO(CompilerBuildInfo.constant)
+        val target = root.resolve("stamp")
+        val blocked = root.resolve("directory")
+        for {
+          _ <- write(root, "stamp", "sentinel")
+          result <- Output.AtomicDoc(Doc.text("ok"), target).report(platform)
+          _ = assertEquals(result, ExitCode.Success)
+          content <- read(root, "stamp")
+          _ = assertEquals(content, "ok")
+          _ <- IO.blocking { val _ = Files.createDirectory(blocked); () }
+          failed <- Output
+            .AtomicDoc(Doc.text("ok"), blocked)
+            .report(platform)
+            .attempt
+          _ = assert(failed.isLeft, failed)
+          _ = assert(Files.isDirectory(blocked))
+          _ = assertEquals(listPaths(root), List("", "directory", "stamp"))
+        } yield ()
+      }
+      .unsafeRunSync()
   }
 
   private val compilerBytes = "candidate compiler jar".getBytes(UTF_8)
@@ -37,13 +44,17 @@ class VerifyToolchainCommandTest extends FileCommandFixtures {
     "package Example/One\nexport value\nvalue = 1\n".getBytes(UTF_8)
   private val sourceTwo =
     "package Example/Two\nexport value\nvalue = 2\n".getBytes(UTF_8)
-  private val coreBytes = proto.Library(
-    name = "bosatsu",
-    repoUri = "unused",
-    descriptor = Some(proto.LibDescriptor(
-      version = Some(Version.parser.parseAll("1.2.3").toOption.get.toProto)
-    ))
-  ).toByteArray
+  private val coreBytes = proto
+    .Library(
+      name = "bosatsu",
+      repoUri = "unused",
+      descriptor = Some(
+        proto.LibDescriptor(
+          version = Some(Version.parser.parseAll("1.2.3").toOption.get.toProto)
+        )
+      )
+    )
+    .toByteArray
   private val runtimeBytes = "runtime archive".getBytes(UTF_8)
 
   private def sha(bytes: Array[Byte]): String =
@@ -55,21 +66,29 @@ class VerifyToolchainCommandTest extends FileCommandFixtures {
       runtime: Array[Byte] = Array.emptyByteArray,
       sources: List[(String, Array[Byte])] = Nil
   ): String = {
-    val sourceEntries = sources.map { case (name, bytes) =>
-      s"\"$name\":\"${sha(bytes)}\""
-    }.mkString(",")
+    val sourceEntries = sources
+      .map { case (name, bytes) =>
+        s"\"$name\":\"${sha(bytes)}\""
+      }
+      .mkString(",")
     val sourceField =
       if (sources.isEmpty) ""
       else s",\n\"core_sources\":{$sourceEntries}"
     s"""{
        |"schema_version":1,
        |"compiler":{"uri":"unused","sha256":"${sha(compiler)}"},
-       |"core":{"library_name":"bosatsu","version":"1.2.3","uri":"unused","sha256":"${sha(core)}"},
+       |"core":{"library_name":"bosatsu","version":"1.2.3","uri":"unused","sha256":"${sha(
+        core
+      )}"},
        |"c_runtime":{"uri":"unused","sha256":"${sha(runtime)}"}$sourceField
        |}""".stripMargin
   }
 
-  private def writeBytes(root: Path, relative: String, bytes: Array[Byte]): IO[Unit] =
+  private def writeBytes(
+      root: Path,
+      relative: String,
+      bytes: Array[Byte]
+  ): IO[Unit] =
     IO.blocking {
       val path = root.resolve(relative)
       Files.write(path, bytes)
@@ -90,9 +109,12 @@ class VerifyToolchainCommandTest extends FileCommandFixtures {
   ): List[String] =
     List(
       "verify-toolchain",
-      "--manifest", manifestPath,
-      "--compiler-jar", compilerPath,
-      "--out", out
+      "--manifest",
+      manifestPath,
+      "--compiler-jar",
+      compilerPath,
+      "--out",
+      out
     ) ++ coreLibrary.toList.flatMap(path => List("--core-library", path)) ++
       coreSources.flatMap(path => List("--core-source", path)) ++
       runtimeArchive.toList.flatMap(path => List("--runtime-archive", path))
@@ -104,11 +126,22 @@ class VerifyToolchainCommandTest extends FileCommandFixtures {
       inputs: List[String]
   ): IO[Unit] =
     for {
-      before <- IO.blocking(inputs.map(path => path -> Files.readAllBytes(root.resolve(path)).toList).toMap)
+      before <- IO.blocking(
+        inputs
+          .map(path => path -> Files.readAllBytes(root.resolve(path)).toList)
+          .toMap
+      )
       result <- runner.run(root, command)
       _ = failure(result)
-      _ = assert(result.stderr.contains("refers to requested input"), result.stderr)
-      after <- IO.blocking(inputs.map(path => path -> Files.readAllBytes(root.resolve(path)).toList).toMap)
+      _ = assert(
+        result.stderr.contains("refers to requested input"),
+        result.stderr
+      )
+      after <- IO.blocking(
+        inputs
+          .map(path => path -> Files.readAllBytes(root.resolve(path)).toList)
+          .toMap
+      )
       _ = assertEquals(after, before)
     } yield ()
 
@@ -130,20 +163,26 @@ class VerifyToolchainCommandTest extends FileCommandFixtures {
     }
   }
 
-  test("repeatable core sources are checked and binary/source selection is rejected") {
+  test(
+    "repeatable core sources are checked and binary/source selection is rejected"
+  ) {
     withRunner { (root, runner) =>
       val sourceArgs = args() ++ List(
-        "--core-source", "One.bosatsu",
-        "--core-source", "Two.bosatsu"
+        "--core-source",
+        "One.bosatsu",
+        "--core-source",
+        "Two.bosatsu"
       )
       for {
         _ <- writeBytes(
           root,
           "manifest.json",
-          manifest(sources = List(
-            "Example/One" -> sourceOne,
-            "Example/Two" -> sourceTwo
-          )).getBytes(UTF_8)
+          manifest(sources =
+            List(
+              "Example/One" -> sourceOne,
+              "Example/Two" -> sourceTwo
+            )
+          ).getBytes(UTF_8)
         )
         _ <- writeBytes(root, "compiler.jar", compilerBytes)
         _ <- writeBytes(root, "One.bosatsu", sourceOne)
@@ -151,10 +190,15 @@ class VerifyToolchainCommandTest extends FileCommandFixtures {
         valid <- runner.run(root, sourceArgs)
         _ = success(valid)
         _ <- write(root, "stamp", "previous")
-        incompatible <- runner.run(root, sourceArgs ++ List("--core-library", "missing.lib"))
+        incompatible <- runner.run(
+          root,
+          sourceArgs ++ List("--core-library", "missing.lib")
+        )
         _ = failure(incompatible)
         _ = assert(
-          incompatible.stderr.contains("choose either --core-library or --core-source"),
+          incompatible.stderr.contains(
+            "choose either --core-library or --core-source"
+          ),
           incompatible.stderr
         )
         prior <- read(root, "stamp")
@@ -167,10 +211,17 @@ class VerifyToolchainCommandTest extends FileCommandFixtures {
     withRunner { (root, runner) =>
       for {
         _ <- baseFiles(root)
-        _ <- writeBytes(root, "compiler.jar", "changed compiler".getBytes(UTF_8))
+        _ <- writeBytes(
+          root,
+          "compiler.jar",
+          "changed compiler".getBytes(UTF_8)
+        )
         absent <- runner.run(root, args("absent-stamp"))
         _ = failure(absent)
-        _ = assert(absent.stderr.contains("compiler jar SHA-256 mismatch"), absent.stderr)
+        _ = assert(
+          absent.stderr.contains("compiler jar SHA-256 mismatch"),
+          absent.stderr
+        )
         _ = assert(!Files.exists(root.resolve("absent-stamp")))
         _ <- write(root, "stamp", "sentinel")
         existing <- runner.run(root, args())
@@ -191,12 +242,33 @@ class VerifyToolchainCommandTest extends FileCommandFixtures {
       for {
         _ <- writeBytes(root, "manifest.json", manifestBytes)
         _ <- writeBytes(root, "compiler.jar", compilerBytes)
-        _ <- assertAliasRejected(root, runner, args(out = "manifest.json"), List("manifest.json", "compiler.jar"))
-        _ <- assertAliasRejected(root, runner, args(out = "compiler.jar"), List("manifest.json", "compiler.jar"))
-        _ <- assertAliasRejected(root, runner, args(out = "./compiler.jar"), List("manifest.json", "compiler.jar"))
+        _ <- assertAliasRejected(
+          root,
+          runner,
+          args(out = "manifest.json"),
+          List("manifest.json", "compiler.jar")
+        )
+        _ <- assertAliasRejected(
+          root,
+          runner,
+          args(out = "compiler.jar"),
+          List("manifest.json", "compiler.jar")
+        )
+        _ <- assertAliasRejected(
+          root,
+          runner,
+          args(out = "./compiler.jar"),
+          List("manifest.json", "compiler.jar")
+        )
         _ <- IO.blocking {
-          Files.createSymbolicLink(root.resolve("compiler-link.jar"), Path.of("compiler.jar"))
-          Files.createLink(root.resolve("compiler-hard.jar"), root.resolve("compiler.jar"))
+          Files.createSymbolicLink(
+            root.resolve("compiler-link.jar"),
+            Path.of("compiler.jar")
+          )
+          Files.createLink(
+            root.resolve("compiler-hard.jar"),
+            root.resolve("compiler.jar")
+          )
         }
         _ <- assertAliasRejected(
           root,
@@ -223,7 +295,10 @@ class VerifyToolchainCommandTest extends FileCommandFixtures {
           assertAliasRejected(
             root,
             runner,
-            args(out = source, coreSources = List("One.bosatsu", "Two.bosatsu")),
+            args(
+              out = source,
+              coreSources = List("One.bosatsu", "Two.bosatsu")
+            ),
             List("manifest.json", "compiler.jar", "One.bosatsu", "Two.bosatsu")
           )
         }
@@ -238,7 +313,9 @@ class VerifyToolchainCommandTest extends FileCommandFixtures {
     }
   }
 
-  test("failed publication is cleaned up and the same runner succeeds on retry") {
+  test(
+    "failed publication is cleaned up and the same runner succeeds on retry"
+  ) {
     withRunner { (root, runner) =>
       for {
         _ <- baseFiles(root)

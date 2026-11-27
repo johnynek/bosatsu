@@ -45,7 +45,11 @@ final private[bosatsu] class StagedOutputs private (
     var found = false
     while (!found) {
       try {
-        if (!Files.readAttributes(cursor, classOf[BasicFileAttributes]).isDirectory)
+        if (
+          !Files
+            .readAttributes(cursor, classOf[BasicFileAttributes])
+            .isDirectory
+        )
           throw new NotDirectoryException(cursor.toString)
         found = true
       } catch {
@@ -230,23 +234,30 @@ private[bosatsu] object StagedOutputs {
       if (Files.exists(target)) {
         val posix =
           Files.getFileAttributeView(target, classOf[PosixFileAttributeView])
-        val acl = Files.getFileAttributeView(target, classOf[AclFileAttributeView])
+        val acl =
+          Files.getFileAttributeView(target, classOf[AclFileAttributeView])
         if (posix == null && acl == null)
-          throw new IOException(s"cannot preserve output access controls: $target")
+          throw new IOException(
+            s"cannot preserve output access controls: $target"
+          )
 
         val priorPosix = Option(posix).map { view =>
           if (acl == null) PosixOutputAccess.preserve(target, next)
           val expected = view.readAttributes()
-          val staged = Files.getFileAttributeView(next, classOf[PosixFileAttributeView])
+          val staged =
+            Files.getFileAttributeView(next, classOf[PosixFileAttributeView])
           val original = staged.readAttributes()
           // Setting ownership can clear permission bits. Set the mode last.
-          if (!original.owner().equals(expected.owner())) staged.setOwner(expected.owner())
-          if (!original.group().equals(expected.group())) staged.setGroup(expected.group())
+          if (!original.owner().equals(expected.owner()))
+            staged.setOwner(expected.owner())
+          if (!original.group().equals(expected.group()))
+            staged.setGroup(expected.group())
           staged.setPermissions(expected.permissions())
           expected
         }
         if (acl != null) {
-          val staged = Files.getFileAttributeView(next, classOf[AclFileAttributeView])
+          val staged =
+            Files.getFileAttributeView(next, classOf[AclFileAttributeView])
           val owner = acl.getOwner
           val expected = acl.getAcl
           if (!staged.getOwner.equals(owner)) staged.setOwner(owner)
@@ -256,10 +267,14 @@ private[bosatsu] object StagedOutputs {
         }
         priorPosix.foreach { before =>
           val after = Files.readAttributes(next, classOf[PosixFileAttributes])
-          if (!after.owner().equals(before.owner()) ||
-              !after.group().equals(before.group()) ||
-              !after.permissions().equals(before.permissions()))
-            throw new IOException(s"cannot preserve output permissions: $target")
+          if (
+            !after.owner().equals(before.owner()) ||
+            !after.group().equals(before.group()) ||
+            !after.permissions().equals(before.permissions())
+          )
+            throw new IOException(
+              s"cannot preserve output permissions: $target"
+            )
         }
       }
 

@@ -84,7 +84,10 @@ object MatchlessFromTypedExpr {
   )(implicit ec: Par.EC): Compiled[K] =
     cleanup(compileRaw(from, pm), localPassOptions)
 
-  private[bosatsu] def cleanup[K: Order](raw: Compiled[K], localPassOptions: Matchless.LocalPassOptions): Compiled[K] =
+  private[bosatsu] def cleanup[K: Order](
+      raw: Compiled[K],
+      localPassOptions: Matchless.LocalPassOptions
+  ): Compiled[K] =
     raw.view.mapValues { lets =>
       lets.map { case (name, expr) =>
         (name, Matchless.postLoweringCleanup(expr, localPassOptions))

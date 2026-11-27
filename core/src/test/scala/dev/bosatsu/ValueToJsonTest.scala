@@ -36,7 +36,9 @@ class ValueToJsonTest extends munit.FunSuite {
     toJson(Value.UnitValue) match {
       case Left(_)     => ()
       case Right(json) =>
-        fail(s"expected ill-typed Array conversion failure, got: ${json.render}")
+        fail(
+          s"expected ill-typed Array conversion failure, got: ${json.render}"
+        )
     }
   }
 
@@ -59,7 +61,11 @@ class ValueToJsonTest extends munit.FunSuite {
       case Left(err) => fail(s"expected Bytes json conversion support: $err")
     }
     val bytes = Value.ExternalValue(
-      PredefImpl.BytesValue(Bytes.copyFromArray(Array[Byte](0.toByte, 1.toByte, 255.toByte)), 0, 3)
+      PredefImpl.BytesValue(
+        Bytes.copyFromArray(Array[Byte](0.toByte, 1.toByte, 255.toByte)),
+        0,
+        3
+      )
     )
     toJson(bytes) match {
       case Right(Json.JArray(values)) =>

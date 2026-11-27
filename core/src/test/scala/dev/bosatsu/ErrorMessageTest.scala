@@ -73,7 +73,7 @@ class ErrorMessageTest extends munit.FunSuite with ParTest {
 
   private def exportSourceForm(exportName: ExportedName[?]): String =
     exportName match {
-      case ExportedName.Binding(name, _) => s"binding:${name.sourceCodeRepr}"
+      case ExportedName.Binding(name, _)  => s"binding:${name.sourceCodeRepr}"
       case ExportedName.TypeName(name, _) => s"type:${name.sourceCodeRepr}"
       case ExportedName.Constructor(name, _) =>
         s"constructor:${name.sourceCodeRepr}()"
@@ -90,9 +90,12 @@ class ErrorMessageTest extends munit.FunSuite with ParTest {
       case _ => Nil
     }.sorted
 
-  private def circularCycles(errs: NonEmptyList[PackageError]): List[List[String]] =
-    errs.toList.collect { case circular: PackageError.CircularDependency[?, ?, ?] =>
-      (circular.from :: circular.path.toList).map(_.asString)
+  private def circularCycles(
+      errs: NonEmptyList[PackageError]
+  ): List[List[String]] =
+    errs.toList.collect {
+      case circular: PackageError.CircularDependency[?, ?, ?] =>
+        (circular.from :: circular.path.toList).map(_.asString)
     }
 
   test("circular dependency errors report canonical minimal loops") {
@@ -323,7 +326,8 @@ main = int_to_String(42) matches str
         |""".stripMargin
 
     val (errs, sourceMap) = compileErrors(source :: Nil)
-    val rendered = errs.toList.map(_.message(sourceMap, Colorize.None)).mkString("\n")
+    val rendered =
+      errs.toList.map(_.message(sourceMap, Colorize.None)).mkString("\n")
 
     assert(rendered.contains("Unknown name `x`."), rendered)
   }
@@ -341,7 +345,8 @@ main = int_to_String(42) matches str
         |""".stripMargin
 
     val (errs, sourceMap) = compileErrors(source :: Nil)
-    val rendered = errs.toList.map(_.message(sourceMap, Colorize.None)).mkString("\n")
+    val rendered =
+      errs.toList.map(_.message(sourceMap, Colorize.None)).mkString("\n")
 
     assert(rendered.contains("Unknown name `x`."), rendered)
   }
@@ -354,12 +359,15 @@ main = int_to_String(42) matches str
         |""".stripMargin
 
     val (errs, sourceMap) = compileErrors(source :: Nil)
-    val rendered = errs.toList.map(_.message(sourceMap, Colorize.None)).mkString("\n")
+    val rendered =
+      errs.toList.map(_.message(sourceMap, Colorize.None)).mkString("\n")
 
     assert(rendered.contains("Unknown name `x`."), rendered)
   }
 
-  test("match branch guard bindings are in scope for the inner guard and same branch body") {
+  test(
+    "match branch guard bindings are in scope for the inner guard and same branch body"
+  ) {
     Par.withEC {
       testInferred(
         List(
@@ -379,12 +387,14 @@ main = int_to_String(42) matches str
             |""".stripMargin
         ),
         "MatchBranchGuardScope",
-        { (_, _) => () }
+        (_, _) => ()
       )
     }
   }
 
-  test("match branch guard bindings do not leak to later guards branches or after the match") {
+  test(
+    "match branch guard bindings do not leak to later guards branches or after the match"
+  ) {
     val source =
       """package MatchBranchGuardLeak
         |
@@ -406,13 +416,16 @@ main = int_to_String(42) matches str
         |""".stripMargin
 
     val (errs, sourceMap) = compileErrors(source :: Nil)
-    val rendered = errs.toList.map(_.message(sourceMap, Colorize.None)).mkString("\n")
+    val rendered =
+      errs.toList.map(_.message(sourceMap, Colorize.None)).mkString("\n")
 
     assert(rendered.contains("Unknown name `even_x`."), rendered)
     assert(rendered.contains("This unknown name appears 4 times."), rendered)
   }
 
-  test("fully shadowed outer branch binders still use the existing unused-binding diagnostic path") {
+  test(
+    "fully shadowed outer branch binders still use the existing unused-binding diagnostic path"
+  ) {
     val source =
       """package MatchBranchGuardUnused
         |
@@ -483,8 +496,8 @@ main = [0] matches [1] if [0] matches [1] if True else True
         typeRepr: String
     ): Unit = {
       val (errs, sourceMap) = compileErrors(source :: Nil)
-      errs.toList.collectFirst {
-        case te @ PackageError.TotalityCheckError(_, _) =>
+      errs.toList
+        .collectFirst { case te @ PackageError.TotalityCheckError(_, _) =>
           val msg = te.message(sourceMap, Colorize.None)
           assert(
             msg.contains(
@@ -496,7 +509,8 @@ main = [0] matches [1] if [0] matches [1] if True else True
           assert(!msg.contains("unreachable branches"), msg)
           assert(msg.contains(pack), msg)
           ()
-      }.getOrElse(fail(s"expected totality error, found: $errs"))
+        }
+        .getOrElse(fail(s"expected totality error, found: $errs"))
     }
 
     assertMatchesAlwaysTrueMessage(
@@ -535,7 +549,8 @@ main = [0] matches [1] if [0] matches [1] if True else True
         |)
         |""".stripMargin
 
-    val sourceMap = Map(PackageName.parts("Shadowed") -> (LocationMap(source), "<test>"))
+    val sourceMap =
+      Map(PackageName.parts("Shadowed") -> (LocationMap(source), "<test>"))
 
     evalFail(List(source)) {
       case se @ PackageError.ShadowedBindingTypeError(_, _, _) =>
@@ -901,47 +916,48 @@ def fn(x):
 main = fn
 """)) { case te @ PackageError.RecursionLint(_, _) =>
         assert(
-          te.message(Map.empty, Colorize.None).contains(
-            "recur but no recursive call to fn"
-          )
+          te.message(Map.empty, Colorize.None)
+            .contains(
+              "recur but no recursive call to fn"
+            )
         )
         ()
       }
     } else {
-    evalFail(
-      List(
-        """
+      evalFail(
+        List(
+          """
 package A
 
 a = 1
 """,
-        """
+          """
 package B
 
 from A import a
 
 main = a"""
-      )
-    ) { case PackageError.UnknownImportName(_, _, _, _, _) => () }
+        )
+      ) { case PackageError.UnknownImportName(_, _, _, _, _) => () }
 
-    evalFail(List("""
+      evalFail(List("""
 package B
 
 from A import a
 
 main = a""")) { case PackageError.UnknownImportPackage(_, _) => () }
 
-    evalFail(List("""
+      evalFail(List("""
 package B
 
 main = a""")) { case te: PackageError.TypeErrorIn =>
-      val msg = te.message(Map.empty, Colorize.None)
-      assert(!msg.contains("Name("))
-      assert(msg.contains("package B\nUnknown name `a`."))
-      ()
-    }
+        val msg = te.message(Map.empty, Colorize.None)
+        assert(!msg.contains("Name("))
+        assert(msg.contains("package B\nUnknown name `a`."))
+        ()
+      }
 
-    evalFail(List("""
+      evalFail(List("""
 package A
 
 x = missing_name
@@ -949,40 +965,40 @@ y = missing_name
 
 main = 1
 """)) { case te: PackageError.TypeErrorIn =>
-      val msg = te.message(Map.empty, Colorize.None)
-      assert(msg.contains("Unknown name `missing_name`."))
-      assert(msg.contains("This unknown name appears 2 times."))
-      ()
-    }
+        val msg = te.message(Map.empty, Colorize.None)
+        assert(msg.contains("Unknown name `missing_name`."))
+        assert(msg.contains("This unknown name appears 2 times."))
+        ()
+      }
 
-    val useBeforeDefCode = """
+      val useBeforeDefCode = """
 package P
 
 main = foo
 
 foo = 1
 """
-    val useBeforeDefMap =
-      Map(
-        (PackageName.parts("P"), (LocationMap(useBeforeDefCode), "P.bosatsu"))
-      )
-
-    evalFail(List(useBeforeDefCode)) { case te: PackageError.TypeErrorIn =>
-      val msg = te.message(useBeforeDefMap, Colorize.None)
-      assert(msg.contains("""name "foo" is used before it is defined."""))
-      assert(
-        msg.contains(
-          "this use site uses foo, but foo is defined later in this file"
+      val useBeforeDefMap =
+        Map(
+          (PackageName.parts("P"), (LocationMap(useBeforeDefCode), "P.bosatsu"))
         )
-      )
-      assert(msg.contains("Use site:"))
-      assert(msg.contains("main = foo"))
-      assert(msg.contains("Definition site:"))
-      assert(msg.contains("foo = 1"))
-      ()
-    }
 
-    evalFail(List("""
+      evalFail(List(useBeforeDefCode)) { case te: PackageError.TypeErrorIn =>
+        val msg = te.message(useBeforeDefMap, Colorize.None)
+        assert(msg.contains("""name "foo" is used before it is defined."""))
+        assert(
+          msg.contains(
+            "this use site uses foo, but foo is defined later in this file"
+          )
+        )
+        assert(msg.contains("Use site:"))
+        assert(msg.contains("main = foo"))
+        assert(msg.contains("Definition site:"))
+        assert(msg.contains("foo = 1"))
+        ()
+      }
+
+      evalFail(List("""
 package B
 
 x = 1
@@ -990,13 +1006,13 @@ x = 1
 main = match x:
   case Foo: 2
 """)) { case te @ PackageError.SourceConverterErrorsIn(_, _, _) =>
-      val msg = te.message(Map.empty, Colorize.None)
-      assert(!msg.contains("Name("))
-      assert(msg.contains("package B\nUnknown constructor `Foo`."))
-      ()
-    }
+        val msg = te.message(Map.empty, Colorize.None)
+        assert(!msg.contains("Name("))
+        assert(msg.contains("package B\nUnknown constructor `Foo`."))
+        ()
+      }
 
-    evalFail(List("""
+      evalFail(List("""
 package B
 
 struct X
@@ -1004,34 +1020,34 @@ struct X
 main = match 1:
   case X1: 0
 """)) { case te @ PackageError.SourceConverterErrorsIn(_, _, _) =>
-      assertEquals(
-        te.message(
-          Map.empty,
-          Colorize.None
-        ),
-        "in file: <unknown source>, package B\nUnknown constructor `X1`.\nDid you mean constructor `X`?\n[45, 47)"
-      )
-      ()
-    }
+        assertEquals(
+          te.message(
+            Map.empty,
+            Colorize.None
+          ),
+          "in file: <unknown source>, package B\nUnknown constructor `X1`.\nDid you mean constructor `X`?\n[45, 47)"
+        )
+        ()
+      }
 
-    evalFail(List("""
+      evalFail(List("""
 package A
 
 main = match [1, 2, 3]:
   case []: 0
   case [*a, *b, _]: 2
 """)) { case te @ PackageError.TotalityCheckError(_, _) =>
-      assertEquals(
-        te.message(
-          Map.empty,
-          Colorize.None
-        ),
-        "in file: <unknown source>, package A\n[19, 70)\nmultiple splices in pattern, only one per match allowed"
-      )
-      ()
-    }
+        assertEquals(
+          te.message(
+            Map.empty,
+            Colorize.None
+          ),
+          "in file: <unknown source>, package A\n[19, 70)\nmultiple splices in pattern, only one per match allowed"
+        )
+        ()
+      }
 
-    evalFail(List("""
+      evalFail(List("""
 package A
 
 enum Foo: Bar(a), Baz(b)
@@ -1039,20 +1055,20 @@ enum Foo: Bar(a), Baz(b)
 main = match Bar(1):
   case Baz(b): b
 """)) { case te @ PackageError.TotalityCheckError(_, _) =>
-      assertEquals(
-        te.message(
-          Map.empty,
-          Colorize.None
-        ),
-        "in file: <unknown source>, package A\n[45, 75)\nnon-total match, missing: Bar(_)"
-      )
-      ()
-    }
+        assertEquals(
+          te.message(
+            Map.empty,
+            Colorize.None
+          ),
+          "in file: <unknown source>, package A\n[45, 75)\nnon-total match, missing: Bar(_)"
+        )
+        ()
+      }
 
-    // R has no values, so Neg(absurd) is a value of Neg[R] and X can't be
-    // left out. Otherwise f(C) -> f(D) -> f(X(neg_r)) runs another branch,
-    // and loops.
-    evalFail(List("""
+      // R has no values, so Neg(absurd) is a value of Neg[R] and X can't be
+      // left out. Otherwise f(C) -> f(D) -> f(X(neg_r)) runs another branch,
+      // and loops.
+      evalFail(List("""
 package A
 
 enum Never: Never(n: Never)
@@ -1074,17 +1090,17 @@ def f(e: E) -> Int:
 
 main = f(C)
 """)) { case te @ PackageError.TotalityCheckError(_, _) =>
-      assert(
-        te.message(Map.empty, Colorize.None)
-          .endsWith("non-total match, missing: X(_)"),
-        te.message(Map.empty, Colorize.None)
-      )
-      ()
-    }
+        assert(
+          te.message(Map.empty, Colorize.None)
+            .endsWith("non-total match, missing: X(_)"),
+          te.message(Map.empty, Colorize.None)
+        )
+        ()
+      }
 
-    // The same loop with R's recursion passing through a higher-kinded
-    // argument. RF's definition doesn't mention Neg, but RF[Neg] applies it.
-    evalFail(List("""
+      // The same loop with R's recursion passing through a higher-kinded
+      // argument. RF's definition doesn't mention Neg, but RF[Neg] applies it.
+      evalFail(List("""
 package A
 
 enum Never: Never(n: Never)
@@ -1106,17 +1122,17 @@ def f(e: E) -> Int:
 
 main = f(C)
 """)) { case te @ PackageError.TotalityCheckError(_, _) =>
-      assert(
-        te.message(Map.empty, Colorize.None)
-          .endsWith("non-total match, missing: X(_)"),
-        te.message(Map.empty, Colorize.None)
-      )
-      ()
-    }
+        assert(
+          te.message(Map.empty, Colorize.None)
+            .endsWith("non-total match, missing: X(_)"),
+          te.message(Map.empty, Colorize.None)
+        )
+        ()
+      }
 
-    // ... and with the higher-kinded argument under a quantifier:
-    // forall y. Wr[y] applied to a is forall y. a -> y.
-    evalFail(List("""
+      // ... and with the higher-kinded argument under a quantifier:
+      // forall y. Wr[y] applied to a is forall y. a -> y.
+      evalFail(List("""
 package A
 
 enum Never: Never(n: Never)
@@ -1138,15 +1154,15 @@ def f(e: E) -> Int:
 
 main = f(C)
 """)) { case te @ PackageError.TotalityCheckError(_, _) =>
-      assert(
-        te.message(Map.empty, Colorize.None)
-          .endsWith("non-total match, missing: X(_)"),
-        te.message(Map.empty, Colorize.None)
-      )
-      ()
-    }
+        assert(
+          te.message(Map.empty, Colorize.None)
+            .endsWith("non-total match, missing: X(_)"),
+          te.message(Map.empty, Colorize.None)
+        )
+        ()
+      }
 
-    evalFail(List("""
+      evalFail(List("""
 package A
 
 def fn(x):
@@ -1155,17 +1171,17 @@ def fn(x):
 
 main = fn
 """)) { case te @ PackageError.RecursionLint(_, _) =>
-      assertEquals(
-        te.message(
-          Map.empty,
-          Colorize.None
-        ),
-        "in file: <unknown source>, package A\nrecur but no recursive call to fn.\nUse `match` for non-recursive branching.\n[25, 47)\n"
-      )
-      ()
-    }
+        assertEquals(
+          te.message(
+            Map.empty,
+            Colorize.None
+          ),
+          "in file: <unknown source>, package A\nrecur but no recursive call to fn.\nUse `match` for non-recursive branching.\n[25, 47)\n"
+        )
+        ()
+      }
 
-    evalFail(List("""
+      evalFail(List("""
 package A
 
 def fn(x):
@@ -1174,17 +1190,17 @@ def fn(x):
 
 main = fn
 """)) { case te @ PackageError.RecursionLint(_, _) =>
-      assertEquals(
-        te.message(
-          Map.empty,
-          Colorize.None
-        ),
-        "in file: <unknown source>, package A\nloop but no recursive call to fn.\nUse `match` if this code is not recursive.\n[25, 46)\n"
-      )
-      ()
-    }
+        assertEquals(
+          te.message(
+            Map.empty,
+            Colorize.None
+          ),
+          "in file: <unknown source>, package A\nloop but no recursive call to fn.\nUse `match` if this code is not recursive.\n[25, 46)\n"
+        )
+        ()
+      }
 
-    evalFail(List("""
+      evalFail(List("""
 package A
 
 def len(lst, acc):
@@ -1194,17 +1210,17 @@ def len(lst, acc):
 
 main = len
 """)) { case te @ PackageError.RecursionLint(_, _) =>
-      val msg = te.message(Map.empty, Colorize.None)
-      assert(
-        msg.contains(
-          "recursive calls to len are all tail-position; use `loop` to make the stack-safety guarantee explicit."
-        ),
-        msg
-      )
-      ()
-    }
+        val msg = te.message(Map.empty, Colorize.None)
+        assert(
+          msg.contains(
+            "recursive calls to len are all tail-position; use `loop` to make the stack-safety guarantee explicit."
+          ),
+          msg
+        )
+        ()
+      }
 
-    evalFail(List("""
+      evalFail(List("""
 package A
 
 enum Nat: Zero, Succ(prev: Nat)
@@ -1216,17 +1232,17 @@ def len(lst):
 
 main = len
 """)) { case te @ PackageError.RecursionError(_, _) =>
-      val msg = te.message(Map.empty, Colorize.None)
-      assert(
-        msg.contains(
-          "loop requires all recursive calls to len to be in tail position."
-        ),
-        msg
-      )
-      ()
-    }
+        val msg = te.message(Map.empty, Colorize.None)
+        assert(
+          msg.contains(
+            "loop requires all recursive calls to len to be in tail position."
+          ),
+          msg
+        )
+        ()
+      }
 
-    evalFail(List("""
+      evalFail(List("""
 package A
 
 def parse_loop(x): x
@@ -1238,26 +1254,26 @@ def parse_loopTypo(x):
 
 main = parse_loopTypo
 """)) { case te @ PackageError.RecursionLint(_, _) =>
-      val msg = te.message(Map.empty, Colorize.None)
-      assert(
-        msg.contains(
-          "Use `match` for non-recursive branching."
+        val msg = te.message(Map.empty, Colorize.None)
+        assert(
+          msg.contains(
+            "Use `match` for non-recursive branching."
+          )
         )
-      )
-      assert(
-        msg.contains(
-          "Function name looks renamed: declared `parse_loopTypo`, but recursive calls use `parse_loop`."
+        assert(
+          msg.contains(
+            "Function name looks renamed: declared `parse_loopTypo`, but recursive calls use `parse_loop`."
+          )
         )
-      )
-      assert(
-        msg.contains(
-          "Did you mean `parse_loopTypo` in recursive calls? (2 occurrences)"
+        assert(
+          msg.contains(
+            "Did you mean `parse_loopTypo` in recursive calls? (2 occurrences)"
+          )
         )
-      )
-      ()
-    }
+        ()
+      }
 
-    evalFail(List("""
+      evalFail(List("""
 package A
 
 def fn(x):
@@ -1266,17 +1282,17 @@ def fn(x):
 
 main = fn
 """)) { case te @ PackageError.RecursionError(_, _) =>
-      assertEquals(
-        te.message(
-          Map.empty,
-          Colorize.None
-        ),
-        "in file: <unknown source>, package A\nrecur target for fn must be a name or tuple of names bound to def args\n[31, 33)\n"
-      )
-      ()
-    }
+        assertEquals(
+          te.message(
+            Map.empty,
+            Colorize.None
+          ),
+          "in file: <unknown source>, package A\nrecur target for fn must be a name or tuple of names bound to def args\n[31, 33)\n"
+        )
+        ()
+      }
 
-    evalFail(List("""
+      evalFail(List("""
 package A
 
 def fn(x):
@@ -1286,17 +1302,17 @@ def fn(x):
 
 main = fn
 """)) { case te @ PackageError.RecursionError(_, _) =>
-      assertEquals(
-        te.message(
-          Map.empty,
-          Colorize.None
-        ),
-        "in file: <unknown source>, package A\nrecur not on an argument to the def of fn, args: (x)\n[33, 55)\n"
-      )
-      ()
-    }
+        assertEquals(
+          te.message(
+            Map.empty,
+            Colorize.None
+          ),
+          "in file: <unknown source>, package A\nrecur not on an argument to the def of fn, args: (x)\n[33, 55)\n"
+        )
+        ()
+      }
 
-    evalFail(List("""
+      evalFail(List("""
 package A
 
 def fn(x):
@@ -1307,17 +1323,17 @@ def fn(x):
 
 main = fn
 """)) { case te @ PackageError.RecursionError(_, _) =>
-      assertEquals(
-        te.message(
-          Map.empty,
-          Colorize.None
-        ),
-        "in file: <unknown source>, package A\nunexpected recur: may only appear unnested inside a def\n[52, 80)\n"
-      )
-      ()
-    }
+        assertEquals(
+          te.message(
+            Map.empty,
+            Colorize.None
+          ),
+          "in file: <unknown source>, package A\nunexpected recur: may only appear unnested inside a def\n[52, 80)\n"
+        )
+        ()
+      }
 
-    evalFail(List("""
+      evalFail(List("""
 package A
 
 def fn(x):
@@ -1329,17 +1345,17 @@ def fn(x):
 
 main = fn
 """)) { case te @ PackageError.RecursionError(_, _) =>
-      assertEquals(
-        te.message(
-          Map.empty,
-          Colorize.None
-        ),
-        "in file: <unknown source>, package A\nillegal shadowing on: fn. Recursive shadowing of def names disallowed\n[25, 91)\n"
-      )
-      ()
-    }
+        assertEquals(
+          te.message(
+            Map.empty,
+            Colorize.None
+          ),
+          "in file: <unknown source>, package A\nillegal shadowing on: fn. Recursive shadowing of def names disallowed\n[25, 91)\n"
+        )
+        ()
+      }
 
-    evalFail(List("""
+      evalFail(List("""
 package A
 
 def fn(x, y):
@@ -1349,17 +1365,17 @@ def fn(x, y):
 
 main = fn
 """)) { case te @ PackageError.RecursionError(_, _) =>
-      assertEquals(
-        te.message(
-          Map.empty,
-          Colorize.None
-        ),
-        "in file: <unknown source>, package A\ninvalid recursion on fn. Consider replacing `match` with `recur`.\n[63, 71)\n"
-      )
-      ()
-    }
+        assertEquals(
+          te.message(
+            Map.empty,
+            Colorize.None
+          ),
+          "in file: <unknown source>, package A\ninvalid recursion on fn. Consider replacing `match` with `recur`.\n[63, 71)\n"
+        )
+        ()
+      }
 
-    evalFail(List("""
+      evalFail(List("""
 package A
 
 def fn(x, y):
@@ -1369,15 +1385,15 @@ def fn(x, y):
 
 main = fn(0, 1, 2)
 """)) { case te: PackageError.TypeErrorIn =>
-      assert(
-        te.message(Map.empty, Colorize.None)
-          .contains("does not match function with 3 arguments at:")
-      )
-      ()
-    }
+        assert(
+          te.message(Map.empty, Colorize.None)
+            .contains("does not match function with 3 arguments at:")
+        )
+        ()
+      }
 
-    // we should have the region set inside
-    val code1571 = """
+      // we should have the region set inside
+      val code1571 = """
 package A
 
 def fn(x):
@@ -1387,54 +1403,54 @@ def fn(x):
 
 main = fn([1, 2])
 """
-    evalFail(code1571 :: Nil) { case te: PackageError.TypeErrorIn =>
-      // Make sure we point at the function directly
-      assertEquals(code1571.substring(67, 69), "fn")
-      val msg = te.message(Map.empty, Colorize.None)
-      assert(
-        msg.contains(
-          "the first type is a function with one argument and the second is a function with 2 arguments"
-        ) ||
+      evalFail(code1571 :: Nil) { case te: PackageError.TypeErrorIn =>
+        // Make sure we point at the function directly
+        assertEquals(code1571.substring(67, 69), "fn")
+        val msg = te.message(Map.empty, Colorize.None)
+        assert(
           msg.contains(
-            "the first type is a function with 2 arguments and the second is a function with one argument"
-          )
-      )
-      assert(
-        msg.contains("[67, 69)")
-      )
-      ()
-    }
+            "the first type is a function with one argument and the second is a function with 2 arguments"
+          ) ||
+            msg.contains(
+              "the first type is a function with 2 arguments and the second is a function with one argument"
+            )
+        )
+        assert(
+          msg.contains("[67, 69)")
+        )
+        ()
+      }
 
-    evalFail(
-      List(
-        """
+      evalFail(
+        List(
+          """
 package A
 
 export foo
 
 foo = 3
 """,
-        """
+          """
 package B
 from A import fooz
 
 baz = fooz
 """
-      )
-    ) { case te @ PackageError.UnknownImportName(_, _, _, _, _) =>
-      assertEquals(
-        te.message(
-          Map.empty,
-          Colorize.None
-        ),
-        "in <unknown source> package: A does not have name fooz. Nearest: foo"
-      )
-      ()
-    }
+        )
+      ) { case te @ PackageError.UnknownImportName(_, _, _, _, _) =>
+        assertEquals(
+          te.message(
+            Map.empty,
+            Colorize.None
+          ),
+          "in <unknown source> package: A does not have name fooz. Nearest: foo"
+        )
+        ()
+      }
 
-    evalFail(
-      List(
-        """
+      evalFail(
+        List(
+          """
 package A
 
 export foo
@@ -1442,64 +1458,71 @@ export foo
 foo = 3
 bar = 3
 """,
-        """
+          """
 package B
 from A import bar
 
 baz = bar
 """
-      )
-    ) { case te @ PackageError.UnknownImportName(_, _, _, _, _) =>
-      assertEquals(
-        te.message(
-          Map.empty,
-          Colorize.None
-        ),
-        "in <unknown source> package: A has bar but it is not exported. Add to exports"
-      )
-      ()
-    }
+        )
+      ) { case te @ PackageError.UnknownImportName(_, _, _, _, _) =>
+        assertEquals(
+          te.message(
+            Map.empty,
+            Colorize.None
+          ),
+          "in <unknown source> package: A has bar but it is not exported. Add to exports"
+        )
+        ()
+      }
 
-    val importingPackage = PackageName.parts("MyLib", "Fib")
-    val importedIfacePackage = PackageName.parts("Bosatsu", "Prog")
-    val missingIfaceImport = PackageError.UnknownImportFromInterface(
-      importingPackage,
-      importedIfacePackage,
-      Identifier.Name("read_envv") :: Nil,
-      ImportedName.OriginalName(Identifier.Name("read_env"), ()),
-      Nil
-    )
+      val importingPackage = PackageName.parts("MyLib", "Fib")
+      val importedIfacePackage = PackageName.parts("Bosatsu", "Prog")
+      val missingIfaceImport = PackageError.UnknownImportFromInterface(
+        importingPackage,
+        importedIfacePackage,
+        Identifier.Name("read_envv") :: Nil,
+        ImportedName.OriginalName(Identifier.Name("read_env"), ()),
+        Nil
+      )
 
-    val importSourceNoParens =
-      """package MyLib/Fib
+      val importSourceNoParens =
+        """package MyLib/Fib
         |from Bosatsu/Prog import Prog, Main, await, pure, read_env, recover
         |""".stripMargin
-    val noParensMap = Map(
-      importingPackage -> (LocationMap(importSourceNoParens), "src/MyLib/Fib.bosatsu")
-    )
-    val noParensMessage = missingIfaceImport.message(noParensMap, Colorize.None)
-    assert(
-      noParensMessage.contains("in file: src/MyLib/Fib.bosatsu:"),
-      noParensMessage
-    )
-    assert(noParensMessage.contains("package MyLib/Fib"), noParensMessage)
-    assert(
-      noParensMessage.contains(
-        "imported interface package Bosatsu/Prog does not export name read_env."
-      ),
-      noParensMessage
-    )
-    assert(noParensMessage.contains("Nearest: read_envv"), noParensMessage)
-    assert(
-      noParensMessage.contains(
-        "from Bosatsu/Prog import Prog, Main, await, pure, read_env, recover"
-      ),
-      noParensMessage
-    )
-    assert(noParensMessage.linesIterator.exists(_.contains("^^^^^^^^")), noParensMessage)
+      val noParensMap = Map(
+        importingPackage -> (
+          LocationMap(importSourceNoParens),
+          "src/MyLib/Fib.bosatsu"
+        )
+      )
+      val noParensMessage =
+        missingIfaceImport.message(noParensMap, Colorize.None)
+      assert(
+        noParensMessage.contains("in file: src/MyLib/Fib.bosatsu:"),
+        noParensMessage
+      )
+      assert(noParensMessage.contains("package MyLib/Fib"), noParensMessage)
+      assert(
+        noParensMessage.contains(
+          "imported interface package Bosatsu/Prog does not export name read_env."
+        ),
+        noParensMessage
+      )
+      assert(noParensMessage.contains("Nearest: read_envv"), noParensMessage)
+      assert(
+        noParensMessage.contains(
+          "from Bosatsu/Prog import Prog, Main, await, pure, read_env, recover"
+        ),
+        noParensMessage
+      )
+      assert(
+        noParensMessage.linesIterator.exists(_.contains("^^^^^^^^")),
+        noParensMessage
+      )
 
-    val importSourceWithParens =
-      """package MyLib/Fib
+      val importSourceWithParens =
+        """package MyLib/Fib
         |from Bosatsu/Prog import (
         |  Prog,
         |  Main,
@@ -1509,34 +1532,45 @@ baz = bar
         |  recover,
         |)
         |""".stripMargin
-    val withParensMessage = missingIfaceImport.message(
-      Map(
-        importingPackage -> (LocationMap(importSourceWithParens), "src/MyLib/Fib.bosatsu")
-      ),
-      Colorize.None
-    )
-    assert(
-      withParensMessage.contains("in file: src/MyLib/Fib.bosatsu:"),
-      withParensMessage
-    )
-    assert(withParensMessage.contains("package MyLib/Fib"), withParensMessage)
-    assert(withParensMessage.contains("  read_env,"), withParensMessage)
-    assert(withParensMessage.linesIterator.exists(_.contains("^^^^^^^^")), withParensMessage)
+      val withParensMessage = missingIfaceImport.message(
+        Map(
+          importingPackage -> (
+            LocationMap(importSourceWithParens),
+            "src/MyLib/Fib.bosatsu"
+          )
+        ),
+        Colorize.None
+      )
+      assert(
+        withParensMessage.contains("in file: src/MyLib/Fib.bosatsu:"),
+        withParensMessage
+      )
+      assert(withParensMessage.contains("package MyLib/Fib"), withParensMessage)
+      assert(withParensMessage.contains("  read_env,"), withParensMessage)
+      assert(
+        withParensMessage.linesIterator.exists(_.contains("^^^^^^^^")),
+        withParensMessage
+      )
 
-    val badImportSource =
-      """package MyLib/Fib
+      val badImportSource =
+        """package MyLib/Fib
         |from Bosatsu/Prog
         |""".stripMargin
-    val fallbackMessage = missingIfaceImport.message(
-      Map(
-        importingPackage -> (LocationMap(badImportSource), "src/MyLib/Fib.bosatsu")
-      ),
-      Colorize.None
-    )
-    assert(
-      fallbackMessage.contains("in file: src/MyLib/Fib.bosatsu, package MyLib/Fib"),
-      fallbackMessage
-    )
+      val fallbackMessage = missingIfaceImport.message(
+        Map(
+          importingPackage -> (
+            LocationMap(badImportSource),
+            "src/MyLib/Fib.bosatsu"
+          )
+        ),
+        Colorize.None
+      )
+      assert(
+        fallbackMessage.contains(
+          "in file: src/MyLib/Fib.bosatsu, package MyLib/Fib"
+        ),
+        fallbackMessage
+      )
       assert(!fallbackMessage.contains("<unknown source>"), fallbackMessage)
     }
   }
@@ -1574,8 +1608,8 @@ main = Nope { first: 1, second: "two" }
         ()
       }
     } else {
-    runBosatsuTest(
-      List("""
+      runBosatsuTest(
+        List("""
 package A
 
 struct Pair(first, second)
@@ -1588,12 +1622,12 @@ tests = TestSuite("test record",
     Assertion(f2.eq_Int(1), "f2 == 1"),
   ])
 """),
-      "A",
-      1
-    )
+        "A",
+        1
+      )
 
-    runBosatsuTest(
-      List("""
+      runBosatsuTest(
+        List("""
 package A
 
 struct Pair(first, second)
@@ -1608,12 +1642,12 @@ tests = TestSuite("test record",
     Assertion(res.eq_Int(1), "res == 1"),
   ])
 """),
-      "A",
-      1
-    )
+        "A",
+        1
+      )
 
-    runBosatsuTest(
-      List("""
+      runBosatsuTest(
+        List("""
 package A
 
 struct Pair(first, second)
@@ -1627,12 +1661,12 @@ tests = TestSuite("test record",
     Assertion(res.eq_Int(1), "res == 1"),
   ])
 """),
-      "A",
-      1
-    )
+        "A",
+        1
+      )
 
-    runBosatsuTest(
-      List("""
+      runBosatsuTest(
+        List("""
 package A
 
 struct Pair(first, second)
@@ -1646,12 +1680,12 @@ tests = TestSuite("test record",
     Assertion(res.eq_Int(1), "res == 1"),
   ])
 """),
-      "A",
-      1
-    )
+        "A",
+        1
+      )
 
-    runBosatsuTest(
-      List("""
+      runBosatsuTest(
+        List("""
 package A
 
 struct Pair(first, second)
@@ -1665,12 +1699,12 @@ tests = TestSuite("test record",
     Assertion(res.eq_Int(1), "res == 1"),
   ])
 """),
-      "A",
-      1
-    )
+        "A",
+        1
+      )
 
-    runBosatsuTest(
-      List("""
+      runBosatsuTest(
+        List("""
 package A
 
 struct Pair(first, second)
@@ -1684,12 +1718,12 @@ tests = TestSuite("test record",
     Assertion(res.eq_Int(1), "res == 1"),
   ])
 """),
-      "A",
-      1
-    )
+        "A",
+        1
+      )
 
-    runBosatsuTest(
-      List("""
+      runBosatsuTest(
+        List("""
 package A
 
 struct Pair(first, second)
@@ -1705,11 +1739,11 @@ tests = TestSuite("test record",
     Assertion(res.eq_Int(1), "res == 1"),
   ])
 """),
-      "A",
-      1
-    )
+        "A",
+        1
+      )
 
-    evalFail(List("""
+      evalFail(List("""
 package A
 
 struct Pair(first, second)
@@ -1720,10 +1754,10 @@ get = Pair(first, ...) -> first
 first = 1
 res = get(Pair { first })
     """)) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
-      s.message(Map.empty, Colorize.None): Unit
-    }
+        s.message(Map.empty, Colorize.None): Unit
+      }
 
-    evalFail(List("""
+      evalFail(List("""
 package A
 
 struct Pair(first, second)
@@ -1735,10 +1769,10 @@ first = 1
 second = 3
 res = get(Pair { first, second, third })
     """)) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
-      s.message(Map.empty, Colorize.None): Unit
-    }
+        s.message(Map.empty, Colorize.None): Unit
+      }
 
-    evalFail(List("""
+      evalFail(List("""
 package A
 
 struct Pair(first, second)
@@ -1747,10 +1781,10 @@ get = Pair { first } -> first
 
 res = get(Pair(1, "two"))
     """)) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
-      s.message(Map.empty, Colorize.None): Unit
-    }
+        s.message(Map.empty, Colorize.None): Unit
+      }
 
-    evalFail(List("""
+      evalFail(List("""
 package A
 
 struct Pair(first, second)
@@ -1760,10 +1794,10 @@ get = Pair(first) -> first
 
 res = get(Pair(1, "two"))
     """)) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
-      s.message(Map.empty, Colorize.None): Unit
-    }
+        s.message(Map.empty, Colorize.None): Unit
+      }
 
-    evalFail(List("""
+      evalFail(List("""
 package A
 
 struct Pair(first, second)
@@ -1773,10 +1807,10 @@ get = Pair { first, sec: _ } -> first
 
 res = get(Pair(1, "two"))
     """)) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
-      s.message(Map.empty, Colorize.None): Unit
-    }
+        s.message(Map.empty, Colorize.None): Unit
+      }
 
-    evalFail(List("""
+      evalFail(List("""
 package A
 
 struct Pair(first, second)
@@ -1786,10 +1820,10 @@ get = Pair { first, sec: _, ... } -> first
 
 res = get(Pair(1, "two"))
     """)) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
-      s.message(Map.empty, Colorize.None): Unit
-    }
+        s.message(Map.empty, Colorize.None): Unit
+      }
 
-    evalFail(List("""
+      evalFail(List("""
 package A
 
 struct Pair(first, second)
@@ -1799,10 +1833,10 @@ get = Pair(first, _, _) -> first
 
 res = get(Pair(1, "two"))
     """)) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
-      s.message(Map.empty, Colorize.None): Unit
-    }
+        s.message(Map.empty, Colorize.None): Unit
+      }
 
-    evalFail(List("""
+      evalFail(List("""
 package A
 
 struct Pair(first, second)
@@ -1812,11 +1846,11 @@ get = Pair(first, _, _, ...) -> first
 
 res = get(Pair(1, "two"))
     """)) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
-      s.message(Map.empty, Colorize.None): Unit
-    }
+        s.message(Map.empty, Colorize.None): Unit
+      }
 
-    runBosatsuTest(
-      List("""
+      runBosatsuTest(
+        List("""
 package A
 
 struct Pair(first, second)
@@ -1830,23 +1864,23 @@ tests = TestSuite("test record",
     Assertion(res.eq_Int(1), "res == 1"),
   ])
 """),
-      "A",
-      1
-    )
+        "A",
+        1
+      )
 
-    evalFail(List("""
+      evalFail(List("""
 package A
 
 struct Pair(first, second)
 
 main = Nope { first: 1, second: "two" }
 """)) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
-      val msg = s.message(Map.empty, Colorize.None)
-      assert(msg.contains("Unknown constructor `Nope`."))
-      ()
-    }
+        val msg = s.message(Map.empty, Colorize.None)
+        assert(msg.contains("Unknown constructor `Nope`."))
+        ()
+      }
 
-    evalFail(List("""
+      evalFail(List("""
 package A
 
 struct Pair(first, second)
@@ -1855,12 +1889,12 @@ get = Nope(first, ...) -> first
 
 main = get(Pair(1, "two"))
 """)) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
-      val msg = s.message(Map.empty, Colorize.None)
-      assert(msg.contains("Unknown constructor `Nope`."))
-      ()
-    }
+        val msg = s.message(Map.empty, Colorize.None)
+        assert(msg.contains("Unknown constructor `Nope`."))
+        ()
+      }
 
-    evalFail(List("""
+      evalFail(List("""
 package A
 
 struct Pair(first, second)
@@ -1869,12 +1903,12 @@ get = Nope { first } -> first
 
 main = get(Pair(1, "two"))
 """)) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
-      val msg = s.message(Map.empty, Colorize.None)
-      assert(msg.contains("Unknown constructor `Nope`."))
-      ()
-    }
+        val msg = s.message(Map.empty, Colorize.None)
+        assert(msg.contains("Unknown constructor `Nope`."))
+        ()
+      }
 
-    evalFail(List("""
+      evalFail(List("""
 package A
 
 struct Pair(first, second)
@@ -1883,10 +1917,10 @@ get = Nope { first, ... } -> first
 
 main = get(Pair(1, "two"))
 """)) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
-      val msg = s.message(Map.empty, Colorize.None)
-      assert(msg.contains("Unknown constructor `Nope`."))
-      ()
-    }
+        val msg = s.message(Map.empty, Colorize.None)
+        assert(msg.contains("Unknown constructor `Nope`."))
+        ()
+      }
     }
   }
 
@@ -2641,7 +2675,9 @@ def quick_sort0(cmp, left, right):
 
   }
 
-  test("recursive local function mismatch points at definition and names unknowns") {
+  test(
+    "recursive local function mismatch points at definition and names unknowns"
+  ) {
     evalFail(List("""
 package RecOrder
 
@@ -2668,7 +2704,10 @@ def get(TreeList(trees): TreeList[a], idx: Int) -> Option[a]:
   go(trees, idx)
 """)) { case kie: PackageError.TypeErrorIn =>
       val message = kie.message(Map.empty, Colorize.None)
-      assert(message.contains("type error: expected type Int but found type"), message)
+      assert(
+        message.contains("type error: expected type Int but found type"),
+        message
+      )
       assert(message.contains("type a[b]"), message)
       assert(message.contains("[227, 250)"), message)
       assert(message.contains("where unknown type"), message)
@@ -2694,7 +2733,10 @@ def go(rem: Int, current: Int, pending: Int) -> Int:
     evalFail(List(testCode)) { case kie: PackageError.TypeErrorIn =>
       val message = kie.message(Map.empty, Colorize.None)
       assert(message.contains("pattern type mismatch"), message)
-      assert(message.contains("expected scrutinee type: (Int, Int, Int)"), message)
+      assert(
+        message.contains("expected scrutinee type: (Int, Int, Int)"),
+        message
+      )
       assert(message.contains("found pattern type: ("), message)
       assert(message.contains(s"[$start, $end)"), message)
       assertEquals(testCode.substring(start, end), pattern)
@@ -2870,7 +2912,10 @@ enum Stack[a, b]:
       case kie @ PackageError.KindInferenceError(_, _, _) =>
         val message = kie.message(Map.empty, Colorize.None)
         assert(message.contains("could not solve for valid variances"), message)
-        assert(message.contains("recursive occurrences must be covariant"), message)
+        assert(
+          message.contains("recursive occurrences must be covariant"),
+          message
+        )
         assert(message.contains("For higher-kinded parameters"), message)
         assert(message.contains("f: +(+* -> *)"), message)
         assert(!message.contains("unknown const"), message)
@@ -2892,7 +2937,10 @@ enum Bad:
     val rendered =
       errs.toList.map(_.message(sourceMap, Colorize.None)).mkString("\n")
 
-    assert(rendered.contains("recursive occurrences must be covariant"), rendered)
+    assert(
+      rendered.contains("recursive occurrences must be covariant"),
+      rendered
+    )
     assert(!rendered.contains("Unknown type"), rendered)
   }
 
@@ -2923,12 +2971,12 @@ enum UsesUsesBad:
               Shape.UnknownConst(typeDecl, _, missing)
             ),
             _
-        ) =>
+          ) =>
         typeDecl.name.asString == "Bad" &&
-          missing == RankNType.Const.Defined(
-            PackageName.parts("Repro"),
-            TypeName("Missing")
-          )
+        missing == RankNType.Const.Defined(
+          PackageName.parts("Repro"),
+          TypeName("Missing")
+        )
       case _ => false
     }
     val dependentOwners = Set("UsesBad", "UsesUsesBad")
@@ -2997,12 +3045,15 @@ struct Module(a: Missing)
       }
     )
     assert(
-      !uncompiled.head.message(sourceMap, Colorize.None).contains("perhaps you meant")
+      !uncompiled.head
+        .message(sourceMap, Colorize.None)
+        .contains("perhaps you meant")
     )
     assert(
       !diagnostics.exists {
-        case PackageError.UnknownExport(ex, _, _) => ex.name.sourceCodeRepr == "Module"
-        case _                                    => false
+        case PackageError.UnknownExport(ex, _, _) =>
+          ex.name.sourceCodeRepr == "Module"
+        case _ => false
       },
       diagnostics.mkString("\n")
     )
@@ -3028,11 +3079,11 @@ struct Module(a: Missing)
               _
             ) =>
           pack == packageName &&
-            typeDecl.name.asString == "Module" &&
-            missing == RankNType.Const.Defined(
-              packageName,
-              TypeName("Missing")
-            )
+          typeDecl.name.asString == "Module" &&
+          missing == RankNType.Const.Defined(
+            packageName,
+            TypeName("Missing")
+          )
         case _ => false
       },
       diagnostics.mkString("\n")
@@ -3082,7 +3133,9 @@ struct Module(a: Missing)
     }
   }
 
-  test("export recovery classifications follow declared kind and dependencies") {
+  test(
+    "export recovery classifications follow declared kind and dependencies"
+  ) {
     case class Fixture(
         packageName: String,
         sourceExports: List[String],
@@ -3208,12 +3261,14 @@ struct Module(a: Missing)
           },
           s"root ${fixture.rootFailure} failure missing for ${fixture.packageName}: ${diagnostics.mkString("\n")}"
         )
-        diagnostics.collect {
-          case error: PackageError.UncompiledExport[?] => error
-        }.foreach { error =>
-          assertEquals(error.in, packageName)
-          assert(!PackageError.isPostponable(error))
-        }
+        diagnostics
+          .collect { case error: PackageError.UncompiledExport[?] =>
+            error
+          }
+          .foreach { error =>
+            assertEquals(error.in, packageName)
+            assert(!PackageError.isPostponable(error))
+          }
       }
     }
   }
@@ -3274,7 +3329,7 @@ export ImportedType
          |""".stripMargin
     ) match {
       case Validated.Valid((_, parsed)) => parsed
-      case Validated.Invalid(errors) => fail(s"parse failed: $errors")
+      case Validated.Invalid(errors)    => fail(s"parse failed: $errors")
     }
     val program: Program[
       rankn.TypeEnv[Kind.Arg],
@@ -3310,7 +3365,7 @@ export ImportedType
          |""".stripMargin
     ) match {
       case Validated.Valid((_, parsed)) => parsed
-      case Validated.Invalid(errors) => fail(s"parse failed: $errors")
+      case Validated.Invalid(errors)    => fail(s"parse failed: $errors")
     }
     val externalProgram: Program[
       rankn.TypeEnv[Kind.Arg],
@@ -3329,16 +3384,24 @@ export ImportedType
       case Ior.Left(errors) =>
         assertEquals(
           exportClassifications(errors.toList),
-          List(("uncompiled", "binding:externalValue", "ExternalExportBoundary"))
+          List(
+            ("uncompiled", "binding:externalValue", "ExternalExportBoundary")
+          )
         )
       case Ior.Both(errors, _) =>
-        fail(s"expected assembly failure for external declaration, got: $errors")
+        fail(
+          s"expected assembly failure for external declaration, got: $errors"
+        )
       case Ior.Right(pack) =>
-        fail(s"expected external declaration without recovery to be unresolved: $pack")
+        fail(
+          s"expected external declaration without recovery to be unresolved: $pack"
+        )
     }
   }
 
-  test("successful exports retain type alias constructor and binding referants") {
+  test(
+    "successful exports retain type alias constructor and binding referants"
+  ) {
     val source = """
 package SuccessfulExportControl
 export Shape, Choice(), Number, topLevel, patternValue, patternOther, externalValue
@@ -3353,41 +3416,45 @@ external def externalValue(value: Int) -> Int
 """
 
     Par.withEC {
-      testInferred(List(source), "SuccessfulExportControl", { (compiled, packName) =>
-        val pack = compiled.toMap.getOrElse(
-          packName,
-          fail(s"compiled package missing: $packName")
-        )
-        val actual = pack.exports.map {
-          case ExportedName.TypeName(name, Referant.DefinedT(_)) =>
-            ("type", name.sourceCodeRepr, "defined")
-          case ExportedName.TypeName(name, Referant.TypeAliasT(_)) =>
-            ("type", name.sourceCodeRepr, "alias")
-          case ExportedName.Constructor(name, Referant.Constructor(_, _)) =>
-            ("constructor", name.sourceCodeRepr, "constructor")
-          case ExportedName.Binding(name, Referant.Value(_)) =>
-            ("binding", name.sourceCodeRepr, "value")
-          case unexpected =>
-            throw new AssertionError(
-              s"unexpected referant for export ${exportSourceForm(unexpected)}: $unexpected"
-            )
-        }.sorted
+      testInferred(
+        List(source),
+        "SuccessfulExportControl",
+        { (compiled, packName) =>
+          val pack = compiled.toMap.getOrElse(
+            packName,
+            fail(s"compiled package missing: $packName")
+          )
+          val actual = pack.exports.map {
+            case ExportedName.TypeName(name, Referant.DefinedT(_)) =>
+              ("type", name.sourceCodeRepr, "defined")
+            case ExportedName.TypeName(name, Referant.TypeAliasT(_)) =>
+              ("type", name.sourceCodeRepr, "alias")
+            case ExportedName.Constructor(name, Referant.Constructor(_, _)) =>
+              ("constructor", name.sourceCodeRepr, "constructor")
+            case ExportedName.Binding(name, Referant.Value(_)) =>
+              ("binding", name.sourceCodeRepr, "value")
+            case unexpected =>
+              throw new AssertionError(
+                s"unexpected referant for export ${exportSourceForm(unexpected)}: $unexpected"
+              )
+          }.sorted
 
-        assertEquals(
-          actual,
-          List(
-            ("type", "Shape", "defined"),
-            ("type", "Choice", "defined"),
-            ("constructor", "Left", "constructor"),
-            ("constructor", "Right", "constructor"),
-            ("type", "Number", "alias"),
-            ("binding", "topLevel", "value"),
-            ("binding", "patternValue", "value"),
-            ("binding", "patternOther", "value"),
-            ("binding", "externalValue", "value")
-          ).sorted
-        )
-      })
+          assertEquals(
+            actual,
+            List(
+              ("type", "Shape", "defined"),
+              ("type", "Choice", "defined"),
+              ("constructor", "Left", "constructor"),
+              ("constructor", "Right", "constructor"),
+              ("type", "Number", "alias"),
+              ("binding", "topLevel", "value"),
+              ("binding", "patternValue", "value"),
+              ("binding", "patternOther", "value"),
+              ("binding", "externalValue", "value")
+            ).sorted
+          )
+        }
+      )
     }
   }
 
@@ -3399,16 +3466,19 @@ export mian
 main = 1
 """
     val (errors, sourceMap) = compileErrors(List(source))
-    val unknown = errors.toList.collectFirst {
-      case error @ PackageError.UnknownExport(
-            ExportedName.Binding(name, _),
-            pack,
-            candidates
-          ) if name.sourceCodeRepr == "mian" &&
-            pack == PackageName.parts("ExportSuggestion") =>
-        assert(candidates.exists(_._1.sourceCodeRepr == "main"))
-        error
-    }.getOrElse(fail(s"expected unknown exported binding, got: $errors"))
+    val unknown = errors.toList
+      .collectFirst {
+        case error @ PackageError.UnknownExport(
+              ExportedName.Binding(name, _),
+              pack,
+              candidates
+            )
+            if name.sourceCodeRepr == "mian" &&
+              pack == PackageName.parts("ExportSuggestion") =>
+          assert(candidates.exists(_._1.sourceCodeRepr == "main"))
+          error
+      }
+      .getOrElse(fail(s"expected unknown exported binding, got: $errors"))
     val message = unknown.message(sourceMap, Colorize.None)
     assert(message.contains("perhaps you meant:"), message)
     assert(message.contains("main:5:8"), message)
@@ -3435,7 +3505,8 @@ enum UsesUsesBad:
             _,
             KindFormula.Error.FromShapeError(shapeError),
             _
-          ) => shapeError.typeDecl.name.asString == "Bad"
+          ) =>
+        shapeError.typeDecl.name.asString == "Bad"
       case _ => false
     }
     val dependentOwners = Set("UsesBad", "UsesUsesBad")
@@ -3484,8 +3555,9 @@ main = other
     val (errs, sourceMap) = compileErrors(List(testCode))
     val rendered =
       errs.toList.map(_.message(sourceMap, Colorize.None)).mkString("\n")
-    val typeMessages = errs.toList.collect { case te: PackageError.TypeErrorIn =>
-      te.message(sourceMap, Colorize.None)
+    val typeMessages = errs.toList.collect {
+      case te: PackageError.TypeErrorIn =>
+        te.message(sourceMap, Colorize.None)
     }
 
     assert(
@@ -3752,7 +3824,8 @@ main = 1
         )
       )
 
-    val rendered = errs.toList.map(_.message(sourceMap, Colorize.None)).mkString("\n")
+    val rendered =
+      errs.toList.map(_.message(sourceMap, Colorize.None)).mkString("\n")
     assert(rendered.contains("Unknown name `missing_a`."), rendered)
     assert(rendered.contains("Unknown name `missing_b`."), rendered)
   }
@@ -3809,7 +3882,9 @@ main = 1
     assert(messages.exists(_.contains("Unknown name `missing_name`.")), all)
   }
 
-  test("independent type errors are reported with name errors from blocked lets") {
+  test(
+    "independent type errors are reported with name errors from blocked lets"
+  ) {
     val (errs, sourceMap) =
       compileErrors(
         List(
@@ -3827,9 +3902,8 @@ main = 1
       )
 
     val messages =
-      errs.toList.collect {
-        case te: PackageError.TypeErrorIn =>
-          te.message(sourceMap, Colorize.None)
+      errs.toList.collect { case te: PackageError.TypeErrorIn =>
+        te.message(sourceMap, Colorize.None)
       }
 
     val all = messages.mkString("\n")
@@ -3987,10 +4061,11 @@ x = 1.0 + 2.0
 
     val (errs, sourceMap) = compileErrors(List(rightSource, leftSource))
     val message =
-      errs.toList.collectFirst {
-        case te: PackageError.TypeErrorIn =>
+      errs.toList
+        .collectFirst { case te: PackageError.TypeErrorIn =>
           te.message(sourceMap, Colorize.None)
-      }.getOrElse(fail(s"expected TypeErrorIn, found: ${errs.toList}"))
+        }
+        .getOrElse(fail(s"expected TypeErrorIn, found: ${errs.toList}"))
 
     assert(message.contains("function with 3 arguments at:"), message)
     assert(
@@ -4020,10 +4095,11 @@ x = 1.0 + 2.0
 
     val (errs, sourceMap) = compileErrors(List(source))
     val message =
-      errs.toList.collectFirst {
-        case te: PackageError.TypeErrorIn =>
+      errs.toList
+        .collectFirst { case te: PackageError.TypeErrorIn =>
           te.message(sourceMap, Colorize.None)
-      }.getOrElse(fail(s"expected TypeErrorIn, found: ${errs.toList}"))
+        }
+        .getOrElse(fail(s"expected TypeErrorIn, found: ${errs.toList}"))
 
     assert(
       message.contains("Foo is a constructor that takes 2 arguments"),
@@ -4139,18 +4215,19 @@ x = 1.0 + 2.0
         |""".stripMargin
 
     val needle = "Use of unimported type"
-    evalFail(List(libSrc, midSrc, mainSrc)) { case te: PackageError.TypeErrorIn =>
-      val message = te.message(Map.empty, Colorize.None)
-      assertEquals(
-        message.sliding(needle.length).count(_ == needle),
-        1,
-        message
-      )
-      assert(
-        message.contains("from Repro/Issue3/Lib import P"),
-        message
-      )
-      ()
+    evalFail(List(libSrc, midSrc, mainSrc)) {
+      case te: PackageError.TypeErrorIn =>
+        val message = te.message(Map.empty, Colorize.None)
+        assertEquals(
+          message.sliding(needle.length).count(_ == needle),
+          1,
+          message
+        )
+        assert(
+          message.contains("from Repro/Issue3/Lib import P"),
+          message
+        )
+        ()
     }
   }
 
@@ -4175,7 +4252,8 @@ x = 1.0 + 2.0
       TypedExpr.Literal[Declaration](Lit.Integer(0L), rankn.Type.IntType, tag)
     val matchExpr = TypedExpr.Match(
       lit,
-      cats.data.NonEmptyList.one(TypedExpr.Branch(pat, None, lit)(using Region(0, 1))),
+      cats.data.NonEmptyList
+        .one(TypedExpr.Branch(pat, None, lit)(using Region(0, 1))),
       tag
     )
     val totalityErr = PackageError.TotalityCheckError(

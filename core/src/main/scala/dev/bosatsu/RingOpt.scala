@@ -608,11 +608,10 @@ object RingOpt {
         (mul <= other.mul) && (add <= other.add) && (neg <= other.neg)
     }
 
-    /** The operations it takes to evaluate e when subtraction is one
-      * operation, as it is when Int arithmetic is emitted: x + -y and -y + x
-      * are each one sub, so a Neg that is a direct child of an Add costs
-      * nothing (only one per Add: -x + -y is (0 - x) - y). Every other Neg is
-      * a 0 - x.
+    /** The operations it takes to evaluate e when subtraction is one operation,
+      * as it is when Int arithmetic is emitted: x + -y and -y + x are each one
+      * sub, so a Neg that is a direct child of an Add costs nothing (only one
+      * per Add: -x + -y is (0 - x) - y). Every other Neg is a 0 - x.
       */
     def opCounts[A](e: Expr[A]): OpCounts = {
       @annotation.tailrec
@@ -623,7 +622,7 @@ object RingOpt {
           negCnt: Int
       ): OpCounts =
         stack match {
-          case Nil => OpCounts(mulCnt, addCnt, negCnt)
+          case Nil          => OpCounts(mulCnt, addCnt, negCnt)
           case head :: tail =>
             head match {
               case Zero | One | Integer(_) | Symbol(_) =>
@@ -2336,7 +2335,7 @@ object RingOpt {
 
           loop(expr) match {
             case (cnt, term) if cnt > 1 => Some((cnt, term))
-            case _                       => None
+            case _                      => None
           }
         }
 

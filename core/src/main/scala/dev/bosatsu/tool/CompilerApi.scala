@@ -48,8 +48,7 @@ object CompilerApi {
 
     // Errors and lint render in separate blocks, so each block gets its own
     // category ordering instead of trying to share a single cross-kind index.
-    case UnusedValue
-        extends ErrorCategory("unused value", "unused values", 0)
+    case UnusedValue extends ErrorCategory("unused value", "unused values", 0)
     case TypeError extends ErrorCategory("type error", "type errors", 1)
     case RecursionError
         extends ErrorCategory("recursion error", "recursion errors", 2)
@@ -76,8 +75,7 @@ object CompilerApi {
     def title(count: Int): String =
       if (count == 1) singularLabel else s"$count $pluralLabel"
 
-    case UnusedValue
-        extends LintCategory("unused value", "unused values", 0)
+    case UnusedValue extends LintCategory("unused value", "unused values", 0)
     case ShadowedBinding
         extends LintCategory("shadowed binding", "shadowed bindings", 1)
     case UnreachableBranch
@@ -90,27 +88,27 @@ object CompilerApi {
         extends LintCategory("exposes mismatch", "exposes mismatches", 6)
   }
 
-  private sealed trait RenderedDiagnostic {
+  sealed private trait RenderedDiagnostic {
     def title: String
     def summaryCount: Int
     def body: Doc
   }
 
-  private final case class RenderedError(
+  final private case class RenderedError(
       category: ErrorCategory,
       title: String,
       summaryCount: Int,
       body: Doc
   ) extends RenderedDiagnostic
 
-  private final case class RenderedLint(
+  final private case class RenderedLint(
       category: LintCategory,
       title: String,
       summaryCount: Int,
       body: Doc
   ) extends RenderedDiagnostic
 
-  private final case class TypeCheckDiagnostics[Path](
+  final private case class TypeCheckDiagnostics[Path](
       packages: Option[PackageMap.Compiled],
       sourcePaths: NonEmptyList[(Path, PackageName)],
       sourceMap: PackageMap.SourceMap,
@@ -119,7 +117,7 @@ object CompilerApi {
       lintDiagnostics: List[PackageError]
   )
 
-  private final case class PartitionedErrors(
+  final private case class PartitionedErrors(
       postponable: List[PackageError],
       errors: List[PackageError]
   )
@@ -147,7 +145,7 @@ object CompilerApi {
 
   private def typeErrorCount(err: PackageError.TypeErrorIn): Int =
     err.tpeErr match {
-      case _: Infer.Error.Single => 1
+      case _: Infer.Error.Single  => 1
       case c: Infer.Error.Combine => c.flatten.length.toInt
     }
 
@@ -165,7 +163,8 @@ object CompilerApi {
       case e: PackageError.UnusedLets =>
         val count = e.unusedLets.length
         val title =
-          if (count == 1) s"unused value '${e.unusedLets.head._1.sourceCodeRepr}'"
+          if (count == 1)
+            s"unused value '${e.unusedLets.head._1.sourceCodeRepr}'"
           else s"$count unused values"
         RenderedError(ErrorCategory.UnusedValue, title, count, body)
       case e: PackageError.TypeErrorIn =>
@@ -215,7 +214,11 @@ object CompilerApi {
       case _: PackageError.ExposesMismatch =>
         renderedError(ErrorCategory.PackageError, 1, body)
       case e: PackageError.Int64IntrinsicMismatch =>
-        renderedError(ErrorCategory.PackageError, e.mismatch.violations.length, body)
+        renderedError(
+          ErrorCategory.PackageError,
+          e.mismatch.violations.length,
+          body
+        )
       case e: PackageError.TodoUsage =>
         renderedError(ErrorCategory.PackageError, e.regions.length, body)
     }
@@ -236,7 +239,8 @@ object CompilerApi {
       case e: PackageError.UnusedLets =>
         val count = e.unusedLets.length
         val title =
-          if (count == 1) s"unused value '${e.unusedLets.head._1.sourceCodeRepr}'"
+          if (count == 1)
+            s"unused value '${e.unusedLets.head._1.sourceCodeRepr}'"
           else s"$count unused values"
         RenderedLint(LintCategory.UnusedValue, title, count, body)
       case e: PackageError.UnusedImport =>
@@ -281,7 +285,9 @@ object CompilerApi {
       .sortBy { case (category, _) => category.order }
     val totalDiagnostics = grouped.iterator.map(_._2).sum
     val parts = grouped.map { case (category, count) =>
-      Doc.text(pluralizedLabel(count, category.singularLabel, category.pluralLabel))
+      Doc.text(
+        pluralizedLabel(count, category.singularLabel, category.pluralLabel)
+      )
     }
     val summaryWord =
       if (totalDiagnostics == 1) "error" else "errors"
@@ -298,7 +304,9 @@ object CompilerApi {
       .sortBy { case (category, _) => category.order }
     val totalDiagnostics = grouped.iterator.map(_._2).sum
     val parts = grouped.map { case (category, count) =>
-      Doc.text(pluralizedLabel(count, category.singularLabel, category.pluralLabel))
+      Doc.text(
+        pluralizedLabel(count, category.singularLabel, category.pluralLabel)
+      )
     }
     val summaryWord =
       if (totalDiagnostics == 1) "warning" else "warnings"
@@ -370,7 +378,7 @@ object CompilerApi {
     val shadowedBindings =
       ShadowedBindingTypeCheck
         .checkLets(pack.name, pack.lets) match {
-        case Validated.Valid(_)     =>
+        case Validated.Valid(_) =>
           Nil
         case Validated.Invalid(errs) =>
           val localNames = localTypeNames(pack)
@@ -387,12 +395,13 @@ object CompilerApi {
       pack.lets.traverse_ { case (_, _, expr) =>
         TotalityCheck(pack.types).checkExprReplay(expr)
       } match {
-        case Validated.Valid(_)   =>
+        case Validated.Valid(_) =>
           Nil
         case Validated.Invalid(errs) =>
-          errs
-            .toNonEmptyList
-            .map(err => PackageError.TotalityCheckError(pack.name, err): PackageError)
+          errs.toNonEmptyList
+            .map(err =>
+              PackageError.TotalityCheckError(pack.name, err): PackageError
+            )
             .toList
             .filter(PackageError.isPostponable)
       }
@@ -409,7 +418,7 @@ object CompilerApi {
       .traverse_ { case (_, _, expr) =>
         UnusedLetCheck.check(expr)
       } match {
-      case Validated.Valid(_)     =>
+      case Validated.Valid(_) =>
         Nil
       case Validated.Invalid(errs) =>
         List(PackageError.UnusedLetError(packName, errs.toNonEmptyList))
@@ -438,7 +447,7 @@ object CompilerApi {
         resolvedImports,
         parsed.program
       ) match {
-      case Ior.Left(_)         =>
+      case Ior.Left(_) =>
         Nil
       case Ior.Right(program0) =>
         (
@@ -448,13 +457,13 @@ object CompilerApi {
               parsed.exports,
               parsed.exposes
             ) :::
-          PackageCustoms.lintDiagnosticsFromSource(
-            pack.name,
-            roots,
-            sourceImports,
-            parsed.exports,
-            program0
-          ) :::
+            PackageCustoms.lintDiagnosticsFromSource(
+              pack.name,
+              roots,
+              sourceImports,
+              parsed.exports,
+              program0
+            ) :::
             (if (includeTodoUsageWarnings)
                PackageCustoms.todoUsageLintFromSource(pack.name, program0)
              else Nil) :::
@@ -468,13 +477,13 @@ object CompilerApi {
               parsed.exports,
               parsed.exposes
             ) :::
-          PackageCustoms.lintDiagnosticsFromSource(
-            pack.name,
-            roots,
-            sourceImports,
-            parsed.exports,
-            program0
-          ) :::
+            PackageCustoms.lintDiagnosticsFromSource(
+              pack.name,
+              roots,
+              sourceImports,
+              parsed.exports,
+              program0
+            ) :::
             (if (includeTodoUsageWarnings)
                PackageCustoms.todoUsageLintFromSource(pack.name, program0)
              else Nil) :::
@@ -499,13 +508,17 @@ object CompilerApi {
       .filter(sf => allowedPackages(sf.packageName))
       .traverse { sourceFile =>
         packMap.get(sourceFile.packageName) match {
-          case None       =>
+          case None =>
             moduleIOMonad.pure(Nil)
           case Some(pack) =>
             sourceFile.loadParsed
               .flatMap(parsed0 => fromParse(platformIO, parsed0, errColor))
               .map(parsed =>
-                  replaySourceLintDiagnostics(pack, parsed, includeTodoUsageWarnings) :::
+                replaySourceLintDiagnostics(
+                  pack,
+                  parsed,
+                  includeTodoUsageWarnings
+                ) :::
                   replayTypedLintDiagnostics(pack)
               )
         }
@@ -519,7 +532,7 @@ object CompilerApi {
     val base = InferPhases.default
     def lintModeCacheKey(lm: LintMode): String =
       lm match {
-        case LintMode.Strict          => "strict"
+        case LintMode.Strict              => "strict"
         case LintMode.Warn | LintMode.Lax => "warn_or_lax"
       }
 
@@ -598,7 +611,9 @@ object CompilerApi {
       errColor: Colorize
   ): F[NonEmptyList[PackageResolver.SourceFile[F, Path]]] = {
     import platform.moduleIOMonad
-    resolver.loadSourceFiles(inputs)(platform).flatMap(fromParse(platform, _, errColor))
+    resolver
+      .loadSourceFiles(inputs)(platform)
+      .flatMap(fromParse(platform, _, errColor))
   }
 
   private def typeCheckDiagnostics[IO[_], Path](
@@ -618,15 +633,23 @@ object CompilerApi {
     val sources = sourceFiles.map { source =>
       source.toSourceUnit(
         platformIO.pathToString(source.path),
-        source.loadParsed.flatMap(parsed => fromParse(platformIO, parsed, errColor))
+        source.loadParsed.flatMap(parsed =>
+          fromParse(platformIO, parsed, errColor)
+        )
       )
     }
     val effectiveSources =
-      PackageMap.effectivePredefSources(sources, ifs, "predef", compileOptions.mode)
+      PackageMap.effectivePredefSources(
+        sources,
+        ifs,
+        "predef",
+        compileOptions.mode
+      )
     val cache: InferCache[IO, CompileCache.GenerateKeyInput, Package.Compiled] =
       compileCacheDirOpt match {
         case Some(cacheDir) => CompileCache.filesystem(cacheDir, platformIO)
-        case None => InferCache.noop[IO, CompileCache.GenerateKeyInput, Package.Compiled]
+        case None           =>
+          InferCache.noop[IO, CompileCache.GenerateKeyInput, Package.Compiled]
       }
     for {
       checked <- PackageMap.typeCheckSources[IO, String](
@@ -648,9 +671,9 @@ object CompilerApi {
           compileOptions.mode == CompileOptions.Mode.TypeCheckOnly &&
           effectiveSources.usesInternalPredefSource
       (compileDiagnostics, compiled) = checked match {
-        case Ior.Left(errs)      => (errs.toList, None)
-        case Ior.Right(packs)    => (Nil, Some(packs))
-        case Ior.Both(errs, pm)  => (errs.toList, Some(pm))
+        case Ior.Left(errs)     => (errs.toList, None)
+        case Ior.Right(packs)   => (Nil, Some(packs))
+        case Ior.Both(errs, pm) => (errs.toList, Some(pm))
       }
       partitionedDiagnostics = partitionDiagnostics(compileDiagnostics)
       hardDiagnostics0 = partitionedDiagnostics.errors
@@ -754,11 +777,18 @@ object CompilerApi {
   ): IO[(PackageMap.Compiled, NonEmptyList[(Path, PackageName)])] = {
     import platformIO.moduleIOMonad
     loadSources(platformIO, inputs, packRes, errColor).flatMap(
-      typeCheckLoaded(platformIO, _, ifs, errColor, compileOptions, compileCacheDirOpt)
+      typeCheckLoaded(
+        platformIO,
+        _,
+        ifs,
+        errColor,
+        compileOptions,
+        compileCacheDirOpt
+      )
     )
   }
 
-  private[bosatsu] final case class CompiledGroup(
+  final private[bosatsu] case class CompiledGroup(
       members: List[Package.Compiled],
       dependencies: List[Package.Interface]
   )
@@ -779,53 +809,85 @@ object CompilerApi {
     import platform.{moduleIOMonad, showPath}
     // The planner indexes requirements by package name. A duplicate must be
     // reported before one source's imports could replace the other's.
-    val unique = CollectionUtils.uniqueByKey(sources)(_.packageName)
+    val unique = CollectionUtils
+      .uniqueByKey(sources)(_.packageName)
       .fold(Left(_), Right(_), (duplicates, _) => Left(duplicates))
     val requirements = sources.toList.map { src =>
-      src.packageName -> (src.imports.map(_.pack) ::: src.exposes.flatten).distinct
+      src.packageName -> (src.imports.map(
+        _.pack
+      ) ::: src.exposes.flatten).distinct
     }
     for {
       byName <- moduleIOMonad.fromEither(unique.leftMap { duplicates =>
-        val paths = duplicates.map { case (first, rest) => (first.path.show, rest.map(_.path.show)) }
-        PackageErrors(Map.empty, NonEmptyList.one(PackageError.DuplicatedPackageError(paths)), color)
+        val paths = duplicates.map { case (first, rest) =>
+          (first.path.show, rest.map(_.path.show))
+        }
+        PackageErrors(
+          Map.empty,
+          NonEmptyList.one(PackageError.DuplicatedPackageError(paths)),
+          color
+        )
       })
       files <- paths.traverse { case (path, label) =>
         val input = PackageSignatures.Input(path, label)
-        platform.readInterfaceBundle(path).adaptError { case e =>
-          CliException.Basic(s"cannot read signature ${input.display}: ${e.getMessage}")
-        }.map(input -> _)
+        platform
+          .readInterfaceBundle(path)
+          .adaptError { case e =>
+            CliException.Basic(
+              s"cannot read signature ${input.display}: ${e.getMessage}"
+            )
+          }
+          .map(input -> _)
       }
       bundles = files ::: libraries.map { case (path, entries) =>
         PackageSignatures.Input(path, None) -> entries
       }
-      explicitPredef = useExplicitPredef && bundles.exists(_._2.interfaces.exists(i =>
-        ProtoConverter.iname(i) == PackageName.PredefName.asString))
+      explicitPredef = useExplicitPredef && bundles.exists(
+        _._2.interfaces.exists(i =>
+          ProtoConverter.iname(i) == PackageName.PredefName.asString
+        )
+      )
       builtin = !explicitPredef
-      resolution <- platform.canPromiseF.compute(PackageSignatures.plan(bundles, requirements, builtin))
+      resolution <- platform.canPromiseF
+        .compute(PackageSignatures.plan(bundles, requirements, builtin))
         .flatMap(moduleIOMonad.fromTry)
       _ <- moduleIOMonad.whenA(errorUnusedInterfaces)(
         moduleIOMonad.fromTry(resolution.checkUsed(files.map(_._1)))
       )
       initial: PackageSignatures.Providers =
         if (builtin) PackageSignatures.implicitProviders else Map.empty
-      result <- resolution.stages.foldLeftM((initial, List.empty[Package.Compiled])) {
-        case ((available, members), stage) =>
-          for {
-            bound <- platform.canPromiseF.compute(stage.bind(available)).flatMap(moduleIOMonad.fromTry)
-            batch = NonEmptyList.fromList(stage.sources.map(byName.toSortedMap))
-            compiled <- batch.toList.flatTraverse { inputs =>
-              typeCheckLoaded(platform, inputs, bound.valuesIterator.map(_.iface).toList,
-                color, options, cache).map(_._1.toMap.valuesIterator.toList)
-            }
-            next = compiled.foldLeft(bound) { (acc, pack) =>
-              acc.updated(pack.name, PackageSignatures.PublicInterface(
+      result <- resolution.stages.foldLeftM(
+        (initial, List.empty[Package.Compiled])
+      ) { case ((available, members), stage) =>
+        for {
+          bound <- platform.canPromiseF
+            .compute(stage.bind(available))
+            .flatMap(moduleIOMonad.fromTry)
+          batch = NonEmptyList.fromList(stage.sources.map(byName.toSortedMap))
+          compiled <- batch.toList.flatTraverse { inputs =>
+            typeCheckLoaded(
+              platform,
+              inputs,
+              bound.valuesIterator.map(_.iface).toList,
+              color,
+              options,
+              cache
+            ).map(_._1.toMap.valuesIterator.toList)
+          }
+          next = compiled.foldLeft(bound) { (acc, pack) =>
+            acc.updated(
+              pack.name,
+              PackageSignatures.PublicInterface(
                 PackageSignatures.canonical(Package.interfaceOf(pack))
-              ))
-            }
-          } yield (next, compiled ::: members)
+              )
+            )
+          }
+        } yield (next, compiled ::: members)
       }
-    } yield CompiledGroup(result._2.sortBy(_.name),
-      resolution.origins.keys.toList.sorted.map(name => result._1(name).iface))
+    } yield CompiledGroup(
+      result._2.sortBy(_.name),
+      resolution.origins.keys.toList.sorted.map(name => result._1(name).iface)
+    )
   }
 
   private[bosatsu] def typeCheckLoaded[IO[_], Path](
@@ -835,7 +897,9 @@ object CompilerApi {
       errColor: Colorize,
       compileOptions: CompileOptions,
       compileCacheDirOpt: Option[Path]
-  )(implicit ec: Par.EC): IO[(PackageMap.Compiled, NonEmptyList[(Path, PackageName)])] = {
+  )(implicit
+      ec: Par.EC
+  ): IO[(PackageMap.Compiled, NonEmptyList[(Path, PackageName)])] = {
     import platformIO.moduleIOMonad
 
     for {
@@ -891,8 +955,8 @@ object CompilerApi {
     )
   }
 
-  /** Like typeCheckWithLintMode, for sources the caller has already loaded,
-    * for example to check their package names first.
+  /** Like typeCheckWithLintMode, for sources the caller has already loaded, for
+    * example to check their package names first.
     */
   private[bosatsu] def typeCheckLoadedWithLintMode[IO[_], Path](
       platformIO: PlatformIO[IO, Path],
@@ -913,7 +977,7 @@ object CompilerApi {
       diagnostics.packages match {
         case Some(packs) =>
           moduleIOMonad.pure((packs, diagnostics.sourcePaths))
-        case None        =>
+        case None =>
           moduleIOMonad.raiseError(
             CliException.Basic(
               "internal compiler error: missing compiled packages after successful typecheck"
@@ -927,7 +991,9 @@ object CompilerApi {
       NonEmptyList
         .fromList(diagnostics.lintDiagnostics)
         .traverse_(warnings =>
-          platformIO.writeError(WarningDoc(diagnostics.sourceMap, warnings, errColor))
+          platformIO.writeError(
+            WarningDoc(diagnostics.sourceMap, warnings, errColor)
+          )
         )
 
     def hardFailure(
@@ -960,10 +1026,10 @@ object CompilerApi {
               moduleIOMonad.raiseError(
                 PackageErrors(diagnostics.sourceMap, errs, errColor)
               )
-            case None       =>
+            case None =>
               compiledOrError(diagnostics)
           }
-        case LintMode.Warn   =>
+        case LintMode.Warn =>
           diagnostics.hardDiagnostics match {
             case _ :: _ =>
               NonEmptyList.fromList(diagnostics.lintDiagnostics) match {
@@ -976,14 +1042,14 @@ object CompilerApi {
                       errColor
                     )
                   )
-                case None           =>
+                case None =>
                   hardFailure(diagnostics, diagnostics.hardDiagnostics)
               }
-            case Nil    =>
+            case Nil =>
               warningsIfAny(diagnostics) *>
                 compiledOrError(diagnostics)
           }
-        case LintMode.Lax    =>
+        case LintMode.Lax =>
           diagnostics.hardDiagnostics match {
             case _ :: _ => hardFailure(diagnostics, diagnostics.hardDiagnostics)
             case Nil    => compiledOrError(diagnostics)

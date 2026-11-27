@@ -3,60 +3,59 @@ package dev.bosatsu.smt
 import cats.syntax.all.*
 import scala.collection.immutable.IntMap
 
-/** Decides whether a conjunction of linear equalities and inequalities over
-  * the integers has a solution, and finds one when it does. This is Pugh's
-  * Omega test ("The Omega test: a fast and practical integer programming
-  * algorithm for dependence analysis", 1991), which is exact over the
-  * integers, unlike Fourier-Motzkin elimination over the rationals.
+/** Decides whether a conjunction of linear equalities and inequalities over the
+  * integers has a solution, and finds one when it does. This is Pugh's Omega
+  * test ("The Omega test: a fast and practical integer programming algorithm
+  * for dependence analysis", 1991), which is exact over the integers, unlike
+  * Fourier-Motzkin elimination over the rationals.
   *
   * Variables are numbered by Int. A problem goes through these steps, each of
-  * which keeps the set of integer solutions (projected onto the variables
-  * still in the problem):
+  * which keeps the set of integer solutions (projected onto the variables still
+  * in the problem):
   *
-  *   1. Normalize every constraint: divide by the gcd of its coefficients.
-  *      An equality whose constant the gcd doesn't divide has no integer
-  *      solution; an inequality's constant is rounded down, which keeps the
-  *      same integer solutions.
+  *   1. Normalize every constraint: divide by the gcd of its coefficients. An
+  *      equality whose constant the gcd doesn't divide has no integer solution;
+  *      an inequality's constant is rounded down, which keeps the same integer
+  *      solutions.
   *   2. Eliminate equalities. One with a coefficient of 1 or -1 is solved for
-  *      that variable, which is substituted everywhere. Otherwise a
-  *      unimodular change of variables shrinks the smallest coefficient,
-  *      until one is 1 or -1.
-  *   3. With only inequalities left, keep the tightest of each set of
-  *      parallel ones, and turn each opposite pair that meets into an
-  *      equality (back to step 2).
-  *   4. Eliminate a variable. One bounded on one side only is dropped with
-  *      its constraints. Otherwise each pair of a lower and an upper bound
-  *      gives one constraint without the variable (Fourier-Motzkin). When
-  *      every pair has a coefficient of 1 on one side, or always leaves room
-  *      for an integer between its bounds, this projection is exact. When it
-  *      isn't, the "dark shadow" (pairs that leave room for an integer
-  *      between them) is solved, and if it has no solution, so are the
-  *      "splinters": the original problem with the variable pinned close to
-  *      one of its lower bounds. Together these find every solution.
+  *      that variable, which is substituted everywhere. Otherwise a unimodular
+  *      change of variables shrinks the smallest coefficient, until one is 1 or
+  *      -1.
+  *   3. With only inequalities left, keep the tightest of each set of parallel
+  *      ones, and turn each opposite pair that meets into an equality (back to
+  *      step 2).
+  *   4. Eliminate a variable. One bounded on one side only is dropped with its
+  *      constraints. Otherwise each pair of a lower and an upper bound gives
+  *      one constraint without the variable (Fourier-Motzkin). When every pair
+  *      has a coefficient of 1 on one side, or always leaves room for an
+  *      integer between its bounds, this projection is exact. When it isn't,
+  *      the "dark shadow" (pairs that leave room for an integer between them)
+  *      is solved, and if it has no solution, so are the "splinters": the
+  *      original problem with the variable pinned close to one of its lower
+  *      bounds. Together these find every solution.
   *
   * Solutions are rebuilt on the way back out: an eliminated variable gets a
   * value from its definition or from its bounds at the values found for the
   * rest.
   *
-  * Every step spends from a `Budget`, so the work is bounded: running out
-  * gives `GaveUp`, never a wrong answer. The laws below are checked by
-  * OmegaLawsTest.
+  * Every step spends from a `Budget`, so the work is bounded: running out gives
+  * `GaveUp`, never a wrong answer. The laws below are checked by OmegaLawsTest.
   */
 private[smt] object Omega {
 
   /** The linear function `const + sum(coeffs(v) * v)` over integer variables.
     *
     * Canonical: no coefficient is zero (the constructor is private, and every
-    * operation keeps this), so two Forms are equal exactly when they are
-    * equal as functions.
+    * operation keeps this), so two Forms are equal exactly when they are equal
+    * as functions.
     *
     * Laws, for all Forms `a`, `b`, integers `k` and environments `env`:
     *   - `eval` is a homomorphism: `(a + b).eval(env) == a.eval(env) +
     *     b.eval(env)`, `(a * k).eval(env) == a.eval(env) * k`,
     *     `(a - b).eval(env) == a.eval(env) - b.eval(env)` and
     *     `a.plus(k).eval(env) == a.eval(env) + k`
-    *   - `a.substitute(v, b).eval(env) == a.eval(env.updated(v,
-    *     b.eval(env)))`, and the result doesn't mention `v` unless `b` does
+    *   - `a.substitute(v, b).eval(env) == a.eval(env.updated(v, b.eval(env)))`,
+    *     and the result doesn't mention `v` unless `b` does
     *   - `a == b` exactly when `a.eval(env) == b.eval(env)` for every `env`
     */
   final case class Form private (const: BigInt, coeffs: IntMap[BigInt])
@@ -131,10 +130,11 @@ private[smt] object Omega {
 
     def constant(c: BigInt): Form = new Form(c, IntMap.empty)
 
-    def variable(v: Int): Form = new Form(zeroInt, IntMap.singleton(v, BigInt(1)))
+    def variable(v: Int): Form =
+      new Form(zeroInt, IntMap.singleton(v, BigInt(1)))
 
-    /** The canonical Form for `const + sum(c * v)`, adding the coefficients
-      * of repeated variables and dropping zeros.
+    /** The canonical Form for `const + sum(c * v)`, adding the coefficients of
+      * repeated variables and dropping zeros.
       */
     def of(const: BigInt, coeffs: Iterable[(Int, BigInt)]): Form =
       coeffs.foldLeft(constant(const)) { case (acc, (v, c)) =>
@@ -142,7 +142,10 @@ private[smt] object Omega {
       }
 
     // coeffs must already have no zero coefficient, as those of a Form
-    private[Omega] def fromCanonical(const: BigInt, coeffs: IntMap[BigInt]): Form =
+    private[Omega] def fromCanonical(
+        const: BigInt,
+        coeffs: IntMap[BigInt]
+    ): Form =
       new Form(const, coeffs)
   }
 
@@ -169,8 +172,8 @@ private[smt] object Omega {
 
   enum Result derives CanEqual {
 
-    /** `model` gives a value to every variable of the constraints, and they
-      * all hold there.
+    /** `model` gives a value to every variable of the constraints, and they all
+      * hold there.
       */
     case Sat(model: IntMap[BigInt])
 
@@ -184,8 +187,8 @@ private[smt] object Omega {
   /** Work left. Every constraint a step looks at or builds costs one, so the
     * total work of a run is proportional to what it spends.
     *
-    * It also numbers the variables that equality elimination introduces,
-    * above every variable of the problem it is given.
+    * It also numbers the variables that equality elimination introduces, above
+    * every variable of the problem it is given.
     */
   final class Budget(limit: Long) {
     private var left: Long = limit
@@ -241,12 +244,19 @@ private[smt] object Omega {
     solveProblem(eqs, geqs, budget) match {
       case Result.Sat(model) =>
         // the internal variables are no business of the caller
-        Result.Sat(IntMap.from(vars.iterator.map(v => (v, model.getOrElse(v, Form.zeroInt)))))
+        Result.Sat(
+          IntMap.from(
+            vars.iterator.map(v => (v, model.getOrElse(v, Form.zeroInt)))
+          )
+        )
       case other => other
     }
   }
 
-  private def withZeros(model: IntMap[BigInt], vars: Iterable[Int]): IntMap[BigInt] =
+  private def withZeros(
+      model: IntMap[BigInt],
+      vars: Iterable[Int]
+  ): IntMap[BigInt] =
     vars.foldLeft(model) { (acc, v) =>
       if (acc.contains(v)) acc else acc.updated(v, Form.zeroInt)
     }
@@ -255,17 +265,21 @@ private[smt] object Omega {
     f.coeffs.valuesIterator.foldLeft(Form.zeroInt)(_.gcd(_))
 
   // `eqs` are `f == 0` and `geqs` are `f >= 0`.
-  private def solveProblem(eqs: List[Form], geqs: List[Form], budget: Budget): Result =
+  private def solveProblem(
+      eqs: List[Form],
+      geqs: List[Form],
+      budget: Budget
+  ): Result =
     if (!budget.spend(eqs.size + geqs.size + 1)) Result.GaveUp
     else
       normalizeEqs(eqs) match {
-        case None             => Result.Unsat
-        case Some(e :: rest)  => eliminateEq(e, rest, geqs, budget)
-        case Some(Nil)        =>
+        case None            => Result.Unsat
+        case Some(e :: rest) => eliminateEq(e, rest, geqs, budget)
+        case Some(Nil)       =>
           normalizeGeqs(geqs) match {
-            case Geqs.Contradiction       => Result.Unsat
-            case Geqs.Found(eqs1, geqs1)  => solveProblem(eqs1, geqs1, budget)
-            case Geqs.Tightened(geqs1)    => eliminateVar(geqs1, budget)
+            case Geqs.Contradiction      => Result.Unsat
+            case Geqs.Found(eqs1, geqs1) => solveProblem(eqs1, geqs1, budget)
+            case Geqs.Tightened(geqs1)   => eliminateVar(geqs1, budget)
           }
       }
 
@@ -290,7 +304,9 @@ private[smt] object Omega {
   ): Result =
     // the smallest variable with one, so the choice doesn't depend on the
     // map's iteration order
-    e.coeffs.iterator.filter { case (_, a) => a.abs == 1 }.minByOption(_._1) match {
+    e.coeffs.iterator
+      .filter { case (_, a) => a.abs == 1 }
+      .minByOption(_._1) match {
       case Some((x, a)) =>
         // a * x + r == 0 with a == 1 or -1, so x == -a * r
         val definition = e.without(x) * (-a)
@@ -387,7 +403,8 @@ private[smt] object Omega {
                 (Form.fromCanonical(tightest(k), k) :: acc, seen + k)
               else (acc, seen)
           }
-          val rest = keys.filterNot(met).map(k => Form.fromCanonical(tightest(k), k))
+          val rest =
+            keys.filterNot(met).map(k => Form.fromCanonical(tightest(k), k))
           Geqs.Found(eqs.reverse, rest)
         }
       }
@@ -419,9 +436,11 @@ private[smt] object Omega {
             val lows = lowers(x)
             val highs = uppers(x)
             lows.forall(_.coeff(x) == 1) || highs.forall(_.coeff(x) == -1) ||
-              // each pair costs a step, so a large problem gives up rather
-              // than checking every pair of every variable
-              lows.forall(f => highs.forall(g => budget.spend(1) && pairExact(x, f, g)))
+            // each pair costs a step, so a large problem gives up rather
+            // than checking every pair of every variable
+            lows.forall(f =>
+              highs.forall(g => budget.spend(1) && pairExact(x, f, g))
+            )
           }
           def cost(x: Int): Int = lowers(x).size * uppers(x).size
           val (x, isExact) = vars
@@ -452,7 +471,11 @@ private[smt] object Omega {
   // The value of x from its bounds at m: the largest lower bound, else the
   // smallest upper bound, else 0. When there is an integer between every
   // pair of bounds at m, it is in all of them.
-  private def placeVar(x: Int, bounds: List[Form], m: IntMap[BigInt]): IntMap[BigInt] = {
+  private def placeVar(
+      x: Int,
+      bounds: List[Form],
+      m: IntMap[BigInt]
+  ): IntMap[BigInt] = {
     val m1 = withZeros(m, bounds.iterator.flatMap(_.vars).filter(_ != x).toList)
     // a * x + rest >= 0 is x >= ceil(-rest / a) for a > 0 and
     // x <= floor(rest / -a) for a < 0
@@ -470,7 +493,12 @@ private[smt] object Omega {
   }
 
   // x has lower and upper bounds.
-  private def eliminateBounded(x: Int, geqs: List[Form], exact: Boolean, budget: Budget): Result = {
+  private def eliminateBounded(
+      x: Int,
+      geqs: List[Form],
+      exact: Boolean,
+      budget: Budget
+  ): Result = {
     val (withX, others) = geqs.partition(_.coeff(x) != 0)
     val lows = withX.filter(_.coeff(x) > 0)
     val highs = withX.filter(_.coeff(x) < 0)
@@ -532,7 +560,10 @@ private[smt] object Omega {
     val pinned = lows.iterator.flatMap { f =>
       val a = f.coeff(x)
       val top = floorDiv(a * m - a - m, m)
-      Iterator.iterate(Form.zeroInt)(_ + 1).takeWhile(_ <= top).map(i => f.plus(-i))
+      Iterator
+        .iterate(Form.zeroInt)(_ + 1)
+        .takeWhile(_ <= top)
+        .map(i => f.plus(-i))
     }
     // The first solution found wins. There can be as many splinters as the
     // coefficients are large, so this stops as soon as the budget is gone

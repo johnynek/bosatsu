@@ -21,10 +21,19 @@ class VerifiedLibraryGraphTest extends munit.ScalaCheckSuite {
   private def path(raw: String): Path =
     Chain.fromSeq(raw.split("/", -1).toIndexedSeq)
 
-  private def state(files: List[(String, Array[Byte])] = Nil): MemoryMain.State =
-    (LibraryInspectionFixtures.generatedFiles.map(file => file.path -> file.bytes) ::: files)
+  private def state(
+      files: List[(String, Array[Byte])] = Nil
+  ): MemoryMain.State =
+    (LibraryInspectionFixtures.generatedFiles.map(file =>
+      file.path -> file.bytes
+    ) ::: files)
       .foldLeft(MemoryMain.State.empty) { case (current, (rawPath, bytes)) =>
-        current.withFile(path(rawPath), MemoryMain.FileContent.Bytes(Bytes.copyFromArray(bytes))).get
+        current
+          .withFile(
+            path(rawPath),
+            MemoryMain.FileContent.Bytes(Bytes.copyFromArray(bytes))
+          )
+          .get
       }
 
   private def context(
@@ -73,13 +82,20 @@ class VerifiedLibraryGraphTest extends munit.ScalaCheckSuite {
       fail("expected verified graph construction to fail")
     }
 
-  private def withFile(files: List[Fixture], rawPath: String, library: proto.Library): List[Fixture] = {
+  private def withFile(
+      files: List[Fixture],
+      rawPath: String,
+      library: proto.Library
+  ): List[Fixture] = {
     val bytes = library.toByteArray
     val next = (rawPath, library, bytes, pins(bytes))
     next :: files.filterNot(_._1 == rawPath)
   }
 
-  private def replaceLibrary(fixture: Fixture, library: proto.Library): Fixture = {
+  private def replaceLibrary(
+      fixture: Fixture,
+      library: proto.Library
+  ): Fixture = {
     val bytes = library.toByteArray
     (fixture._1, library, bytes, pins(bytes))
   }
@@ -89,10 +105,14 @@ class VerifiedLibraryGraphTest extends munit.ScalaCheckSuite {
       version: Version,
       bytes: Array[Byte]
   ): proto.LibDependency =
-    dependency.copy(desc = dependency.desc.map(_.copy(
-      version = Some(version.toProto),
-      hashes = pins(bytes)
-    )))
+    dependency.copy(desc =
+      dependency.desc.map(
+        _.copy(
+          version = Some(version.toProto),
+          hashes = pins(bytes)
+        )
+      )
+    )
 
   private def dependencyHashes(
       dependency: proto.LibDependency,
@@ -100,7 +120,9 @@ class VerifiedLibraryGraphTest extends munit.ScalaCheckSuite {
   ): proto.LibDependency =
     dependency.copy(desc = dependency.desc.map(_.copy(hashes = pins(bytes))))
 
-  test("authenticates all visibility edges and decodes each private version in its own scope") {
+  test(
+    "authenticates all visibility edges and decodes each private version in its own scope"
+  ) {
     val result = verify().toOption.get
     assertEquals(result.identities.size, fixtures.size)
     assertEquals(result.edges.size, 11)
@@ -115,12 +137,19 @@ class VerifiedLibraryGraphTest extends munit.ScalaCheckSuite {
     val shared = result.identities.filter(identity =>
       Ordering[Name].equiv(identity._1, Name("shared"))
     )
-    assertEquals(shared, List((Name("shared"), Version(1, 0, 0)), (Name("shared"), Version(2, 0, 0))))
+    assertEquals(
+      shared,
+      List(
+        (Name("shared"), Version(1, 0, 0)),
+        (Name("shared"), Version(2, 0, 0))
+      )
+    )
 
     val decoded = DecodedLibraryWithDeps
       .decodeVerifiedGraph[MemoryMain.StateF[ErrorOr]](result)
       .runA(state())
-      .toOption.get
+      .toOption
+      .get
     val left = decoded.deps((Name("left"), Version(1, 0, 0)))
     val right = decoded.deps((Name("right"), Version(1, 0, 0)))
     assert(left.deps.contains((Name("shared"), Version(1, 0, 0))))
@@ -130,23 +159,31 @@ class VerifiedLibraryGraphTest extends munit.ScalaCheckSuite {
     assert(!decoded.deps.contains((Name("common"), Version(1, 0, 0))))
   }
 
-  test("colliding prerelease spellings keep private graph scopes and package bindings") {
+  test(
+    "colliding prerelease spellings keep private graph scopes and package bindings"
+  ) {
     val sharedFixtures = fixtures.filter(_._2.name == "shared")
-    val sharedV1 = sharedFixtures.find(fixture =>
-      Library.getVersion(fixture._2).contains(Version(1, 0, 0))
-    ).get
-    val sharedV2 = sharedFixtures.find(fixture =>
-      Library.getVersion(fixture._2).contains(Version(2, 0, 0))
-    ).get
+    val sharedV1 = sharedFixtures
+      .find(fixture =>
+        Library.getVersion(fixture._2).contains(Version(1, 0, 0))
+      )
+      .get
+    val sharedV2 = sharedFixtures
+      .find(fixture =>
+        Library.getVersion(fixture._2).contains(Version(2, 0, 0))
+      )
+      .get
     val sharedVersion1 = Version.unsafe("1.0.0-0")
     val sharedVersion2 = Version.unsafe("1.0.0--0")
 
     def atVersion(fixture: Fixture, version: Version): Fixture =
       replaceLibrary(
         fixture,
-        fixture._2.copy(descriptor = fixture._2.descriptor.map(
-          _.copy(version = Some(version.toProto))
-        ))
+        fixture._2.copy(descriptor =
+          fixture._2.descriptor.map(
+            _.copy(version = Some(version.toProto))
+          )
+        )
       )
 
     val shared1 = atVersion(sharedV1, sharedVersion1)
@@ -155,36 +192,43 @@ class VerifiedLibraryGraphTest extends munit.ScalaCheckSuite {
     val rightOriginal = fixtures.find(_._2.name == "right").get
     val left = replaceLibrary(
       leftOriginal,
-      leftOriginal._2.copy(privateDependencies = leftOriginal._2.privateDependencies.map {
-        dependency =>
-          if (dependency.name == "shared") dependencyTarget(dependency, sharedVersion1, shared1._3)
+      leftOriginal._2.copy(privateDependencies =
+        leftOriginal._2.privateDependencies.map { dependency =>
+          if (dependency.name == "shared")
+            dependencyTarget(dependency, sharedVersion1, shared1._3)
           else dependency
-      })
+        }
+      )
     )
     val right = replaceLibrary(
       rightOriginal,
-      rightOriginal._2.copy(privateDependencies = rightOriginal._2.privateDependencies.map {
-        dependency =>
-          if (dependency.name == "shared") dependencyTarget(dependency, sharedVersion2, shared2._3)
+      rightOriginal._2.copy(privateDependencies =
+        rightOriginal._2.privateDependencies.map { dependency =>
+          if (dependency.name == "shared")
+            dependencyTarget(dependency, sharedVersion2, shared2._3)
           else dependency
-      })
+        }
+      )
     )
     val root = replaceLibrary(
       rootFixture,
-      rootFixture._2.copy(privateDependencies = rootFixture._2.privateDependencies.map {
-        dependency =>
+      rootFixture._2.copy(privateDependencies =
+        rootFixture._2.privateDependencies.map { dependency =>
           if (dependency.name == "left") dependencyHashes(dependency, left._3)
-          else if (dependency.name == "right") dependencyHashes(dependency, right._3)
+          else if (dependency.name == "right")
+            dependencyHashes(dependency, right._3)
           else dependency
-      })
+        }
+      )
     )
-    val replacements = List(shared1, shared2, left, right, root).map(fixture =>
-      fixture._1 -> fixture
-    ).toMap
-    val changedFixtures = fixtures.map(fixture =>
-      replacements.getOrElse(fixture._1, fixture)
-    )
-    val changedFiles = changedFixtures.map { case (file, _, bytes, _) => file -> bytes }
+    val replacements = List(shared1, shared2, left, right, root)
+      .map(fixture => fixture._1 -> fixture)
+      .toMap
+    val changedFixtures =
+      fixtures.map(fixture => replacements.getOrElse(fixture._1, fixture))
+    val changedFiles = changedFixtures.map { case (file, _, bytes, _) =>
+      file -> bytes
+    }
     val current = state(changedFiles)
     val children = changedFixtures.filterNot(_._1 == root._1)
     val verified = verify(root, children, current).toOption.get
@@ -198,7 +242,8 @@ class VerifiedLibraryGraphTest extends munit.ScalaCheckSuite {
     )
     assertEquals(
       verified.edges.collect {
-        case edge if Ordering[Name].equiv(edge.targetIdentity._1, Name("shared")) =>
+        case edge
+            if Ordering[Name].equiv(edge.targetIdentity._1, Name("shared")) =>
           edge.referringIdentity._1 -> edge.targetIdentity._2
       }.toSet,
       Set(Name("left") -> sharedVersion1, Name("right") -> sharedVersion2)
@@ -208,23 +253,32 @@ class VerifiedLibraryGraphTest extends munit.ScalaCheckSuite {
       val decoded = DecodedLibraryWithDeps
         .decodeVerifiedGraph[MemoryMain.StateF[ErrorOr]](graph)
         .runA(current)
-        .toOption.get
+        .toOption
+        .get
       val sharedApi = PackageName.parse("Shared/Api").get
-      val leftBinding = decoded.deps((Name("left"), Version(1, 0, 0)))
-        .depFor(sharedApi).map(_.nameVersion)
-      val rightBinding = decoded.deps((Name("right"), Version(1, 0, 0)))
-        .depFor(sharedApi).map(_.nameVersion)
+      val leftBinding = decoded
+        .deps((Name("left"), Version(1, 0, 0)))
+        .depFor(sharedApi)
+        .map(_.nameVersion)
+      val rightBinding = decoded
+        .deps((Name("right"), Version(1, 0, 0)))
+        .depFor(sharedApi)
+        .map(_.nameVersion)
       leftBinding -> rightBinding
     }
 
     assertEquals(
       packageBindings(verified),
-      Some((Name("shared"), sharedVersion1)) -> Some((Name("shared"), sharedVersion2))
+      Some((Name("shared"), sharedVersion1)) -> Some(
+        (Name("shared"), sharedVersion2)
+      )
     )
-    val implementation = LibraryInspection.implementationProjection(
-      verified,
-      platform.pathToString
-    ).render
+    val implementation = LibraryInspection
+      .implementationProjection(
+        verified,
+        platform.pathToString
+      )
+      .render
     assert(implementation.contains("1.0.0-0"), implementation)
     assert(implementation.contains("1.0.0--0"), implementation)
 
@@ -232,25 +286,35 @@ class VerifiedLibraryGraphTest extends munit.ScalaCheckSuite {
     assertEquals(reordered.identities, verified.identities)
     assertEquals(reordered.edges, verified.edges)
     assertEquals(
-      LibraryInspection.implementationProjection(reordered, platform.pathToString).render,
+      LibraryInspection
+        .implementationProjection(reordered, platform.pathToString)
+        .render,
       implementation
     )
     assertEquals(packageBindings(reordered), packageBindings(verified))
   }
 
-  test("every second diamond edge is checked after its target was authenticated") {
+  test(
+    "every second diamond edge is checked after its target was authenticated"
+  ) {
     val parser = rootFixture._2
     val privateChild = fixtures.find(_._2.name == "private_child").get
     val corruptPrivateChild = privateChild._2.copy(
-      privateDependencies = privateChild._2.privateDependencies.map { dependency =>
-        dependency.copy(desc = dependency.desc.map(_.copy(hashes = List(s"sha256:${"0" * 64}"))))
-      }
+      privateDependencies =
+        privateChild._2.privateDependencies.map { dependency =>
+          dependency.copy(desc =
+            dependency.desc.map(_.copy(hashes = List(s"sha256:${"0" * 64}")))
+          )
+        }
     )
     val corruptChildBytes = corruptPrivateChild.toByteArray
     val parserWithUpdatedChildPin = parser.copy(
       privateDependencies = parser.privateDependencies.map { dependency =>
         if (dependency.name == "private_child")
-          dependency.copy(desc = dependency.desc.map(_.copy(hashes = List(pins(corruptChildBytes).head))))
+          dependency.copy(desc =
+            dependency.desc
+              .map(_.copy(hashes = List(pins(corruptChildBytes).head)))
+          )
         else dependency
       }
     )
@@ -278,7 +342,9 @@ class VerifiedLibraryGraphTest extends munit.ScalaCheckSuite {
     assert(failure.contains("parser"), failure)
   }
 
-  test("a referring library cannot see two providers for one package in its scope") {
+  test(
+    "a referring library cannot see two providers for one package in its scope"
+  ) {
     val parser = rootFixture._2
     val left = fixtures.find(_._2.name == "left").get._2
     val right = fixtures.find(_._2.name == "right").get._2
@@ -287,7 +353,8 @@ class VerifiedLibraryGraphTest extends munit.ScalaCheckSuite {
         left.privateDependencies.toList ::: right.privateDependencies.toList
     )
     val bytes = withAmbiguousProviders.toByteArray
-    val changedRoot = (rootFixture._1, withAmbiguousProviders, bytes, pins(bytes))
+    val changedRoot =
+      (rootFixture._1, withAmbiguousProviders, bytes, pins(bytes))
     val current = state(List(rootFixture._1 -> bytes))
     val graph = verify(root = changedRoot, current = current).toOption.get
     val failure = message(
@@ -295,7 +362,10 @@ class VerifiedLibraryGraphTest extends munit.ScalaCheckSuite {
         .decodeVerifiedGraph[MemoryMain.StateF[ErrorOr]](graph)
         .runA(current)
     )
-    assert(failure.contains("ambiguous dependency providers in parser"), failure)
+    assert(
+      failure.contains("ambiguous dependency providers in parser"),
+      failure
+    )
     assert(failure.contains("shared 1.0.0"), failure)
     assert(failure.contains("shared 2.0.0"), failure)
   }
@@ -334,12 +404,19 @@ class VerifiedLibraryGraphTest extends munit.ScalaCheckSuite {
         Library.getVersion(rootFixture._2).get,
         rootFixture._4
       )
-      .flatMap(snapshot => VerifiedLibraryGraph.verify(platform, snapshot, equalContext))
+      .flatMap(snapshot =>
+        VerifiedLibraryGraph.verify(platform, snapshot, equalContext)
+      )
       .runA(state(List(aliasPath -> common._3)))
-      .toOption.get
-    assertEquals(rootSnapshot.aliases((Name("common"), Version(1, 0, 0))).size, 2)
+      .toOption
+      .get
+    assertEquals(
+      rootSnapshot.aliases((Name("common"), Version(1, 0, 0))).size,
+      2
+    )
 
-    val conflictingLibrary = common._2.copy(repoUri = "https://example.invalid/conflicting-common")
+    val conflictingLibrary =
+      common._2.copy(repoUri = "https://example.invalid/conflicting-common")
     val conflictingBytes = conflictingLibrary.toByteArray
     val conflictingAlias = alias.copy(
       path = path("aliases/conflicting-common.bosatsu_lib"),
@@ -354,8 +431,14 @@ class VerifiedLibraryGraphTest extends munit.ScalaCheckSuite {
         Library.getVersion(rootFixture._2).get,
         rootFixture._4
       )
-      .flatMap(snapshot => VerifiedLibraryGraph.verify(platform, snapshot, conflictingContext))
-      .runA(state(List(conflictingAlias.path.toList.mkString("/") -> conflictingBytes)))
+      .flatMap(snapshot =>
+        VerifiedLibraryGraph.verify(platform, snapshot, conflictingContext)
+      )
+      .runA(
+        state(
+          List(conflictingAlias.path.toList.mkString("/") -> conflictingBytes)
+        )
+      )
     val error = message(conflict)
     assert(error.contains("conflicting files claim common"), error)
     assert(error.contains(common._1), error)
@@ -363,7 +446,9 @@ class VerifiedLibraryGraphTest extends munit.ScalaCheckSuite {
     assert(error.contains("parser"), error)
   }
 
-  test("missing files are reported for public, private and legacy resolution edges") {
+  test(
+    "missing files are reported for public, private and legacy resolution edges"
+  ) {
     val parser = rootFixture._2
     val direct = List(
       LibraryDependencyVisibility.Public -> "public_child",
@@ -372,7 +457,7 @@ class VerifiedLibraryGraphTest extends munit.ScalaCheckSuite {
     )
     direct.foreach { case (visibility, name) =>
       val matchingEdges = visibility match {
-        case LibraryDependencyVisibility.Public => parser.publicDependencies
+        case LibraryDependencyVisibility.Public  => parser.publicDependencies
         case LibraryDependencyVisibility.Private => parser.privateDependencies
         case LibraryDependencyVisibility.UnusedTransitivePublic =>
           parser.unusedTransitivePublicDependencies
@@ -388,15 +473,19 @@ class VerifiedLibraryGraphTest extends munit.ScalaCheckSuite {
     }
   }
 
-  test("dependency descriptors must carry both an exact version and supported pins") {
+  test(
+    "dependency descriptors must carry both an exact version and supported pins"
+  ) {
     val parser = rootFixture._2
     val public = parser.publicDependencies.head
     val descriptor = public.desc.get
     val missingVersion = parser.copy(
-      publicDependencies = List(public.copy(desc = Some(descriptor.copy(version = None))))
+      publicDependencies =
+        List(public.copy(desc = Some(descriptor.copy(version = None))))
     )
     val missingPins = parser.copy(
-      publicDependencies = List(public.copy(desc = Some(descriptor.copy(hashes = Nil))))
+      publicDependencies =
+        List(public.copy(desc = Some(descriptor.copy(hashes = Nil))))
     )
     List(
       missingVersion -> "missing version for dependency 'public_child'",
@@ -415,7 +504,9 @@ class VerifiedLibraryGraphTest extends munit.ScalaCheckSuite {
     }
   }
 
-  test("all visibility descriptors reject malformed serialized target versions") {
+  test(
+    "all visibility descriptors reject malformed serialized target versions"
+  ) {
     val malformedVersion = proto.Version(
       major = 1L,
       minor = 0L,
@@ -425,19 +516,27 @@ class VerifiedLibraryGraphTest extends munit.ScalaCheckSuite {
     val changed = List(
       rootFixture._2.copy(
         publicDependencies = rootFixture._2.publicDependencies.map { dependency =>
-          dependency.copy(desc = dependency.desc.map(_.copy(version = Some(malformedVersion))))
+          dependency.copy(desc =
+            dependency.desc.map(_.copy(version = Some(malformedVersion)))
+          )
         }
       ),
       rootFixture._2.copy(
-        privateDependencies = rootFixture._2.privateDependencies.map { dependency =>
-          dependency.copy(desc = dependency.desc.map(_.copy(version = Some(malformedVersion))))
-        }
-      ),
-      rootFixture._2.copy(
-        unusedTransitivePublicDependencies = rootFixture._2.unusedTransitivePublicDependencies
-          .map { dependency =>
-            dependency.copy(desc = dependency.desc.map(_.copy(version = Some(malformedVersion))))
+        privateDependencies =
+          rootFixture._2.privateDependencies.map { dependency =>
+            dependency.copy(desc =
+              dependency.desc.map(_.copy(version = Some(malformedVersion)))
+            )
           }
+      ),
+      rootFixture._2.copy(
+        unusedTransitivePublicDependencies =
+          rootFixture._2.unusedTransitivePublicDependencies
+            .map { dependency =>
+              dependency.copy(desc =
+                dependency.desc.map(_.copy(version = Some(malformedVersion)))
+              )
+            }
       )
     )
 
@@ -454,9 +553,11 @@ class VerifiedLibraryGraphTest extends munit.ScalaCheckSuite {
           pins(bytes)
         )
         .runA(current)
-        .toOption.get
+        .toOption
+        .get
 
-      val descriptorError = LibraryInspection.descriptorProjection(snapshot).swap.toOption.get
+      val descriptorError =
+        LibraryInspection.descriptorProjection(snapshot).swap.toOption.get
       assert(descriptorError.contains("invalid version"), descriptorError)
       assert(descriptorError.contains("parser 1.0.0"), descriptorError)
 
@@ -467,7 +568,9 @@ class VerifiedLibraryGraphTest extends munit.ScalaCheckSuite {
     }
   }
 
-  test("cycle detection reports the authenticated path that reaches the cycle") {
+  test(
+    "cycle detection reports the authenticated path that reaches the cycle"
+  ) {
     val root = (Name("cycle_root"), Version(1, 0, 0))
     val left = (Name("cycle_left"), Version(1, 0, 0))
     val right = (Name("cycle_right"), Version(1, 0, 0))
@@ -481,13 +584,16 @@ class VerifiedLibraryGraphTest extends munit.ScalaCheckSuite {
         right -> List(root, left, right)
       )
     )
-    val error = result.swap.toOption.getOrElse(fail("expected a dependency cycle"))
+    val error =
+      result.swap.toOption.getOrElse(fail("expected a dependency cycle"))
     assert(error.contains("dependency cycle prevents ordering"), error)
     assert(error.contains("cycle_root 1.0.0 -> cycle_left 1.0.0"), error)
     assert(error.contains("cycle_right 1.0.0"), error)
   }
 
-  property("context order does not affect canonical authenticated edge metadata") {
+  property(
+    "context order does not affect canonical authenticated edge metadata"
+  ) {
     val allChildren = fixtures.filterNot(_._1 == rootFixture._1)
     Prop.forAll(Gen.pick(allChildren.length, allChildren.indices)) { order =>
       val ordered = order.toList.map(allChildren)

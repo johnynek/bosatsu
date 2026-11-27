@@ -5,7 +5,9 @@ import dev.bosatsu.Bytes
 import org.scalacheck.Prop.forAll
 
 class HashedTest extends munit.ScalaCheckSuite {
-  property("Hash[Hashed] compares digests and argument contents, not references") {
+  property(
+    "Hash[Hashed] compares digests and argument contents, not references"
+  ) {
     forAll { (left: List[Byte], right: List[Byte]) =>
       val leftBytes = Bytes.copyFromArray(left.toArray)
       val digest = Algo.hash[Algo.Blake3](leftBytes)

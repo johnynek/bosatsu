@@ -11,12 +11,10 @@ class AlgoJvmTest extends munit.ScalaCheckSuite {
 
   private def javaHex(bytes: Array[Byte]): String = {
     val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
-    digest.iterator
-      .map { byte =>
-        val hex = Integer.toHexString(byte & 0xff)
-        if (hex.length == 1) "0" + hex else hex
-      }
-      .mkString
+    digest.iterator.map { byte =>
+      val hex = Integer.toHexString(byte & 0xff)
+      if (hex.length == 1) "0" + hex else hex
+    }.mkString
   }
 
   property("portable SHA-256 matches java.security across generated inputs") {
@@ -25,8 +23,11 @@ class AlgoJvmTest extends munit.ScalaCheckSuite {
     }
   }
 
-  test("portable SHA-256 matches java.security around padding and block boundaries") {
-    val lengths = List(0, 1, 55, 56, 63, 64, 65, 119, 120, 127, 128, 129, 255, 256)
+  test(
+    "portable SHA-256 matches java.security around padding and block boundaries"
+  ) {
+    val lengths =
+      List(0, 1, 55, 56, 63, 64, 65, 119, 120, 127, 128, 129, 255, 256)
 
     lengths.foreach { size =>
       val bytes = Array.tabulate(size)(idx => (idx * 31 + size).toByte)

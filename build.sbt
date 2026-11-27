@@ -110,7 +110,9 @@ lazy val nodeVersion =
   taskKey[String]("Version of the Node.js that runs the Scala.js tests")
 
 lazy val jsTestRuntimeDigest =
-  taskKey[Digest]("Hash of the linker settings and Node.js version JS tests run with")
+  taskKey[Digest](
+    "Hash of the linker settings and Node.js version JS tests run with"
+  )
 
 ThisBuild / nodeVersion := Def.uncached(
   Try(Seq("node", "--version").!!.trim).getOrElse("unknown")
@@ -196,20 +198,23 @@ lazy val docs = (project in file("docs"))
           |""".stripMargin
       def rewriteMarkdownLinksToHtml(content: String): String = {
         val linkPattern = raw"\]\(([^)]+)\)".r
-        linkPattern.replaceAllIn(content, m => {
-          val target = m.group(1)
-          val hashIdx = target.indexOf('#')
-          val (path, suffix) =
-            if (hashIdx >= 0) {
-              (target.substring(0, hashIdx), target.substring(hashIdx))
-            } else (target, "")
+        linkPattern.replaceAllIn(
+          content,
+          m => {
+            val target = m.group(1)
+            val hashIdx = target.indexOf('#')
+            val (path, suffix) =
+              if (hashIdx >= 0) {
+                (target.substring(0, hashIdx), target.substring(hashIdx))
+              } else (target, "")
 
-          if (path.endsWith(".md") && !path.contains("://")) {
-            s"](${path.stripSuffix(".md")}.html$suffix)"
-          } else {
-            m.matched
+            if (path.endsWith(".md") && !path.contains("://")) {
+              s"](${path.stripSuffix(".md")}.html$suffix)"
+            } else {
+              m.matched
+            }
           }
-        })
+        )
       }
 
       // Ensure bosatsuj has an up-to-date CLI assembly before generating docs.
@@ -252,7 +257,8 @@ lazy val docs = (project in file("docs"))
       IO.copyDirectory(generatedDocsRoot, paradoxGeneratedRoot)
 
       val markdownFiles =
-        (paradoxGeneratedRoot ** "*.md").get()
+        (paradoxGeneratedRoot ** "*.md")
+          .get()
           .filterNot(_.getName == "index.md")
           .sortBy(f =>
             IO.relativize(paradoxGeneratedRoot, f).getOrElse(f.getPath)
@@ -296,7 +302,9 @@ lazy val docs = (project in file("docs"))
         val markdown = IO.read(file)
         IO.write(
           file,
-          disableParadoxSourceMarkdownLink + rewriteMarkdownLinksToHtml(markdown)
+          disableParadoxSourceMarkdownLink + rewriteMarkdownLinksToHtml(
+            markdown
+          )
         )
       }
       IO.write(
@@ -545,28 +553,30 @@ lazy val intdecideJVM = intdecide.jvm
 lazy val core =
   crossProject(JSPlatform, JVMPlatform)
     .crossType(CrossType.Pure)
-    .in(file("core")).settings(
-    commonSettings,
-    name := "bosatsu-core",
-    moduleName := "compiler-core",
-    assembly / test := TestResult.Passed,
-    scalacOptions += "-Yexplicit-nulls",
-    libraryDependencies ++=
-      Seq(
-        blake3.value,
-        sha.value,
-        cats.value,
-        catsCol.value,
-        catsParse.value,
-        decline.value,
-        paiges.value,
-        scalawasiz3.value % Test,
-        scalaCheck.value % Test,
-        munit.value % Test,
-        munitScalaCheck.value % Test,
-        "com.thesamet.scalapb" %% "scalapb-runtime" % scalapb.compiler.Version.scalapbVersion
-      )
-  ).dependsOn(base, proto, intdecide % "compile->compile;test->test")
+    .in(file("core"))
+    .settings(
+      commonSettings,
+      name := "bosatsu-core",
+      moduleName := "compiler-core",
+      assembly / test := TestResult.Passed,
+      scalacOptions += "-Yexplicit-nulls",
+      libraryDependencies ++=
+        Seq(
+          blake3.value,
+          sha.value,
+          cats.value,
+          catsCol.value,
+          catsParse.value,
+          decline.value,
+          paiges.value,
+          scalawasiz3.value % Test,
+          scalaCheck.value % Test,
+          munit.value % Test,
+          munitScalaCheck.value % Test,
+          "com.thesamet.scalapb" %% "scalapb-runtime" % scalapb.compiler.Version.scalapbVersion
+        )
+    )
+    .dependsOn(base, proto, intdecide % "compile->compile;test->test")
     .jsSettings(
       commonJsSettings
     )

@@ -11,12 +11,12 @@ import dev.bosatsu.rankn.{DefinedType, Type, TypeEnv}
   * `int_low_bits_to_Int64` applied to an `Int` literal into a constant. These
   * rewrites only look at the package and binding name. They agree with the
   * runtimes only when `Int64` is an external type, which each backend stores
-  * directly as a 64-bit integer (the C runtime packs it into the `BValue`),
-  * and each rewritten name is an `external def` with exactly the core type.
+  * directly as a 64-bit integer (the C runtime packs it into the `BValue`), and
+  * each rewritten name is an `external def` with exactly the core type.
   *
-  * The compiler establishes that precondition as follows. Library builds
-  * reject `Bosatsu/` packages outside the core library, both in their own
-  * sources and in their dependencies. Loose compilation (`tool` commands,
+  * The compiler establishes that precondition as follows. Library builds reject
+  * `Bosatsu/` packages outside the core library, both in their own sources and
+  * in their dependencies. Loose compilation (`tool` commands,
   * `compile-packages` and `emit-c`) has no library identity. There, every
   * package named `Bosatsu/Num/Int64` must pass `checkPackage` when it is
   * type-checked from source (`PackageCustoms.assemble`) or decoded from an
@@ -24,14 +24,14 @@ import dev.bosatsu.rankn.{DefinedType, Type, TypeEnv}
   * pass `checkInterface` when it is decoded (`ProtoConverter`). Interfaces
   * derived from a checked package need no further check.
   *
-  * These checks cover the Bosatsu declarations, not native code. Calls that
-  * are not rewritten, such as `int_low_bits_to_Int64(x)` with a non-literal
-  * `x` or `cmp_Int64` passed as a value, still run the external's native
-  * implementation. The rewrites therefore also assume that implementation
-  * keeps the standard runtime's representation and results. Each backend's
-  * built-in Int64 externals do. A provider that binds these symbols itself,
-  * as `emit-c` allows, must as well. Verifying that belongs to core-source
-  * identity checks, not to this object.
+  * These checks cover the Bosatsu declarations, not native code. Calls that are
+  * not rewritten, such as `int_low_bits_to_Int64(x)` with a non-literal `x` or
+  * `cmp_Int64` passed as a value, still run the external's native
+  * implementation. The rewrites therefore also assume that implementation keeps
+  * the standard runtime's representation and results. Each backend's built-in
+  * Int64 externals do. A provider that binds these symbols itself, as `emit-c`
+  * allows, must as well. Verifying that belongs to core-source identity checks,
+  * not to this object.
   *
   * Adding a case to `Intrinsic` adds it to both checks.
   */
@@ -157,9 +157,8 @@ object Int64Intrinsics {
   /** Check a decoded interface. An interface cannot distinguish an external
     * type from a struct exported without constructors, or an `external def`
     * from a `def`, so this checks only the visible shape and types. Consumers
-    * cannot build or inspect an `Int64` without calling the implementation,
-    * and `checkPackage` covers the implementation wherever it enters a
-    * compilation.
+    * cannot build or inspect an `Int64` without calling the implementation, and
+    * `checkPackage` covers the implementation wherever it enters a compilation.
     */
   def checkInterface(iface: Package.Interface): Option[Mismatch] =
     if (iface.name != packageName) None

@@ -46,9 +46,10 @@ class KindFormulaTest extends munit.FunSuite {
             te.getType(
               PackageName.PredefName,
               name
-            )
-              .map(_.kindOf)
-              .orElse(te.getTypeAlias(PackageName.PredefName, name).map(_.kindOf))
+            ).map(_.kindOf)
+              .orElse(
+                te.getTypeAlias(PackageName.PredefName, name).map(_.kindOf)
+              )
               .getOrElse(fail(s"missing type or alias: $n"))
           val kind = Kind.parser.parseAll(vs) match {
             case Right(k) => k
@@ -91,7 +92,7 @@ class KindFormulaTest extends munit.FunSuite {
       TestUtils.parsedTypeEnvOf(PackageName.PredefName, teStr)
     ) match {
       case Ior.Both(errors, solved) => SolverPartial(errors.toList, solved)
-      case Ior.Left(errors) =>
+      case Ior.Left(errors)         =>
         fail(s"expected partial solver result, got only errors: $errors")
       case Ior.Right(solved) =>
         fail(s"expected solver errors, got successful result: $solved")
@@ -163,12 +164,14 @@ class KindFormulaTest extends munit.FunSuite {
     }
 
   private def chainFixture(root: ChainRoot, choices: List[Boolean]): String = {
-    val chain = choices.iterator.zipWithIndex.map { case (alias, idx) =>
-      val name = s"Dependent${idx + 1}"
-      val previous = if (idx == 0) root.firstUse else s"Dependent$idx"
-      if (alias) s"type $name = $previous"
-      else s"struct $name(value: $previous)"
-    }.mkString("\n")
+    val chain = choices.iterator.zipWithIndex
+      .map { case (alias, idx) =>
+        val name = s"Dependent${idx + 1}"
+        val previous = if (idx == 0) root.firstUse else s"Dependent$idx"
+        if (alias) s"type $name = $previous"
+        else s"struct $name(value: $previous)"
+      }
+      .mkString("\n")
 
     s"""#
 struct Prerequisite
@@ -620,7 +623,9 @@ type GoodAliasAfter = GoodAfter
       "AliasAfterDefBadAliasKind"
     )
     assert(
-      result.errors.forall(error => !dependentNames(error.typeDecl.name.asString)),
+      result.errors.forall(error =>
+        !dependentNames(error.typeDecl.name.asString)
+      ),
       "dependent declarations should not own solver errors"
     )
 
@@ -646,7 +651,9 @@ type GoodAliasAfter = GoodAfter
     )
   }
 
-  test("failed dependency suppression is transitive across bounded mixed chains") {
+  test(
+    "failed dependency suppression is transitive across bounded mixed chains"
+  ) {
     val roots = List(
       ChainRoot(
         "Bad",
@@ -700,7 +707,9 @@ enum Free[a: +*]:
 """)
   }
 
-  test("regression: Eval-like variance failure reports kind failure, not invariant") {
+  test(
+    "regression: Eval-like variance failure reports kind failure, not invariant"
+  ) {
     val res = makeTE("""#
 enum Leaf[a: +*]:
   Done(done: a)

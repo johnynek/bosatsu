@@ -4,8 +4,8 @@ import org.scalacheck.Gen
 
 import LinearBoundsGens.{Env, byZeroChoices, evalBool, evalInt}
 
-/** Generators for the IntDecide and Omega tests: goals and facts over three
-  * Int and two Bool variables, with everything the recursion check builds.
+/** Generators for the IntDecide and Omega tests: goals and facts over three Int
+  * and two Bool variables, with everything the recursion check builds.
   */
 object IntDecideGens {
   import SmtExpr.*
@@ -17,11 +17,13 @@ object IntDecideGens {
 
   // small coefficients are common, larger ones make inexact eliminations
   val coeffGen: Gen[BigInt] =
-    Gen.frequency(
-      6 -> Gen.oneOf(-2, -1, 1, 2),
-      3 -> Gen.oneOf(-7, -6, -5, -4, -3, 3, 4, 5, 6, 7),
-      1 -> Gen.chooseNum(-30, 30)
-    ).map(BigInt(_))
+    Gen
+      .frequency(
+        6 -> Gen.oneOf(-2, -1, 1, 2),
+        3 -> Gen.oneOf(-7, -6, -5, -4, -3, 3, 4, 5, 6, 7),
+        1 -> Gen.chooseNum(-30, 30)
+      )
+      .map(BigInt(_))
 
   val omegaFormGen: Gen[Omega.Form] =
     for {
@@ -44,7 +46,9 @@ object IntDecideGens {
   // rarely exact, and the dark shadow is often empty while integer
   // solutions remain, so the splinters are needed.
   val inexactConstraintsGen: Gen[List[Omega.Constraint]] = {
-    val big = Gen.oneOf(-9, -8, -7, -6, -5, -4, -3, -2, 2, 3, 4, 5, 6, 7, 8, 9).map(BigInt(_))
+    val big = Gen
+      .oneOf(-9, -8, -7, -6, -5, -4, -3, -2, 2, 3, 4, 5, 6, 7, 8, 9)
+      .map(BigInt(_))
     val slab = for {
       c <- Gen.chooseNum(-20, 20).map(BigInt(_))
       a <- big
@@ -60,8 +64,8 @@ object IntDecideGens {
 
   val omegaBound: Int = 4
 
-  /** `-omegaBound <= v <= omegaBound` for every variable, so brute force
-    * over the box decides the problem.
+  /** `-omegaBound <= v <= omegaBound` for every variable, so brute force over
+    * the box decides the problem.
     */
   val boxConstraints: List[Omega.Constraint] =
     omegaVars.toList.flatMap { v =>
@@ -105,8 +109,8 @@ object IntDecideGens {
     * mod by any nonzero constant, SMT-LIB's by a positive one, and `ite` on
     * conditions with variables.
     *
-    * With `nonlinear`, also products of variables and division by variables
-    * and zero, which IntDecide reads as unknowns.
+    * With `nonlinear`, also products of variables and division by variables and
+    * zero, which IntDecide reads as unknowns.
     */
   def intTermGen(depth: Int, nonlinear: Boolean): Gen[IntExpr] = {
     val leaf = Gen.frequency(4 -> intVarGen, 2 -> smallConstGen)
@@ -118,10 +122,19 @@ object IntDecideGens {
         6 -> leaf,
         3 -> Gen.zip(rec, rec).map { case (a, b) => Add(Vector(a, b)) },
         3 -> Gen.zip(rec, rec).map { case (a, b) => Sub(Vector(a, b)) },
-        1 -> Gen.choose(1, 3).flatMap(Gen.listOfN(_, rec)).map(as => Sub(as.toVector)),
-        2 -> Gen.zip(Gen.chooseNum(-3, 3), rec).map { case (k, a) => Mul(Vector(c(k), a)) },
-        2 -> Gen.zip(rec, nonzeroGen).map { case (a, k) => bosatsuDiv(a, c(k)) },
-        2 -> Gen.zip(rec, nonzeroGen).map { case (a, k) => bosatsuMod(a, c(k)) },
+        1 -> Gen
+          .choose(1, 3)
+          .flatMap(Gen.listOfN(_, rec))
+          .map(as => Sub(as.toVector)),
+        2 -> Gen.zip(Gen.chooseNum(-3, 3), rec).map { case (k, a) =>
+          Mul(Vector(c(k), a))
+        },
+        2 -> Gen.zip(rec, nonzeroGen).map { case (a, k) =>
+          bosatsuDiv(a, c(k))
+        },
+        2 -> Gen.zip(rec, nonzeroGen).map { case (a, k) =>
+          bosatsuMod(a, c(k))
+        },
         1 -> Gen.zip(rec, Gen.choose(1, 5)).map { case (a, k) => Div(a, c(k)) },
         1 -> Gen.zip(rec, Gen.choose(1, 5)).map { case (a, k) => Mod(a, c(k)) },
         2 -> Gen.zip(condGen(1, intVarGen), rec, rec).map { case (p, a, b) =>
@@ -150,12 +163,20 @@ object IntDecideGens {
       Gen.frequency(
         4 -> leaf,
         2 -> rec.map(Not(_)),
-        2 -> Gen.choose(2, 3).flatMap(Gen.listOfN(_, rec)).map(as => And(as.toVector)),
-        2 -> Gen.choose(2, 3).flatMap(Gen.listOfN(_, rec)).map(as => Or(as.toVector)),
+        2 -> Gen
+          .choose(2, 3)
+          .flatMap(Gen.listOfN(_, rec))
+          .map(as => And(as.toVector)),
+        2 -> Gen
+          .choose(2, 3)
+          .flatMap(Gen.listOfN(_, rec))
+          .map(as => Or(as.toVector)),
         1 -> Gen.zip(rec, rec).map { case (a, b) => Implies(a, b) },
         1 -> Gen.zip(rec, rec).map { case (a, b) => Xor(a, b) },
         1 -> Gen.zip(rec, rec).map { case (a, b) => EqBool(a, b) },
-        1 -> Gen.zip(rec, rec, rec).map { case (p, a, b) => Ite[SmtSort.BoolSort](p, a, b) }
+        1 -> Gen.zip(rec, rec, rec).map { case (p, a, b) =>
+          Ite[SmtSort.BoolSort](p, a, b)
+        }
       )
     }
   }
@@ -181,7 +202,9 @@ object IntDecideGens {
       // relating two or more variables
       3 -> cmpGen(intTermGen(1, nonlinear)),
       // a match fallthrough: `not (n <= 0 and done)`
-      2 -> Gen.zip(boundFactGen, boolVarGen).map { case (f, b) => Not(And(Vector(f, b))) },
+      2 -> Gen.zip(boundFactGen, boolVarGen).map { case (f, b) =>
+        Not(And(Vector(f, b)))
+      },
       2 -> condGen(2, intTermGen(1, nonlinear)),
       1 -> boolVarGen.map(Not(_))
     )
@@ -210,7 +233,9 @@ object IntDecideGens {
 
   /** `-gridBound <= v <= gridBound` for every Int variable. */
   val boxFacts: List[BoolExpr] =
-    intNames.toList.flatMap(n => List(Gte(iv(n), c(-gridBound)), Lte(iv(n), c(gridBound))))
+    intNames.toList.flatMap(n =>
+      List(Gte(iv(n), c(-gridBound)), Lte(iv(n), c(gridBound)))
+    )
 
   private def envsWith(byZero: List[BigInt => BigInt]): List[Env] =
     (for {
@@ -243,21 +268,21 @@ object IntDecideGens {
     *
     * `IntDecide.DefaultWorkLimit` is sized for the recursion check's
     * obligations, which are far smaller than many goals built here, and a few
-    * of those need more than it. The third law of `IntDecide.implies` is
-    * about a limit large enough; for the goals built here, this is one by
-    * far: of 900,000 sampled, two needed more than the default, and neither
-    * ten times it.
+    * of those need more than it. The third law of `IntDecide.implies` is about
+    * a limit large enough; for the goals built here, this is one by far: of
+    * 900,000 sampled, two needed more than the default, and neither ten times
+    * it.
     */
   val largeWorkLimit: Long = 100L * IntDecide.DefaultWorkLimit
 
-  /** `IntDecide.implies` with the default limit, then with `largeWorkLimit`
-    * if the default is reached: the result the laws are about.
+  /** `IntDecide.implies` with the default limit, then with `largeWorkLimit` if
+    * the default is reached: the result the laws are about.
     */
   def decide(goal: BoolExpr, facts: List[BoolExpr]): IntDecide.Result =
     IntDecide.implies(goal, facts, IntDecide.DefaultWorkLimit) match {
       case IntDecide.Result.Unknown(IntDecide.Reason.WorkLimit) =>
         IntDecide.implies(goal, facts, largeWorkLimit)
-      case other                                                => other
+      case other => other
     }
 
   /** The model as an evaluation environment, under one interpretation of
@@ -274,37 +299,40 @@ object IntDecideGens {
   def names(e: BoolExpr): (Set[String], Set[String]) = {
     def ints(i: IntExpr): (Set[String], Set[String]) =
       i match {
-        case Var(n)        => (Set(n), Set.empty)
-        case IntConst(_)   => (Set.empty, Set.empty)
-        case Add(as)       => merge(as.map(ints))
-        case Sub(as)       => merge(as.map(ints))
-        case Mul(as)       => merge(as.map(ints))
-        case Div(a, b)     => merge(Vector(ints(a), ints(b)))
-        case Mod(a, b)     => merge(Vector(ints(a), ints(b)))
-        case Ite(p, a, b)  => merge(Vector(bools(p), ints(a), ints(b)))
-        case other         => sys.error(s"unexpected int expression: $other")
+        case Var(n)       => (Set(n), Set.empty)
+        case IntConst(_)  => (Set.empty, Set.empty)
+        case Add(as)      => merge(as.map(ints))
+        case Sub(as)      => merge(as.map(ints))
+        case Mul(as)      => merge(as.map(ints))
+        case Div(a, b)    => merge(Vector(ints(a), ints(b)))
+        case Mod(a, b)    => merge(Vector(ints(a), ints(b)))
+        case Ite(p, a, b) => merge(Vector(bools(p), ints(a), ints(b)))
+        case other        => sys.error(s"unexpected int expression: $other")
       }
     def bools(b: BoolExpr): (Set[String], Set[String]) =
       b match {
-        case Var(n)         => (Set.empty, Set(n))
-        case BoolConst(_)   => (Set.empty, Set.empty)
-        case Lt(l, r)       => merge(Vector(ints(l), ints(r)))
-        case Lte(l, r)      => merge(Vector(ints(l), ints(r)))
-        case Gt(l, r)       => merge(Vector(ints(l), ints(r)))
-        case Gte(l, r)      => merge(Vector(ints(l), ints(r)))
-        case EqInt(l, r)    => merge(Vector(ints(l), ints(r)))
-        case EqBool(l, r)   => merge(Vector(bools(l), bools(r)))
-        case Xor(l, r)      => merge(Vector(bools(l), bools(r)))
-        case Implies(l, r)  => merge(Vector(bools(l), bools(r)))
-        case Not(a)         => bools(a)
-        case And(as)        => merge(as.map(bools))
-        case Or(as)         => merge(as.map(bools))
-        case Ite(p, a, b)   => merge(Vector(bools(p), bools(a), bools(b)))
-        case other          => sys.error(s"unexpected bool expression: $other")
+        case Var(n)        => (Set.empty, Set(n))
+        case BoolConst(_)  => (Set.empty, Set.empty)
+        case Lt(l, r)      => merge(Vector(ints(l), ints(r)))
+        case Lte(l, r)     => merge(Vector(ints(l), ints(r)))
+        case Gt(l, r)      => merge(Vector(ints(l), ints(r)))
+        case Gte(l, r)     => merge(Vector(ints(l), ints(r)))
+        case EqInt(l, r)   => merge(Vector(ints(l), ints(r)))
+        case EqBool(l, r)  => merge(Vector(bools(l), bools(r)))
+        case Xor(l, r)     => merge(Vector(bools(l), bools(r)))
+        case Implies(l, r) => merge(Vector(bools(l), bools(r)))
+        case Not(a)        => bools(a)
+        case And(as)       => merge(as.map(bools))
+        case Or(as)        => merge(as.map(bools))
+        case Ite(p, a, b)  => merge(Vector(bools(p), bools(a), bools(b)))
+        case other         => sys.error(s"unexpected bool expression: $other")
       }
-    def merge(parts: Vector[(Set[String], Set[String])]): (Set[String], Set[String]) =
-      parts.foldLeft((Set.empty[String], Set.empty[String])) { case ((a, b), (c, d)) =>
-        (a ++ c, b ++ d)
+    def merge(
+        parts: Vector[(Set[String], Set[String])]
+    ): (Set[String], Set[String]) =
+      parts.foldLeft((Set.empty[String], Set.empty[String])) {
+        case ((a, b), (c, d)) =>
+          (a ++ c, b ++ d)
       }
     bools(e)
   }
@@ -317,7 +345,10 @@ object IntDecideGens {
     for {
       xs <- Gen.listOfN(
         intNames.size,
-        Gen.frequency(6 -> Gen.chooseNum(-12, 12), 1 -> Gen.chooseNum(-1000, 1000))
+        Gen.frequency(
+          6 -> Gen.chooseNum(-12, 12),
+          1 -> Gen.chooseNum(-1000, 1000)
+        )
       )
       bs <- Gen.listOfN(boolNames.size, Gen.oneOf(true, false))
     } yield Env(
@@ -340,10 +371,12 @@ object IntDecideGens {
       n <- Gen.choose(1, 3)
       vs <- Gen.pick(n, intNames)
       ks <- Gen.listOfN(n, Gen.oneOf(-7, -5, -3, -2, -1, 1, 2, 3, 4, 6))
-    } yield Add(vs.toVector.zip(ks).map { case (v, k) => Mul(Vector(c(k), iv(v))) })
+    } yield Add(
+      vs.toVector.zip(ks).map { case (v, k) => Mul(Vector(c(k), iv(v))) }
+    )
 
-  /** `lo <= t <= hi` for a linear term t, with env inside: a thin slab, so
-    * a few of them leave few integer points, often only near env.
+  /** `lo <= t <= hi` for a linear term t, with env inside: a thin slab, so a
+    * few of them leave few integer points, often only near env.
     */
   def slabAt(env: Env): Gen[List[BoolExpr]] =
     for {
@@ -356,27 +389,41 @@ object IntDecideGens {
     }
 
   /** Facts that all hold at a point and a goal that fails there, so the goal
-    * never follows: the point is a counterexample. The facts include thin
-    * slabs around the point, which leave few integer solutions.
+    * never follows: the point is a counterexample. The facts include thin slabs
+    * around the point, which leave few integer solutions.
     */
   val refutableCaseGen: Gen[(List[BoolExpr], BoolExpr, Env)] =
     for {
       env <- pointGen
-      loose <- Gen.choose(0, 4).flatMap(Gen.listOfN(_, factGen(nonlinear = false)))
+      loose <- Gen
+        .choose(0, 4)
+        .flatMap(Gen.listOfN(_, factGen(nonlinear = false)))
       slabs <- Gen.choose(0, 3).flatMap(Gen.listOfN(_, slabAt(env)))
       goal <- goalGen(nonlinear = false)
-    } yield (loose.map(holdingAt(env, _)) ::: slabs.flatten, failingAt(env, goal), env)
+    } yield (
+      loose.map(holdingAt(env, _)) ::: slabs.flatten,
+      failingAt(env, goal),
+      env
+    )
 
   /** An Int term with the same value as t everywhere. */
   def equivalentInt(t: IntExpr): Gen[IntExpr] =
     t match {
       case Add(args) if args.nonEmpty =>
-        Gen.sequence[Vector[IntExpr], IntExpr](args.map(equivalentInt)).flatMap { as =>
-          Gen.oneOf(Add(as), Add(as.reverse), Sub(Vector(Add(as :+ c(3)), c(3))))
+        Gen.sequence[Vector[IntExpr], IntExpr](args.map(equivalentInt)).flatMap {
+          as =>
+            Gen.oneOf(
+              Add(as),
+              Add(as.reverse),
+              Sub(Vector(Add(as :+ c(3)), c(3)))
+            )
         }
       case Sub(Vector(a, b)) =>
         Gen.zip(equivalentInt(a), equivalentInt(b)).flatMap { case (a1, b1) =>
-          Gen.oneOf(Sub(Vector(a1, b1)), Add(Vector(a1, Mul(Vector(c(-1), b1)))))
+          Gen.oneOf(
+            Sub(Vector(a1, b1)),
+            Add(Vector(a1, Mul(Vector(c(-1), b1))))
+          )
         }
       case Mul(Vector(IntConst(k), a)) =>
         equivalentInt(a).flatMap { a1 =>
@@ -387,31 +434,41 @@ object IntDecideGens {
           )
         }
       case Ite(p, a, b) =>
-        Gen.zip(equivalent(p), equivalentInt(a), equivalentInt(b)).flatMap { case (p1, a1, b1) =>
-          Gen.oneOf(Ite[SmtSort.IntSort](p1, a1, b1), Ite[SmtSort.IntSort](Not(p1), b1, a1))
+        Gen.zip(equivalent(p), equivalentInt(a), equivalentInt(b)).flatMap {
+          case (p1, a1, b1) =>
+            Gen.oneOf(
+              Ite[SmtSort.IntSort](p1, a1, b1),
+              Ite[SmtSort.IntSort](Not(p1), b1, a1)
+            )
         }
       case Div(n, d) => equivalentInt(n).map(Div(_, d))
       case Mod(n, d) => equivalentInt(n).map(Mod(_, d))
       case other     => Gen.oneOf(other, Add(Vector(other, c(0))))
     }
 
-  /** A Bool term with the same value as e everywhere, built by identities
-    * that hold over the integers.
+  /** A Bool term with the same value as e everywhere, built by identities that
+    * hold over the integers.
     */
   def equivalent(e: BoolExpr): Gen[BoolExpr] = {
-    def ints(l: IntExpr, r: IntExpr) = Gen.zip(equivalentInt(l), equivalentInt(r))
+    def ints(l: IntExpr, r: IntExpr) =
+      Gen.zip(equivalentInt(l), equivalentInt(r))
     def two(l: BoolExpr, r: BoolExpr) = Gen.zip(equivalent(l), equivalent(r))
     e match {
       case Lt(l, r) =>
         ints(l, r).flatMap { case (a, b) =>
-          Gen.oneOf(Gt(b, a), Lte(Add(Vector(a, c(1))), b), Not(Gte(a, b)), Lt(Sub(Vector(a, b)), c(0)))
+          Gen.oneOf(
+            Gt(b, a),
+            Lte(Add(Vector(a, c(1))), b),
+            Not(Gte(a, b)),
+            Lt(Sub(Vector(a, b)), c(0))
+          )
         }
       case Lte(l, r) =>
         ints(l, r).flatMap { case (a, b) =>
           Gen.oneOf(Gte(b, a), Not(Gt(a, b)), Lt(a, Add(Vector(b, c(1)))))
         }
-      case Gt(l, r) => equivalent(Lt(r, l))
-      case Gte(l, r) => equivalent(Lte(r, l))
+      case Gt(l, r)    => equivalent(Lt(r, l))
+      case Gte(l, r)   => equivalent(Lte(r, l))
       case EqInt(l, r) =>
         ints(l, r).flatMap { case (a, b) =>
           Gen.oneOf(
@@ -422,40 +479,54 @@ object IntDecideGens {
           )
         }
       case Not(a) =>
-        equivalent(a).flatMap(a1 => Gen.oneOf(Not(a1), Implies(a1, BoolConst.False)))
+        equivalent(a).flatMap(a1 =>
+          Gen.oneOf(Not(a1), Implies(a1, BoolConst.False))
+        )
       case And(as) =>
-        Gen.sequence[Vector[BoolExpr], BoolExpr](as.map(equivalent)).flatMap { as1 =>
-          Gen.oneOf(And(as1), And(as1.reverse), Not(Or(as1.map(Not(_)))))
+        Gen.sequence[Vector[BoolExpr], BoolExpr](as.map(equivalent)).flatMap {
+          as1 =>
+            Gen.oneOf(And(as1), And(as1.reverse), Not(Or(as1.map(Not(_)))))
         }
       case Or(as) =>
-        Gen.sequence[Vector[BoolExpr], BoolExpr](as.map(equivalent)).flatMap { as1 =>
-          Gen.oneOf(Or(as1), Or(as1.reverse), Not(And(as1.map(Not(_)))))
+        Gen.sequence[Vector[BoolExpr], BoolExpr](as.map(equivalent)).flatMap {
+          as1 =>
+            Gen.oneOf(Or(as1), Or(as1.reverse), Not(And(as1.map(Not(_)))))
         }
       case Implies(a, b) =>
-        two(a, b).flatMap { case (a1, b1) => Gen.oneOf(Or(Vector(Not(a1), b1)), Implies(Not(b1), Not(a1))) }
+        two(a, b).flatMap { case (a1, b1) =>
+          Gen.oneOf(Or(Vector(Not(a1), b1)), Implies(Not(b1), Not(a1)))
+        }
       case Xor(a, b) =>
-        two(a, b).flatMap { case (a1, b1) => Gen.oneOf(Not(EqBool(a1, b1)), Xor(b1, a1)) }
+        two(a, b).flatMap { case (a1, b1) =>
+          Gen.oneOf(Not(EqBool(a1, b1)), Xor(b1, a1))
+        }
       case EqBool(a, b) =>
         two(a, b).flatMap { case (a1, b1) =>
-          Gen.oneOf(And(Vector(Implies(a1, b1), Implies(b1, a1))), Not(Xor(a1, b1)))
+          Gen.oneOf(
+            And(Vector(Implies(a1, b1), Implies(b1, a1))),
+            Not(Xor(a1, b1))
+          )
         }
       case Ite(p, a, b) =>
-        Gen.zip(equivalent(p), equivalent(a), equivalent(b)).flatMap { case (p1, a1, b1) =>
-          Gen.oneOf(
-            And(Vector(Implies(p1, a1), Implies(Not(p1), b1))),
-            Or(Vector(And(Vector(p1, a1)), And(Vector(Not(p1), b1))))
-          )
+        Gen.zip(equivalent(p), equivalent(a), equivalent(b)).flatMap {
+          case (p1, a1, b1) =>
+            Gen.oneOf(
+              And(Vector(Implies(p1, a1), Implies(Not(p1), b1))),
+              Or(Vector(And(Vector(p1, a1)), And(Vector(Not(p1), b1))))
+            )
         }
       case other => Gen.oneOf(other, Not(Not(other)))
     }
   }
 
-  private val provableCond: Gen[BoolExpr] = condGen(2, intTermGen(1, nonlinear = false))
+  private val provableCond: Gen[BoolExpr] =
+    condGen(2, intTermGen(1, nonlinear = false))
 
   // Each strategy gives facts the goal follows from.
   private val provableCores: Gen[(List[BoolExpr], BoolExpr)] = {
     // the goal is a fact restated
-    val restated = provableCond.flatMap(f => equivalent(f).map(g => (List(f), g)))
+    val restated =
+      provableCond.flatMap(f => equivalent(f).map(g => (List(f), g)))
     // a nonnegative combination of linear facts, as Fourier-Motzkin finds
     val combined =
       for {
@@ -465,7 +536,9 @@ object IntDecideGens {
         ls <- Gen.listOfN(n, Gen.choose(0, 3))
         slack <- Gen.choose(0, 2)
       } yield {
-        val sum = Add(ts.zip(ls).map { case (t, l) => Mul(Vector(c(l), t)) }.toVector)
+        val sum = Add(
+          ts.zip(ls).map { case (t, l) => Mul(Vector(c(l), t)) }.toVector
+        )
         val bound = ls.zip(ks).map { case (l, k) => l * k }.sum - slack
         (ts.zip(ks).map { case (t, k) => Gte(t, c(k)) }, Gte(sum, c(bound)))
       }
@@ -478,8 +551,16 @@ object IntDecideGens {
         up <- Gen.oneOf(true, false)
       } yield {
         val kt = Mul(Vector(c(k), t))
-        if (up) (List(Gte(kt, c(m))), Gte(t, IntConst(Omega.ceilDiv(BigInt(m), BigInt(k)))))
-        else (List(Lte(kt, c(m))), Lte(t, IntConst(Omega.floorDiv(BigInt(m), BigInt(k)))))
+        if (up)
+          (
+            List(Gte(kt, c(m))),
+            Gte(t, IntConst(Omega.ceilDiv(BigInt(m), BigInt(k))))
+          )
+        else
+          (
+            List(Lte(kt, c(m))),
+            Lte(t, IntConst(Omega.floorDiv(BigInt(m), BigInt(k))))
+          )
       }
     // a multiple of k strictly between two consecutive multiples of k
     val noIntegerPoint =
@@ -489,7 +570,10 @@ object IntDecideGens {
         m <- Gen.chooseNum(-10, 10)
       } yield {
         val kt = Mul(Vector(c(k), t))
-        (List(Gte(kt, c(k * m + 1)), Lte(kt, c(k * m + k - 1))), BoolConst.False)
+        (
+          List(Gte(kt, c(k * m + 1)), Lte(kt, c(k * m + k - 1))),
+          BoolConst.False
+        )
       }
     // case splits
     val split =
@@ -541,7 +625,10 @@ object IntDecideGens {
         .choose(2, 3)
         .flatMap(n => Gen.listOfN(n, pointGen.flatMap(slabAt)))
         .map(slabs => boxFacts ::: slabs.flatten)
-        .retryUntil(facts => counterexample(grid, facts, BoolConst.False).isEmpty, 200)
+        .retryUntil(
+          facts => counterexample(grid, facts, BoolConst.False).isEmpty,
+          200
+        )
         .map(facts => (facts, BoolConst.False))
 
     Gen.frequency(
@@ -557,18 +644,22 @@ object IntDecideGens {
     )
   }
 
-  /** Facts and a goal that follows from them: one of the constructions
-    * above, with unrelated facts added (more facts never stop a goal
-    * following) and the goal sometimes restated.
+  /** Facts and a goal that follows from them: one of the constructions above,
+    * with unrelated facts added (more facts never stop a goal following) and
+    * the goal sometimes restated.
     *
-    * Check these with `forAllNoShrink`: shrinking drops facts, and the goal
-    * may not follow from fewer.
+    * Check these with `forAllNoShrink`: shrinking drops facts, and the goal may
+    * not follow from fewer.
     */
   val provableCaseGen: Gen[(List[BoolExpr], BoolExpr)] =
     for {
       core <- provableCores
-      before <- Gen.choose(0, 2).flatMap(Gen.listOfN(_, factGen(nonlinear = false)))
-      after <- Gen.choose(0, 2).flatMap(Gen.listOfN(_, factGen(nonlinear = false)))
+      before <- Gen
+        .choose(0, 2)
+        .flatMap(Gen.listOfN(_, factGen(nonlinear = false)))
+      after <- Gen
+        .choose(0, 2)
+        .flatMap(Gen.listOfN(_, factGen(nonlinear = false)))
       goal <- Gen.frequency(2 -> Gen.const(core._2), 1 -> equivalent(core._2))
     } yield (before ::: core._1 ::: after, goal)
 }

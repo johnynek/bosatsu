@@ -4,10 +4,10 @@ import org.scalacheck.Prop
 import org.scalacheck.Prop.{forAll, propBoolean}
 
 /** LinearBounds replaces z3 for goals it can prove, so every "proved" must
-  * agree with z3. The main properties only count cases the prover proves
-  * (cases it declines are discarded), so each successful case is a real
-  * agreement check, and a generator that stops producing provable cases fails
-  * the test instead of passing vacuously.
+  * agree with z3. The main properties only count cases the prover proves (cases
+  * it declines are discarded), so each successful case is a real agreement
+  * check, and a generator that stops producing provable cases fails the test
+  * instead of passing vacuously.
   */
 class LinearBoundsTest extends munit.ScalaCheckSuite {
   import SmtExpr.*
@@ -26,15 +26,23 @@ class LinearBoundsTest extends munit.ScalaCheckSuite {
     Z3Oracle.script(goal, facts, varNames, Nil)
 
   /** z3's answer for "facts imply goal", as Z3Oracle.implies gives it. */
-  private def z3Answer(goal: BoolExpr, facts: List[BoolExpr]): Either[String, Option[Boolean]] =
+  private def z3Answer(
+      goal: BoolExpr,
+      facts: List[BoolExpr]
+  ): Either[String, Option[Boolean]] =
     Z3Oracle.implies(goal, facts, varNames, Nil)
 
   // for cases known not to trip the embedded z3
-  private def z3Implies(goal: BoolExpr, facts: List[BoolExpr]): Option[Boolean] =
+  private def z3Implies(
+      goal: BoolExpr,
+      facts: List[BoolExpr]
+  ): Option[Boolean] =
     z3Answer(goal, facts) match {
       case Right(ans) => ans
       case Left(err)  =>
-        fail(s"z3 failed: $err\n${SmtLibRender.renderScript(z3Script(goal, facts))}")
+        fail(
+          s"z3 failed: $err\n${SmtLibRender.renderScript(z3Script(goal, facts))}"
+        )
     }
 
   private def agreesWithZ3(goal: BoolExpr, facts: List[BoolExpr]): Prop =
@@ -42,7 +50,9 @@ class LinearBoundsTest extends munit.ScalaCheckSuite {
       case Right(Some(true))  => Prop.passed
       case Right(Some(false)) =>
         val smt2 = SmtLibRender.renderScript(z3Script(goal, facts))
-        val raw = liveRunner(smt2.replace("(check-sat)", "(check-sat)\n(get-model)"))
+        val raw = liveRunner(
+          smt2.replace("(check-sat)", "(check-sat)\n(get-model)")
+        )
         Prop.falsified :| s"proved, but z3 found a counterexample\nfacts: $facts\ngoal: $goal\n$smt2\nz3: $raw"
       case Right(None) => Prop.undecided
       case Left(_)     =>
@@ -62,7 +72,10 @@ class LinearBoundsTest extends munit.ScalaCheckSuite {
   property("every goal pathImplies proves, z3 proves too") {
     forAll(z3CaseGen) { case (facts, goal) =>
       val facts1 = facts.map(normalizeBoolForSolver)
-      pathImplies(normalizeBoolForSolver(goal), facts1) ==> agreesWithZ3(goal, facts)
+      pathImplies(normalizeBoolForSolver(goal), facts1) ==> agreesWithZ3(
+        goal,
+        facts
+      )
     }
   }
 
@@ -91,7 +104,10 @@ class LinearBoundsTest extends munit.ScalaCheckSuite {
   property("adding facts never stops LinearBounds proving a goal") {
     forAll(anyCaseGen, factGen(z3Safe = false)) { (factsGoal, extra) =>
       val (facts, goal) = factsGoal
-      LinearBounds.implies(goal, facts) ==> LinearBounds.implies(goal, extra :: facts)
+      LinearBounds.implies(goal, facts) ==> LinearBounds.implies(
+        goal,
+        extra :: facts
+      )
     }
   }
 
@@ -99,28 +115,32 @@ class LinearBoundsTest extends munit.ScalaCheckSuite {
   private def parse(s: String): BoolExpr = {
     def int(e: SExpr): IntExpr =
       e match {
-        case SExpr.Atom(a) if a.headOption.exists(ch => ch.isDigit) => IntConst(BigInt(a))
-        case SExpr.Atom(a)                                           => v(a)
-        case SExpr.List(Vector(SExpr.Atom("-"), a))                  => Sub(Vector(int(a)))
-        case SExpr.List(Vector(SExpr.Atom("-"), a, b))               => Sub(Vector(int(a), int(b)))
-        case SExpr.List(Vector(SExpr.Atom("+"), a, b))               => Add(Vector(int(a), int(b)))
-        case SExpr.List(Vector(SExpr.Atom("div"), a, b))             => Div(int(a), int(b))
-        case SExpr.List(Vector(SExpr.Atom("mod"), a, b))             => Mod(int(a), int(b))
-        case SExpr.List(Vector(SExpr.Atom("ite"), p, a, b))          => Ite[SmtSort.IntSort](bool(p), int(a), int(b))
-        case other                                                   => sys.error(s"bad int $other")
+        case SExpr.Atom(a) if a.headOption.exists(ch => ch.isDigit) =>
+          IntConst(BigInt(a))
+        case SExpr.Atom(a)                             => v(a)
+        case SExpr.List(Vector(SExpr.Atom("-"), a))    => Sub(Vector(int(a)))
+        case SExpr.List(Vector(SExpr.Atom("-"), a, b)) =>
+          Sub(Vector(int(a), int(b)))
+        case SExpr.List(Vector(SExpr.Atom("+"), a, b)) =>
+          Add(Vector(int(a), int(b)))
+        case SExpr.List(Vector(SExpr.Atom("div"), a, b)) => Div(int(a), int(b))
+        case SExpr.List(Vector(SExpr.Atom("mod"), a, b)) => Mod(int(a), int(b))
+        case SExpr.List(Vector(SExpr.Atom("ite"), p, a, b)) =>
+          Ite[SmtSort.IntSort](bool(p), int(a), int(b))
+        case other => sys.error(s"bad int $other")
       }
     def bool(e: SExpr): BoolExpr =
       e match {
-        case SExpr.Atom(name)                            => Var[SmtSort.BoolSort](name)
-        case SExpr.List(Vector(SExpr.Atom("<"), a, b))   => Lt(int(a), int(b))
-        case SExpr.List(Vector(SExpr.Atom("<="), a, b))  => Lte(int(a), int(b))
-        case SExpr.List(Vector(SExpr.Atom(">"), a, b))   => Gt(int(a), int(b))
-        case SExpr.List(Vector(SExpr.Atom(">="), a, b))  => Gte(int(a), int(b))
-        case SExpr.List(Vector(SExpr.Atom("="), a, b))   => EqInt(int(a), int(b))
-        case SExpr.List(Vector(SExpr.Atom("not"), a))    => Not(bool(a))
-        case SExpr.List(SExpr.Atom("and") +: args)       => And(args.map(bool))
-        case SExpr.List(SExpr.Atom("or") +: args)        => Or(args.map(bool))
-        case other                                       => sys.error(s"bad bool $other")
+        case SExpr.Atom(name) => Var[SmtSort.BoolSort](name)
+        case SExpr.List(Vector(SExpr.Atom("<"), a, b))  => Lt(int(a), int(b))
+        case SExpr.List(Vector(SExpr.Atom("<="), a, b)) => Lte(int(a), int(b))
+        case SExpr.List(Vector(SExpr.Atom(">"), a, b))  => Gt(int(a), int(b))
+        case SExpr.List(Vector(SExpr.Atom(">="), a, b)) => Gte(int(a), int(b))
+        case SExpr.List(Vector(SExpr.Atom("="), a, b))  => EqInt(int(a), int(b))
+        case SExpr.List(Vector(SExpr.Atom("not"), a))   => Not(bool(a))
+        case SExpr.List(SExpr.Atom("and") +: args)      => And(args.map(bool))
+        case SExpr.List(SExpr.Atom("or") +: args)       => Or(args.map(bool))
+        case other => sys.error(s"bad bool $other")
       }
     SExprParser.parseAll(s) match {
       case Right(Vector(e)) => bool(e)
@@ -154,7 +174,12 @@ class LinearBoundsTest extends munit.ScalaCheckSuite {
     }
   }
 
-  private def z3ProvesWithDecls(goal: BoolExpr, facts: List[BoolExpr], ints: List[String], bools: List[String]): Boolean = {
+  private def z3ProvesWithDecls(
+      goal: BoolExpr,
+      facts: List[BoolExpr],
+      ints: List[String],
+      bools: List[String]
+  ): Boolean = {
     val script = SmtScript(
       Vector(SetLogic.QF_LIA) ++
         ints.map(DeclareConst(_, SmtSort.IntS)) ++
@@ -169,7 +194,8 @@ class LinearBoundsTest extends munit.ScalaCheckSuite {
 
   test("z3 agrees with every workspace query") {
     workspaceQueries.foreach { case (fact, goal) =>
-      val ints = List("idx_0", "s_1", "s_2", "s_3", "curr_0", "n_0", "i_0", "acc_1")
+      val ints =
+        List("idx_0", "s_1", "s_2", "s_3", "curr_0", "n_0", "i_0", "acc_1")
       assert(
         z3ProvesWithDecls(parse(goal), List(parse(fact)), ints, List("even_1")),
         s"$fact => $goal"
@@ -188,7 +214,10 @@ class LinearBoundsTest extends munit.ScalaCheckSuite {
         List(Gt(n, c(d))) -> Lt(Div(Sub(Vector(n, c(d))), c(k)), n),
         List(Gt(n, c(d))) -> Gte(Div(Sub(Vector(n, c(d))), c(k)), c(0)),
         // x >= 0 and x != 0
-        List(Not(Lt(n, c(0))), Not(EqInt(n, c(0)))) -> Gte(Sub(Vector(n, c(1))), c(0)),
+        List(Not(Lt(n, c(0))), Not(EqInt(n, c(0)))) -> Gte(
+          Sub(Vector(n, c(1))),
+          c(0)
+        ),
         List(Gt(n, c(0))) -> Lt(Div(n, c(k)), n),
         List(Gte(n, c(0))) -> Lt(Mod(n, c(k)), c(k))
       )
@@ -234,10 +263,17 @@ class LinearBoundsTest extends munit.ScalaCheckSuite {
       assert(!LinearBounds.implies(goal, facts), s"$facts => $goal")
     }
     // the same goal with a positive divisor is proved
-    assert(LinearBounds.implies(Lt(Sub(Vector(n, oldLowering(3), c(1))), n), List(Gt(n, c(2)))))
+    assert(
+      LinearBounds.implies(
+        Lt(Sub(Vector(n, oldLowering(3), c(1))), n),
+        List(Gt(n, c(2)))
+      )
+    )
   }
 
-  test("reads Bosatsu's div and mod_Int by a negative constant as the lowering builds them") {
+  test(
+    "reads Bosatsu's div and mod_Int by a negative constant as the lowering builds them"
+  ) {
     val n = v("x")
     val facts = List(Gt(n, c(2)))
     // x.mod_Int(-3) is in [-2, 0]: x - m - 1 can be x + 1, while x + m - 1 < x
@@ -288,12 +324,24 @@ class LinearBoundsTest extends munit.ScalaCheckSuite {
     // which fails at y = 7, x = 0. Reading it as -y would wrongly prove it.
     val (x, y, z) = (v("x"), v("y"), v("z"))
     val facts = List(
-      And(Vector(Lte(c(6), Add(Vector(Mul(Vector(c(1), y)), c(-1)))), Lte(z, c(5)))),
+      And(
+        Vector(
+          Lte(c(6), Add(Vector(Mul(Vector(c(1), y)), c(-1)))),
+          Lte(z, c(5))
+        )
+      ),
       Lte(Add(Vector(Mul(Vector(c(1), x)), c(-1))), c(1))
     )
-    val goal = Gt(Sub(Vector(Div(y, c(5)), Div(x, c(4)))), Add(Vector(Sub(Vector(y)), c(2))))
+    val goal = Gt(
+      Sub(Vector(Div(y, c(5)), Div(x, c(4)))),
+      Add(Vector(Sub(Vector(y)), c(2)))
+    )
     assert(!LinearBounds.implies(goal, facts))
-    assertEquals(z3Implies(goal, facts), Some(false), SmtLibRender.renderScript(z3Script(goal, facts)))
+    assertEquals(
+      z3Implies(goal, facts),
+      Some(false),
+      SmtLibRender.renderScript(z3Script(goal, facts))
+    )
   }
 
   test("a case z3 once reported as disproved is proved by both") {
@@ -301,12 +349,21 @@ class LinearBoundsTest extends munit.ScalaCheckSuite {
     // goal: y div 5 - x div 4 > 2 - y
     val (x, y, z) = (v("x"), v("y"), v("z"))
     val facts = List(
-      And(Vector(Lte(c(6), Add(Vector(Mul(Vector(c(1), y)), c(-1)))), Lte(z, c(5)))),
+      And(
+        Vector(
+          Lte(c(6), Add(Vector(Mul(Vector(c(1), y)), c(-1)))),
+          Lte(z, c(5))
+        )
+      ),
       Lte(Add(Vector(Mul(Vector(c(1), x)), c(-1))), c(1))
     )
     val goal = Gt(Sub(Vector(Div(y, c(5)), Div(x, c(4)))), Sub(Vector(c(2), y)))
     assert(LinearBounds.implies(goal, facts))
-    assertEquals(z3Implies(goal, facts), Some(true), SmtLibRender.renderScript(z3Script(goal, facts)))
+    assertEquals(
+      z3Implies(goal, facts),
+      Some(true),
+      SmtLibRender.renderScript(z3Script(goal, facts))
+    )
   }
 
   test("contradictory facts prove anything, as in z3") {

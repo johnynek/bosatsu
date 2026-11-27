@@ -1,7 +1,14 @@
 package dev.bosatsu.library
 
 import cats.data.Validated
-import dev.bosatsu.rankn.{ConstructorFn, ConstructorParam, DefinedType, Type, TypeAlias, TypeEnv}
+import dev.bosatsu.rankn.{
+  ConstructorFn,
+  ConstructorParam,
+  DefinedType,
+  Type,
+  TypeAlias,
+  TypeEnv
+}
 import dev.bosatsu.{
   ExportedName,
   Identifier,
@@ -87,7 +94,7 @@ class ApiDiffTest extends munit.FunSuite {
     )
 
     res match {
-      case Validated.Valid(diffs)   => diffs
+      case Validated.Valid(diffs)    => diffs
       case Validated.Invalid(errors) =>
         fail(s"expected diffs, got errors: ${errors.iterator.toList}")
     }
@@ -139,13 +146,16 @@ class ApiDiffTest extends munit.FunSuite {
 
     val diffs =
       res match {
-        case Validated.Valid(value)   => value
+        case Validated.Valid(value)    => value
         case Validated.Invalid(errors) =>
           fail(s"expected diffs, got errors: ${errors.iterator.toList}")
       }
     val flat = diffs.toMap.valuesIterator.flatMap(_.toList).toList
 
-    assert(flat.exists(_.isInstanceOf[ApiDiff.AddedName]), s"expected AddedName in: $flat")
+    assert(
+      flat.exists(_.isInstanceOf[ApiDiff.AddedName]),
+      s"expected AddedName in: $flat"
+    )
   }
 
   test("changing an alias kind or rhs is breaking") {
@@ -169,7 +179,7 @@ class ApiDiffTest extends munit.FunSuite {
 
     val diffs =
       res match {
-        case Validated.Valid(value)   => value
+        case Validated.Valid(value)    => value
         case Validated.Invalid(errors) =>
           fail(s"expected diffs, got errors: ${errors.iterator.toList}")
       }
@@ -187,23 +197,32 @@ class ApiDiffTest extends munit.FunSuite {
     assert(diffs.isValidWhen(Version.DiffKind.Major))
   }
 
-  test("a changed recursive type is diffed once, not through its own fields forever") {
+  test(
+    "a changed recursive type is diffed once, not through its own fields forever"
+  ) {
     val treeCons = Identifier.Constructor("Tree")
     val treeName = TypeName(treeCons)
     val tree: Type = Type.TyConst(Type.Const.Defined(pack, treeName))
     val leaf = ConstructorFn[Kind.Arg](Identifier.Constructor("Leaf"), Nil, Nil)
     val node = Identifier.Constructor("Node")
     val left = ConstructorParam(Identifier.Name("left"), tree, None, None)
-    val size = ConstructorParam(Identifier.Name("size"), Type.IntType, None, None)
+    val size =
+      ConstructorParam(Identifier.Name("size"), Type.IntType, None, None)
 
     def treeDt(nodeArgs: List[ConstructorParam]): DefinedType[Kind.Arg] =
-      DefinedType(pack, treeName, Nil, leaf :: ConstructorFn[Kind.Arg](node, nodeArgs, Nil) :: Nil)
+      DefinedType(
+        pack,
+        treeName,
+        Nil,
+        leaf :: ConstructorFn[Kind.Arg](node, nodeArgs, Nil) :: Nil
+      )
 
     def exports(dt: DefinedType[Kind.Arg]) =
       SortedMap(
         pack -> (
           ExportedName.TypeName(treeCons, Referant.DefinedT(dt)) ::
-            ExportedName.Binding(Identifier.Name("root"), Referant.Value(tree)) ::
+            ExportedName
+              .Binding(Identifier.Name("root"), Referant.Value(tree)) ::
             dt.constructors.map { cf =>
               ExportedName.Constructor(cf.name, Referant.Constructor(dt, cf))
             }
@@ -234,7 +253,7 @@ class ApiDiffTest extends munit.FunSuite {
     assert(
       flat.exists {
         case ApiDiff.ChangedValue(Identifier.Name("root"), _) => true
-        case _                                               => false
+        case _                                                => false
       },
       s"expected root to see the change to Tree in: $flat"
     )
@@ -246,11 +265,18 @@ class ApiDiffTest extends munit.FunSuite {
       params: List[ConstructorParam],
       typeParams: List[(Type.Var.Bound, Kind.Arg)]
   ): DefinedType[Kind.Arg] =
-    DefinedType(pack, tyName, typeParams, ConstructorFn[Kind.Arg](constructor, params, Nil) :: Nil)
+    DefinedType(
+      pack,
+      tyName,
+      typeParams,
+      ConstructorFn[Kind.Arg](constructor, params, Nil) :: Nil
+    )
 
   // `export Rec`
   private def opaqueExport(dt: DefinedType[Kind.Arg]) =
-    SortedMap(pack -> List(ExportedName.TypeName(constructor, Referant.DefinedT(dt))))
+    SortedMap(
+      pack -> List(ExportedName.TypeName(constructor, Referant.DefinedT(dt)))
+    )
 
   // `export Rec()`
   private def publicExport(dt: DefinedType[Kind.Arg]) =
@@ -275,19 +301,23 @@ class ApiDiffTest extends munit.FunSuite {
       curr,
       TypeEnv.fromDefinitions(currDt :: Nil)
     ) match {
-      case Validated.Valid(diffs)    =>
+      case Validated.Valid(diffs) =>
         (diffs, diffs.toMap.valuesIterator.flatMap(_.toList).toList)
       case Validated.Invalid(errors) =>
         fail(s"expected diffs, got errors: ${errors.iterator.toList}")
     }
 
   private val fieldA = ConstructorParam(fieldName, Type.IntType, None, None)
-  private val fieldB = ConstructorParam(Identifier.Name("b"), Type.StrType, None, None)
+  private val fieldB =
+    ConstructorParam(Identifier.Name("b"), Type.StrType, None, None)
 
-  test("changing the private constructors of an opaque export is not an API change") {
+  test(
+    "changing the private constructors of an opaque export is not an API change"
+  ) {
     val oldDt = rec(fieldA :: Nil, Nil)
     val newDt = rec(fieldB :: fieldA :: Nil, Nil)
-    val (diffs, flat) = diffExports(opaqueExport(oldDt), oldDt, opaqueExport(newDt), newDt)
+    val (diffs, flat) =
+      diffExports(opaqueExport(oldDt), oldDt, opaqueExport(newDt), newDt)
     assertEquals(flat, Nil)
     assert(diffs.isValidWhen(Version.DiffKind.Patch))
   }
@@ -295,16 +325,24 @@ class ApiDiffTest extends munit.FunSuite {
   test("an opaque export still reports a kind change") {
     val a = Type.Var.Bound("a")
     val oldDt = rec(fieldA :: Nil, Nil)
-    val newDt = rec(fieldB :: Nil, (a, Kind.Arg(Variance.phantom, Kind.Type)) :: Nil)
-    val (_, flat) = diffExports(opaqueExport(oldDt), oldDt, opaqueExport(newDt), newDt)
+    val newDt =
+      rec(fieldB :: Nil, (a, Kind.Arg(Variance.phantom, Kind.Type)) :: Nil)
+    val (_, flat) =
+      diffExports(opaqueExport(oldDt), oldDt, opaqueExport(newDt), newDt)
     // only the kind; the constructor change is private
-    assertEquals(flat, List[Diff](ApiDiff.ChangedKind(pack, oldDt.toOpaque, newDt.toOpaque)))
+    assertEquals(
+      flat,
+      List[Diff](ApiDiff.ChangedKind(pack, oldDt.toOpaque, newDt.toOpaque))
+    )
   }
 
   test("exporting the constructors of an opaque type is a minor change") {
     val dt = rec(fieldA :: Nil, Nil)
     val (diffs, flat) = diffExports(opaqueExport(dt), dt, publicExport(dt), dt)
-    assertEquals(flat, List[Diff](ApiDiff.ConstructorsExposed(pack, dt.toTypeTyConst)))
+    assertEquals(
+      flat,
+      List[Diff](ApiDiff.ConstructorsExposed(pack, dt.toTypeTyConst))
+    )
     assertEquals(
       flat.map(_.toDoc.render(80)),
       List("exported the constructors of ApiDiff/DefaultParam::Rec")
@@ -318,7 +356,9 @@ class ApiDiffTest extends munit.FunSuite {
     val (diffs, flat) = diffExports(publicExport(dt), dt, opaqueExport(dt), dt)
     assertEquals(
       flat,
-      List[Diff](ApiDiff.ConstructorRemoved(pack, dt.toTypeTyConst, dt.constructors.head))
+      List[Diff](
+        ApiDiff.ConstructorRemoved(pack, dt.toTypeTyConst, dt.constructors.head)
+      )
     )
     assert(!diffs.isValidWhen(Version.DiffKind.Minor))
     assert(diffs.isValidWhen(Version.DiffKind.Major))

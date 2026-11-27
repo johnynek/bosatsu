@@ -82,7 +82,10 @@ class RegionTests extends munit.ScalaCheckSuite {
 
   property("Region.ordering matches Region.regionOrder") {
     forAll { (r1: Region, r2: Region) =>
-      assertEquals(Region.ordering.compare(r1, r2), Region.regionOrder.compare(r1, r2))
+      assertEquals(
+        Region.ordering.compare(r1, r2),
+        Region.regionOrder.compare(r1, r2)
+      )
     }
   }
 

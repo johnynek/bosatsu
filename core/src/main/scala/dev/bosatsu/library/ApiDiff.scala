@@ -424,7 +424,8 @@ object ApiDiff {
 
       val rhsV =
         if (oldAlias.rhs.sameAs(newAlias.rhs)) {
-          Type.allConsts(oldAlias.rhs :: Nil)
+          Type
+            .allConsts(oldAlias.rhs :: Nil)
             .traverse { const =>
               diffConst(const, visiting).map(
                 _.map(diff => ChangedTransitiveType(newAlias.rhs, const, diff))
@@ -578,51 +579,55 @@ object ApiDiff {
                     .toList
                     .traverse {
                       case (Ior.Both(oldParam, newParam), idx) =>
-                        diffType(oldParam.tpe, newParam.tpe, visiting).map { tpeDiffs =>
-                          val tpeDiff = tpeDiffs.map(
-                            ConstructorParamChange(
-                              cons,
-                              oldDt.toTypeTyConst,
-                              idx,
-                              _
-                            )
-                          )
-
-                          val nameDiff =
-                            if (oldParam.name == newParam.name) Nil
-                            else
-                              ConstructorParamNameChange(
-                                pn,
+                        diffType(oldParam.tpe, newParam.tpe, visiting).map {
+                          tpeDiffs =>
+                            val tpeDiff = tpeDiffs.map(
+                              ConstructorParamChange(
                                 cons,
                                 oldDt.toTypeTyConst,
                                 idx,
-                                oldParam.name,
-                                newParam.name
-                              ) :: Nil
+                                _
+                              )
+                            )
 
-                          val defaultDiff =
-                            (oldParam.defaultBinding, newParam.defaultBinding) match {
-                              case (None, Some(_)) =>
-                                ConstructorParamDefaultAdded(
+                            val nameDiff =
+                              if (oldParam.name == newParam.name) Nil
+                              else
+                                ConstructorParamNameChange(
                                   pn,
                                   cons,
                                   oldDt.toTypeTyConst,
                                   idx,
+                                  oldParam.name,
                                   newParam.name
                                 ) :: Nil
-                              case (Some(_), None) =>
-                                ConstructorParamDefaultRemoved(
-                                  pn,
-                                  cons,
-                                  oldDt.toTypeTyConst,
-                                  idx,
-                                  oldParam.name
-                                ) :: Nil
-                              case _ =>
-                                Nil
-                            }
 
-                          nameDiff ::: defaultDiff ::: tpeDiff
+                            val defaultDiff =
+                              (
+                                oldParam.defaultBinding,
+                                newParam.defaultBinding
+                              ) match {
+                                case (None, Some(_)) =>
+                                  ConstructorParamDefaultAdded(
+                                    pn,
+                                    cons,
+                                    oldDt.toTypeTyConst,
+                                    idx,
+                                    newParam.name
+                                  ) :: Nil
+                                case (Some(_), None) =>
+                                  ConstructorParamDefaultRemoved(
+                                    pn,
+                                    cons,
+                                    oldDt.toTypeTyConst,
+                                    idx,
+                                    oldParam.name
+                                  ) :: Nil
+                                case _ =>
+                                  Nil
+                              }
+
+                            nameDiff ::: defaultDiff ::: tpeDiff
                         }
                       case (Ior.Right(newParam), idx) =>
                         (ConstructorParamAdded(
@@ -735,7 +740,7 @@ object ApiDiff {
                 ) match {
                   case (oldTarget :: Nil, newTarget :: Nil) =>
                     diffTarget(oldTarget, newTarget, Set.empty)
-                  case diff                         =>
+                  case diff =>
                     sys.error(
                       s"invariant violation: have Constructor=$cons but unexpected diff of not exactly one type: diff=$diff"
                     )

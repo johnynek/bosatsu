@@ -20,7 +20,9 @@ private[bosatsu] trait FileCommandFixtures extends munit.FunSuite {
   protected def withRunner(test: (Path, FileCommandRunner) => IO[Unit]): Unit =
     directory
       .use { root =>
-        FileCommandRunner.resource(CompilerBuildInfo.constant).use(test(root, _))
+        FileCommandRunner
+          .resource(CompilerBuildInfo.constant)
+          .use(test(root, _))
       }
       .unsafeRunSync()
 

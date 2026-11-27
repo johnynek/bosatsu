@@ -159,8 +159,8 @@ object Version {
     private def splitPreRelease(pre: PreRelease): Array[String] =
       pre.asString.split('.')
 
-    /** Attempts to parse an unsigned decimal identifier. Returns Some(BigInt) if
-      * successful, None otherwise.
+    /** Attempts to parse an unsigned decimal identifier. Returns Some(BigInt)
+      * if successful, None otherwise.
       */
     private def parseNumeric(id: String): Option[BigInt] =
       if (id.nonEmpty && id.forall(ch => ch >= '0' && ch <= '9'))

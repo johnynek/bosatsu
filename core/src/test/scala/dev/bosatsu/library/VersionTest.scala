@@ -68,13 +68,15 @@ object VersionGenerator {
 
   private val comparisonPreReleaseGen: Gen[Option[Version.PreRelease]] =
     Gen.option(
-      Gen.oneOf("0", "1", "-0", "--0", "alpha", "alpha.1")
+      Gen
+        .oneOf("0", "1", "-0", "--0", "alpha", "alpha.1")
         .map(Version.PreRelease(_))
     )
 
   private val comparisonBuildGen: Gen[Option[Version.Build]] =
     Gen.option(
-      Gen.oneOf("0", "00", "1", "01", "-0", "--0", "alpha")
+      Gen
+        .oneOf("0", "00", "1", "01", "-0", "--0", "alpha")
         .map(Version.Build(_))
     )
 
@@ -166,7 +168,9 @@ class VersionTest extends munit.ScalaCheckSuite {
     }
   }
 
-  property("correlated valid version spellings compare equal exactly when identical") {
+  property(
+    "correlated valid version spellings compare equal exactly when identical"
+  ) {
     Prop.forAll(VersionGenerator.correlatedVersionPairGen) { case (a, b) =>
       assert(Version.parser.parseAll(a.render).isRight)
       assert(Version.parser.parseAll(b.render).isRight)
@@ -245,7 +249,9 @@ class VersionTest extends munit.ScalaCheckSuite {
     assert(Version.unsafe("1.0.0+100") < Version.unsafe("1.0.0+101"))
   }
 
-  test("hyphenated prerelease and numeric build spellings keep exact identity") {
+  test(
+    "hyphenated prerelease and numeric build spellings keep exact identity"
+  ) {
     val numericPrerelease = rt("1.0.0-0")
     val hyphenatedPrerelease = rt("1.0.0--0")
     assert(numericPrerelease < hyphenatedPrerelease)
@@ -370,7 +376,9 @@ class VersionTest extends munit.ScalaCheckSuite {
     assert(Version.PreRelease.parser.parseAll("00").isLeft)
   }
 
-  test("checked protobuf conversion preserves valid spellings and rejects malformed fields") {
+  test(
+    "checked protobuf conversion preserves valid spellings and rejects malformed fields"
+  ) {
     val valid = proto.Version(
       major = 1L,
       minor = 2L,

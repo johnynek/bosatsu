@@ -57,7 +57,10 @@ case class DecodedLibrary[A](
 }
 
 object DecodedLibrary {
-  private[bosatsu] def toDep[A: Algo](lib: Hashed[A, proto.Library], version: Version): proto.LibDependency = {
+  private[bosatsu] def toDep[A: Algo](
+      lib: Hashed[A, proto.Library],
+      version: Version
+  ): proto.LibDependency = {
     val desc0 = lib.arg.descriptor.getOrElse(proto.LibDescriptor())
     val depVersion = desc0.version.orElse(Some(version.toProto))
     val depHashes = (lib.hash.toIdent :: desc0.hashes.toList).distinct
