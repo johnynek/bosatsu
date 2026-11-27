@@ -2402,8 +2402,8 @@ $p.brU = (function(fa, f, G) {
   var z = G.Q($m_Lcats_data_Chain$().iE);
   var f$1 = ((x$1, x$2) => $f_Lcats_FlatMap__map2__O__O__F2__O(G, x$1, f.k(x$2), new $c_sjsr_AnonFunction2_$$Lambda$770e9b86e03b055b1d78d82135c9f39ea48d32d7(((x$1$2, x$2$2) => {
     var x9 = $ct_T2__O__O__(new $c_T2(), x$1$2, x$2$2);
-    var x12 = x9.b6;
-    var x13 = x9.b7;
+    var x12 = x9.b5;
+    var x13 = x9.b6;
     if ((x13 instanceof $c_s_Some)) {
       return x12.fn(x13.p);
     }
@@ -3713,7 +3713,7 @@ function $p_Lcats_effect_std_Dispatcher$__impl__Z__Z__Z__Lcats_effect_kernel_Asy
           if ((_$11.an() >= 0)) {
             var length = _$11.an();
             var componentType = evidence$1$1__runtimeClass;
-            var destination = componentType.b5.U(length);
+            var destination = componentType.b7.U(length);
             $f_sc_IterableOnceOps__copyToArray__O__I__I__I(_$11, destination, 0, 2147483647);
             var $x_2 = destination;
           } else {
@@ -8385,8 +8385,8 @@ function $p_Lcats_parse_RadixNode$__fromTree__T__T__sci_List__Lcats_parse_RadixN
           (($m_sc_StringOps$(), (x0 !== "")) ? l : r).bL(x0);
         }
         var x12 = $ct_T2__O__O__(new $c_T2(), l.T(), r.T());
-        var x15 = x12.b6;
-        var x16 = x12.b7;
+        var x15 = x12.b5;
+        var x16 = x12.b6;
         if ($m_sci_Nil$().a(x15)) {
           var x3 = $ct_T2__O__O__(new $c_T2(), $m_sci_Nil$(), rest);
           break matchResult5$1;
@@ -8674,7 +8674,7 @@ function $c_Lcats_parse_strings_Json$Impl$JsonStringUtil$() {
   if ((this$26.E() >= 0)) {
     var length = this$26.E();
     var componentType = evidence$1__runtimeClass;
-    var destination = componentType.b5.U(length);
+    var destination = componentType.b7.U(length);
     this$26.cW(destination, 0, 2147483647);
   } else {
     var capacity = 0;
@@ -10908,8 +10908,8 @@ function $p_Ldev_bosatsu_Declaration__loop$1__Ldev_bosatsu_Declaration__sci_Set_
         var x1$11 = these$7.e();
         matchResult21: {
           var x271 = $ct_T2__O__O__(new $c_T2(), x0$16, x1$11);
-          var x277 = x271.b6;
-          var x278 = x271.b7;
+          var x277 = x271.b5;
+          var x278 = x271.b6;
           if ((x278 instanceof $c_Ldev_bosatsu_Declaration$RecordArg$Pair)) {
             acc$8 = $p_Ldev_bosatsu_Declaration__loop$1__Ldev_bosatsu_Declaration__sci_Set__sci_SortedSet__sci_SortedSet($thiz, x278.I2, bound$tailLocal1$12, x277);
             break matchResult21;
@@ -11265,8 +11265,8 @@ function $p_Ldev_bosatsu_Declaration__loop$3__Ldev_bosatsu_Declaration__sci_Sort
         var x1$11 = these$7.e();
         matchResult32: {
           var x450 = $ct_T2__O__O__(new $c_T2(), x0$16, x1$11);
-          var x456 = x450.b6;
-          var x457 = x450.b7;
+          var x456 = x450.b5;
+          var x457 = x450.b6;
           if ((x457 instanceof $c_Ldev_bosatsu_Declaration$RecordArg$Pair)) {
             acc$8 = $p_Ldev_bosatsu_Declaration__loop$3__Ldev_bosatsu_Declaration__sci_SortedSet__sci_SortedSet($thiz, x457.I2, x456);
             break matchResult32;
@@ -14384,7 +14384,7 @@ function $ct_Ldev_bosatsu_GenericStringUtil__($thiz) {
   if ((this$17.E() >= 0)) {
     var length = this$17.E();
     var componentType = evidence$1__runtimeClass;
-    var destination = componentType.b5.U(length);
+    var destination = componentType.b7.U(length);
     this$17.cW(destination, 0, 2147483647);
     var $x_1 = destination;
   } else {
@@ -14671,10 +14671,10 @@ function $p_Ldev_bosatsu_InSetCompiler$__compilePositive__I__sci_Vector__Ldev_bo
     var evidence$1$1__runtimeClass;
     var evidence$1$1__runtimeClass = $d_Ldev_bosatsu_InSetCompiler$BoolExpr.l();
     if ((n$2 <= 0)) {
-      var $x_1 = evidence$1$1__runtimeClass.b5.U(0);
+      var $x_1 = evidence$1$1__runtimeClass.b7.U(0);
     } else {
       var componentType$1 = evidence$1$1__runtimeClass;
-      var array$1 = componentType$1.b5.U(n$2);
+      var array$1 = componentType$1.b7.U(n$2);
       var i$1 = 0;
       while ((i$1 < n$2)) {
         $m_sr_ScalaRunTime$().k4(array$1, i$1, $s_Ldev_bosatsu_InSetCompiler$BoolExpr$__FalseConst__Ldev_bosatsu_InSetCompiler$BoolExpr());
@@ -16765,8 +16765,8 @@ function $p_Ldev_bosatsu_MainModule__splitEvalPassthroughArgs__sci_List__T2($thi
       these = these.c();
     }
     var x11 = $ct_T2__O__O__(new $c_T2(), b.T(), these);
-    var x17 = x11.b6;
-    var x18 = x11.b7;
+    var x17 = x11.b5;
+    var x18 = x11.b6;
     if ($m_sci_Nil$().a(x18)) {
       return $ct_T2__O__O__(new $c_T2(), x17, $m_sci_Nil$());
     }
@@ -23858,8 +23858,8 @@ function $p_Ldev_bosatsu_Matchless$__loop$10__Ldev_bosatsu_Identifier$Bindable__
     var x5183 = expr.gq;
     var x5184 = expr.gp;
     var x5080 = $ct_T2__O__O__(new $c_T2(), $p_Ldev_bosatsu_Matchless$__loop$10__Ldev_bosatsu_Identifier$Bindable__Lcats_data_NonEmptyList__Ldev_bosatsu_Matchless$LocalAnonMut__Ldev_bosatsu_Matchless$LocalAnonMut__Ldev_bosatsu_Matchless$Expr__s_Option($thiz, name$17, args$15, result$6, cond$9, x5183), $p_Ldev_bosatsu_Matchless$__loop$10__Ldev_bosatsu_Identifier$Bindable__Lcats_data_NonEmptyList__Ldev_bosatsu_Matchless$LocalAnonMut__Ldev_bosatsu_Matchless$LocalAnonMut__Ldev_bosatsu_Matchless$Expr__s_Option($thiz, name$17, args$15, result$6, cond$9, x5184));
-    var x5091 = x5080.b6;
-    var x5092 = x5080.b7;
+    var x5091 = x5080.b5;
+    var x5092 = x5080.b6;
     if ((x5091 instanceof $c_s_Some)) {
       var t$2 = x5091.p;
       if ((x5092 instanceof $c_s_Some)) {
@@ -33744,8 +33744,8 @@ function $p_Ldev_bosatsu_MatchlessToValue$Impl$Env__compareIntValues__O__Ldev_bo
           matchResult24: {
             var $x_1;
             var x71 = $ct_T2__O__O__(new $c_T2(), x95, x92);
-            var x84 = x71.b6;
-            var x85 = x71.b7;
+            var x84 = x71.b5;
+            var x85 = x71.b6;
             if ($isInt(x84)) {
               if ($isInt(x85)) {
                 var $x_1 = ((((x84 > x85) | 0) - ((x84 < x85) | 0)) | 0);
@@ -34314,10 +34314,10 @@ $p.iy = (function(me) {
     var evidence$1__runtimeClass;
     var evidence$1__runtimeClass = $d_s_Option.l();
     if ((n <= 0)) {
-      var $x_10 = evidence$1__runtimeClass.b5.U(0);
+      var $x_10 = evidence$1__runtimeClass.b7.U(0);
     } else {
       var componentType$1 = evidence$1__runtimeClass;
-      var array = componentType$1.b5.U(n);
+      var array = componentType$1.b7.U(n);
       var i = 0;
       while ((i < n)) {
         $m_sr_ScalaRunTime$().k4(array, i, $m_s_None$());
@@ -40552,8 +40552,8 @@ function $p_Ldev_bosatsu_Pattern__subSet$1__Ldev_bosatsu_Pattern__Z__sci_Set($th
         var x1 = these.e();
         matchResult15: {
           var x194 = $ct_T2__O__O__(new $c_T2(), x0, x1);
-          var x202 = x194.b6;
-          var x203 = x194.b7;
+          var x202 = x194.b5;
+          var x203 = x194.b6;
           if ((x203 instanceof $c_Ldev_bosatsu_Pattern$ListPart$NamedList)) {
             acc = x202.aM(x203.kc);
             break matchResult15;
@@ -40781,8 +40781,8 @@ function $p_Ldev_bosatsu_Pattern__loop$3__Ldev_bosatsu_Pattern__T2($thiz, pat) {
       var b = $ct_T2__O__O__(new $c_T2(), $m_sci_Set$EmptySet$(), ($m_sci_List$(), $m_sci_Nil$()));
       var f = ((x$1$2, x$2$2) => {
         var x426 = $ct_T2__O__O__(new $c_T2(), x$1$2, x$2$2);
-        var x441 = x426.b6;
-        var x442 = x426.b7;
+        var x441 = x426.b5;
+        var x442 = x426.b6;
         matchAlts19: {
           matchAlts20: {
             if (($m_Ldev_bosatsu_Pattern$StrPart$WildStr$() === x442)) {
@@ -40834,8 +40834,8 @@ function $p_Ldev_bosatsu_Pattern__loop$3__Ldev_bosatsu_Pattern__T2($thiz, pat) {
         var x1$2 = these$1.e();
         matchResult30$1: {
           var x449 = $ct_T2__O__O__(new $c_T2(), x0$1, x1$2);
-          var x464 = x449.b6;
-          var x465 = x449.b7;
+          var x464 = x449.b5;
+          var x465 = x449.b6;
           if (($m_Ldev_bosatsu_Pattern$ListPart$WildList$() === x465)) {
             acc$1 = x464;
             break matchResult30$1;
@@ -43444,7 +43444,7 @@ function $p_Ldev_bosatsu_PredefImpl$__prog_effect2__Ldev_bosatsu_Value__Ldev_bos
     if ((vs$proxy10.E() >= 0)) {
       var length = vs$proxy10.E();
       var componentType = evidence$1__runtimeClass;
-      var destination = componentType.b5.U(length);
+      var destination = componentType.b7.U(length);
       vs$proxy10.cW(destination, 0, 2147483647);
       var $x_2 = destination;
     } else {
@@ -43793,7 +43793,7 @@ function $c_Ldev_bosatsu_PredefImpl$() {
   this.bCs = "NaN:0x";
   var evidence$1__runtimeClass;
   var evidence$1__runtimeClass = $d_Ldev_bosatsu_Value.l();
-  var EmptyArrayData = evidence$1__runtimeClass.b5.U(0);
+  var EmptyArrayData = evidence$1__runtimeClass.b7.U(0);
   var EmptyArrayRepr = new $c_Ldev_bosatsu_PredefImpl$ArrayValue(EmptyArrayData, 0, 0);
   this.wN = new $c_Ldev_bosatsu_Value$ExternalValue(EmptyArrayRepr);
   this.bCh = new $c_Ldev_bosatsu_PredefImpl$BytesValue($m_Ldev_bosatsu_Bytes$package$Bytes$().YH, 0, 0);
@@ -44029,7 +44029,7 @@ $p.cot = (function(a, b) {
     if ((vs$proxy2.E() >= 0)) {
       var length = vs$proxy2.E();
       var componentType = evidence$1__runtimeClass;
-      var destination = componentType.b5.U(length);
+      var destination = componentType.b7.U(length);
       vs$proxy2.cW(destination, 0, 2147483647);
       var $x_3 = destination;
     } else {
@@ -45200,7 +45200,7 @@ $p.ct6 = (function(items) {
   if ((this$3.an() >= 0)) {
     var length = this$3.an();
     var componentType = evidence$1__runtimeClass;
-    var destination = componentType.b5.U(length);
+    var destination = componentType.b7.U(length);
     $f_sc_IterableOnceOps__copyToArray__O__I__I__I(this$3, destination, 0, 2147483647);
     var $x_1 = destination;
   } else {
@@ -45866,10 +45866,10 @@ $p.cNc = (function(prefix, v) {
 });
 $p.ckG = (function(a, b) {
   var x1111 = $ct_T2__O__O__(new $c_T2(), a, b);
-  var x1117 = $m_Ldev_bosatsu_Value$Str$().dZ(x1111.b6);
+  var x1117 = $m_Ldev_bosatsu_Value$Str$().dZ(x1111.b5);
   if ((!x1117.b())) {
     var x1118 = x1117.i();
-    var x1114 = $m_Ldev_bosatsu_Value$Str$().dZ(x1111.b7);
+    var x1114 = $m_Ldev_bosatsu_Value$Str$().dZ(x1111.b6);
     if ((!x1114.b())) {
       var x1115 = x1114.i();
       var i$proxy4 = $m_Ldev_bosatsu_StringUtil$().adc(x1118, x1115);
@@ -45892,10 +45892,10 @@ $p.ck8 = (function(item) {
 });
 $p.ckC = (function(a, b) {
   var x1124 = $ct_T2__O__O__(new $c_T2(), a, b);
-  var x1130 = $m_Ldev_bosatsu_Value$Str$().dZ(x1124.b6);
+  var x1130 = $m_Ldev_bosatsu_Value$Str$().dZ(x1124.b5);
   if ((!x1130.b())) {
     var x1131 = x1130.i();
-    var x1127 = $m_Ldev_bosatsu_Value$Str$().dZ(x1124.b7);
+    var x1127 = $m_Ldev_bosatsu_Value$Str$().dZ(x1124.b6);
     if ((!x1127.b())) {
       var x1128 = x1127.i();
       var x = $f_T__codePointAt__I__I(x1131, 0);
@@ -45908,10 +45908,10 @@ $p.ckC = (function(a, b) {
 });
 $p.cpf = (function(a, b) {
   var x1133 = $ct_T2__O__O__(new $c_T2(), a, b);
-  var x1139 = $m_Ldev_bosatsu_Value$Str$().dZ(x1133.b6);
+  var x1139 = $m_Ldev_bosatsu_Value$Str$().dZ(x1133.b5);
   if ((!x1139.b())) {
     var x1140 = x1139.i();
-    var x1136 = $m_Ldev_bosatsu_Value$Str$().dZ(x1133.b7);
+    var x1136 = $m_Ldev_bosatsu_Value$Str$().dZ(x1133.b6);
     if ((!x1136.b())) {
       return $p_Ldev_bosatsu_PredefImpl$__bool__Z__Ldev_bosatsu_Value(this, (x1140 === x1136.i()));
     }
@@ -45983,7 +45983,7 @@ $p.cG6 = (function(arg, sep) {
         if ((vs$proxy16.E() >= 0)) {
           var length$2 = vs$proxy16.E();
           var componentType = evidence$1__runtimeClass;
-          var destination = componentType.b5.U(length$2);
+          var destination = componentType.b7.U(length$2);
           vs$proxy16.cW(destination, 0, 2147483647);
           var $x_3 = destination;
         } else {
@@ -46048,7 +46048,7 @@ $p.cJe = (function(arg, sep) {
         if ((vs$proxy17.E() >= 0)) {
           var length$2 = vs$proxy17.E();
           var componentType = evidence$1__runtimeClass;
-          var destination = componentType.b5.U(length$2);
+          var destination = componentType.b7.U(length$2);
           vs$proxy17.cW(destination, 0, 2147483647);
           var $x_3 = destination;
         } else {
@@ -46100,7 +46100,7 @@ $p.cO7 = (function(arg) {
       if ((vs$proxy18.E() >= 0)) {
         var length$2 = vs$proxy18.E();
         var componentType = evidence$1__runtimeClass;
-        var destination = componentType.b5.U(length$2);
+        var destination = componentType.b7.U(length$2);
         vs$proxy18.cW(destination, 0, 2147483647);
         var $x_2 = destination;
       } else {
@@ -46524,7 +46524,7 @@ function $p_Ldev_bosatsu_PredefIoCorePlatform$__prog_effect2__Ldev_bosatsu_Value
     if ((vs$proxy3.E() >= 0)) {
       var length = vs$proxy3.E();
       var componentType = evidence$1__runtimeClass;
-      var destination = componentType.b5.U(length);
+      var destination = componentType.b7.U(length);
       vs$proxy3.cW(destination, 0, 2147483647);
       var $x_2 = destination;
     } else {
@@ -46565,7 +46565,7 @@ function $p_Ldev_bosatsu_PredefIoCorePlatform$__prog_effect3__Ldev_bosatsu_Value
     if ((vs$proxy4.E() >= 0)) {
       var length = vs$proxy4.E();
       var componentType = evidence$1__runtimeClass;
-      var destination = componentType.b5.U(length);
+      var destination = componentType.b7.U(length);
       vs$proxy4.cW(destination, 0, 2147483647);
       var $x_2 = destination;
     } else {
@@ -47513,7 +47513,7 @@ function $p_Ldev_bosatsu_PredefIoCorePlatform$__createTempFileNode__s_Option__T_
         if ((vs$proxy5.E() >= 0)) {
           var length = vs$proxy5.E();
           var componentType = evidence$1__runtimeClass;
-          var destination = componentType.b5.U(length);
+          var destination = componentType.b7.U(length);
           vs$proxy5.cW(destination, 0, 2147483647);
           var $x_2 = destination;
         } else {
@@ -48354,7 +48354,7 @@ $p.cGM = (function(src, dst, chunkSize, maxTotal) {
       if ((vs$proxy7.E() >= 0)) {
         var length = vs$proxy7.E();
         var componentType = evidence$1__runtimeClass;
-        var destination = componentType.b5.U(length);
+        var destination = componentType.b7.U(length);
         vs$proxy7.cW(destination, 0, 2147483647);
         var $x_2 = destination;
       } else {
@@ -48841,7 +48841,7 @@ function $p_Ldev_bosatsu_ProtoConverter$__ifaceDeps__Lbosatsu_TypedAst_Interface
   if ((this$2.an() >= 0)) {
     var length = this$2.an();
     var componentType = evidence$1__runtimeClass;
-    var destination = componentType.b5.U(length);
+    var destination = componentType.b7.U(length);
     this$2.cW(destination, 0, 2147483647);
     var $x_1 = destination;
   } else {
@@ -48956,7 +48956,7 @@ function $p_Ldev_bosatsu_ProtoConverter$__packageDeps__Lbosatsu_TypedAst_Package
   if ((this$2.an() >= 0)) {
     var length = this$2.an();
     var componentType = evidence$1__runtimeClass;
-    var destination = componentType.b5.U(length);
+    var destination = componentType.b7.U(length);
     this$2.cW(destination, 0, 2147483647);
     var $x_1 = destination;
   } else {
@@ -49611,8 +49611,8 @@ function $p_Ldev_bosatsu_ProtoConverter$__decodeGuard$1__F1__Ldev_bosatsu_ProtoC
   var cond = (b.PD !== 0);
   var boolGuard = (cond ? new $c_s_Some(b.PD) : $m_s_None$());
   var x334 = $ct_T2__O__O__(new $c_T2(), boolGuard, b.PE);
-  var x349 = x334.b6;
-  var x350 = x334.b7;
+  var x349 = x334.b5;
+  var x350 = x334.b6;
   if ((($m_s_None$() === x349) && ($m_s_None$() === x350))) {
     return new $c_s_util_Success($m_s_None$());
   }
@@ -50602,7 +50602,7 @@ $p.bYy = (function(types) {
     if ((types.an() >= 0)) {
       var length = types.an();
       var componentType = evidence$1__runtimeClass;
-      var destination = componentType.b5.U(length);
+      var destination = componentType.b7.U(length);
       types.cW(destination, 0, 2147483647);
       var ary = destination;
     } else {
@@ -50626,7 +50626,7 @@ $p.bYy = (function(types) {
     var evidence$1$1__runtimeClass = $d_Ldev_bosatsu_rankn_Type.l();
     var length$1 = $m_jl_reflect_Array$().dd(ary);
     var componentType$1 = evidence$1$1__runtimeClass;
-    var result = componentType$1.b5.U(length$1);
+    var result = componentType$1.b7.U(length$1);
     var idx = 0;
     var res = null;
     while (((idx < $m_jl_reflect_Array$().dd(ary)) && (res === null))) {
@@ -50658,7 +50658,7 @@ $p.cjM = (function(pats) {
     if ((pats.an() >= 0)) {
       var length = pats.an();
       var componentType = evidence$1__runtimeClass;
-      var destination = componentType.b5.U(length);
+      var destination = componentType.b7.U(length);
       pats.cW(destination, 0, 2147483647);
       var ary = destination;
     } else {
@@ -50682,7 +50682,7 @@ $p.cjM = (function(pats) {
     var evidence$1$1__runtimeClass = $d_Ldev_bosatsu_Pattern.l();
     var length$1 = $m_jl_reflect_Array$().dd(ary);
     var componentType$1 = evidence$1$1__runtimeClass;
-    var result = componentType$1.b5.U(length$1);
+    var result = componentType$1.b7.U(length$1);
     var idx = 0;
     var res = null;
     while (((idx < $m_jl_reflect_Array$().dd(ary)) && (res === null))) {
@@ -50733,7 +50733,7 @@ $p.cjI = (function(exprs) {
     if ((exprs.an() >= 0)) {
       var length = exprs.an();
       var componentType = evidence$1__runtimeClass;
-      var destination = componentType.b5.U(length);
+      var destination = componentType.b7.U(length);
       exprs.cW(destination, 0, 2147483647);
       var ary = destination;
     } else {
@@ -50757,7 +50757,7 @@ $p.cjI = (function(exprs) {
     var evidence$1$1__runtimeClass = $d_Ldev_bosatsu_TypedExpr.l();
     var length$1 = $m_jl_reflect_Array$().dd(ary);
     var componentType$1 = evidence$1$1__runtimeClass;
-    var result = componentType$1.b5.U(length$1);
+    var result = componentType$1.b7.U(length$1);
     var idx = 0;
     var res = null;
     while (((idx < $m_jl_reflect_Array$().dd(ary)) && (res === null))) {
@@ -52588,7 +52588,7 @@ $p.cbc = (function(vdts) {
   if ((vdts.an() >= 0)) {
     var length = vdts.an();
     var componentType = evidence$1__runtimeClass;
-    var destination = componentType.b5.U(length);
+    var destination = componentType.b7.U(length);
     vdts.cW(destination, 0, 2147483647);
     var $x_1 = destination;
   } else {
@@ -52619,7 +52619,7 @@ $p.cbh = (function(vtas) {
   if ((vtas.an() >= 0)) {
     var length = vtas.an();
     var componentType = evidence$1__runtimeClass;
-    var destination = componentType.b5.U(length);
+    var destination = componentType.b7.U(length);
     vtas.cW(destination, 0, 2147483647);
     var $x_1 = destination;
   } else {
@@ -52668,7 +52668,7 @@ $p.c41 = (function(strings) {
   if ((strings.an() >= 0)) {
     var length = strings.an();
     var componentType = evidence$1__runtimeClass;
-    var destination = componentType.b5.U(length);
+    var destination = componentType.b7.U(length);
     strings.cW(destination, 0, 2147483647);
     var $x_1 = destination;
   } else {
@@ -52698,7 +52698,7 @@ $p.c41 = (function(strings) {
   var evidence$1$4__runtimeClass = $d_Ldev_bosatsu_Pattern.l();
   var evidence$1$5__runtimeClass;
   var evidence$1$5__runtimeClass = $d_Ldev_bosatsu_TypedExpr.l();
-  return new $c_Ldev_bosatsu_ProtoConverter$DecodeState($x_1, evidence$1$1__runtimeClass.b5.U(0), evidence$1$2__runtimeClass.b5.U(0), evidence$1$3__runtimeClass.b5.U(0), evidence$1$4__runtimeClass.b5.U(0), evidence$1$5__runtimeClass.b5.U(0));
+  return new $c_Ldev_bosatsu_ProtoConverter$DecodeState($x_1, evidence$1$1__runtimeClass.b7.U(0), evidence$1$2__runtimeClass.b7.U(0), evidence$1$3__runtimeClass.b7.U(0), evidence$1$4__runtimeClass.b7.U(0), evidence$1$5__runtimeClass.b7.U(0));
 });
 var $d_Ldev_bosatsu_ProtoConverter$DecodeState$ = new $TypeData().i($c_Ldev_bosatsu_ProtoConverter$DecodeState$, "dev.bosatsu.ProtoConverter$DecodeState$", ({
   acQ: 1
@@ -53066,23 +53066,23 @@ function $p_Ldev_bosatsu_RingOpt$__loop$13__I__Lcats_kernel_Order__Ldev_bosatsu_
 function $p_Ldev_bosatsu_RingOpt$__stripTopLevelAddNoOps$1__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr($thiz, expr) {
   var expr$tailLocal2 = expr;
   while (true) {
-    var x1197 = expr$tailLocal2;
-    if ((x1197 instanceof $c_Ldev_bosatsu_RingOpt$Add)) {
-      var x1204 = x1197.l4;
-      var x1205 = x1197.l5;
-      if ($f_Ldev_bosatsu_RingOpt$Expr__isZero__Z(x1204)) {
-        expr$tailLocal2 = x1205;
+    var x1223 = expr$tailLocal2;
+    if ((x1223 instanceof $c_Ldev_bosatsu_RingOpt$Add)) {
+      var x1230 = x1223.l4;
+      var x1231 = x1223.l5;
+      if ($f_Ldev_bosatsu_RingOpt$Expr__isZero__Z(x1230)) {
+        expr$tailLocal2 = x1231;
         continue;
       }
     }
-    if ((x1197 instanceof $c_Ldev_bosatsu_RingOpt$Add)) {
-      var x1200 = x1197.l4;
-      if ($f_Ldev_bosatsu_RingOpt$Expr__isZero__Z(x1197.l5)) {
-        expr$tailLocal2 = x1200;
+    if ((x1223 instanceof $c_Ldev_bosatsu_RingOpt$Add)) {
+      var x1226 = x1223.l4;
+      if ($f_Ldev_bosatsu_RingOpt$Expr__isZero__Z(x1223.l5)) {
+        expr$tailLocal2 = x1226;
         continue;
       }
     }
-    return x1197;
+    return x1223;
   }
 }
 function $p_Ldev_bosatsu_RingOpt$__oneAndRest$1__sci_List__sci_List($thiz, ls) {
@@ -53090,10 +53090,10 @@ function $p_Ldev_bosatsu_RingOpt$__oneAndRest$1__sci_List__sci_List($thiz, ls) {
     return $m_sci_Nil$();
   }
   if ((ls instanceof $c_sci_$colon$colon)) {
-    var x1215 = ls.h;
+    var x1241 = ls.h;
     var a = ls.F;
-    var $x_2 = $ct_T2__O__O__(new $c_T2(), a, x1215);
-    var this$3 = $p_Ldev_bosatsu_RingOpt$__oneAndRest$1__sci_List__sci_List($thiz, x1215);
+    var $x_2 = $ct_T2__O__O__(new $c_T2(), a, x1241);
+    var this$3 = $p_Ldev_bosatsu_RingOpt$__oneAndRest$1__sci_List__sci_List($thiz, x1241);
     var f = ((x$1$2) => $ct_T2__O__O__(new $c_T2(), x$1$2.f(), new $c_sci_$colon$colon(a, x$1$2.g())));
     if ((this$3 === $m_sci_Nil$())) {
       var $x_1 = $m_sci_Nil$();
@@ -53117,14 +53117,14 @@ function $p_Ldev_bosatsu_RingOpt$__oneAndRest$1__sci_List__sci_List($thiz, ls) {
 }
 function $p_Ldev_bosatsu_RingOpt$__loop$15__Lcats_kernel_Hash__Ldev_bosatsu_RingOpt$Expr__T2($thiz, evidence$1$14, e0) {
   if ((e0 instanceof $c_Ldev_bosatsu_RingOpt$Add)) {
-    var x1631 = e0.l4;
-    var x1632 = e0.l5;
+    var x1657 = e0.l4;
+    var x1658 = e0.l5;
     var \u03b472$;
-    var \u03b472$ = $p_Ldev_bosatsu_RingOpt$__loop$15__Lcats_kernel_Hash__Ldev_bosatsu_RingOpt$Expr__T2($thiz, evidence$1$14, x1631);
+    var \u03b472$ = $p_Ldev_bosatsu_RingOpt$__loop$15__Lcats_kernel_Hash__Ldev_bosatsu_RingOpt$Expr__T2($thiz, evidence$1$14, x1657);
     var cx = \u03b472$.f();
     var tx = \u03b472$.g();
     var \u03b474$;
-    var \u03b474$ = $p_Ldev_bosatsu_RingOpt$__loop$15__Lcats_kernel_Hash__Ldev_bosatsu_RingOpt$Expr__T2($thiz, evidence$1$14, x1632);
+    var \u03b474$ = $p_Ldev_bosatsu_RingOpt$__loop$15__Lcats_kernel_Hash__Ldev_bosatsu_RingOpt$Expr__T2($thiz, evidence$1$14, x1658);
     var cy = \u03b474$.f();
     var ty = \u03b474$.g();
     return (($m_Lcats_package$(), $m_Ldev_bosatsu_RingOpt$Expr$().a3m(evidence$1$14)).bD(tx, ty) ? $ct_T2__O__O__(new $c_T2(), cx.hQ(cy), tx) : $ct_T2__O__O__(new $c_T2(), $m_s_package$().bI().aR(1), e0));
@@ -53133,9 +53133,9 @@ function $p_Ldev_bosatsu_RingOpt$__loop$15__Lcats_kernel_Hash__Ldev_bosatsu_Ring
   }
 }
 function $p_Ldev_bosatsu_RingOpt$__repeatedAdds$1__Lcats_kernel_Hash__Ldev_bosatsu_RingOpt$Expr__s_Option($thiz, evidence$1$13, expr) {
-  var x1633 = $p_Ldev_bosatsu_RingOpt$__loop$15__Lcats_kernel_Hash__Ldev_bosatsu_RingOpt$Expr__T2($thiz, evidence$1$13, expr);
-  var cnt = x1633.f();
-  var term = x1633.g();
+  var x1659 = $p_Ldev_bosatsu_RingOpt$__loop$15__Lcats_kernel_Hash__Ldev_bosatsu_RingOpt$Expr__T2($thiz, evidence$1$13, expr);
+  var cnt = x1659.f();
+  var term = x1659.g();
   if ($f_s_math_Ordered__$greater__O__Z(cnt, $m_s_math_BigInt$().aR(1))) {
     return new $c_s_Some($ct_T2__O__O__(new $c_T2(), cnt, term));
   }
@@ -53170,120 +53170,120 @@ $p.kP = (function(n) {
 $p.a3E = (function(e, w, evidence$1) {
   var e$tailLocal3 = e;
   while (true) {
-    var x1230 = e$tailLocal3;
+    var x1256 = e$tailLocal3;
     matchAlts37: {
       matchAlts38: {
-        if ((x1230 instanceof $c_Ldev_bosatsu_RingOpt$Symbol)) {
+        if ((x1256 instanceof $c_Ldev_bosatsu_RingOpt$Symbol)) {
           break matchAlts38;
         }
-        if (($m_Ldev_bosatsu_RingOpt$One$() === x1230)) {
+        if (($m_Ldev_bosatsu_RingOpt$One$() === x1256)) {
           break matchAlts38;
         }
-        if (($m_Ldev_bosatsu_RingOpt$Zero$() === x1230)) {
+        if (($m_Ldev_bosatsu_RingOpt$Zero$() === x1256)) {
           break matchAlts38;
         }
-        if ((x1230 instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
+        if ((x1256 instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
           break matchAlts38;
         }
         break matchAlts37;
       }
       return e$tailLocal3;
     }
-    if ((x1230 instanceof $c_Ldev_bosatsu_RingOpt$Neg)) {
-      return new $c_Ldev_bosatsu_RingOpt$Neg(this.a3E(x1230.fT, w, evidence$1));
+    if ((x1256 instanceof $c_Ldev_bosatsu_RingOpt$Neg)) {
+      return new $c_Ldev_bosatsu_RingOpt$Neg(this.a3E(x1256.fT, w, evidence$1));
     }
-    if ((x1230 instanceof $c_Ldev_bosatsu_RingOpt$Add)) {
-      var x1305 = x1230.l4;
-      var x1306 = x1230.l5;
-      return new $c_Ldev_bosatsu_RingOpt$Add(this.a3E(x1305, w, evidence$1), this.a3E(x1306, w, evidence$1));
+    if ((x1256 instanceof $c_Ldev_bosatsu_RingOpt$Add)) {
+      var x1331 = x1256.l4;
+      var x1332 = x1256.l5;
+      return new $c_Ldev_bosatsu_RingOpt$Add(this.a3E(x1331, w, evidence$1), this.a3E(x1332, w, evidence$1));
     }
-    if ((x1230 instanceof $c_Ldev_bosatsu_RingOpt$Mult)) {
-      var x1295 = x1230.ja;
-      var x1296 = x1230.jb;
-      if ((x1295 instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
-        var x1302 = x1295.gQ;
-        if ((x1296 instanceof $c_Ldev_bosatsu_RingOpt$Neg)) {
-          var x1299 = x1296.fT;
-          e$tailLocal3 = new $c_Ldev_bosatsu_RingOpt$Mult(new $c_Ldev_bosatsu_RingOpt$Integer(x1302.e9()), x1299);
+    if ((x1256 instanceof $c_Ldev_bosatsu_RingOpt$Mult)) {
+      var x1321 = x1256.ja;
+      var x1322 = x1256.jb;
+      if ((x1321 instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
+        var x1328 = x1321.gQ;
+        if ((x1322 instanceof $c_Ldev_bosatsu_RingOpt$Neg)) {
+          var x1325 = x1322.fT;
+          e$tailLocal3 = new $c_Ldev_bosatsu_RingOpt$Mult(new $c_Ldev_bosatsu_RingOpt$Integer(x1328.e9()), x1325);
           continue;
         }
       }
     }
-    if ((x1230 instanceof $c_Ldev_bosatsu_RingOpt$Mult)) {
-      var x1285 = x1230.ja;
-      var x1286 = x1230.jb;
-      if ((x1285 instanceof $c_Ldev_bosatsu_RingOpt$Neg)) {
-        var x1292 = x1285.fT;
-        if ((x1286 instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
-          var x1289 = x1286.gQ;
-          e$tailLocal3 = new $c_Ldev_bosatsu_RingOpt$Mult(new $c_Ldev_bosatsu_RingOpt$Integer(x1289.e9()), x1292);
+    if ((x1256 instanceof $c_Ldev_bosatsu_RingOpt$Mult)) {
+      var x1311 = x1256.ja;
+      var x1312 = x1256.jb;
+      if ((x1311 instanceof $c_Ldev_bosatsu_RingOpt$Neg)) {
+        var x1318 = x1311.fT;
+        if ((x1312 instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
+          var x1315 = x1312.gQ;
+          e$tailLocal3 = new $c_Ldev_bosatsu_RingOpt$Mult(new $c_Ldev_bosatsu_RingOpt$Integer(x1315.e9()), x1318);
           continue;
         }
       }
     }
-    if ((x1230 instanceof $c_Ldev_bosatsu_RingOpt$Mult)) {
-      var x1272 = x1230.ja;
-      var x1273 = x1230.jb;
-      if ((x1272 instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
-        var x1282 = x1272.gQ;
+    if ((x1256 instanceof $c_Ldev_bosatsu_RingOpt$Mult)) {
+      var x1298 = x1256.ja;
+      var x1299 = x1256.jb;
+      if ((x1298 instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
+        var x1308 = x1298.gQ;
         matchAlts35: {
           matchAlts36: {
-            if ((x1273 instanceof $c_Ldev_bosatsu_RingOpt$Symbol)) {
+            if ((x1299 instanceof $c_Ldev_bosatsu_RingOpt$Symbol)) {
               break matchAlts36;
             }
-            if (($m_Ldev_bosatsu_RingOpt$One$() === x1273)) {
+            if (($m_Ldev_bosatsu_RingOpt$One$() === x1299)) {
               break matchAlts36;
             }
-            if (($m_Ldev_bosatsu_RingOpt$Zero$() === x1273)) {
+            if (($m_Ldev_bosatsu_RingOpt$Zero$() === x1299)) {
               break matchAlts36;
             }
-            if ((x1273 instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
+            if ((x1299 instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
               break matchAlts36;
             }
             break matchAlts35;
           }
-          return w.b37(x1273, x1282, evidence$1);
+          return w.b37(x1299, x1308, evidence$1);
         }
       }
     }
-    if ((x1230 instanceof $c_Ldev_bosatsu_RingOpt$Mult)) {
-      var x1259 = x1230.ja;
-      var x1260 = x1230.jb;
+    if ((x1256 instanceof $c_Ldev_bosatsu_RingOpt$Mult)) {
+      var x1285 = x1256.ja;
+      var x1286 = x1256.jb;
       matchAlts33: {
         matchAlts34: {
-          if ((x1259 instanceof $c_Ldev_bosatsu_RingOpt$Symbol)) {
+          if ((x1285 instanceof $c_Ldev_bosatsu_RingOpt$Symbol)) {
             break matchAlts34;
           }
-          if (($m_Ldev_bosatsu_RingOpt$One$() === x1259)) {
+          if (($m_Ldev_bosatsu_RingOpt$One$() === x1285)) {
             break matchAlts34;
           }
-          if (($m_Ldev_bosatsu_RingOpt$Zero$() === x1259)) {
+          if (($m_Ldev_bosatsu_RingOpt$Zero$() === x1285)) {
             break matchAlts34;
           }
-          if ((x1259 instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
+          if ((x1285 instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
             break matchAlts34;
           }
           break matchAlts33;
         }
-        if ((x1260 instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
-          var x1263 = x1260.gQ;
-          return w.b37(x1259, x1263, evidence$1);
+        if ((x1286 instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
+          var x1289 = x1286.gQ;
+          return w.b37(x1285, x1289, evidence$1);
         }
       }
     }
-    if ((x1230 instanceof $c_Ldev_bosatsu_RingOpt$Mult)) {
-      var x1248 = x1230.ja;
-      var x1249 = x1230.jb;
-      if ((x1248 instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
-        var x1256 = x1248.gQ;
-        if ((x1249 instanceof $c_Ldev_bosatsu_RingOpt$Add)) {
-          var x1252 = x1249.l4;
-          var x1253 = x1249.l5;
-          var distribute = this.a3E(new $c_Ldev_bosatsu_RingOpt$Add(new $c_Ldev_bosatsu_RingOpt$Mult(x1248, x1252), new $c_Ldev_bosatsu_RingOpt$Mult(x1248, x1253)), w, evidence$1);
+    if ((x1256 instanceof $c_Ldev_bosatsu_RingOpt$Mult)) {
+      var x1274 = x1256.ja;
+      var x1275 = x1256.jb;
+      if ((x1274 instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
+        var x1282 = x1274.gQ;
+        if ((x1275 instanceof $c_Ldev_bosatsu_RingOpt$Add)) {
+          var x1278 = x1275.l4;
+          var x1279 = x1275.l5;
+          var distribute = this.a3E(new $c_Ldev_bosatsu_RingOpt$Add(new $c_Ldev_bosatsu_RingOpt$Mult(x1274, x1278), new $c_Ldev_bosatsu_RingOpt$Mult(x1274, x1279)), w, evidence$1);
           var $x_1 = w.tr(distribute);
           var costD_$_lo = $x_1.l;
           var costD_$_hi = $x_1.h;
-          var atom = w.b37(this.a3E(x1249, w, evidence$1), x1256, evidence$1);
+          var atom = w.b37(this.a3E(x1275, w, evidence$1), x1282, evidence$1);
           var $x_2 = w.tr(atom);
           var costA_$_lo = $x_2.l;
           var costA_$_hi = $x_2.h;
@@ -53291,21 +53291,21 @@ $p.a3E = (function(e, w, evidence$1) {
         }
       }
     }
-    if ((x1230 instanceof $c_Ldev_bosatsu_RingOpt$Mult)) {
-      var x1237 = x1230.ja;
-      var x1238 = x1230.jb;
-      if ((x1237 instanceof $c_Ldev_bosatsu_RingOpt$Add)) {
-        if ((x1238 instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
-          e$tailLocal3 = new $c_Ldev_bosatsu_RingOpt$Mult(x1238, x1237);
+    if ((x1256 instanceof $c_Ldev_bosatsu_RingOpt$Mult)) {
+      var x1263 = x1256.ja;
+      var x1264 = x1256.jb;
+      if ((x1263 instanceof $c_Ldev_bosatsu_RingOpt$Add)) {
+        if ((x1264 instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
+          e$tailLocal3 = new $c_Ldev_bosatsu_RingOpt$Mult(x1264, x1263);
           continue;
         }
       }
     }
-    if ((x1230 instanceof $c_Ldev_bosatsu_RingOpt$Mult)) {
-      var x1233 = x1230.ja;
-      var x1234 = x1230.jb;
+    if ((x1256 instanceof $c_Ldev_bosatsu_RingOpt$Mult)) {
+      var x1259 = x1256.ja;
+      var x1260 = x1256.jb;
       var \u03b454$;
-      var \u03b454$ = $m_Ldev_bosatsu_RingOpt$Expr$().aQz(new $c_sci_$colon$colon(x1233, new $c_sci_$colon$colon(x1234, $m_sci_Nil$())), evidence$1);
+      var \u03b454$ = $m_Ldev_bosatsu_RingOpt$Expr$().aQz(new $c_sci_$colon$colon(x1259, new $c_sci_$colon$colon(x1260, $m_sci_Nil$())), evidence$1);
       var const$1 = \u03b454$.f();
       var factors = \u03b454$.g();
       if (factors.b()) {
@@ -53454,7 +53454,7 @@ $p.a3E = (function(e, w, evidence$1) {
         })), ($m_Lcats_package$(), $f_Lcats_kernel_instances_TupleOrderInstances__catsKernelOrderForTuple2__Lcats_kernel_Order__Lcats_kernel_Order__Lcats_kernel_Order($m_Lcats_kernel_Eq$(), $m_Lcats_kernel_instances_long_package$().agm, $m_Ldev_bosatsu_RingOpt$Expr$().BY(evidence$1)).al())).g();
       }
     }
-    throw new $c_s_MatchError(x1230);
+    throw new $c_s_MatchError(x1256);
   }
 });
 $p.aQ6 = (function(e, W, evidence$1, evidence$2) {
@@ -53480,36 +53480,36 @@ $p.aQ6 = (function(e, W, evidence$1, evidence$2) {
       return this.kP(u.gQ);
     }
     if ((u instanceof $c_Ldev_bosatsu_RingOpt$Neg)) {
-      var x1685 = u.fT;
-      if ((x1685 instanceof $c_Ldev_bosatsu_RingOpt$Neg)) {
-        var x1688 = x1685.fT;
-        e$tailLocal4 = x1688;
+      var x1711 = u.fT;
+      if ((x1711 instanceof $c_Ldev_bosatsu_RingOpt$Neg)) {
+        var x1714 = x1711.fT;
+        e$tailLocal4 = x1714;
         continue;
       }
     }
     if ((u instanceof $c_Ldev_bosatsu_RingOpt$Neg)) {
-      var x1678 = u.fT;
-      if ((x1678 instanceof $c_Ldev_bosatsu_RingOpt$Add)) {
-        var x1681 = x1678.l4;
-        var x1682 = x1678.l5;
-        var x1618 = $m_Ldev_bosatsu_RingOpt$GroupSum$().bY2(new $c_sci_$colon$colon(x1681, new $c_sci_$colon$colon(x1682, $m_sci_Nil$())), evidence$1, evidence$2);
-        var \u03b470$___1 = x1618.ajE;
-        var \u03b470$___2 = x1618.ajF;
+      var x1704 = u.fT;
+      if ((x1704 instanceof $c_Ldev_bosatsu_RingOpt$Add)) {
+        var x1707 = x1704.l4;
+        var x1708 = x1704.l5;
+        var x1644 = $m_Ldev_bosatsu_RingOpt$GroupSum$().bY2(new $c_sci_$colon$colon(x1707, new $c_sci_$colon$colon(x1708, $m_sci_Nil$())), evidence$1, evidence$2);
+        var \u03b470$___1 = x1644.ajE;
+        var \u03b470$___2 = x1644.ajF;
         var const$2 = \u03b470$___1;
         var terms$2 = \u03b470$___2;
         return $m_Ldev_bosatsu_RingOpt$SumProd$().c2H(new $c_Ldev_bosatsu_RingOpt$GroupSum(const$2.e9(), terms$2.cAG()), evidence$1, evidence$2).b5y(W, evidence$1);
       }
     }
     if ((u instanceof $c_Ldev_bosatsu_RingOpt$Neg)) {
-      var x1671 = u.fT;
-      if ((x1671 instanceof $c_Ldev_bosatsu_RingOpt$Mult)) {
-        e$tailLocal4 = new $c_Ldev_bosatsu_RingOpt$Mult(new $c_Ldev_bosatsu_RingOpt$Neg($m_Ldev_bosatsu_RingOpt$One$()), x1671);
+      var x1697 = u.fT;
+      if ((x1697 instanceof $c_Ldev_bosatsu_RingOpt$Mult)) {
+        e$tailLocal4 = new $c_Ldev_bosatsu_RingOpt$Mult(new $c_Ldev_bosatsu_RingOpt$Neg($m_Ldev_bosatsu_RingOpt$One$()), x1697);
         continue;
       }
     }
     if ((u instanceof $c_Ldev_bosatsu_RingOpt$Neg)) {
-      var x1665 = u.fT;
-      if ((x1665 instanceof $c_Ldev_bosatsu_RingOpt$Symbol)) {
+      var x1691 = u.fT;
+      if ((x1691 instanceof $c_Ldev_bosatsu_RingOpt$Symbol)) {
         return u;
       }
     }
@@ -53524,16 +53524,16 @@ $p.aQ6 = (function(e, W, evidence$1, evidence$2) {
       }
     }
     if ((u instanceof $c_Ldev_bosatsu_RingOpt$Neg)) {
-      var x1653 = u.fT;
-      if ((x1653 instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
-        return this.kP(x1653.gQ.e9());
+      var x1679 = u.fT;
+      if ((x1679 instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
+        return this.kP(x1679.gQ.e9());
       }
     }
     if ((u instanceof $c_Ldev_bosatsu_RingOpt$Add)) {
-      var x1649 = u.l4;
-      var x1650 = u.l5;
-      var sumProd$2 = $m_Ldev_bosatsu_RingOpt$SumProd$().bY3(new $c_sci_$colon$colon(x1649, new $c_sci_$colon$colon(x1650, $m_sci_Nil$())), evidence$1, evidence$2).b5y(W, evidence$1);
-      var prefix$4 = $p_Ldev_bosatsu_RingOpt$__repeatedAdds$1__Lcats_kernel_Hash__Ldev_bosatsu_RingOpt$Expr__s_Option(this, evidence$1, new $c_Ldev_bosatsu_RingOpt$Add(x1649, x1650)).T();
+      var x1675 = u.l4;
+      var x1676 = u.l5;
+      var sumProd$2 = $m_Ldev_bosatsu_RingOpt$SumProd$().bY3(new $c_sci_$colon$colon(x1675, new $c_sci_$colon$colon(x1676, $m_sci_Nil$())), evidence$1, evidence$2).b5y(W, evidence$1);
+      var prefix$4 = $p_Ldev_bosatsu_RingOpt$__repeatedAdds$1__Lcats_kernel_Hash__Ldev_bosatsu_RingOpt$Expr__s_Option(this, evidence$1, new $c_Ldev_bosatsu_RingOpt$Add(x1675, x1676)).T();
       var repeatedForms = $p_Ldev_bosatsu_RingOpt$__repeatedAdds$1__Lcats_kernel_Hash__Ldev_bosatsu_RingOpt$Expr__s_Option(this, evidence$1, e$tailLocal4).T().W(prefix$4);
       var f = ((x$1$2) => $m_Ldev_bosatsu_RingOpt$Expr$().Kk(new $c_Ldev_bosatsu_RingOpt$Integer(x$1$2.f()), x$1$2.g()));
       if ((repeatedForms === $m_sci_Nil$())) {
@@ -53570,10 +53570,10 @@ $p.aQ6 = (function(e, W, evidence$1, evidence$2) {
       return acc;
     }
     if ((u instanceof $c_Ldev_bosatsu_RingOpt$Mult)) {
-      var x1645 = u.ja;
-      var x1646 = u.jb;
+      var x1671 = u.ja;
+      var x1672 = u.jb;
       var \u03b476$;
-      var \u03b476$ = $m_Ldev_bosatsu_RingOpt$Expr$().aQz(new $c_sci_$colon$colon(x1645, new $c_sci_$colon$colon(x1646, $m_sci_Nil$())), evidence$2);
+      var \u03b476$ = $m_Ldev_bosatsu_RingOpt$Expr$().aQz(new $c_sci_$colon$colon(x1671, new $c_sci_$colon$colon(x1672, $m_sci_Nil$())), evidence$2);
       var const$3 = \u03b476$.f();
       var factors = \u03b476$.g();
       var $x_5 = $m_Ldev_bosatsu_RingOpt$Expr$();
@@ -54040,8 +54040,8 @@ function $p_Ldev_bosatsu_RingOpt$Expr__loop$1__Ldev_bosatsu_RingOpt$Expr__Z__s_O
     matchResult30: {
       var res;
       var x190 = $ct_T2__O__O__(new $c_T2(), lx, ly);
-      var x213 = x190.b6;
-      var x214 = x190.b7;
+      var x213 = x190.b5;
+      var x214 = x190.b6;
       if ((($m_s_None$() === x213) && ($m_s_None$() === x214))) {
         var res = $m_s_None$();
         break matchResult30;
@@ -54240,88 +54240,136 @@ function $p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__step$1__Lcats_kernel_Order__Ldev
     return (($m_Ldev_bosatsu_RingOpt$Zero$() === nx) ? ny : (($m_Ldev_bosatsu_RingOpt$One$() === nx) ? ((ny instanceof $c_Ldev_bosatsu_RingOpt$Integer) ? $m_Ldev_bosatsu_RingOpt$().kP(ny.gQ.hQ($m_s_math_BigInt$().aR(1))) : (($m_Ldev_bosatsu_RingOpt$Zero$() === ny) ? nx : (($m_Ldev_bosatsu_RingOpt$One$() === ny) ? $m_Ldev_bosatsu_RingOpt$().kP($m_s_math_BigInt$().aR(2)) : $p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__add$7__Lcats_kernel_Order__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr($thiz, o$7, nx, ny)))) : (($m_Ldev_bosatsu_RingOpt$Zero$() === ny) ? nx : $p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__add$7__Lcats_kernel_Order__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr($thiz, o$7, nx, ny))));
   }
 }
+function $p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__isNeg$1__Ldev_bosatsu_RingOpt$Expr__Z($thiz, e) {
+  return ((e instanceof $c_Ldev_bosatsu_RingOpt$Neg) || false);
+}
+function $p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__freeNegs$1__sci_List__sci_List($thiz, summands) {
+  var rev = summands.af();
+  if ((rev instanceof $c_sci_$colon$colon)) {
+    var x423 = rev.h;
+    if ((rev.F instanceof $c_Ldev_bosatsu_RingOpt$Neg)) {
+      var x430 = rev.F;
+      if ((x423 instanceof $c_sci_$colon$colon)) {
+        if ((x423.F instanceof $c_Ldev_bosatsu_RingOpt$Neg)) {
+          var x427 = x423.F;
+          var b = new $c_scm_ListBuffer();
+          var these = rev;
+          while (((!these.b()) && $p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__isNeg$1__Ldev_bosatsu_RingOpt$Expr__Z($thiz, these.e()))) {
+            b.bL(these.e());
+            these = these.c();
+          }
+          var x412 = $ct_T2__O__O__(new $c_T2(), b.T(), these);
+          var x416 = x412.b6;
+          var negsRev = x412.b5;
+          if ((x416 instanceof $c_sci_$colon$colon)) {
+            var x419 = x416.h;
+            return new $c_sci_$colon$colon(x416.F, x419.W(negsRev)).af();
+          }
+          if ($m_sci_Nil$().a(x416)) {
+            return summands;
+          }
+          throw new $c_s_MatchError(x412);
+        }
+      }
+    }
+  }
+  return summands;
+}
 function $p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__flatAdd$1__Lcats_kernel_Order__sci_List__s_math_BigInt__sci_List__Ldev_bosatsu_RingOpt$Expr($thiz, o$4, es, const$1, acc) {
   var acc$tailLocal2 = acc;
   var const$tailLocal1 = const$1;
   var es$tailLocal1 = es;
   while (true) {
-    var x426 = es$tailLocal1;
-    if ((x426 instanceof $c_sci_$colon$colon)) {
-      var x431 = x426.F;
-      var x432 = x426.h;
-      if ((x431 instanceof $c_Ldev_bosatsu_RingOpt$Add)) {
-        var x435 = x431.l4;
-        var x436 = x431.l5;
-        es$tailLocal1 = new $c_sci_$colon$colon(x435, new $c_sci_$colon$colon(x436, x432));
+    var x452 = es$tailLocal1;
+    if ((x452 instanceof $c_sci_$colon$colon)) {
+      var x457 = x452.F;
+      var x458 = x452.h;
+      if ((x457 instanceof $c_Ldev_bosatsu_RingOpt$Add)) {
+        var x461 = x457.l4;
+        var x462 = x457.l5;
+        es$tailLocal1 = new $c_sci_$colon$colon(x461, new $c_sci_$colon$colon(x462, x458));
         continue;
       }
-      var x408 = $p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__normExpr$1__Lcats_kernel_Order__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr($thiz, o$4, x431);
-      if ((x408 instanceof $c_Ldev_bosatsu_RingOpt$Add)) {
-        var x424 = x408.l4;
-        var x425 = x408.l5;
-        es$tailLocal1 = new $c_sci_$colon$colon(x424, new $c_sci_$colon$colon(x425, x432));
+      var x433 = $p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__normExpr$1__Lcats_kernel_Order__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr($thiz, o$4, x457);
+      if ((x433 instanceof $c_Ldev_bosatsu_RingOpt$Add)) {
+        var x449 = x433.l4;
+        var x450 = x433.l5;
+        es$tailLocal1 = new $c_sci_$colon$colon(x449, new $c_sci_$colon$colon(x450, x458));
         continue;
       }
-      if (($m_Ldev_bosatsu_RingOpt$Zero$() === x408)) {
-        es$tailLocal1 = x432;
+      if (($m_Ldev_bosatsu_RingOpt$Zero$() === x433)) {
+        es$tailLocal1 = x458;
         continue;
       }
-      if (($m_Ldev_bosatsu_RingOpt$One$() === x408)) {
+      if (($m_Ldev_bosatsu_RingOpt$One$() === x433)) {
         var const$tailLocal1$tmp1 = const$tailLocal1.hQ($m_s_math_BigInt$().aR(1));
-        es$tailLocal1 = x432;
+        es$tailLocal1 = x458;
         const$tailLocal1 = const$tailLocal1$tmp1;
         continue;
       }
-      if ((x408 instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
-        var x421 = x408.gQ;
-        var const$tailLocal1$tmp2 = const$tailLocal1.hQ(x421);
-        es$tailLocal1 = x432;
+      if ((x433 instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
+        var x446 = x433.gQ;
+        var const$tailLocal1$tmp2 = const$tailLocal1.hQ(x446);
+        es$tailLocal1 = x458;
         const$tailLocal1 = const$tailLocal1$tmp2;
         continue;
       }
       matchAlts15: {
         matchAlts16: {
-          if ((x408 instanceof $c_Ldev_bosatsu_RingOpt$Symbol)) {
+          if ((x433 instanceof $c_Ldev_bosatsu_RingOpt$Symbol)) {
             break matchAlts16;
           }
-          if ((x408 instanceof $c_Ldev_bosatsu_RingOpt$Mult)) {
+          if ((x433 instanceof $c_Ldev_bosatsu_RingOpt$Mult)) {
             break matchAlts16;
           }
-          if ((x408 instanceof $c_Ldev_bosatsu_RingOpt$Neg)) {
+          if ((x433 instanceof $c_Ldev_bosatsu_RingOpt$Neg)) {
             break matchAlts16;
           }
           break matchAlts15;
         }
-        var acc$tailLocal2$tmp1 = new $c_sci_$colon$colon(x408, acc$tailLocal2);
-        es$tailLocal1 = x432;
+        var acc$tailLocal2$tmp1 = new $c_sci_$colon$colon(x433, acc$tailLocal2);
+        es$tailLocal1 = x458;
         acc$tailLocal2 = acc$tailLocal2$tmp1;
         continue;
       }
-      throw new $c_s_MatchError(x408);
+      throw new $c_s_MatchError(x433);
     }
-    if ($m_sci_Nil$().a(x426)) {
-      return (acc$tailLocal2.b() ? $m_Ldev_bosatsu_RingOpt$().kP(const$tailLocal1) : $p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__step$1__Lcats_kernel_Order__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr($thiz, o$4, $f_sc_IterableOnceOps__reduceRight__F2__O($f_sc_SeqOps__sorted__s_math_Ordering__O(acc$tailLocal2, new $c_Ldev_bosatsu_RingOpt$Expr$$anon$4(($m_Lcats_package$(), o$4.al()))), new $c_sr_AbstractFunction2_$$Lambda$b4228bd32034ae3b2f0c5fc896319aa4b79b55f8(((o$4) => ((_$72$2, _$73$2) => $p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__step$1__Lcats_kernel_Order__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr($thiz, o$4, _$72$2, _$73$2)))(o$4))), $m_Ldev_bosatsu_RingOpt$().kP(const$tailLocal1)));
+    if ($m_sci_Nil$().a(x452)) {
+      if (acc$tailLocal2.b()) {
+        return $m_Ldev_bosatsu_RingOpt$().kP(const$tailLocal1);
+      } else {
+        matchResult60: {
+          var $x_1;
+          var x451 = $m_Ldev_bosatsu_RingOpt$().kP(const$tailLocal1);
+          if (($m_Ldev_bosatsu_RingOpt$Zero$() === x451)) {
+            var $x_1 = $f_sc_SeqOps__sorted__s_math_Ordering__O(acc$tailLocal2, new $c_Ldev_bosatsu_RingOpt$Expr$$anon$4(($m_Lcats_package$(), o$4.al())));
+            break matchResult60;
+          }
+          var $x_1 = new $c_sci_$colon$colon(x451, $f_sc_SeqOps__sorted__s_math_Ordering__O(acc$tailLocal2, new $c_Ldev_bosatsu_RingOpt$Expr$$anon$4(($m_Lcats_package$(), o$4.al()))));
+        }
+        return $f_sc_IterableOnceOps__reduceRight__F2__O($p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__freeNegs$1__sci_List__sci_List($thiz, $x_1), new $c_sr_AbstractFunction2_$$Lambda$b4228bd32034ae3b2f0c5fc896319aa4b79b55f8(((o$4) => ((_$72$2, _$73$2) => $p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__step$1__Lcats_kernel_Order__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr($thiz, o$4, _$72$2, _$73$2)))(o$4)));
+      }
     }
-    throw new $c_s_MatchError(x426);
+    throw new $c_s_MatchError(x452);
   }
 }
 function $p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__step$2__Lcats_kernel_Order__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr($thiz, o$9, nx, ny) {
   if ((nx instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
-    var x464 = nx.gQ;
-    if ($m_sr_BoxesRunTime$().bd(x464, 0)) {
+    var x490 = nx.gQ;
+    if ($m_sr_BoxesRunTime$().bd(x490, 0)) {
       return $m_Ldev_bosatsu_RingOpt$().kP($m_s_math_BigInt$().aR(0));
-    } else if ($m_sr_BoxesRunTime$().bd(x464, (-1))) {
+    } else if ($m_sr_BoxesRunTime$().bd(x490, (-1))) {
       return $p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__simpleNeg$1__Lcats_kernel_Order__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr($thiz, o$9, ny);
     } else if ((ny instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
-      var x443 = ny.gQ;
-      return $m_Ldev_bosatsu_RingOpt$().kP(x464.ir(x443));
+      var x469 = ny.gQ;
+      return $m_Ldev_bosatsu_RingOpt$().kP(x490.ir(x469));
     } else if (($m_Ldev_bosatsu_RingOpt$Zero$() === ny)) {
       return $m_Ldev_bosatsu_RingOpt$().kP($m_s_math_BigInt$().aR(0));
     } else if (($m_Ldev_bosatsu_RingOpt$One$() === ny)) {
       return nx;
     } else if ((ny instanceof $c_Ldev_bosatsu_RingOpt$Neg)) {
-      var x440 = ny.fT;
-      return ($m_sr_BoxesRunTime$().bd(x464, (-1)) ? x440 : $p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__mult$3__Lcats_kernel_Order__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Mult($thiz, o$9, $m_Ldev_bosatsu_RingOpt$().kP(x464.e9()), x440));
+      var x466 = ny.fT;
+      return ($m_sr_BoxesRunTime$().bd(x490, (-1)) ? x466 : $p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__mult$3__Lcats_kernel_Order__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Mult($thiz, o$9, $m_Ldev_bosatsu_RingOpt$().kP(x490.e9()), x466));
     } else {
       return $p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__mult$3__Lcats_kernel_Order__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Mult($thiz, o$9, nx, ny);
     }
@@ -54330,18 +54378,18 @@ function $p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__step$2__Lcats_kernel_Order__Ldev
   } else if (($m_Ldev_bosatsu_RingOpt$One$() === nx)) {
     return ny;
   } else if ((nx instanceof $c_Ldev_bosatsu_RingOpt$Neg)) {
-    var x461 = nx.fT;
+    var x487 = nx.fT;
     if (($m_Ldev_bosatsu_RingOpt$Zero$() === ny)) {
       return $m_Ldev_bosatsu_RingOpt$Zero$();
     } else if (($m_Ldev_bosatsu_RingOpt$One$() === ny)) {
       return nx;
     } else if ((ny instanceof $c_Ldev_bosatsu_RingOpt$Neg)) {
-      return $p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__mult$3__Lcats_kernel_Order__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Mult($thiz, o$9, x461, ny.fT);
+      return $p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__mult$3__Lcats_kernel_Order__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Mult($thiz, o$9, x487, ny.fT);
     } else if ((ny instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
-      var x447 = ny.gQ;
-      return ($m_sr_BoxesRunTime$().bd(x447, (-1)) ? x461 : $p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__mult$3__Lcats_kernel_Order__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Mult($thiz, o$9, x461, $m_Ldev_bosatsu_RingOpt$().kP(x447.e9())));
+      var x473 = ny.gQ;
+      return ($m_sr_BoxesRunTime$().bd(x473, (-1)) ? x487 : $p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__mult$3__Lcats_kernel_Order__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Mult($thiz, o$9, x487, $m_Ldev_bosatsu_RingOpt$().kP(x473.e9())));
     } else {
-      return $p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__simpleNeg$1__Lcats_kernel_Order__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr($thiz, o$9, $p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__mult$3__Lcats_kernel_Order__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Mult($thiz, o$9, x461, ny));
+      return $p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__simpleNeg$1__Lcats_kernel_Order__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr($thiz, o$9, $p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__mult$3__Lcats_kernel_Order__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Mult($thiz, o$9, x487, ny));
     }
   } else {
     if (($m_Ldev_bosatsu_RingOpt$Zero$() === ny)) {
@@ -54366,67 +54414,67 @@ function $p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__flatMult$1__Lcats_kernel_Order__
   var coeff$tailLocal1 = coeff;
   var es$tailLocal2 = es;
   while (true) {
-    var x468 = es$tailLocal2;
-    if ((x468 instanceof $c_sci_$colon$colon)) {
-      var x501 = x468.F;
-      var x502 = x468.h;
-      if ((x501 instanceof $c_Ldev_bosatsu_RingOpt$Mult)) {
-        var x505 = x501.ja;
-        var x506 = x501.jb;
-        es$tailLocal2 = new $c_sci_$colon$colon(x505, new $c_sci_$colon$colon(x506, x502));
+    var x494 = es$tailLocal2;
+    if ((x494 instanceof $c_sci_$colon$colon)) {
+      var x527 = x494.F;
+      var x528 = x494.h;
+      if ((x527 instanceof $c_Ldev_bosatsu_RingOpt$Mult)) {
+        var x531 = x527.ja;
+        var x532 = x527.jb;
+        es$tailLocal2 = new $c_sci_$colon$colon(x531, new $c_sci_$colon$colon(x532, x528));
         continue;
       }
-      if (($m_Ldev_bosatsu_RingOpt$One$() === x501)) {
-        es$tailLocal2 = x502;
+      if (($m_Ldev_bosatsu_RingOpt$One$() === x527)) {
+        es$tailLocal2 = x528;
         continue;
       }
-      if (($m_Ldev_bosatsu_RingOpt$Zero$() === x501)) {
+      if (($m_Ldev_bosatsu_RingOpt$Zero$() === x527)) {
         return $m_Ldev_bosatsu_RingOpt$Zero$();
       }
-      if ((x501 instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
-        var x493 = x501.gQ;
-        var coeff$tailLocal1$tmp1 = coeff$tailLocal1.ir(x493);
-        es$tailLocal2 = x502;
+      if ((x527 instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
+        var x519 = x527.gQ;
+        var coeff$tailLocal1$tmp1 = coeff$tailLocal1.ir(x519);
+        es$tailLocal2 = x528;
         coeff$tailLocal1 = coeff$tailLocal1$tmp1;
         continue;
       }
-      if ((x501 instanceof $c_Ldev_bosatsu_RingOpt$Neg)) {
-        var x487 = x501.fT;
-        var es$tailLocal2$tmp2 = new $c_sci_$colon$colon(x487, x502);
+      if ((x527 instanceof $c_Ldev_bosatsu_RingOpt$Neg)) {
+        var x513 = x527.fT;
+        var es$tailLocal2$tmp2 = new $c_sci_$colon$colon(x513, x528);
         var coeff$tailLocal1$tmp2 = coeff$tailLocal1.ir($m_s_math_BigInt$().aR((-1)));
         es$tailLocal2 = es$tailLocal2$tmp2;
         coeff$tailLocal1 = coeff$tailLocal1$tmp2;
         continue;
       }
-      if ((x501 instanceof $c_Ldev_bosatsu_RingOpt$Symbol)) {
-        var acc$tailLocal3$tmp1 = new $c_sci_$colon$colon(x501, acc$tailLocal3);
-        es$tailLocal2 = x502;
+      if ((x527 instanceof $c_Ldev_bosatsu_RingOpt$Symbol)) {
+        var acc$tailLocal3$tmp1 = new $c_sci_$colon$colon(x527, acc$tailLocal3);
+        es$tailLocal2 = x528;
         acc$tailLocal3 = acc$tailLocal3$tmp1;
         continue;
       }
-      if ((x501 instanceof $c_Ldev_bosatsu_RingOpt$Add)) {
-        var x465 = x501.xK();
-        if ((x465 instanceof $c_s_Some)) {
-          var negAdd = x465.p;
-          var es$tailLocal2$tmp4 = new $c_sci_$colon$colon($p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__normExpr$1__Lcats_kernel_Order__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr($thiz, o$5, negAdd), x502);
+      if ((x527 instanceof $c_Ldev_bosatsu_RingOpt$Add)) {
+        var x491 = x527.xK();
+        if ((x491 instanceof $c_s_Some)) {
+          var negAdd = x491.p;
+          var es$tailLocal2$tmp4 = new $c_sci_$colon$colon($p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__normExpr$1__Lcats_kernel_Order__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr($thiz, o$5, negAdd), x528);
           var coeff$tailLocal1$tmp3 = coeff$tailLocal1.e9();
           es$tailLocal2 = es$tailLocal2$tmp4;
           coeff$tailLocal1 = coeff$tailLocal1$tmp3;
           continue;
         }
-        if (($m_s_None$() === x465)) {
-          var acc$tailLocal3$tmp2 = new $c_sci_$colon$colon(x501, acc$tailLocal3);
-          es$tailLocal2 = x502;
+        if (($m_s_None$() === x491)) {
+          var acc$tailLocal3$tmp2 = new $c_sci_$colon$colon(x527, acc$tailLocal3);
+          es$tailLocal2 = x528;
           acc$tailLocal3 = acc$tailLocal3$tmp2;
           continue;
         }
-        throw new $c_s_MatchError(x465);
+        throw new $c_s_MatchError(x491);
       }
     }
-    if ($m_sci_Nil$().a(x468)) {
+    if ($m_sci_Nil$().a(x494)) {
       return (acc$tailLocal3.b() ? $m_Ldev_bosatsu_RingOpt$().kP(coeff$tailLocal1) : $p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__step$2__Lcats_kernel_Order__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr($thiz, o$5, $f_sc_IterableOnceOps__reduceRight__F2__O($f_sc_SeqOps__sorted__s_math_Ordering__O(acc$tailLocal3, new $c_Ldev_bosatsu_RingOpt$Expr$$anon$4(($m_Lcats_package$(), o$5.al()))), new $c_sr_AbstractFunction2_$$Lambda$b4228bd32034ae3b2f0c5fc896319aa4b79b55f8(((o$5) => ((_$74$2, _$75$2) => $p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__step$2__Lcats_kernel_Order__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr($thiz, o$5, _$74$2, _$75$2)))(o$5))), $m_Ldev_bosatsu_RingOpt$().kP(coeff$tailLocal1)));
     }
-    throw new $c_s_MatchError(x468);
+    throw new $c_s_MatchError(x494);
   }
 }
 /** @constructor */
@@ -54458,9 +54506,9 @@ $p.bYn = (function(this$, o) {
     return $m_Ldev_bosatsu_RingOpt$().kP(this$.gQ);
   }
   if ((this$ instanceof $c_Ldev_bosatsu_RingOpt$Neg)) {
-    var x521 = this$.fT;
-    if ((x521 instanceof $c_Ldev_bosatsu_RingOpt$Neg)) {
-      return $p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__normExpr$1__Lcats_kernel_Order__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr(this, o, x521.fT);
+    var x547 = this$.fT;
+    if ((x547 instanceof $c_Ldev_bosatsu_RingOpt$Neg)) {
+      return $p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__normExpr$1__Lcats_kernel_Order__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr(this, o, x547.fT);
     }
   }
   if ((this$ instanceof $c_Ldev_bosatsu_RingOpt$Neg)) {
@@ -54470,9 +54518,9 @@ $p.bYn = (function(this$, o) {
     return $p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__flatAdd$1__Lcats_kernel_Order__sci_List__s_math_BigInt__sci_List__Ldev_bosatsu_RingOpt$Expr(this, o, new $c_sci_$colon$colon(this$.l4, new $c_sci_$colon$colon(this$.l5, $m_sci_Nil$())), $m_s_package$().bI().aR(0), $m_sci_Nil$());
   }
   if ((this$ instanceof $c_Ldev_bosatsu_RingOpt$Mult)) {
-    var x510 = this$.ja;
-    var x511 = this$.jb;
-    return $p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__flatMult$1__Lcats_kernel_Order__sci_List__s_math_BigInt__sci_List__Ldev_bosatsu_RingOpt$Expr(this, o, new $c_sci_$colon$colon($p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__normExpr$1__Lcats_kernel_Order__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr(this, o, x510), new $c_sci_$colon$colon($p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__normExpr$1__Lcats_kernel_Order__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr(this, o, x511), $m_sci_Nil$())), $m_s_package$().bI().aR(1), $m_sci_Nil$());
+    var x536 = this$.ja;
+    var x537 = this$.jb;
+    return $p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__flatMult$1__Lcats_kernel_Order__sci_List__s_math_BigInt__sci_List__Ldev_bosatsu_RingOpt$Expr(this, o, new $c_sci_$colon$colon($p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__normExpr$1__Lcats_kernel_Order__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr(this, o, x536), new $c_sci_$colon$colon($p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__normExpr$1__Lcats_kernel_Order__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr(this, o, x537), $m_sci_Nil$())), $m_s_package$().bI().aR(1), $m_sci_Nil$());
   }
   throw new $c_s_MatchError(this$);
 });
@@ -54542,30 +54590,30 @@ $p.c2H = (function(gs, evidence$1, evidence$2) {
     var \u03b469$ = $m_Ldev_bosatsu_RingOpt$Expr$().aQz(new $c_sci_$colon$colon(e.xO(), $m_sci_Nil$()), evidence$2);
     var c0 = \u03b469$.f();
     var flatMult = \u03b469$.g();
-    matchResult237: {
-      var x1605 = $m_Lcats_data_NonEmptyList$().aZ(flatMult);
-      if (($m_s_None$() === x1605)) {
+    matchResult241: {
+      var x1631 = $m_Lcats_data_NonEmptyList$().aZ(flatMult);
+      if (($m_s_None$() === x1631)) {
         var $x_1___1 = accConst.hQ(c0.ir(c));
         var $x_1___2 = acc;
         result___1 = $x_1___1;
         result___2 = $x_1___2;
-        break matchResult237;
+        break matchResult241;
       }
-      if ((x1605 instanceof $c_s_Some)) {
-        var nel = x1605.p;
+      if ((x1631 instanceof $c_s_Some)) {
+        var nel = x1631.p;
         var $x_2___1 = accConst;
         var $x_2___2 = acc.asC(nel, c0.ir(c));
         result___1 = $x_2___1;
         result___2 = $x_2___2;
-        break matchResult237;
+        break matchResult241;
       }
-      throw new $c_s_MatchError(x1605);
+      throw new $c_s_MatchError(x1631);
     }
   }
-  var x1615___1 = result___1;
-  var x1615___2 = result___2;
-  var \u03b467$___1 = x1615___1;
-  var \u03b467$___2 = x1615___2;
+  var x1641___1 = result___1;
+  var x1641___2 = result___2;
+  var \u03b467$___1 = x1641___1;
+  var \u03b467$___2 = x1641___2;
   return new $c_Ldev_bosatsu_RingOpt$SumProd(\u03b467$___1, \u03b467$___2, evidence$2);
 });
 var $d_Ldev_bosatsu_RingOpt$SumProd$ = new $TypeData().i($c_Ldev_bosatsu_RingOpt$SumProd$, "dev.bosatsu.RingOpt$SumProd$", ({
@@ -55550,8 +55598,8 @@ $p.c8b = (function(lst) {
       var x1 = acc;
       matchResult52: {
         var x124 = $ct_T2__O__O__(new $c_T2(), x0, x1);
-        var x132 = x124.b7;
-        var x134 = x124.b6.g();
+        var x132 = x124.b6;
+        var x134 = x124.b5.g();
         if ((x134 instanceof $c_s_util_Right)) {
           var k = x134.K;
           acc = $m_Ldev_bosatsu_Shape$().bZK($m_Ldev_bosatsu_Shape$ShapeOf$().a8i.auL(k), x132);
@@ -56014,7 +56062,7 @@ function $p_Ldev_bosatsu_SourceConverter__tup__AF1($thiz) {
     if ((this$13.an() >= 0)) {
       var length = this$13.an();
       var componentType = evidence$1__runtimeClass;
-      var destination = componentType.b5.U(length);
+      var destination = componentType.b7.U(length);
       this$13.cW(destination, 0, 2147483647);
       var $x_1 = destination;
     } else {
@@ -56132,8 +56180,8 @@ function $p_Ldev_bosatsu_SourceConverter__fromDecl__Ldev_bosatsu_Declaration__sc
   if ((!(!\u03b437$.fP))) {
     return $f_sc_LinearSeqOps__foldLeft__O__F2__O(framesRev, $p_Ldev_bosatsu_SourceConverter__fromDecl__Ldev_bosatsu_Declaration__sci_Set__sci_Set__sci_Set__Lcats_data_Ior($thiz, coreDecl, finalBound, topBound, typeBound), new $c_sr_AbstractFunction2_$$Lambda$b4228bd32034ae3b2f0c5fc896319aa4b79b55f8(((BindingFrame$lzy1$4, asValueNames$lzy1$6, ReplaceTagFrame$lzy1$4) => ((x$1$2, x$2$2) => {
       var x201 = $ct_T2__O__O__(new $c_T2(), x$1$2, x$2$2);
-      var x207 = x201.b6;
-      var x208 = x201.b7;
+      var x207 = x201.b5;
+      var x208 = x201.b6;
       if ((x208 instanceof $c_Ldev_bosatsu_SourceConverter$BindingFrame$1)) {
         $p_Ldev_bosatsu_SourceConverter__BindingFrame$2__sr_LazyRef__Ldev_bosatsu_SourceConverter$BindingFrame$3$($thiz, BindingFrame$lzy1$4);
         return $p_Ldev_bosatsu_SourceConverter__solveBindingFrame$1__sci_Set__sci_Set__sr_LazyRef__Ldev_bosatsu_Declaration__Lcats_data_Ior__Ldev_bosatsu_Declaration__Ldev_bosatsu_Pattern__Ldev_bosatsu_Declaration$NonBinding__sci_Set__Lcats_data_Ior($thiz, topBound, typeBound, asValueNames$lzy1$6, decl, x207, x208.aAi, x208.aAj, x208.aAk, x208.aAh);
@@ -56477,8 +56525,8 @@ function $p_Ldev_bosatsu_SourceConverter__fromDecl__Ldev_bosatsu_Declaration__sc
         var Empty = $p_Ldev_bosatsu_SourceConverter__mkC$1__Ldev_bosatsu_PackageName__Ldev_bosatsu_Declaration$ListDecl__T__Ldev_bosatsu_Expr($thiz, pn, decl, "EmptyList");
         return revDecs.mA(new $c_sr_AbstractFunction1_$$Lambda$7afc3dd0acc1681fb022ef921c83979087aaa919(((l$5) => ((_$213$2) => $f_sc_LinearSeqOps__foldLeft__O__F2__O(_$213$2, Empty, new $c_sr_AbstractFunction2_$$Lambda$b4228bd32034ae3b2f0c5fc896319aa4b79b55f8(((x$1$2$5, x$2$2$1) => {
           var x273 = $ct_T2__O__O__(new $c_T2(), x$1$2$5, x$2$2$1);
-          var x284 = x273.b6;
-          var x285 = x273.b7;
+          var x284 = x273.b5;
+          var x285 = x273.b6;
           if ((x285 instanceof $c_Ldev_bosatsu_ListLang$SpliceOrItem$Item)) {
             return $p_Ldev_bosatsu_SourceConverter__cons$4__Ldev_bosatsu_Declaration$ListDecl__Ldev_bosatsu_PackageName__Ldev_bosatsu_Expr__Ldev_bosatsu_Expr__Ldev_bosatsu_Expr($thiz, l$5, pn, x285.F4, x284);
           }
@@ -56500,9 +56548,9 @@ function $p_Ldev_bosatsu_SourceConverter__fromDecl__Ldev_bosatsu_Declaration__sc
         matchResult58$1: {
           var opName;
           var x289 = $ct_T2__O__O__(new $c_T2(), x316, x319);
-          var x298 = x289.b6;
+          var x298 = x289.b5;
           if ((x298 instanceof $c_Ldev_bosatsu_ListLang$SpliceOrItem$Item)) {
-            if (($m_s_None$() === x289.b7)) {
+            if (($m_s_None$() === x289.b6)) {
               var opName = "map_List";
               break matchResult58$1;
             }
@@ -56585,9 +56633,9 @@ function $p_Ldev_bosatsu_SourceConverter__fromDecl__Ldev_bosatsu_Declaration__sc
         }));
         return this$246.a4.a2(this$246.a3, f$4, parAp).mA(new $c_sr_AbstractFunction1_$$Lambda$7afc3dd0acc1681fb022ef921c83979087aaa919(((l$10) => ((_$216$2) => $f_sc_LinearSeqOps__foldLeft__O__F2__O(_$216$2, empty$2, new $c_sr_AbstractFunction2_$$Lambda$b4228bd32034ae3b2f0c5fc896319aa4b79b55f8(((x$1$2$7, x$2$2$2) => {
           var x327 = $ct_T2__O__O__(new $c_T2(), x$1$2$7, x$2$2$2);
-          var dict = x327.b6;
+          var dict = x327.b5;
           $m_Ldev_bosatsu_ListLang$KVPair$();
-          var x$1$1 = x327.b7;
+          var x$1$1 = x327.b6;
           return $p_Ldev_bosatsu_SourceConverter__add$1__Ldev_bosatsu_Declaration$DictDecl__Ldev_bosatsu_PackageName__Ldev_bosatsu_Expr__Ldev_bosatsu_Expr__Ldev_bosatsu_Expr__Ldev_bosatsu_Expr($thiz, l$10, pn$3, dict, x$1$1.yg, x$1$1.yh);
         })))))(decl)));
       }
@@ -56638,8 +56686,8 @@ function $p_Ldev_bosatsu_SourceConverter__fromDecl__Ldev_bosatsu_Declaration__sc
       var mappingList = x410.ff(new $c_sr_AbstractFunction1_$$Lambda$7afc3dd0acc1681fb022ef921c83979087aaa919(((rc$9) => ((arg$2) => $p_Ldev_bosatsu_SourceConverter__argExpr$1__Ldev_bosatsu_Declaration$RecordConstructor__sci_Set__sci_Set__sci_Set__Ldev_bosatsu_Declaration$RecordArg__T2($thiz, rc$9, bound, topBound, typeBound, arg$2)))(decl)));
       var mapping = $f_sc_LinearSeqOps__foldLeft__O__F2__O(mappingList, $m_sci_Map$EmptyMap$(), new $c_sr_AbstractFunction2_$$Lambda$b4228bd32034ae3b2f0c5fc896319aa4b79b55f8(((x$1$2$8, x$2$2$3) => {
         var x360 = $ct_T2__O__O__(new $c_T2(), x$1$2$8, x$2$2$3);
-        var x362 = x360.b7;
-        var acc = x360.b6;
+        var x362 = x360.b6;
+        var acc = x360.b5;
         var k = x362.f();
         var v = x362.g();
         return acc.bo(k, v);
@@ -56665,11 +56713,11 @@ function $p_Ldev_bosatsu_SourceConverter__fromDecl__Ldev_bosatsu_Declaration__sc
             var $x_47;
             var $x_47 = $f_sc_LinearSeqOps__foldLeft__O__F2__O(mappingList, new $c_T3($m_sci_Set$EmptySet$(), $m_sci_Set$EmptySet$(), ($m_sci_List$(), $m_sci_Nil$())), new $c_sr_AbstractFunction2_$$Lambda$b4228bd32034ae3b2f0c5fc896319aa4b79b55f8(((x$1$2$9, x$2$2$4) => {
               var x380 = $ct_T2__O__O__(new $c_T2(), x$1$2$9, x$2$2$4);
-              var x381 = x380.b6;
+              var x381 = x380.b5;
               var seen = x381.a0;
               var dupSet = x381.a6;
               var dupsRev = x381.aa;
-              var field = x380.b7.f();
+              var field = x380.b6.f();
               return ((!seen.P(field)) ? new $c_T3(seen.aM(field), dupSet, dupsRev) : (dupSet.P(field) ? new $c_T3(seen, dupSet, dupsRev) : new $c_T3(seen, dupSet.aM(field), new $c_sci_$colon$colon(field, dupsRev))));
             }))).aa;
             var duplicatedFields = $x_47.af();
@@ -57041,8 +57089,8 @@ function $p_Ldev_bosatsu_SourceConverter__toEnumDefinition__Ldev_bosatsu_Package
     var initState = $ct_T2__O__O__(new $c_T2(), $ct_T2__O__O__(new $c_T2(), $m_sci_Set$().a1(initVars).a8(declVars), initVars.af()), $m_Ldev_bosatsu_rankn_Type$().aXP.tD(new $c_sr_AbstractFunction1_$$Lambda$7afc3dd0acc1681fb022ef921c83979087aaa919(((_$256$2) => new $c_Ldev_bosatsu_rankn_Type$TyVar(_$256$2)))));
     var x606 = constructorsS.C6(initState, $m_Lcats_Eval$().dJ).bK();
     var \u03b450$ = $ct_T2__O__O__(new $c_T2(), x606.f().f().g(), x606.g());
-    var typeVars$2 = \u03b450$.b6;
-    var constructors$2 = \u03b450$.b7;
+    var typeVars$2 = \u03b450$.b5;
+    var constructors$2 = \u03b450$.b6;
     var discoveredTop0 = $p_Ldev_bosatsu_SourceConverter__loop$2__F1__sci_List__sci_List__sci_List($thiz, new $c_sr_AbstractFunction1_$$Lambda$7afc3dd0acc1681fb022ef921c83979087aaa919(((tv$2) => {
       var x613 = tv$2.fa;
       if ((x613 instanceof $c_Ldev_bosatsu_rankn_Type$Var$Bound)) {
@@ -57163,8 +57211,8 @@ function $p_Ldev_bosatsu_SourceConverter__toEnumDefinition__Ldev_bosatsu_Package
     }
     return (preferAmbiguousTopError ? ambiguityChecked : $f_sc_LinearSeqOps__foldLeft__O__F2__O(missingBranchTypeParams, ambiguityChecked, new $c_sr_AbstractFunction2_$$Lambda$b4228bd32034ae3b2f0c5fc896319aa4b79b55f8(((x$1$2$8, x$2$2) => {
       var x658 = $ct_T2__O__O__(new $c_T2(), x$1$2$8, x$2$2);
-      var x660 = x658.b7;
-      var res = x658.b6;
+      var x660 = x658.b6;
+      var res = x658.b5;
       var item$10 = x660.f();
       var missing$1 = x660.g();
       return $m_Ldev_bosatsu_SourceConverter$().Oy(res, new $c_Ldev_bosatsu_SourceConverter$MissingEnumBranchTypeParameters(nm, typeArgs, item$10, missing$1));
@@ -57226,8 +57274,8 @@ function $p_Ldev_bosatsu_SourceConverter__unTuplePattern__Ldev_bosatsu_Pattern__
   $m_Ldev_bosatsu_Pattern$();
   return $m_Ldev_bosatsu_Pattern$InvariantPattern$().brX(pat, new $c_sr_AbstractFunction2_$$Lambda$b4228bd32034ae3b2f0c5fc896319aa4b79b55f8(((x$1$2, x$2$2) => {
     var x751 = $ct_T2__O__O__(new $c_T2(), x$1$2, x$2$2);
-    var x782 = x751.b6;
-    var x783 = x751.b7;
+    var x782 = x751.b5;
+    var x783 = x751.b6;
     if (($m_Ldev_bosatsu_Pattern$StructKind$Tuple$() === x782)) {
       return x783.w6(new $c_sr_AbstractFunction1_$$Lambda$7afc3dd0acc1681fb022ef921c83979087aaa919(((_$282$2) => $thiz.cyN(_$282$2, region_$_lo, region_$_hi))), ($m_Lcats_data_NonEmptyChainImpl$(), $m_Lcats_data_Chain$().ap));
     }
@@ -59990,8 +60038,8 @@ function $c_Ldev_bosatsu_SourceConverter(thisPackage, imports, localDefs) {
       var this$20 = imp$2.bW();
       var f$2 = ((x$1$2, x$2$2) => {
         var x114 = $ct_T2__O__O__(new $c_T2(), x$1$2, x$2$2);
-        var x131 = x114.b6;
-        var x132 = x114.b7;
+        var x131 = x114.b5;
+        var x132 = x114.b6;
         if ((x132 instanceof $c_Ldev_bosatsu_Referant$Value)) {
           var x135 = x132.qw;
           return x131.acU(pack$1, nm, x135);
@@ -62897,8 +62945,8 @@ function $p_Ldev_bosatsu_TypeValidator$__canWidenInScopeAndSolve__Ldev_bosatsu_r
         var z = $m_s_Option$().am(solvedFreeBounds);
         var f$6 = ((x$1$2, x$2$2) => {
           var x107 = $ct_T2__O__O__(new $c_T2(), x$1$2, x$2$2);
-          var x114 = x107.b6;
-          var x115 = x107.b7;
+          var x114 = x107.b5;
+          var x115 = x107.b6;
           if (($m_s_None$() === x114)) {
             return $m_s_None$();
           }
@@ -66554,8 +66602,8 @@ function $p_Ldev_bosatsu_TypedExpr$InvariantTypedExpr$__bind$1__scm_HashMap__Lde
     var nextValue = f(previousValue);
     matchResult1: {
       var x1 = $ct_T2__O__O__(new $c_T2(), previousValue, nextValue);
-      var x10 = x1.b6;
-      var x11 = x1.b7;
+      var x10 = x1.b5;
+      var x11 = x1.b6;
       if ((($m_s_None$() === x10) && ($m_s_None$() === x11))) {
         break matchResult1;
       }
@@ -66615,8 +66663,8 @@ function $p_Ldev_bosatsu_TypedExpr$InvariantTypedExpr$__bind$1__scm_HashMap__Lde
     var nextValue$1 = f(previousValue$1);
     matchResult5: {
       var x9 = $ct_T2__O__O__(new $c_T2(), previousValue$1, nextValue$1);
-      var x24 = x9.b6;
-      var x25 = x9.b7;
+      var x24 = x9.b5;
+      var x25 = x9.b6;
       if ((($m_s_None$() === x24) && ($m_s_None$() === x25))) {
         break matchResult5;
       }
@@ -66855,8 +66903,8 @@ function $p_Ldev_bosatsu_TypedExpr$InvariantTypedExpr$__loopExpr$1__scm_HashMap_
           var nextValue = f(previousValue);
           matchResult1: {
             var x1 = $ct_T2__O__O__(new $c_T2(), previousValue, nextValue);
-            var x10 = x1.b6;
-            var x11 = x1.b7;
+            var x10 = x1.b5;
+            var x11 = x1.b6;
             if ((($m_s_None$() === x10) && ($m_s_None$() === x11))) {
               break matchResult1;
             }
@@ -66916,8 +66964,8 @@ function $p_Ldev_bosatsu_TypedExpr$InvariantTypedExpr$__loopExpr$1__scm_HashMap_
           var nextValue$1 = f(previousValue$1);
           matchResult5: {
             var x9 = $ct_T2__O__O__(new $c_T2(), previousValue$1, nextValue$1);
-            var x24 = x9.b6;
-            var x25 = x9.b7;
+            var x24 = x9.b5;
+            var x25 = x9.b6;
             if ((($m_s_None$() === x24) && ($m_s_None$() === x25))) {
               break matchResult5;
             }
@@ -70685,8 +70733,8 @@ function $p_Ldev_bosatsu_TypedExprNormalization$__isSameLocalRef__Ldev_bosatsu_I
 }
 function $p_Ldev_bosatsu_TypedExprNormalization$__combineInvariantFlags__s_Option__s_Option__s_Option($thiz, left, right) {
   var x495 = $ct_T2__O__O__(new $c_T2(), left, right);
-  var x504 = x495.b6;
-  var x505 = x495.b7;
+  var x504 = x495.b5;
+  var x505 = x495.b6;
   if (($m_s_None$() === x504)) {
     return x505;
   }
@@ -72460,8 +72508,8 @@ function $p_Ldev_bosatsu_TypedExprNormalization$__normalizeLetOpt__s_Option__Lde
     if ($m_Ldev_bosatsu_rankn_Type$().dx(this$19, x1395)) {
       return new $c_s_Some(e1);
     }
-    var x1014 = x1011.b6;
-    var x1015 = x1011.b7;
+    var x1014 = x1011.b5;
+    var x1015 = x1011.b6;
     if ((x1014 instanceof $c_Ldev_bosatsu_TypedExpr$Generic)) {
       if ((x1015 instanceof $c_Ldev_bosatsu_rankn_Type$Rho)) {
         var inst = $m_Ldev_bosatsu_TypedExpr$().aRa(x1014, x1015, kindOf, x1396);
@@ -72679,8 +72727,8 @@ function $p_Ldev_bosatsu_TypedExprNormalization$__normalizeLetOpt__s_Option__Lde
     } else {
       var \u03b438$ = $ct_T2__O__O__(new $c_T2(), x1352, ex1);
     }
-    var rec1$2 = \u03b438$.b6;
-    var ex2 = \u03b438$.b7;
+    var rec1$2 = \u03b438$.b5;
+    var ex2 = \u03b438$.b6;
     if (((!rec1$2.g8) && $p_Ldev_bosatsu_TypedExprNormalization$__isSameLocalRef__Ldev_bosatsu_Identifier$Bindable__Ldev_bosatsu_TypedExpr__Z__Z($thiz, x1349, ex2, true))) {
       return $p_Ldev_bosatsu_TypedExprNormalization$__normalize1__s_Option__Ldev_bosatsu_TypedExpr__O__Ldev_bosatsu_rankn_TypeEnv__Lcats_kernel_Eq__s_$less$colon$less__s_Some($thiz, namerec, x1351, scope, typeEnv, evidence$1, ev);
     } else {
@@ -72768,8 +72816,8 @@ function $p_Ldev_bosatsu_TypedExprNormalization$__normalizeLetOpt__s_Option__Lde
         var this$125 = new $c_sc_StrictOptimizedLinearSeqOps$$anon$1(new $c_sci_$colon$colon(args1$3.s, this$123));
         var \u03b442$ = $f_sc_IterableOnceOps__foldLeft__O__F2__O(new $c_sc_Iterator$$anon$14(liftFlags.q(), this$125), $ct_T2__O__O__(new $c_T2(), ($m_sci_List$(), $m_sci_Nil$()), ($m_sci_List$(), $m_sci_Nil$())), new $c_sr_AbstractFunction2_$$Lambda$b4228bd32034ae3b2f0c5fc896319aa4b79b55f8(((x$1$2$7, x$2$2) => {
           var x1215 = $ct_T2__O__O__(new $c_T2(), x$1$2$7, x$2$2);
-          var x1216 = x1215.b6;
-          var x1217 = x1215.b7;
+          var x1216 = x1215.b5;
+          var x1217 = x1215.b6;
           var liftedAcc = x1216.f();
           var keptAcc = x1216.g();
           var argDef = x1217.f();
@@ -72905,7 +72953,7 @@ function $p_Ldev_bosatsu_TypedExprNormalization$__normalizeLetOpt__s_Option__Lde
             var init = $m_sci_Set$EmptySet$();
             var fn = new $c_sr_AbstractFunction2_$$Lambda$b4228bd32034ae3b2f0c5fc896319aa4b79b55f8(((x$1$2$8, x$2$2$1) => {
               var x1252 = $ct_T2__O__O__(new $c_T2(), x$1$2$8, x$2$2$1);
-              return x1252.b6.a8($m_sci_Set$().a1(x1252.b7.gk()));
+              return x1252.b5.a8($m_sci_Set$().a1(x1252.b6.gk()));
             }));
             return this$169.crF(guardNode$2, init, fn, fn);
           }));
@@ -72921,7 +72969,7 @@ function $p_Ldev_bosatsu_TypedExprNormalization$__normalizeLetOpt__s_Option__Lde
       var changed0 = (branchNorms.dk(0, new $c_sr_AbstractFunction2_$$Lambda$b4228bd32034ae3b2f0c5fc896319aa4b79b55f8(((x$1$3, x$2$3) => {
         var x$1$2$9 = (x$1$3 | 0);
         var x1255 = $ct_T2__O__O__(new $c_T2(), x$1$2$9, x$2$3);
-        return (((x1255.b6 | 0) + x1255.b7.akG) | 0);
+        return (((x1255.b5 | 0) + x1255.b6.akG) | 0);
       }))) | 0);
       var this$176 = branchNorms.t;
       var keptBranches = new $c_sci_$colon$colon(branchNorms.s, this$176).bZ(new $c_Ldev_bosatsu_TypedExprNormalization$$anon$3(BranchNorm$lzy1));
@@ -72947,8 +72995,8 @@ function $p_Ldev_bosatsu_TypedExprNormalization$__normalizeLetOpt__s_Option__Lde
         }
         throw new $c_s_MatchError(x1284);
       }
-      var changed1 = (\u03b443$.b6 | 0);
-      var branches1a = \u03b443$.b7;
+      var changed1 = (\u03b443$.b5 | 0);
+      var branches1a = \u03b443$.b6;
       var a1 = $p_Ldev_bosatsu_TypedExprNormalization$__normalize1__s_Option__Ldev_bosatsu_TypedExpr__O__Ldev_bosatsu_rankn_TypeEnv__Lcats_kernel_Eq__s_$less$colon$less__s_Some($thiz, $m_s_None$(), x1334, scope, typeEnv, evidence$1, ev).p;
       var x1290 = $p_Ldev_bosatsu_TypedExprNormalization$__rewriteLeadingWildcardGuard$1__Ldev_bosatsu_TotalityCheck__Ldev_bosatsu_TypedExpr$MatchExpr__O__Ldev_bosatsu_TypedExpr__Lcats_data_NonEmptyList__s_Option($thiz, totalityCheck, te, x1336, a1, branches1a);
       if ((x1290 instanceof $c_s_Some)) {
@@ -75141,8 +75189,8 @@ function $p_Ldev_bosatsu_TypedExprNormalization$Impl$__bindConsPattern$1__Ldev_b
       var x1 = these.e();
       matchResult209: {
         var x2211 = $ct_T2__O__O__(new $c_T2(), x0, x1);
-        var x2218 = x2211.b6;
-        var x2219 = x2211.b7;
+        var x2218 = x2211.b5;
+        var x2219 = x2211.b6;
         if (($m_s_None$() === x2218)) {
           acc = $m_s_None$();
           break matchResult209;
@@ -76532,13 +76580,13 @@ function $p_Ldev_bosatsu_TypedExprNormalization$Impl$WithScope$ResolveToLambda$_
             var x1$3 = acc$3;
             matchResult154: {
               var x1607 = $ct_T2__O__O__(new $c_T2(), x0$3, x1$3);
-              var x1610 = $m_Ldev_bosatsu_TypedExpr$Branch$().aew(x1607.b6);
+              var x1610 = $m_Ldev_bosatsu_TypedExpr$Branch$().aew(x1607.b5);
               if ((!x1610.b())) {
                 var x1611 = x1610.p;
                 var p = x1611.a0;
                 var guard = x1611.a6;
                 var expr = x1611.aa;
-                var acc$4 = x1607.b7;
+                var acc$4 = x1607.b6;
                 var shadowed1 = x1690.a8(p.bE());
                 var acc1 = new $c_sci_$colon$colon($p_Ldev_bosatsu_TypedExprNormalization$Impl$WithScope$ResolveToLambda$__LoopState$2__sr_LazyRef__Ldev_bosatsu_TypedExprNormalization$Impl$WithScope$ResolveToLambda$LoopState$3$($thiz, LoopState$lzy1$3).Bt(expr, true, false, x1688, false, shadowed1), acc$4);
                 if (guard.b()) {
@@ -77423,8 +77471,8 @@ function $p_Ldev_bosatsu_TypedExprRecursionCheck$Impl$__proofsByTargetFromTyped_
     var as$tailLocal2 = as;
     while (true) {
       var x18 = $ct_T2__O__O__(new $c_T2(), as$tailLocal2, bs$tailLocal1);
-      var x29 = x18.b6;
-      var x30 = x18.b7;
+      var x29 = x18.b5;
+      var x30 = x18.b6;
       if ($m_sci_Nil$().a(x29)) {
         var $x_3 = acc$tailLocal2;
         break;
@@ -81844,8 +81892,8 @@ function $p_Ldev_bosatsu_TypedExprRecursionCheck$Impl$__withLambdaBinders__Lcats
   var bodyCheck = $p_Ldev_bosatsu_TypedExprRecursionCheck$Impl$__withTemporaryRecurBranchProofs__Ldev_bosatsu_TypedExprRecursionCheck$Impl$St__F1__F1__Ldev_bosatsu_TypedExprRecursionCheck$Impl$St($thiz, bareBodyCheck, new $c_sr_AbstractFunction1_$$Lambda$7afc3dd0acc1681fb022ef921c83979087aaa919(((_$107$2) => bareBodyCheck)), new $c_sr_AbstractFunction1_$$Lambda$7afc3dd0acc1681fb022ef921c83979087aaa919(((proofs$2) => updateProofs.k(proofs$2.Vt(new $c_sr_AbstractFunction1_$$Lambda$7afc3dd0acc1681fb022ef921c83979087aaa919(((_$108$2) => _$108$2.avb(newBinds))))))));
   return $p_Ldev_bosatsu_TypedExprRecursionCheck$Impl$__withTemporaryRecurBranchSmtState__Ldev_bosatsu_TypedExprRecursionCheck$Impl$St__F1__F1__Ldev_bosatsu_TypedExprRecursionCheck$Impl$St($thiz, bodyCheck, new $c_sr_AbstractFunction1_$$Lambda$7afc3dd0acc1681fb022ef921c83979087aaa919(((_$109$2) => bodyCheck)), new $c_sr_AbstractFunction1_$$Lambda$7afc3dd0acc1681fb022ef921c83979087aaa919(((smtState$2) => args.dk(smtState$2.VI(newBinds), new $c_sr_AbstractFunction2_$$Lambda$b4228bd32034ae3b2f0c5fc896319aa4b79b55f8(((x$1$2, x$2$2) => {
     var x1982 = $ct_T2__O__O__(new $c_T2(), x$1$2, x$2$2);
-    var x1984 = x1982.b7;
-    var st = x1982.b6;
+    var x1984 = x1982.b6;
+    var st = x1982.b5;
     return $p_Ldev_bosatsu_TypedExprRecursionCheck$Impl$__bindSymbolForType__Ldev_bosatsu_Identifier$Bindable__Ldev_bosatsu_rankn_Type__Ldev_bosatsu_TypedExprRecursionCheck$Impl$SmtBranchState__Ldev_bosatsu_TypedExprRecursionCheck$Impl$SmtBranchState($thiz, x1984.f(), x1984.g(), st);
   }))))));
 }
@@ -82260,8 +82308,8 @@ function $p_Ldev_bosatsu_TypedExprRecursionCheck$Impl$__checkExpr__Ldev_bosatsu_
         var this$44 = x2199.t;
         return $f_sc_LinearSeqOps__foldLeft__O__F2__O(new $c_sci_$colon$colon(x2199.s, this$44), smtState$2$1.VI(newBinds), new $c_sr_AbstractFunction2_$$Lambda$b4228bd32034ae3b2f0c5fc896319aa4b79b55f8(((x$1$2$2, x$2$2) => {
           var x2086 = $ct_T2__O__O__(new $c_T2(), x$1$2$2, x$2$2);
-          var x2088 = x2086.b7;
-          var st = x2086.b6;
+          var x2088 = x2086.b6;
+          var st = x2086.b5;
           return $p_Ldev_bosatsu_TypedExprRecursionCheck$Impl$__bindLetName__Ldev_bosatsu_Identifier$Bindable__Ldev_bosatsu_TypedExpr__Ldev_bosatsu_TypedExprRecursionCheck$Impl$SmtBranchState__Ldev_bosatsu_TypedExprRecursionCheck$Impl$SmtBranchState($thiz, x2088.f(), x2088.g(), st);
         })));
       })));
@@ -84375,8 +84423,8 @@ $h_Ldev_bosatsu_Value$.prototype = $p;
 $p.c46 = (function(a, b) {
   $m_Ldev_bosatsu_BosatsuInt$();
   var x12 = $ct_T2__O__O__(new $c_T2(), a, b);
-  var x25 = x12.b6;
-  var x26 = x12.b7;
+  var x25 = x12.b5;
+  var x26 = x12.b6;
   if ($isInt(x25)) {
     if ($isInt(x26)) {
       return ((((x25 > x26) | 0) - ((x25 < x26) | 0)) | 0);
@@ -84568,7 +84616,7 @@ function $p_Ldev_bosatsu_Value$SumValue$__constants__ALdev_bosatsu_Value$SumValu
     if ((this$6.E() >= 0)) {
       var length = this$6.E();
       var componentType = evidence$1__runtimeClass;
-      var destination = componentType.b5.U(length);
+      var destination = componentType.b7.U(length);
       this$6.cW(destination, 0, 2147483647);
       var $x_1 = destination;
     } else {
@@ -84783,7 +84831,7 @@ $p.csR = (function(kvs) {
   if ((this$2.an() >= 0)) {
     var length = this$2.an();
     var componentType = evidence$1__runtimeClass;
-    var destination = componentType.b5.U(length);
+    var destination = componentType.b7.U(length);
     $f_sc_IterableOnceOps__copyToArray__O__I__I__I(this$2, destination, 0, 2147483647);
     var $x_1 = destination;
   } else {
@@ -85178,8 +85226,8 @@ $p.b6T = (function() {
 });
 $p.aOZ = (function(that) {
   var x2 = $ct_T2__O__O__(new $c_T2(), this, that);
-  var x15 = x2.b6;
-  var x16 = x2.b7;
+  var x15 = x2.b5;
+  var x16 = x2.b6;
   if (($m_Ldev_bosatsu_Variance$Phantom$() === x15)) {
     return $m_Ldev_bosatsu_Variance$Phantom$();
   }
@@ -85207,8 +85255,8 @@ $p.aOZ = (function(that) {
 });
 $p.bjR = (function(that) {
   var x17 = $ct_T2__O__O__(new $c_T2(), this, that);
-  var x32 = x17.b6;
-  var x33 = x17.b7;
+  var x32 = x17.b5;
+  var x33 = x17.b6;
   if (($m_Ldev_bosatsu_Variance$Phantom$() === x32)) {
     return x33;
   }
@@ -87510,8 +87558,8 @@ function $f_Ldev_bosatsu_codegen_clang_Code$ValueLike__discardValue__s_Option($t
     var x74 = $thiz.MD;
     var x75 = $thiz.MC;
     var x53 = $ct_T2__O__O__(new $c_T2(), $f_Ldev_bosatsu_codegen_clang_Code$ValueLike__discardValue__s_Option(x74), $f_Ldev_bosatsu_codegen_clang_Code$ValueLike__discardValue__s_Option(x75));
-    var x64 = x53.b6;
-    var x65 = x53.b7;
+    var x64 = x53.b5;
+    var x65 = x53.b6;
     if ((x64 instanceof $c_s_Some)) {
       var x69 = x64.p;
       if ((x65 instanceof $c_s_Some)) {
@@ -93057,8 +93105,8 @@ function $p_Ldev_bosatsu_graph_Paths$__loop$1__F1__Lcats_kernel_Eq__O__O__sci_Se
         (($m_Lcats_package$(), evidence$1$1).bD(a$1, to) ? l : r).bL(x0);
       }
       var x12 = $ct_T2__O__O__(new $c_T2(), l.T(), r.T());
-      var x15 = x12.b6;
-      var x16 = x12.b7;
+      var x15 = x12.b5;
+      var x16 = x12.b6;
       if ($m_sci_Nil$().a(x15)) {
         var \u03b42$ = $ct_T2__O__O__(new $c_T2(), $m_sci_Nil$(), result);
         break matchResult3;
@@ -93298,10 +93346,10 @@ $p.a3U = (function(n, fn, evidence$1) {
       var evidence$1$1__runtimeClass;
       var evidence$1$1__runtimeClass = $d_scm_Builder.l();
       if ((len <= 0)) {
-        var $x_2 = evidence$1$1__runtimeClass.b5.U(0);
+        var $x_2 = evidence$1$1__runtimeClass.b7.U(0);
       } else {
         var componentType$1 = evidence$1$1__runtimeClass;
-        var array = componentType$1.b5.U(len);
+        var array = componentType$1.b7.U(len);
         var i = 0;
         while ((i < len)) {
           $m_sr_ScalaRunTime$().k4(array, i, ($m_sci_List$(), new $c_scm_ListBuffer()));
@@ -93544,8 +93592,8 @@ function $c_Ldev_bosatsu_jsui_Store(buildInfo) {
   this.bet = $m_Ldev_bosatsu_MemoryMain$().cP1(buildInfo, ($m_Lcats_instances_package$either$(), new $c_Lcats_instances_EitherInstances$$anon$2()));
   this.bJm = new $c_Lcats_effect_kernel_Resource$Bind(new $c_Lcats_effect_kernel_Resource$Eval($m_Ldev_bosatsu_jsui_Store$().cvL()), new $c_sr_AbstractFunction1_$$Lambda$7afc3dd0acc1681fb022ef921c83979087aaa919(((init$2) => $m_Lff4s_Store$().chv(init$2, new $c_sr_AbstractFunction1_$$Lambda$7afc3dd0acc1681fb022ef921c83979087aaa919(((store$2) => new $c_sr_AbstractFunction2_$$Lambda$b4228bd32034ae3b2f0c5fc896319aa4b79b55f8(((store$3) => ((x$1$2, x$2$2) => {
     var x34 = $ct_T2__O__O__(new $c_T2(), x$1$2, x$2$2);
-    var x47 = x34.b6;
-    var x48 = x34.b7;
+    var x47 = x34.b5;
+    var x48 = x34.b6;
     if ((x47 instanceof $c_Ldev_bosatsu_jsui_Action$CodeEntered)) {
       var x51 = x47.aDC;
       matchAlts1: {
@@ -94045,8 +94093,8 @@ function $p_Ldev_bosatsu_library_ApiDiff$__apply__Ldev_bosatsu_PackageName__sci_
       }
       if ((name instanceof $c_Ldev_bosatsu_Identifier$Constructor)) {
         var x312 = $ct_T2__O__O__(new $c_T2(), $p_Ldev_bosatsu_library_ApiDiff$__typeTargetsOf$1__sr_LazyRef__Lcats_data_NonEmptyList__sci_Set__sci_List($thiz, TypeTarget$lzy1$16, x333, prevExposed), $p_Ldev_bosatsu_library_ApiDiff$__typeTargetsOf$1__sr_LazyRef__Lcats_data_NonEmptyList__sci_Set__sci_List($thiz, TypeTarget$lzy1$16, x334, currExposed));
-        var x313 = x312.b6;
-        var x314 = x312.b7;
+        var x313 = x312.b5;
+        var x314 = x312.b6;
         if ((x313 instanceof $c_sci_$colon$colon)) {
           var x320 = x313.h;
           var oldTarget = x313.F;
@@ -94215,8 +94263,8 @@ function $p_Ldev_bosatsu_library_ApiDiff$__diffConst$1__Ldev_bosatsu_rankn_TypeE
   if (visiting.P(const$1.ct)) {
     return new $c_Lcats_data_Validated$Valid($m_sci_Nil$());
   }
-  var x162 = x157.b6;
-  var x163 = x157.b7;
+  var x162 = x157.b5;
+  var x163 = x157.b6;
   if ((x162 instanceof $c_s_Some)) {
     var oldT = x162.p;
     if ((x163 instanceof $c_s_Some)) {
@@ -96611,8 +96659,8 @@ $p.bq7 = (function(platformIO, evalPassthroughArgs) {
         }
         throw new $c_s_MatchError(outOpt);
       }
-      var cOut = \u03b423$.b6;
-      var cOutRelativeToOutDir = (!(!\u03b423$.b7));
+      var cOut = \u03b423$.b5;
+      var cOutRelativeToOutDir = (!(!\u03b423$.b6));
       $m_Lcats_data_Validated$();
       return new $c_Lcats_data_Validated$Valid($ct_T2__O__O__(new $c_T2(), outDirOpt, new $c_Ldev_bosatsu_codegen_clang_ClangTranspiler$Output(cOut, cOutRelativeToOutDir, exeOut, (!outDirOpt.b()), ccFlags, ccLibs)));
     } else {
@@ -96621,7 +96669,7 @@ $p.bq7 = (function(platformIO, evalPassthroughArgs) {
   })));
   var buildCommand = $x_40.gf("build", "build an executable for a library", true, new $c_Lcats_syntax_Tuple2SemigroupalOps($ct_T2__O__O__(new $c_T2(), new $c_Lcats_syntax_Tuple6SemigroupalOps(new $c_T6(this.DI(ConfigConf$lzy1, rootNameRoot, casDirOpts, platformIO).Fw, mainPack, outputSpecOpt, compileCacheDirOpt, $m_Ldev_bosatsu_codegen_clang_ClangTranspiler$EmitMode$().aWj, $m_Ldev_bosatsu_codegen_clang_ClangTranspiler$GenExternalsMode$().aWk)).eg($m_Lcom_monovore_decline_Opts$().bT, $m_Lcom_monovore_decline_Opts$().bT), $m_Ldev_bosatsu_LocationMap$Colorize$().v3)).bx(new $c_sr_AbstractFunction2_$$Lambda$b4228bd32034ae3b2f0c5fc896319aa4b79b55f8(((x$1$2$13, x$2$2$1) => {
     var x472 = $ct_T2__O__O__(new $c_T2(), x$1$2$13, x$2$2$1);
-    var x473 = x472.b6;
+    var x473 = x472.b5;
     var x477 = x473.AZ;
     var fcc = x473.AX;
     var mainPackOpt = x473.AY;
@@ -96630,7 +96678,7 @@ $p.bq7 = (function(platformIO, evalPassthroughArgs) {
     var cacheDirFn = x473.B0;
     var emit = x473.B1;
     var gen = x473.B2;
-    var colorize = x472.b7;
+    var colorize = x472.b6;
     if ((outDirOpt$1 instanceof $c_s_Some)) {
       return $p_Ldev_bosatsu_library_Command$__useOutDir$1__O__Ldev_bosatsu_PlatformIO__Ldev_bosatsu_codegen_clang_ClangTranspiler$EmitMode__Ldev_bosatsu_codegen_clang_ClangTranspiler$GenExternalsMode__Ldev_bosatsu_codegen_clang_ClangTranspiler$Output__F1__Ldev_bosatsu_LocationMap$Colorize__s_Option__O__O(this, fcc, platformIO, emit, gen, output$7, cacheDirFn, colorize, mainPackOpt, outDirOpt$1.p);
     }
@@ -96651,7 +96699,7 @@ $p.bq7 = (function(platformIO, evalPassthroughArgs) {
   var evidence$1$5 = platformIO.cD;
   var testCommand = $x_45.gf("test", "test packages in a library", true, new $c_Lcats_syntax_Tuple2SemigroupalOps($ct_T2__O__O__(new $c_T2(), new $c_Lcats_syntax_Tuple8SemigroupalOps(new $c_T8($x_44, $x_43, lintMode, clangOut, $x_42, $x_41, compileCacheDirOpt, $f_Lcom_monovore_decline_Opts__orNone__Lcom_monovore_decline_Opts($m_Lcom_monovore_decline_Opts$().cr("outdir", "directory to write all output into", ($m_Lcom_monovore_decline_Opts$(), ""), ($m_Lcom_monovore_decline_Opts$(), ""), ($m_Lcom_monovore_decline_Opts$(), $m_Lcom_monovore_decline_Visibility$Normal$()), evidence$1$5)))).eg($m_Lcom_monovore_decline_Opts$().bT, $m_Lcom_monovore_decline_Opts$().bT), $m_Ldev_bosatsu_LocationMap$Colorize$().v3)).bx(new $c_sr_AbstractFunction2_$$Lambda$b4228bd32034ae3b2f0c5fc896319aa4b79b55f8(((x$1$2$14, x$2$2$2) => {
     var x504 = $ct_T2__O__O__(new $c_T2(), x$1$2$14, x$2$2$2);
-    var x505 = x504.b6;
+    var x505 = x504.b5;
     var fcc$1 = x505.G6;
     var test = x505.G7;
     var lintMode$1 = x505.G8;
@@ -96660,7 +96708,7 @@ $p.bq7 = (function(platformIO, evalPassthroughArgs) {
     var gen$1 = x505.Gb;
     var cacheDirFn$5 = x505.Gc;
     var outDirOpt$2 = x505.Gd;
-    var colorize$1 = x504.b7;
+    var colorize$1 = x504.b6;
     if ((outDirOpt$2 instanceof $c_s_Some)) {
       return $p_Ldev_bosatsu_library_Command$__useOutDir$2__Ldev_bosatsu_codegen_clang_ClangTranspiler$Output__Ldev_bosatsu_PlatformIO__O__Ldev_bosatsu_codegen_clang_ClangTranspiler$Mode$Test__Ldev_bosatsu_codegen_clang_ClangTranspiler$EmitMode__Ldev_bosatsu_codegen_clang_ClangTranspiler$GenExternalsMode__Ldev_bosatsu_LocationMap$Colorize__Ldev_bosatsu_tool_LintMode__F1__O__O(this, out$4, platformIO, fcc$1, test, emit$1, gen$1, colorize$1, lintMode$1, cacheDirFn$5, outDirOpt$2.p);
     }
@@ -98482,8 +98530,8 @@ function $p_Ldev_bosatsu_library_VerifiedLibraryGraph$__loop$1__sci_List__sci_Li
   var leftRest$tailLocal1 = leftRest;
   while (true) {
     var x40 = $ct_T2__O__O__(new $c_T2(), leftRest$tailLocal1, rightRest$tailLocal1);
-    var x53 = x40.b6;
-    var x54 = x40.b7;
+    var x53 = x40.b5;
+    var x54 = x40.b6;
     if ($m_sci_Nil$().a(x53)) {
       if ($m_sci_Nil$().a(x54)) {
         return 0;
@@ -101375,8 +101423,8 @@ function $p_Ldev_bosatsu_protobuf_ProtoToBosatsu$__referencedCodecs__Ldev_bosats
       matchResult56: {
         var acc$tailLocal1$tmp1;
         var x156 = $ct_T2__O__O__(new $c_T2(), x0, x1);
-        var x166 = x156.b6;
-        var x167 = x156.b7;
+        var x166 = x156.b5;
+        var x167 = x156.b6;
         if ((x167 instanceof $c_Ldev_bosatsu_protobuf_ProtoDescriptorModel$FieldType$Scalar)) {
           var acc$tailLocal1$tmp1 = x166;
           break matchResult56;
@@ -102295,8 +102343,8 @@ function $p_Ldev_bosatsu_rankn_Infer$Impl$__checkItem$1__J__Ldev_bosatsu_rankn_T
 }
 function $p_Ldev_bosatsu_rankn_Infer$Impl$__loop$4__Ldev_bosatsu_rankn_Type$TyConst__J__J__sci_List__Ldev_bosatsu_Kind__Ldev_bosatsu_rankn_Type__Ldev_bosatsu_rankn_Infer($thiz, thisTpe$1, reg$23_$_lo, reg$23_$_hi, sigmaRegion$1_$_lo, sigmaRegion$1_$_hi, revArgs, leftKind, sigma) {
   var x1353 = $ct_T2__O__O__(new $c_T2(), revArgs, sigma);
-  var x1375 = x1353.b6;
-  var x1376 = x1353.b7;
+  var x1375 = x1353.b5;
+  var x1376 = x1353.b6;
   if ($m_sci_Nil$().a(x1375)) {
     return new $c_Ldev_bosatsu_rankn_Infer$Impl$Mapped($thiz.a4b(thisTpe$1, x1376, reg$23_$_lo, reg$23_$_hi, sigmaRegion$1_$_lo, sigmaRegion$1_$_hi, $s_Ldev_bosatsu_rankn_Infer$Error$Direction$__ExpectRight__Ldev_bosatsu_rankn_Infer$Error$Direction()), new $c_sr_AbstractFunction1_$$Lambda$7afc3dd0acc1681fb022ef921c83979087aaa919(((x$1$2) => $m_sci_Map$EmptyMap$())));
   }
@@ -102620,8 +102668,8 @@ $p.c96 = (function(a1s, r1, a2s, r2, left_$_lo, left_$_hi, right_$_lo, right_$_h
 });
 $p.brk = (function(t, rho, left_$_lo, left_$_hi, right_$_lo, right_$_hi, direction) {
   var x395 = $ct_T2__O__O__(new $c_T2(), t, rho);
-  var x399 = x395.b6;
-  var x400 = x395.b7;
+  var x399 = x395.b5;
+  var x400 = x395.b6;
   if ((x399 instanceof $c_Ldev_bosatsu_rankn_Type$ForAll)) {
     var x392 = this.brl($m_Ldev_bosatsu_TypedExpr$Domain$().aVM, x399, x400, left_$_lo, left_$_hi, right_$_lo, right_$_hi);
     if ((x392 instanceof $c_s_Some)) {
@@ -102645,8 +102693,8 @@ $p.Ef = (function(t, rho, left_$_lo, left_$_hi, right_$_lo, right_$_hi, directio
       return new $c_Ldev_bosatsu_rankn_Infer$Impl$FlatMap(((t1 instanceof $c_Ldev_bosatsu_rankn_Type$Rho) ? $m_Ldev_bosatsu_rankn_Infer$().f5(t1) : $m_Ldev_bosatsu_rankn_Infer$().m3(new $c_Ldev_bosatsu_rankn_Infer$Error$ExpectedRho(t1, (((((((("subsCheckRho2 alias normalization left(" + t) + ", ") + rho) + ", ") + $s_RTLong__toString__I__I__T(left_$_lo, left_$_hi)) + ", ") + $s_RTLong__toString__I__I__T(right_$_lo, right_$_hi)) + ")"), left_$_lo, left_$_hi))), new $c_sr_AbstractFunction1_$$Lambda$7afc3dd0acc1681fb022ef921c83979087aaa919(((tRho$2) => new $c_Ldev_bosatsu_rankn_Infer$Impl$FlatMap(((rho1 instanceof $c_Ldev_bosatsu_rankn_Type$Rho) ? $m_Ldev_bosatsu_rankn_Infer$().f5(rho1) : $m_Ldev_bosatsu_rankn_Infer$().m3(new $c_Ldev_bosatsu_rankn_Infer$Error$ExpectedRho(rho1, (((((((("subsCheckRho2 alias normalization right(" + t) + ", ") + rho) + ", ") + $s_RTLong__toString__I__I__T(left_$_lo, left_$_hi)) + ", ") + $s_RTLong__toString__I__I__T(right_$_lo, right_$_hi)) + ")"), right_$_lo, right_$_hi))), new $c_sr_AbstractFunction1_$$Lambda$7afc3dd0acc1681fb022ef921c83979087aaa919(((tRho$1) => ((rhoRho$2) => new $c_Ldev_bosatsu_rankn_Infer$Impl$FlatMap(this.Ef(tRho$1, rhoRho$2, left_$_lo, left_$_hi, right_$_lo, right_$_hi, direction), new $c_sr_AbstractFunction1_$$Lambda$7afc3dd0acc1681fb022ef921c83979087aaa919(((rhoRho$1) => ((coerce$2) => new $c_Ldev_bosatsu_rankn_Infer$Impl$Mapped(this.SL, new $c_sr_AbstractFunction1_$$Lambda$7afc3dd0acc1681fb022ef921c83979087aaa919(((coerce$1) => ((kinds$2) => ((rhoRho$1 === rho) ? coerce$1 : new $c_Lcats_arrow_FunctionK$$anon$1(coerce$1, new $c_Ldev_bosatsu_rankn_Infer$Impl$$anon$7(rho, kinds$2)))))(coerce$2)))))(rhoRho$2)))))(tRho$2))))));
     } else {
       var x444 = $ct_T2__O__O__(new $c_T2(), t, rho);
-      var x481 = x444.b6;
-      var x482 = x444.b7;
+      var x481 = x444.b5;
+      var x482 = x444.b6;
       if ((x481 instanceof $c_Ldev_bosatsu_rankn_Type$Exists)) {
         var x485 = x481.hy;
         var x486 = x481.et;
@@ -106399,7 +106447,7 @@ function $c_Ldev_bosatsu_rankn_Type$Tuple$Arity$() {
   if ((this$10.an() >= 0)) {
     var length = this$10.an();
     var componentType = evidence$1__runtimeClass;
-    var destination = componentType.b5.U(length);
+    var destination = componentType.b7.U(length);
     this$10.cW(destination, 0, 2147483647);
     var $x_1 = destination;
   } else {
@@ -107004,8 +107052,8 @@ $p.bs7 = (function(a, b1, b2) {
     if ((x80 instanceof $c_s_util_Left)) {
       var p = x80.X;
       var x59 = $ct_T2__O__O__(new $c_T2(), this.c0h(a), p);
-      var x74 = x59.b6;
-      var x75 = x59.b7;
+      var x74 = x59.b5;
+      var x75 = x59.b6;
       if ((x74 instanceof $c_s_util_Right)) {
         var x77 = x74.K;
         var x78 = x77.f();
@@ -108858,8 +108906,8 @@ $p.b3v = (function(a, k) {
 });
 $p.cob = (function(a, b) {
   var x71 = $ct_T2__O__O__(new $c_T2(), a, b);
-  var x76 = x71.b6;
-  var x77 = x71.b7;
+  var x76 = x71.b5;
+  var x77 = x71.b6;
   if ((x76 instanceof $c_s_Some)) {
     var x = x76.p;
     if ((x77 instanceof $c_s_Some)) {
@@ -108877,8 +108925,8 @@ $p.cob = (function(a, b) {
 });
 $p.coc = (function(a, b) {
   var x82 = $ct_T2__O__O__(new $c_T2(), a, b);
-  var x87 = x82.b6;
-  var x88 = x82.b7;
+  var x87 = x82.b5;
+  var x88 = x82.b6;
   if ((x87 instanceof $c_s_Some)) {
     var x = x87.p;
     if ((x88 instanceof $c_s_Some)) {
@@ -109304,14 +109352,14 @@ $p.cjA = (function(facts) {
     var x1 = this$7.v();
     matchResult47: {
       var x287 = $ct_T2__O__O__(new $c_T2(), x0, x1);
-      var x292 = x287.b6;
+      var x292 = x287.b5;
       if (($m_s_None$() === x292)) {
         result = $m_s_None$();
         break matchResult47;
       }
       if ((x292 instanceof $c_s_Some)) {
         var b = x292.p;
-        var atom = x287.b7;
+        var atom = x287.b6;
         var x$5 = $m_Ldev_bosatsu_smt_SmtExpr$BoolConst$().pN;
         if (((atom === null) ? (x$5 === null) : atom.a(x$5))) {
           result = $m_s_None$();
@@ -109389,8 +109437,8 @@ $p.cMs = (function(b) {
   var z = $m_s_Option$().am(b);
   var f = ((x$1$2, x$2$2) => {
     var x313 = $ct_T2__O__O__(new $c_T2(), x$1$2, x$2$2);
-    var x320 = x313.b6;
-    var x321 = x313.b7;
+    var x320 = x313.b5;
+    var x321 = x313.b6;
     if (($m_s_None$() === x320)) {
       return $m_s_None$();
     }
@@ -110545,8 +110593,8 @@ function $p_Ldev_bosatsu_smt_Omega$__eliminateVar__sci_List__Ldev_bosatsu_smt_Om
             ((!$m_sr_BoxesRunTime$().bd(x0.sa(x), 0)) ? l : r).bL(x0);
           }
           var x12 = $ct_T2__O__O__(new $c_T2(), l.T(), r.T());
-          var x15 = x12.b6;
-          var x16 = x12.b7;
+          var x15 = x12.b5;
+          var x16 = x12.b6;
           if ($m_sci_Nil$().a(x15)) {
             var \u03b44$ = $ct_T2__O__O__(new $c_T2(), $m_sci_Nil$(), geqs);
             break matchResult48;
@@ -110615,8 +110663,8 @@ function $p_Ldev_bosatsu_smt_Omega$__eliminateBounded__I__sci_List__Z__Ldev_bosa
         ((!$m_sr_BoxesRunTime$().bd(x0.sa(x), 0)) ? l : r).bL(x0);
       }
       var x12 = $ct_T2__O__O__(new $c_T2(), l.T(), r.T());
-      var x15 = x12.b6;
-      var x16 = x12.b7;
+      var x15 = x12.b5;
+      var x16 = x12.b6;
       if ($m_sci_Nil$().a(x15)) {
         var \u03b48$ = $ct_T2__O__O__(new $c_T2(), $m_sci_Nil$(), geqs);
         break matchResult57;
@@ -112485,8 +112533,8 @@ function $p_Ldev_bosatsu_tool_CompilerApi$__partitionDiagnostics__sci_List__Ldev
         ($m_Ldev_bosatsu_PackageError$().a3u(x0) ? l : r).bL(x0);
       }
       var x12 = $ct_T2__O__O__(new $c_T2(), l.T(), r.T());
-      var x15 = x12.b6;
-      var x16 = x12.b7;
+      var x15 = x12.b5;
+      var x16 = x12.b6;
       if ($m_sci_Nil$().a(x15)) {
         var \u03b42$ = $ct_T2__O__O__(new $c_T2(), $m_sci_Nil$(), errors);
         break matchResult26;
@@ -113238,8 +113286,8 @@ function $p_Ldev_bosatsu_tool_CompilerApi$__typeCheckDiagnostics__Ldev_bosatsu_P
         throw new $c_s_MatchError(checked$1);
       }
       var \u03b44$___1 = x161;
-      var \u03b44$___2 = x161.b6;
-      var \u03b44$___3 = x161.b7;
+      var \u03b44$___2 = x161.b5;
+      var \u03b44$___3 = x161.b6;
       var compileDiagnostics$2 = \u03b44$___2;
       var compiled$2 = \u03b44$___3;
       var partitionedDiagnostics = $p_Ldev_bosatsu_tool_CompilerApi$__partitionDiagnostics__sci_List__Ldev_bosatsu_tool_CompilerApi$PartitionedErrors($thiz, compileDiagnostics$2);
@@ -114591,8 +114639,8 @@ function $p_Ldev_bosatsu_tool_LibraryInspection$__loop$1__sci_List__sci_List__I(
   var leftRest$tailLocal1 = leftRest;
   while (true) {
     var x22 = $ct_T2__O__O__(new $c_T2(), leftRest$tailLocal1, rightRest$tailLocal1);
-    var x35 = x22.b6;
-    var x36 = x22.b7;
+    var x35 = x22.b5;
+    var x36 = x22.b6;
     if ($m_sci_Nil$().a(x35)) {
       if ($m_sci_Nil$().a(x36)) {
         return 0;
@@ -120942,8 +120990,8 @@ $p.mC = (function(platformIO) {
                   var allPackNames = $f_sc_SeqOps__distinct__O($x_2).dP($m_Ldev_bosatsu_PackageName$().dK);
                   var x13 = (((!exportPacks$1.b()) || (!privatePacks$1.b())) ? $ct_T2__O__O__(new $c_T2(), $f_sc_SeqOps__distinct__O(exportPacks$1).dP($m_Ldev_bosatsu_PackageName$().dK), $f_sc_SeqOps__distinct__O(privatePacks$1.W(exportPacks$1)).dP($m_Ldev_bosatsu_PackageName$().dK)) : $ct_T2__O__O__(new $c_T2(), allPackNames, allPackNames));
                   var \u03b42$___1 = x13;
-                  var \u03b42$___2 = x13.b6;
-                  var \u03b42$___3 = x13.b7;
+                  var \u03b42$___2 = x13.b5;
+                  var \u03b42$___3 = x13.b6;
                   var exportedNames$2 = \u03b42$___2;
                   var allNames$2 = \u03b42$___3;
                   var f$9 = ((_$6$2) => _$6$2.g());
@@ -124192,8 +124240,8 @@ $p.mC = (function(platform) {
     matchResult6: {
       var coreSelection;
       var x24 = $ct_T2__O__O__(new $c_T2(), binaryCore$2, sourceFiles$2);
-      var x36 = x24.b6;
-      var x37 = x24.b7;
+      var x36 = x24.b5;
+      var x37 = x24.b6;
       if ((x36 instanceof $c_s_Some)) {
         if ((x37 instanceof $c_sci_$colon$colon)) {
           var coreSelection = new $c_s_util_Left(new $c_Ldev_bosatsu_tool_CliException$Basic("choose either --core-library or --core-source, not both", $m_Ldev_bosatsu_tool_ExitCode$Error$()));
@@ -124856,7 +124904,7 @@ function $m_Lff4s_codecs_package$() {
 function $f_Lfs2_ChunkCompanion213And3Compat__platformFrom__sc_Iterable__s_Option($thiz, i) {
   if ((i instanceof $c_sci_ArraySeq)) {
     var arr = i.kX();
-    return new $c_s_Some($thiz.bYb(arr, $m_s_reflect_ClassTag$().a2D($objectGetClass(arr).b5.Q())));
+    return new $c_s_Some($thiz.bYb(arr, $m_s_reflect_ClassTag$().a2D($objectGetClass(arr).b7.Q())));
   } else {
     return $m_s_None$();
   }
@@ -126101,8 +126149,8 @@ $p.c9J = (function(path) {
         matchResult11: {
           var acc$tailLocal1$tmp1;
           var x16 = $ct_T2__O__O__(new $c_T2(), x0, x1);
-          var x22 = x16.b6;
-          var x23 = x16.b7;
+          var x22 = x16.b5;
+          var x23 = x16.b6;
           if ((x23 instanceof $c_Lio_circe_PathToRoot$PathElem$ObjectKey)) {
             var x26 = x23.aIM;
             var acc$tailLocal1$tmp1 = x22.mr(".").mr(x26);
@@ -127240,10 +127288,10 @@ function $p_jl_reflect_Array$__mismatch__O__E($thiz, array) {
 }
 function $p_jl_reflect_Array$__rec$1__jl_Class__I__AI__O($thiz, componentType, offset, dimensions$1) {
   var length = dimensions$1.d[offset];
-  var result = componentType.b5.U(length);
+  var result = componentType.b7.U(length);
   var innerOffset = ((1 + offset) | 0);
   if ((innerOffset < dimensions$1.d.length)) {
-    var innerComponentType = componentType.b5.Q();
+    var innerComponentType = componentType.b7.Q();
     var i = 0;
     while ((i !== length)) {
       result.d[i] = $p_jl_reflect_Array$__rec$1__jl_Class__I__AI__O($thiz, innerComponentType, innerOffset, dimensions$1);
@@ -127269,7 +127317,7 @@ $p.ge = (function(componentType, dimensions) {
   var outermostComponentType = componentType;
   var i = 1;
   while ((i !== len)) {
-    outermostComponentType = $objectGetClass(outermostComponentType.b5.U(0));
+    outermostComponentType = $objectGetClass(outermostComponentType.b7.U(0));
     i = ((1 + i) | 0);
   }
   return $p_jl_reflect_Array$__rec$1__jl_Class__I__AI__O(this, outermostComponentType, 0, dimensions);
@@ -132152,7 +132200,7 @@ $p.a3V = (function(array, comparator) {
   var ops = $m_ju_internal_GenericArrayOps$ReusableAnyRefArrayOps$();
   var end = array.d.length;
   if ((end > 16)) {
-    this.BL(array, $objectGetClass(array).b5.Q().b5.U(array.d.length), 0, end, comparator$1, ops);
+    this.BL(array, $objectGetClass(array).b7.Q().b7.U(array.d.length), 0, end, comparator$1, ops);
   } else {
     this.DY(array, 0, end, comparator$1, ops);
   }
@@ -132164,7 +132212,7 @@ $p.cKV = (function(array, fromIndex, toIndex, comparator) {
     throw $ct_jl_IllegalArgumentException__T__(new $c_jl_IllegalArgumentException(), (((("fromIndex(" + fromIndex) + ") > toIndex(") + toIndex) + ")"));
   }
   if ((((toIndex - fromIndex) | 0) > 16)) {
-    this.BL(array, $objectGetClass(array).b5.Q().b5.U(array.d.length), fromIndex, toIndex, comparator$1, ops);
+    this.BL(array, $objectGetClass(array).b7.Q().b7.U(array.d.length), fromIndex, toIndex, comparator$1, ops);
   } else {
     this.DY(array, fromIndex, toIndex, comparator$1, ops);
   }
@@ -132481,14 +132529,14 @@ $p.cqn = (function(a, fromIndex, toIndex, value) {
 $p.hC = (function(original, newLength) {
   var b = original.d.length;
   var copyLength = ((newLength < b) ? newLength : b);
-  var ret = $objectGetClass(original).b5.Q().b5.U(newLength);
+  var ret = $objectGetClass(original).b7.Q().b7.U(newLength);
   original.aN(0, ret, 0, copyLength);
   return ret;
 });
 $p.at8 = (function(original, newLength, newType) {
   var b = original.d.length;
   var copyLength = ((newLength < b) ? newLength : b);
-  var ret = newType.b5.Q().b5.U(newLength);
+  var ret = newType.b7.Q().b7.U(newLength);
   original.aN(0, ret, 0, copyLength);
   return ret;
 });
@@ -132556,7 +132604,7 @@ $p.fp = (function(original, from, to) {
   var retLength = ((to - from) | 0);
   var b = ((len - from) | 0);
   var copyLength = ((retLength < b) ? retLength : b);
-  var ret = $objectGetClass(original).b5.Q().b5.U(retLength);
+  var ret = $objectGetClass(original).b7.Q().b7.U(retLength);
   original.aN(from, ret, 0, copyLength);
   return ret;
 });
@@ -133065,8 +133113,8 @@ $p.brM = (function() {
     if (allSegmentsWellFormed) {
       var variant = $f_sc_IterableOnceOps__mkString__T__T__T__T($m_s_Predef$().jM(variantSegments), "-", "-", "");
     } else if (allAcceptableSegments) {
-      var res1 = new $c_scm_ArrayBuilder$generic($m_s_reflect_ClassTag$().a2D($objectGetClass(variantSegments).b5.Q()).oq());
-      var res2 = new $c_scm_ArrayBuilder$generic($m_s_reflect_ClassTag$().a2D($objectGetClass(variantSegments).b5.Q()).oq());
+      var res1 = new $c_scm_ArrayBuilder$generic($m_s_reflect_ClassTag$().a2D($objectGetClass(variantSegments).b7.Q()).oq());
+      var res2 = new $c_scm_ArrayBuilder$generic($m_s_reflect_ClassTag$().a2D($objectGetClass(variantSegments).b7.Q()).oq());
       var i$2 = 0;
       while ((i$2 < variantSegments.d.length)) {
         var x1$2 = i$2;
@@ -133088,11 +133136,11 @@ $p.brM = (function() {
       var runtimeClass = evidence$25__runtimeClass;
       if (((runtimeClass !== null) && (runtimeClass === $d_V.l()))) {
         var dest$1 = $p_s_Array$__newUnitArray__I__Ajl_Void(this$32, newLength);
-      } else if (runtimeClass.b5.R($objectGetClass(acceptable$2).b5.Q().b5)) {
-        var dest$1 = (runtimeClass.b5.X ? this$32.DF(acceptable$2, newLength) : $m_ju_Arrays$().at8(acceptable$2, newLength, $objectGetClass(runtimeClass.b5.U(0))));
+      } else if (runtimeClass.b7.R($objectGetClass(acceptable$2).b7.Q().b7)) {
+        var dest$1 = (runtimeClass.b7.X ? this$32.DF(acceptable$2, newLength) : $m_ju_Arrays$().at8(acceptable$2, newLength, $objectGetClass(runtimeClass.b7.U(0))));
       } else {
         var componentType = evidence$25__runtimeClass;
-        var dest = componentType.b5.U(newLength);
+        var dest = componentType.b7.U(newLength);
         $m_s_Array$().he(acceptable$2, 0, dest, 0, acceptable$2.d.length);
         var dest$1 = dest;
       }
@@ -133147,7 +133195,7 @@ function $c_ju_Locale$() {
   var ct__runtimeClass = $d_T2.l();
   var len = xs.d.length;
   var componentType = ct__runtimeClass;
-  var ys = componentType.b5.U(len);
+  var ys = componentType.b7.U(len);
   if ((len > 0)) {
     var i = 0;
     if ((xs !== null)) {
@@ -136313,7 +136361,7 @@ function $c_Lorg_typelevel_paiges_Chunk$() {
   if ((this$8.an() >= 0)) {
     var length = this$8.an();
     var componentType = evidence$1__runtimeClass;
-    var destination = componentType.b5.U(length);
+    var destination = componentType.b7.U(length);
     $f_sc_IterableOnceOps__copyToArray__O__I__I__I(this$8, destination, 0, 2147483647);
     var $x_1 = destination;
   } else {
@@ -138145,7 +138193,7 @@ $p.c2t = (function(it, evidence$1) {
 });
 $p.he = (function(src, srcPos, dest, destPos, length) {
   var srcClass = $objectGetClass(src);
-  if ((srcClass.b5.Z && $objectGetClass(dest).b5.R(srcClass.b5))) {
+  if ((srcClass.b7.Z && $objectGetClass(dest).b7.R(srcClass.b7))) {
     src.aN(srcPos, dest, destPos, length);
   } else {
     $p_s_Array$__slowcopy__O__I__O__I__I__V(this, src, srcPos, dest, destPos, length);
@@ -138188,8 +138236,8 @@ $p.cmQ = (function(original, newLength, ct) {
   var runtimeClass = ct.oq();
   if (((runtimeClass !== null) && (runtimeClass === $d_V.l()))) {
     return $p_s_Array$__newUnitArray__I__Ajl_Void(this, newLength);
-  } else if (runtimeClass.b5.R($objectGetClass(original).b5.Q().b5)) {
-    return (runtimeClass.b5.X ? this.DF(original, newLength) : $m_ju_Arrays$().at8(original, newLength, $objectGetClass(runtimeClass.b5.U(0))));
+  } else if (runtimeClass.b7.R($objectGetClass(original).b7.Q().b7)) {
+    return (runtimeClass.b7.X ? this.DF(original, newLength) : $m_ju_Arrays$().at8(original, newLength, $objectGetClass(runtimeClass.b7.U(0))));
   } else {
     var dest = ct.sj(newLength);
     $m_s_Array$().he(original, 0, dest, 0, $m_jl_reflect_Array$().dd(original));
@@ -138574,7 +138622,7 @@ function $ps_sc_ArrayOps$__boxed$1__I__O__s_math_Ordering__O(len$1, \u03b4this$2
     $m_s_util_Sorting$().bre(a, 0, $m_jl_reflect_Array$().dd(a), ord$1);
     return a;
   } else {
-    if ($d_O.R($objectGetClass(\u03b4this$2).b5.Q().b5)) {
+    if ($d_O.R($objectGetClass(\u03b4this$2).b7.Q().b7)) {
       var a$2 = $m_ju_Arrays$().at8(\u03b4this$2, len$1, $d_O.r().l());
     } else {
       var dest = new $ac_O(len$1);
@@ -138582,7 +138630,7 @@ function $ps_sc_ArrayOps$__boxed$1__I__O__s_math_Ordering__O(len$1, \u03b4this$2
       var a$2 = dest;
     }
     $m_ju_Arrays$().a3V(a$2, ord$1);
-    return $m_s_Array$().cmQ(a$2, len$1, $m_s_reflect_ClassTag$().a2D($objectGetClass(\u03b4this$2).b5.Q()));
+    return $m_s_Array$().cmQ(a$2, len$1, $m_s_reflect_ClassTag$().a2D($objectGetClass(\u03b4this$2).b7.Q()));
   }
 }
 /** @constructor */
@@ -138638,7 +138686,7 @@ $p.Pn = (function(this$, from, until) {
       throw new $c_s_MatchError(this$);
     }
   } else {
-    return $m_s_reflect_ClassTag$().a2D($objectGetClass(this$).b5.Q()).sj(0);
+    return $m_s_reflect_ClassTag$().a2D($objectGetClass(this$).b7.Q()).sj(0);
   }
 });
 $p.cM2 = (function(this$) {
@@ -142276,7 +142324,7 @@ $p.at9 = (function(elem, a) {
   return ac;
 });
 $p.f3 = (function(elem, a) {
-  var ac = $objectGetClass(a).b5.Q().b5.U(((1 + a.d.length) | 0));
+  var ac = $objectGetClass(a).b7.Q().b7.U(((1 + a.d.length) | 0));
   var length$1 = a.d.length;
   a.aN(0, ac, 1, length$1);
   ac.d[0] = elem;
@@ -142340,7 +142388,7 @@ $p.mB = (function(n, a, f) {
   }
 });
 $p.czp = (function(n, a, f, at, v2) {
-  var ac = $objectGetClass(a).b5.Q().b5.U(a.d.length);
+  var ac = $objectGetClass(a).b7.Q().b7.U(a.d.length);
   if ((at > 0)) {
     a.aN(0, ac, 0, at);
   }
@@ -142412,7 +142460,7 @@ $p.dN = (function(runtimeClass, a) {
     }
     return result;
   } else {
-    var result$2 = runtimeClass.b5.U(len);
+    var result$2 = runtimeClass.b7.U(len);
     var i$2 = 0;
     while ((i$2 !== len)) {
       $m_sr_ScalaRunTime$().k4(result$2, i$2, a[i$2]);
@@ -145087,7 +145135,7 @@ function $h_sr_Arrays$() {
 $h_sr_Arrays$.prototype = $p;
 $p.cJX = (function(xs, clazz) {
   var length = xs.E();
-  var arr = clazz.b5.U(length);
+  var arr = clazz.b7.U(length);
   xs.cW(arr, 0, 2147483647);
   return arr;
 });
@@ -147359,8 +147407,8 @@ function $p_Lsnabbdom_init$__merge$1__Lsnabbdom_DomApi__Lorg_scalajs_dom_Node__s
   var v2$tailLocal1 = v2;
   while (true) {
     var x104 = $ct_T2__O__O__(new $c_T2(), v1$tailLocal1, v2$tailLocal1);
-    var x121 = x104.b6;
-    var x122 = x104.b7;
+    var x121 = x104.b5;
+    var x122 = x104.b6;
     if ((x121 instanceof $c_sci_$colon$colon)) {
       var x129 = x121.F;
       var x130 = x121.h;
@@ -147439,8 +147487,8 @@ function $p_Lsnabbdom_init$__updateChildren$1__Lsnabbdom_DomApi__Lsnabbdom_Modul
     var \u03b41$___4;
     var x68 = $f_sc_StrictOptimizedIterableOps__zipWithIndex__O(newCh).dk(new $c_T4(oldCh, oldCh.af(), ($m_sci_List$(), $m_sci_Nil$()), ($m_sci_List$(), $m_sci_Nil$())), new $c_sjsr_AnonFunction2_$$Lambda$770e9b86e03b055b1d78d82135c9f39ea48d32d7(((x$1, x$2) => {
       var x37 = $ct_T2__O__O__(new $c_T2(), x$1, x$2);
-      var x54 = x37.b6;
-      var x55 = x37.b7;
+      var x54 = x37.b5;
+      var x55 = x37.b6;
       if ((x54 !== null)) {
         var x58 = x54.fc;
         var x59 = x54.fX;
@@ -147525,14 +147573,14 @@ function $p_Lsnabbdom_init$__updateChildren$1__Lsnabbdom_DomApi__Lsnabbdom_Modul
       var x1 = these.e();
       matchResult8$1: {
         var x73 = $ct_T2__O__O__(new $c_T2(), x0, x1);
-        var x78 = x73.b6;
+        var x78 = x73.b5;
         if ((x78 !== null)) {
           var x80 = x78.f();
           var x81 = x78.g();
           if ((x80 instanceof $c_sci_$colon$colon)) {
             var x84 = x80.h;
             var h = x80.F;
-            var vnode = x73.b7;
+            var vnode = x73.b6;
             acc = (((vnode === null) ? (h === null) : vnode.a(h)) ? $ct_T2__O__O__(new $c_T2(), x84, new $c_sci_$colon$colon(h, x81)) : $ct_T2__O__O__(new $c_T2(), new $c_sci_$colon$colon(h, x84), x81));
             break matchResult8$1;
           }
@@ -147570,8 +147618,8 @@ function $p_Lsnabbdom_init$__updateChildren$1__Lsnabbdom_DomApi__Lsnabbdom_Modul
           ((!$m_Lsnabbdom_PatchedVNode$().c4G(x0$1).b()) ? l : r).bL(x0$1);
         }
         var x12 = $ct_T2__O__O__(new $c_T2(), l.T(), r.T());
-        var x15 = x12.b6;
-        var x16 = x12.b7;
+        var x15 = x12.b5;
+        var x16 = x12.b6;
         if ($m_sci_Nil$().a(x15)) {
           var x88 = $ct_T2__O__O__(new $c_T2(), $m_sci_Nil$(), toDelete$2);
           break matchResult5$1;
@@ -147622,8 +147670,8 @@ function $p_Lsnabbdom_init$__updateChildren$1__Lsnabbdom_DomApi__Lsnabbdom_Modul
       var x1$1 = these$1.e();
       matchResult12$1: {
         var x94 = $ct_T2__O__O__(new $c_T2(), x0$4, x1$1);
-        var x95 = x94.b6;
-        var x96 = x94.b7;
+        var x95 = x94.b5;
+        var x96 = x94.b6;
         if ((x95 !== null)) {
           var acc1 = x95.f();
           var acc2 = x95.g();
@@ -147725,8 +147773,8 @@ function $p_Lsnabbdom_init$__patchVnode$1__Lsnabbdom_DomApi__Lsnabbdom_ModuleHoo
           var x172 = vnode.oc;
           var x173 = vnode.Up;
           var x145 = $ct_T2__O__O__(new $c_T2(), x178, x173);
-          var x158 = x145.b6;
-          var x159 = x145.b7;
+          var x158 = x145.b5;
+          var x159 = x145.b6;
           if ((x158 instanceof $c_sci_$colon$colon)) {
             if ((x159 instanceof $c_sci_$colon$colon)) {
               var f = ((_$22) => _$22.a47());
@@ -150924,10 +150972,10 @@ function $p_Lcats_effect_kernel_Resource__loop$1__Lcats_effect_kernel_MonadCance
         throw new $c_s_MatchError(x$1);
       }))(stack$tailLocal1, onOutput$1, Nil$lzy1$3, Frame$lzy1$3, F$1, onRelease$1)), new $c_sjsr_AnonFunction2_$$Lambda$770e9b86e03b055b1d78d82135c9f39ea48d32d7(((onRelease$1) => ((x$1$2, x$2) => {
         var x15 = $ct_T2__O__O__(new $c_T2(), x$1$2, x$2);
-        var x16 = x15.b6;
+        var x16 = x15.b5;
         if ((x16 !== null)) {
           var release = x16.g();
-          var outcome = x15.b7;
+          var outcome = x15.b6;
           return onRelease$1.ao(release, $m_Lcats_effect_kernel_Resource$ExitCase$().c2T(outcome));
         }
         throw new $c_s_MatchError(x15);
@@ -151943,7 +151991,7 @@ function $p_Lcats_effect_tracing_Tracing$__dropRunLoopFrames$1__Ajl_StackTraceEl
       if ((buffer.fd >= 0)) {
         var length = buffer.fd;
         var componentType = evidence$1__runtimeClass;
-        var destination = componentType.b5.U(length);
+        var destination = componentType.b7.U(length);
         buffer.cW(destination, 0, 2147483647);
         var $x_1 = destination;
       } else {
@@ -151972,7 +152020,7 @@ function $p_Lcats_effect_tracing_Tracing$__dropRunLoopFrames$1__Ajl_StackTraceEl
   if ((buffer.fd >= 0)) {
     var length$1 = buffer.fd;
     var componentType$1 = evidence$1$1__runtimeClass;
-    var destination$1 = componentType$1.b5.U(length$1);
+    var destination$1 = componentType$1.b7.U(length$1);
     buffer.cW(destination$1, 0, 2147483647);
     var $x_2 = destination$1;
   } else {
@@ -152061,7 +152109,7 @@ $p.bl4 = (function(enhancedExceptions, t, events) {
         if ((this$5.an() >= 0)) {
           var length = this$5.an();
           var componentType = evidence$1__runtimeClass;
-          var destination = componentType.b5.U(length);
+          var destination = componentType.b7.U(length);
           $f_sc_IterableOnceOps__copyToArray__O__I__I__I(this$5, destination, 0, 2147483647);
           var $x_1 = destination;
         } else {
@@ -152089,11 +152137,11 @@ $p.bl4 = (function(enhancedExceptions, t, events) {
         var runtimeClass = evidence$25__runtimeClass;
         if (((runtimeClass !== null) && (runtimeClass === $d_V.l()))) {
           var dest$1 = $p_s_Array$__newUnitArray__I__Ajl_Void(this$14, newLength);
-        } else if (runtimeClass.b5.R($objectGetClass(prefix).b5.Q().b5)) {
-          var dest$1 = (runtimeClass.b5.X ? this$14.DF(prefix, newLength) : $m_ju_Arrays$().at8(prefix, newLength, $objectGetClass(runtimeClass.b5.U(0))));
+        } else if (runtimeClass.b7.R($objectGetClass(prefix).b7.Q().b7)) {
+          var dest$1 = (runtimeClass.b7.X ? this$14.DF(prefix, newLength) : $m_ju_Arrays$().at8(prefix, newLength, $objectGetClass(runtimeClass.b7.U(0))));
         } else {
           var componentType$1 = evidence$25__runtimeClass;
-          var dest = componentType$1.b5.U(newLength);
+          var dest = componentType$1.b7.U(newLength);
           $m_s_Array$().he(prefix, 0, dest, 0, prefix.d.length);
           var dest$1 = dest;
         }
@@ -157042,8 +157090,8 @@ $p.cka = (function(head, tail) {
 });
 $p.cw8 = (function(a, b) {
   var x382 = $ct_T2__O__O__(new $c_T2(), a, b);
-  var x387 = x382.b6;
-  var x388 = x382.b7;
+  var x387 = x382.b5;
+  var x388 = x382.b6;
   if ((x387 instanceof $c_s_Some)) {
     var l = x387.p;
     if ((x388 instanceof $c_s_Some)) {
@@ -157200,8 +157248,8 @@ function $h_Ldev_bosatsu_TotalityCheck$$anon$3$$anon$4$$anon$6() {
 $h_Ldev_bosatsu_TotalityCheck$$anon$3$$anon$4$$anon$6.prototype = $p;
 $p.cIg = (function(left, right) {
   var x346 = $ct_T2__O__O__(new $c_T2(), left, right);
-  var x357 = x346.b6;
-  var x358 = x346.b7;
+  var x357 = x346.b5;
+  var x358 = x346.b6;
   if ((x357 instanceof $c_s_Some)) {
     var l = x357.p;
     if ((x358 instanceof $c_s_Some)) {
@@ -164163,10 +164211,10 @@ $p.bqO = (function(r, F) {
     var x492 = r.a5v;
     return $m_Lfs2_Stream$().cjF(x492, new $c_sjsr_AnonFunction2_$$Lambda$770e9b86e03b055b1d78d82135c9f39ea48d32d7(((x$1, x$2) => {
       var x474 = $ct_T2__O__O__(new $c_T2(), x$1, x$2);
-      var x475 = x474.b6;
+      var x475 = x474.b5;
       if ((x475 !== null)) {
         var release = x475.g();
-        var exit = x474.b7;
+        var exit = x474.b6;
         return release.k(exit);
       }
       throw new $c_s_MatchError(x474);
@@ -169072,7 +169120,7 @@ $p.boY = (function() {
   var ct__runtimeClass = $d_T2.l();
   var len = xs.d.length;
   var componentType = ct__runtimeClass;
-  var ys = componentType.b5.U(len);
+  var ys = componentType.b7.U(len);
   if ((len > 0)) {
     var i = 0;
     if ((xs !== null)) {
@@ -169131,7 +169179,7 @@ $p.boY = (function() {
   var ct__runtimeClass = $d_T2.l();
   var len = xs.d.length;
   var componentType = ct__runtimeClass;
-  var ys = componentType.b5.U(len);
+  var ys = componentType.b7.U(len);
   if ((len > 0)) {
     var i = 0;
     if ((xs !== null)) {
@@ -169165,7 +169213,7 @@ $p.c5F = (function() {
   var $x_1 = $m_sci_Map$EmptyMap$();
   var evidence$1$2__runtimeClass;
   var evidence$1$2__runtimeClass = $d_T.l();
-  return new $c_Llocales_cldr_CLDRMetadata(evidence$1__runtimeClass.b5.U(0), $x_2, evidence$1$1__runtimeClass.b5.U(0), $x_1, evidence$1$2__runtimeClass.b5.U(0));
+  return new $c_Llocales_cldr_CLDRMetadata(evidence$1__runtimeClass.b7.U(0), $x_2, evidence$1$1__runtimeClass.b7.U(0), $x_1, evidence$1$2__runtimeClass.b7.U(0));
 });
 var $d_Llocales_cldr_fallback_LocalesProvider$ = new $TypeData().i($c_Llocales_cldr_fallback_LocalesProvider$, "locales.cldr.fallback.LocalesProvider$", ({
   azh: 1,
@@ -170711,7 +170759,7 @@ function $f_Lscalapb_GeneratedMessageCompanion__merge__Lscalapb_GeneratedMessage
   $m_s_reflect_ManifestFactory$ByteManifest$();
   var this$5 = $m_s_Array$();
   var newLength = ((xs.d.length + xs$1.d.length) | 0);
-  if ($d_B.R($objectGetClass(xs).b5.Q().b5)) {
+  if ($d_B.R($objectGetClass(xs).b7.Q().b7)) {
     var dest$1 = this$5.DF(xs, newLength);
   } else {
     var dest = new $ac_B(newLength);
@@ -173874,7 +173922,7 @@ function $c_Lcats_parse_Parser$() {
   if ((this$14.E() >= 0)) {
     var length = this$14.E();
     var componentType = evidence$1__runtimeClass;
-    var destination = componentType.b5.U(length);
+    var destination = componentType.b7.U(length);
     this$14.cW(destination, 0, 2147483647);
     var $x_1 = destination;
   } else {
@@ -177705,8 +177753,8 @@ $p.aPD = (function(args, body, outer) {
     var x1 = acc;
     matchResult107: {
       var x815 = $ct_T2__O__O__(new $c_T2(), x0$6, x1);
-      var x824 = x815.b6;
-      var x825 = x815.b7;
+      var x824 = x815.b5;
+      var x825 = x815.b6;
       var x827 = x824.g();
       if (($m_s_None$() === x827)) {
         acc = x825;
@@ -177932,8 +177980,8 @@ function $h_Ldev_bosatsu_Identifier$() {
 $h_Ldev_bosatsu_Identifier$.prototype = $p;
 $p.cJy = (function(left, right) {
   var x30 = $ct_T2__O__O__(new $c_T2(), left, right);
-  var x45 = x30.b6;
-  var x46 = x30.b7;
+  var x45 = x30.b5;
+  var x46 = x30.b6;
   if ((x45 instanceof $c_Ldev_bosatsu_Identifier$Synthetic)) {
     var x52 = x45.R2;
     if ((x46 instanceof $c_Ldev_bosatsu_Identifier$Synthetic)) {
@@ -177942,20 +177990,20 @@ $p.cJy = (function(left, right) {
   }
   matchAlts1: {
     matchAlts2: {
-      if ((x30.b6 instanceof $c_Ldev_bosatsu_Identifier$Synthetic)) {
-        var x42 = x30.b6;
+      if ((x30.b5 instanceof $c_Ldev_bosatsu_Identifier$Synthetic)) {
+        var x42 = x30.b5;
         break matchAlts2;
       }
-      if ((x30.b7 instanceof $c_Ldev_bosatsu_Identifier$Synthetic)) {
-        var x37 = x30.b7;
+      if ((x30.b6 instanceof $c_Ldev_bosatsu_Identifier$Synthetic)) {
+        var x37 = x30.b6;
         break matchAlts2;
       }
       break matchAlts1;
     }
     return false;
   }
-  var x31 = x30.b6;
-  var x32 = x30.b7;
+  var x31 = x30.b5;
+  var x32 = x30.b6;
   if (((((x31 instanceof $c_Ldev_bosatsu_Identifier$Constructor) || (x31 instanceof $c_Ldev_bosatsu_Identifier$Name)) || (x31 instanceof $c_Ldev_bosatsu_Identifier$Backticked)) || (x31 instanceof $c_Ldev_bosatsu_Identifier$Operator))) {
     if (((((x32 instanceof $c_Ldev_bosatsu_Identifier$Constructor) || (x32 instanceof $c_Ldev_bosatsu_Identifier$Name)) || (x32 instanceof $c_Ldev_bosatsu_Identifier$Backticked)) || (x32 instanceof $c_Ldev_bosatsu_Identifier$Operator))) {
       return ($p_Ldev_bosatsu_Identifier$__nonSyntheticText__Ljava_io_Serializable__T(this, x31) === $p_Ldev_bosatsu_Identifier$__nonSyntheticText__Ljava_io_Serializable__T(this, x32));
@@ -179245,8 +179293,8 @@ function $c_Ldev_bosatsu_Json$Path$() {
       matchResult45: {
         var $x_3;
         var x159 = $ct_T2__O__O__(new $c_T2(), x0, x1);
-        var x164 = x159.b6;
-        var x165 = x159.b7;
+        var x164 = x159.b5;
+        var x165 = x159.b6;
         if ((x165 instanceof $c_s_util_Right)) {
           var $x_3 = new $c_Ldev_bosatsu_Json$Path$Index(x164, (x165.K | 0));
           break matchResult45;
@@ -180791,7 +180839,7 @@ function $c_Ldev_bosatsu_Lit$Chr$() {
   if ((this$6.E() >= 0)) {
     var length = this$6.E();
     var componentType = evidence$1__runtimeClass;
-    var destination = componentType.b5.U(length);
+    var destination = componentType.b7.U(length);
     this$6.cW(destination, 0, 2147483647);
     var $x_1 = destination;
   } else {
@@ -180955,7 +181003,7 @@ function $c_Ldev_bosatsu_Lit$Integer$() {
   if ((this$7.E() >= 0)) {
     var length = this$7.E();
     var componentType = evidence$1__runtimeClass;
-    var destination = componentType.b5.U(length);
+    var destination = componentType.b7.U(length);
     this$7.cW(destination, 0, 2147483647);
     var $x_1 = destination;
   } else {
@@ -187599,8 +187647,8 @@ function $p_Ldev_bosatsu_Pattern$__loop$8__Ldev_bosatsu_Pattern__F1__Ldev_bosats
         var x1$2 = these$1.e();
         matchResult182: {
           var x1626 = $ct_T2__O__O__(new $c_T2(), x0$1, x1$2);
-          var x1637 = x1626.b6;
-          var x1638 = x1626.b7;
+          var x1637 = x1626.b5;
+          var x1638 = x1626.b6;
           if (($m_Ldev_bosatsu_Pattern$ListPart$WildList$() === x1638)) {
             acc$1 = x1637;
             break matchResult182;
@@ -189270,75 +189318,75 @@ function $p_Ldev_bosatsu_RingOpt$Expr$__loop$5__Lcats_kernel_Order__sci_List__sc
   var ints$tailLocal1 = ints;
   var in$tailLocal1 = in$1;
   while (true) {
-    var x570 = in$tailLocal1;
-    if ((x570 instanceof $c_sci_$colon$colon)) {
-      var x607 = x570.F;
-      var x608 = x570.h;
-      if (($m_Ldev_bosatsu_RingOpt$Zero$() === x607)) {
+    var x596 = in$tailLocal1;
+    if ((x596 instanceof $c_sci_$colon$colon)) {
+      var x633 = x596.F;
+      var x634 = x596.h;
+      if (($m_Ldev_bosatsu_RingOpt$Zero$() === x633)) {
         return $ct_T2__O__O__(new $c_T2(), $m_s_package$().bI().aR(0), $m_sci_Nil$());
       }
-      if (($m_Ldev_bosatsu_RingOpt$One$() === x607)) {
-        in$tailLocal1 = x608;
+      if (($m_Ldev_bosatsu_RingOpt$One$() === x633)) {
+        in$tailLocal1 = x634;
         continue;
       }
-      if ((x607 instanceof $c_Ldev_bosatsu_RingOpt$Neg)) {
-        var x602 = x607.fT;
-        var in$tailLocal1$tmp1 = new $c_sci_$colon$colon(x602, x608);
+      if ((x633 instanceof $c_Ldev_bosatsu_RingOpt$Neg)) {
+        var x628 = x633.fT;
+        var in$tailLocal1$tmp1 = new $c_sci_$colon$colon(x628, x634);
         var ints$tailLocal1$tmp1 = ints$tailLocal1.e9();
         in$tailLocal1 = in$tailLocal1$tmp1;
         ints$tailLocal1 = ints$tailLocal1$tmp1;
         continue;
       }
-      if ((x607 instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
-        var x596 = x607.gQ;
-        if ($m_sr_BoxesRunTime$().bd(x596, 0)) {
+      if ((x633 instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
+        var x622 = x633.gQ;
+        if ($m_sr_BoxesRunTime$().bd(x622, 0)) {
           return $ct_T2__O__O__(new $c_T2(), $m_s_package$().bI().aR(0), $m_sci_Nil$());
         } else {
-          var ints$tailLocal1$tmp2 = ints$tailLocal1.ir(x596);
-          in$tailLocal1 = x608;
+          var ints$tailLocal1$tmp2 = ints$tailLocal1.ir(x622);
+          in$tailLocal1 = x634;
           ints$tailLocal1 = ints$tailLocal1$tmp2;
           continue;
         }
       }
-      if ((x607 instanceof $c_Ldev_bosatsu_RingOpt$Symbol)) {
-        var result$tailLocal1$tmp1 = new $c_sci_$colon$colon(x607, result$tailLocal1);
-        in$tailLocal1 = x608;
+      if ((x633 instanceof $c_Ldev_bosatsu_RingOpt$Symbol)) {
+        var result$tailLocal1$tmp1 = new $c_sci_$colon$colon(x633, result$tailLocal1);
+        in$tailLocal1 = x634;
         result$tailLocal1 = result$tailLocal1$tmp1;
         continue;
       }
-      if ((x607 instanceof $c_Ldev_bosatsu_RingOpt$Mult)) {
-        var x583 = x607.ja;
-        var x584 = x607.jb;
-        in$tailLocal1 = new $c_sci_$colon$colon(x583, new $c_sci_$colon$colon(x584, x608));
+      if ((x633 instanceof $c_Ldev_bosatsu_RingOpt$Mult)) {
+        var x609 = x633.ja;
+        var x610 = x633.jb;
+        in$tailLocal1 = new $c_sci_$colon$colon(x609, new $c_sci_$colon$colon(x610, x634));
         continue;
       }
-      if ((x607 instanceof $c_Ldev_bosatsu_RingOpt$Add)) {
-        if ($f_Ldev_bosatsu_RingOpt$Expr__isZero__Z(x607)) {
+      if ((x633 instanceof $c_Ldev_bosatsu_RingOpt$Add)) {
+        if ($f_Ldev_bosatsu_RingOpt$Expr__isZero__Z(x633)) {
           return $ct_T2__O__O__(new $c_T2(), $m_s_package$().bI().aR(0), $m_sci_Nil$());
         } else {
           var \u03b448$;
-          var this$11 = x607.xK();
+          var this$11 = x633.xK();
           var result$tailLocal1$1 = result$tailLocal1;
           var ints$tailLocal1$1 = ints$tailLocal1;
-          var this$14 = (this$11.b() ? $m_s_None$() : new $c_s_Some(new $c_T3(new $c_sci_$colon$colon(this$11.i(), x608), result$tailLocal1$1, ints$tailLocal1$1.e9())));
+          var this$14 = (this$11.b() ? $m_s_None$() : new $c_s_Some(new $c_T3(new $c_sci_$colon$colon(this$11.i(), x634), result$tailLocal1$1, ints$tailLocal1$1.e9())));
           var result$tailLocal1$2 = result$tailLocal1;
           var ints$tailLocal1$2 = ints$tailLocal1;
           if (this$14.b()) {
-            var this$15 = $f_Ldev_bosatsu_RingOpt$Expr__unConstMult__s_Option(x607);
+            var this$15 = $f_Ldev_bosatsu_RingOpt$Expr__unConstMult__s_Option(x633);
             if (this$15.b()) {
               var this$19 = $m_s_None$();
             } else {
               var x0$1 = this$15.i();
               var n = x0$1.f();
               var expr = x0$1.g();
-              var this$19 = new $c_s_Some(($m_sr_BoxesRunTime$().bd(n, 0) ? new $c_T3($m_sci_Nil$(), $m_sci_Nil$(), $m_s_package$().bI().aR(0)) : new $c_T3(new $c_sci_$colon$colon(expr, x608), result$tailLocal1$2, n.ir(ints$tailLocal1$2))));
+              var this$19 = new $c_s_Some(($m_sr_BoxesRunTime$().bd(n, 0) ? new $c_T3($m_sci_Nil$(), $m_sci_Nil$(), $m_s_package$().bI().aR(0)) : new $c_T3(new $c_sci_$colon$colon(expr, x634), result$tailLocal1$2, n.ir(ints$tailLocal1$2))));
             }
           } else {
             var this$19 = this$14;
           }
           var result$tailLocal1$4 = result$tailLocal1;
           var ints$tailLocal1$4 = ints$tailLocal1;
-          var \u03b448$ = (this$19.b() ? new $c_T3(x608, new $c_sci_$colon$colon(x607, result$tailLocal1$4), ints$tailLocal1$4) : this$19.i());
+          var \u03b448$ = (this$19.b() ? new $c_T3(x634, new $c_sci_$colon$colon(x633, result$tailLocal1$4), ints$tailLocal1$4) : this$19.i());
           var x$7 = \u03b448$.a0;
           var y$2 = \u03b448$.a6;
           var z = \u03b448$.aa;
@@ -189349,10 +189397,10 @@ function $p_Ldev_bosatsu_RingOpt$Expr$__loop$5__Lcats_kernel_Order__sci_List__sc
         }
       }
     }
-    if ($m_sci_Nil$().a(x570)) {
+    if ($m_sci_Nil$().a(x596)) {
       return $ct_T2__O__O__(new $c_T2(), ints$tailLocal1, $f_sc_SeqOps__sortBy__F1__s_math_Ordering__O(result$tailLocal1, new $c_sr_AbstractFunction1_$$Lambda$7afc3dd0acc1681fb022ef921c83979087aaa919(((_$81$2) => _$81$2.xO())), new $c_Ldev_bosatsu_RingOpt$Expr$$anon$4(($m_Lcats_package$(), evidence$1$3.al()))));
     }
-    throw new $c_s_MatchError(x570);
+    throw new $c_s_MatchError(x596);
   }
 }
 function $p_Ldev_bosatsu_RingOpt$Expr$__loop$6__sci_List__s_math_BigInt__sci_List__sci_List__Ldev_bosatsu_RingOpt$Expr($thiz, stack, ints, pos, neg) {
@@ -189361,8 +189409,8 @@ function $p_Ldev_bosatsu_RingOpt$Expr$__loop$6__sci_List__s_math_BigInt__sci_Lis
   var ints$tailLocal2 = ints;
   var stack$tailLocal3 = stack;
   while (true) {
-    var x615 = stack$tailLocal3;
-    if ($m_sci_Nil$().a(x615)) {
+    var x641 = stack$tailLocal3;
+    if ($m_sci_Nil$().a(x641)) {
       var ix = $m_Ldev_bosatsu_RingOpt$().kP(ints$tailLocal2);
       var this$1 = pos$tailLocal1;
       var acc = ix;
@@ -189382,87 +189430,87 @@ function $p_Ldev_bosatsu_RingOpt$Expr$__loop$6__sci_List__s_math_BigInt__sci_Lis
       }
       return $thiz.OC($x_1, $f_Ldev_bosatsu_RingOpt$Expr__normalizeNeg__Ldev_bosatsu_RingOpt$Expr(acc$1));
     }
-    if ((x615 instanceof $c_sci_$colon$colon)) {
-      var x661 = x615.F;
-      var x662 = x615.h;
-      var x663 = (!(!x661.f()));
-      var x664 = x661.g();
-      if ((x664 instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
-        var x667 = x664.gQ;
-        var n1 = (x663 ? x667 : x667.e9());
+    if ((x641 instanceof $c_sci_$colon$colon)) {
+      var x687 = x641.F;
+      var x688 = x641.h;
+      var x689 = (!(!x687.f()));
+      var x690 = x687.g();
+      if ((x690 instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
+        var x693 = x690.gQ;
+        var n1 = (x689 ? x693 : x693.e9());
         var ints$tailLocal2$tmp1 = ints$tailLocal2.hQ(n1);
-        stack$tailLocal3 = x662;
+        stack$tailLocal3 = x688;
         ints$tailLocal2 = ints$tailLocal2$tmp1;
         continue;
       }
-      if ((x664 instanceof $c_Ldev_bosatsu_RingOpt$Symbol)) {
-        if (x663) {
-          var pos$tailLocal1$tmp1 = new $c_sci_$colon$colon(x664, pos$tailLocal1);
-          stack$tailLocal3 = x662;
+      if ((x690 instanceof $c_Ldev_bosatsu_RingOpt$Symbol)) {
+        if (x689) {
+          var pos$tailLocal1$tmp1 = new $c_sci_$colon$colon(x690, pos$tailLocal1);
+          stack$tailLocal3 = x688;
           pos$tailLocal1 = pos$tailLocal1$tmp1;
           continue;
         } else {
-          var neg$tailLocal1$tmp1 = new $c_sci_$colon$colon(x664, neg$tailLocal1);
-          stack$tailLocal3 = x662;
+          var neg$tailLocal1$tmp1 = new $c_sci_$colon$colon(x690, neg$tailLocal1);
+          stack$tailLocal3 = x688;
           neg$tailLocal1 = neg$tailLocal1$tmp1;
           continue;
         }
       }
-      if ((x664 instanceof $c_Ldev_bosatsu_RingOpt$Mult)) {
-        var x612 = x664.xK();
-        if ((x612 instanceof $c_s_Some)) {
-          var negMult = x612.p;
-          if ((!x663)) {
+      if ((x690 instanceof $c_Ldev_bosatsu_RingOpt$Mult)) {
+        var x638 = x690.xK();
+        if ((x638 instanceof $c_s_Some)) {
+          var negMult = x638.p;
+          if ((!x689)) {
             var pos$tailLocal1$tmp2 = new $c_sci_$colon$colon(negMult, pos$tailLocal1);
-            stack$tailLocal3 = x662;
+            stack$tailLocal3 = x688;
             pos$tailLocal1 = pos$tailLocal1$tmp2;
             continue;
           } else {
             var neg$tailLocal1$tmp2 = new $c_sci_$colon$colon(negMult, neg$tailLocal1);
-            stack$tailLocal3 = x662;
+            stack$tailLocal3 = x688;
             neg$tailLocal1 = neg$tailLocal1$tmp2;
             continue;
           }
         }
-        if (($m_s_None$() === x612)) {
-          if (x663) {
-            var pos$tailLocal1$tmp3 = new $c_sci_$colon$colon(x664, pos$tailLocal1);
-            stack$tailLocal3 = x662;
+        if (($m_s_None$() === x638)) {
+          if (x689) {
+            var pos$tailLocal1$tmp3 = new $c_sci_$colon$colon(x690, pos$tailLocal1);
+            stack$tailLocal3 = x688;
             pos$tailLocal1 = pos$tailLocal1$tmp3;
             continue;
           } else {
-            var neg$tailLocal1$tmp3 = new $c_sci_$colon$colon(x664, neg$tailLocal1);
-            stack$tailLocal3 = x662;
+            var neg$tailLocal1$tmp3 = new $c_sci_$colon$colon(x690, neg$tailLocal1);
+            stack$tailLocal3 = x688;
             neg$tailLocal1 = neg$tailLocal1$tmp3;
             continue;
           }
         }
-        throw new $c_s_MatchError(x612);
+        throw new $c_s_MatchError(x638);
       }
-      if ((x664 instanceof $c_Ldev_bosatsu_RingOpt$Neg)) {
-        var x642 = x664.fT;
-        stack$tailLocal3 = new $c_sci_$colon$colon($ct_T2__O__O__(new $c_T2(), (!x663), x642), x662);
+      if ((x690 instanceof $c_Ldev_bosatsu_RingOpt$Neg)) {
+        var x668 = x690.fT;
+        stack$tailLocal3 = new $c_sci_$colon$colon($ct_T2__O__O__(new $c_T2(), (!x689), x668), x688);
         continue;
       }
-      if ((x664 instanceof $c_Ldev_bosatsu_RingOpt$Add)) {
-        var x633 = x664.l4;
-        var x634 = x664.l5;
-        stack$tailLocal3 = new $c_sci_$colon$colon($ct_T2__O__O__(new $c_T2(), x663, x633), new $c_sci_$colon$colon($ct_T2__O__O__(new $c_T2(), x663, x634), x662));
+      if ((x690 instanceof $c_Ldev_bosatsu_RingOpt$Add)) {
+        var x659 = x690.l4;
+        var x660 = x690.l5;
+        stack$tailLocal3 = new $c_sci_$colon$colon($ct_T2__O__O__(new $c_T2(), x689, x659), new $c_sci_$colon$colon($ct_T2__O__O__(new $c_T2(), x689, x660), x688));
         continue;
       }
-      if (($m_Ldev_bosatsu_RingOpt$Zero$() === x664)) {
-        stack$tailLocal3 = x662;
+      if (($m_Ldev_bosatsu_RingOpt$Zero$() === x690)) {
+        stack$tailLocal3 = x688;
         continue;
       }
-      if (($m_Ldev_bosatsu_RingOpt$One$() === x664)) {
-        var n1$2 = (x663 ? 1 : (-1));
+      if (($m_Ldev_bosatsu_RingOpt$One$() === x690)) {
+        var n1$2 = (x689 ? 1 : (-1));
         var ints$tailLocal2$tmp2 = ints$tailLocal2.hQ($m_s_math_BigInt$().aR(n1$2));
-        stack$tailLocal3 = x662;
+        stack$tailLocal3 = x688;
         ints$tailLocal2 = ints$tailLocal2$tmp2;
         continue;
       }
     }
-    throw new $c_s_MatchError(x615);
+    throw new $c_s_MatchError(x641);
   }
 }
 function $p_Ldev_bosatsu_RingOpt$Expr$__loop$7__Ldev_bosatsu_RingOpt$Expr__s_math_BigInt__Ldev_bosatsu_RingOpt$Expr($thiz, expr$tailLocal1$1, cnt) {
@@ -189545,337 +189593,337 @@ $p.UM = (function(items, evidence$1) {
 $p.Kk = (function(a, b) {
   var this$1 = a.Hk();
   var alist = $m_sci_Nil$();
-  var x671;
+  var x697;
   var alist$tailLocal1 = alist;
   var s$tailLocal1 = this$1;
   while (true) {
-    var x861 = s$tailLocal1;
-    if (($m_Ldev_bosatsu_RingOpt$Stack$Empty$() === x861)) {
-      var x797 = alist$tailLocal1;
-      if ((x797 instanceof $c_sci_$colon$colon)) {
-        var x800 = x797.h;
-        var optA = x797.F;
-        if ($m_sci_Nil$().a(x800)) {
-          var x671 = optA;
+    var x887 = s$tailLocal1;
+    if (($m_Ldev_bosatsu_RingOpt$Stack$Empty$() === x887)) {
+      var x823 = alist$tailLocal1;
+      if ((x823 instanceof $c_sci_$colon$colon)) {
+        var x826 = x823.h;
+        var optA = x823.F;
+        if ($m_sci_Nil$().a(x826)) {
+          var x697 = optA;
           break;
         }
       }
-      var x671 = $m_s_None$();
+      var x697 = $m_s_None$();
       break;
     }
-    if ((x861 instanceof $c_Ldev_bosatsu_RingOpt$Stack$Push)) {
-      var x868 = x861.CT;
-      var x869 = x861.CU;
-      matchResult111: {
+    if ((x887 instanceof $c_Ldev_bosatsu_RingOpt$Stack$Push)) {
+      var x894 = x887.CT;
+      var x895 = x887.CU;
+      matchResult115: {
         var $x_1;
-        if ((x868 instanceof $c_Ldev_bosatsu_RingOpt$Symbol)) {
+        if ((x894 instanceof $c_Ldev_bosatsu_RingOpt$Symbol)) {
           var $x_1 = $m_s_None$();
-          break matchResult111;
+          break matchResult115;
         }
-        if ((x868 instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
-          var $x_1 = new $c_s_Some(x868.gQ);
-          break matchResult111;
+        if ((x894 instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
+          var $x_1 = new $c_s_Some(x894.gQ);
+          break matchResult115;
         }
-        if (($m_Ldev_bosatsu_RingOpt$One$() === x868)) {
+        if (($m_Ldev_bosatsu_RingOpt$One$() === x894)) {
           var $x_1 = new $c_s_Some($m_s_package$().bI().aR(1));
-          break matchResult111;
+          break matchResult115;
         }
-        if (($m_Ldev_bosatsu_RingOpt$Zero$() === x868)) {
+        if (($m_Ldev_bosatsu_RingOpt$Zero$() === x894)) {
           var $x_1 = new $c_s_Some($m_s_package$().bI().aR(0));
-          break matchResult111;
+          break matchResult115;
         }
-        throw new $c_s_MatchError(x868);
+        throw new $c_s_MatchError(x894);
       }
       var alist$tailLocal1$tmp1 = new $c_sci_$colon$colon($x_1, alist$tailLocal1);
-      s$tailLocal1 = x869;
+      s$tailLocal1 = x895;
       alist$tailLocal1 = alist$tailLocal1$tmp1;
       continue;
     }
-    if ((x861 instanceof $c_Ldev_bosatsu_RingOpt$Stack$Operate)) {
-      var x864 = x861.CS;
-      var x865 = x861.CR;
-      if (($m_Ldev_bosatsu_RingOpt$Op$Add$() === x864)) {
-        var x801 = alist$tailLocal1;
-        if ((x801 instanceof $c_sci_$colon$colon)) {
-          var x809 = x801.F;
-          var x810 = x801.h;
-          if ((x809 instanceof $c_s_Some)) {
-            var a$1 = x809.p;
-            if ((x810 instanceof $c_sci_$colon$colon)) {
-              var x812 = x810.F;
-              var x813 = x810.h;
-              if ((x812 instanceof $c_s_Some)) {
-                var b$1 = x812.p;
-                var alist$tailLocal1$tmp2 = new $c_sci_$colon$colon(new $c_s_Some(a$1.hQ(b$1)), x813);
-                s$tailLocal1 = x865;
+    if ((x887 instanceof $c_Ldev_bosatsu_RingOpt$Stack$Operate)) {
+      var x890 = x887.CS;
+      var x891 = x887.CR;
+      if (($m_Ldev_bosatsu_RingOpt$Op$Add$() === x890)) {
+        var x827 = alist$tailLocal1;
+        if ((x827 instanceof $c_sci_$colon$colon)) {
+          var x835 = x827.F;
+          var x836 = x827.h;
+          if ((x835 instanceof $c_s_Some)) {
+            var a$1 = x835.p;
+            if ((x836 instanceof $c_sci_$colon$colon)) {
+              var x838 = x836.F;
+              var x839 = x836.h;
+              if ((x838 instanceof $c_s_Some)) {
+                var b$1 = x838.p;
+                var alist$tailLocal1$tmp2 = new $c_sci_$colon$colon(new $c_s_Some(a$1.hQ(b$1)), x839);
+                s$tailLocal1 = x891;
                 alist$tailLocal1 = alist$tailLocal1$tmp2;
                 continue;
               }
             }
           }
-          if ((x810 instanceof $c_sci_$colon$colon)) {
-            var x807 = x810.h;
-            var alist$tailLocal1$tmp3 = new $c_sci_$colon$colon($m_s_None$(), x807);
-            s$tailLocal1 = x865;
+          if ((x836 instanceof $c_sci_$colon$colon)) {
+            var x833 = x836.h;
+            var alist$tailLocal1$tmp3 = new $c_sci_$colon$colon($m_s_None$(), x833);
+            s$tailLocal1 = x891;
             alist$tailLocal1 = alist$tailLocal1$tmp3;
             continue;
           }
         }
-        var x671 = $m_s_None$();
+        var x697 = $m_s_None$();
         break;
       }
-      if (($m_Ldev_bosatsu_RingOpt$Op$Mult$() === x864)) {
-        var x818 = alist$tailLocal1;
-        if ((x818 instanceof $c_sci_$colon$colon)) {
-          var x842 = x818.F;
-          var x843 = x818.h;
-          if ((x842 instanceof $c_s_Some)) {
-            var x850 = x842.p;
-            if ((x843 instanceof $c_sci_$colon$colon)) {
-              var x845 = x843.F;
-              var x846 = x843.h;
-              if ((x845 instanceof $c_s_Some)) {
-                var b$2 = x845.p;
-                var alist$tailLocal1$tmp4 = new $c_sci_$colon$colon(new $c_s_Some(x850.ir(b$2)), x846);
-                s$tailLocal1 = x865;
+      if (($m_Ldev_bosatsu_RingOpt$Op$Mult$() === x890)) {
+        var x844 = alist$tailLocal1;
+        if ((x844 instanceof $c_sci_$colon$colon)) {
+          var x868 = x844.F;
+          var x869 = x844.h;
+          if ((x868 instanceof $c_s_Some)) {
+            var x876 = x868.p;
+            if ((x869 instanceof $c_sci_$colon$colon)) {
+              var x871 = x869.F;
+              var x872 = x869.h;
+              if ((x871 instanceof $c_s_Some)) {
+                var b$2 = x871.p;
+                var alist$tailLocal1$tmp4 = new $c_sci_$colon$colon(new $c_s_Some(x876.ir(b$2)), x872);
+                s$tailLocal1 = x891;
                 alist$tailLocal1 = alist$tailLocal1$tmp4;
                 continue;
               }
-              if (($m_s_None$() === x845)) {
-                if ($m_sr_BoxesRunTime$().bd(x850, $m_s_package$().bI().aR(0))) {
-                  var alist$tailLocal1$tmp5 = new $c_sci_$colon$colon(x842, x846);
-                  s$tailLocal1 = x865;
+              if (($m_s_None$() === x871)) {
+                if ($m_sr_BoxesRunTime$().bd(x876, $m_s_package$().bI().aR(0))) {
+                  var alist$tailLocal1$tmp5 = new $c_sci_$colon$colon(x868, x872);
+                  s$tailLocal1 = x891;
                   alist$tailLocal1 = alist$tailLocal1$tmp5;
                   continue;
                 }
               }
             }
           }
-          if ((($m_s_None$() === x842) && (x843 instanceof $c_sci_$colon$colon))) {
-            var x829 = x843.F;
-            var x830 = x843.h;
-            if ((x829 instanceof $c_s_Some)) {
-              if ($m_sr_BoxesRunTime$().bd(x829.p, $m_s_package$().bI().aR(0))) {
-                var alist$tailLocal1$tmp6 = new $c_sci_$colon$colon(x829, x830);
-                s$tailLocal1 = x865;
+          if ((($m_s_None$() === x868) && (x869 instanceof $c_sci_$colon$colon))) {
+            var x855 = x869.F;
+            var x856 = x869.h;
+            if ((x855 instanceof $c_s_Some)) {
+              if ($m_sr_BoxesRunTime$().bd(x855.p, $m_s_package$().bI().aR(0))) {
+                var alist$tailLocal1$tmp6 = new $c_sci_$colon$colon(x855, x856);
+                s$tailLocal1 = x891;
                 alist$tailLocal1 = alist$tailLocal1$tmp6;
                 continue;
               }
             }
           }
-          if ((x843 instanceof $c_sci_$colon$colon)) {
-            var x824 = x843.h;
-            var alist$tailLocal1$tmp7 = new $c_sci_$colon$colon($m_s_None$(), x824);
-            s$tailLocal1 = x865;
+          if ((x869 instanceof $c_sci_$colon$colon)) {
+            var x850 = x869.h;
+            var alist$tailLocal1$tmp7 = new $c_sci_$colon$colon($m_s_None$(), x850);
+            s$tailLocal1 = x891;
             alist$tailLocal1 = alist$tailLocal1$tmp7;
             continue;
           }
         }
-        var x671 = $m_s_None$();
+        var x697 = $m_s_None$();
         break;
       }
-      if (($m_Ldev_bosatsu_RingOpt$Op$Neg$() === x864)) {
-        var x851 = alist$tailLocal1;
-        if ((x851 instanceof $c_sci_$colon$colon)) {
-          var x856 = x851.F;
-          var x857 = x851.h;
-          if ((x856 instanceof $c_s_Some)) {
-            var a$3 = x856.p;
-            var alist$tailLocal1$tmp8 = new $c_sci_$colon$colon(new $c_s_Some(a$3.e9()), x857);
-            s$tailLocal1 = x865;
+      if (($m_Ldev_bosatsu_RingOpt$Op$Neg$() === x890)) {
+        var x877 = alist$tailLocal1;
+        if ((x877 instanceof $c_sci_$colon$colon)) {
+          var x882 = x877.F;
+          var x883 = x877.h;
+          if ((x882 instanceof $c_s_Some)) {
+            var a$3 = x882.p;
+            var alist$tailLocal1$tmp8 = new $c_sci_$colon$colon(new $c_s_Some(a$3.e9()), x883);
+            s$tailLocal1 = x891;
             alist$tailLocal1 = alist$tailLocal1$tmp8;
             continue;
           }
-          if (($m_s_None$() === x856)) {
-            var alist$tailLocal1$tmp9 = new $c_sci_$colon$colon($m_s_None$(), x857);
-            s$tailLocal1 = x865;
+          if (($m_s_None$() === x882)) {
+            var alist$tailLocal1$tmp9 = new $c_sci_$colon$colon($m_s_None$(), x883);
+            s$tailLocal1 = x891;
             alist$tailLocal1 = alist$tailLocal1$tmp9;
             continue;
           }
         }
-        if ($m_sci_Nil$().a(x851)) {
-          var x671 = $m_s_None$();
+        if ($m_sci_Nil$().a(x877)) {
+          var x697 = $m_s_None$();
           break;
         }
-        throw new $c_s_MatchError(x851);
+        throw new $c_s_MatchError(x877);
       }
-      throw new $c_s_MatchError(x864);
+      throw new $c_s_MatchError(x890);
     }
-    throw new $c_s_MatchError(x861);
+    throw new $c_s_MatchError(x887);
   }
-  if ((x671 instanceof $c_s_Some)) {
-    return $f_Ldev_bosatsu_RingOpt$Expr__bestEffortConstMult__s_math_BigInt__Ldev_bosatsu_RingOpt$Expr(b, x671.p);
+  if ((x697 instanceof $c_s_Some)) {
+    return $f_Ldev_bosatsu_RingOpt$Expr__bestEffortConstMult__s_math_BigInt__Ldev_bosatsu_RingOpt$Expr(b, x697.p);
   }
-  if (($m_s_None$() === x671)) {
+  if (($m_s_None$() === x697)) {
     var this$13 = b.Hk();
     var alist$1 = $m_sci_Nil$();
-    var x668;
+    var x694;
     var alist$tailLocal1$1 = alist$1;
     var s$tailLocal1$1 = this$13;
     while (true) {
-      var x861$1 = s$tailLocal1$1;
-      if (($m_Ldev_bosatsu_RingOpt$Stack$Empty$() === x861$1)) {
-        var x797$1 = alist$tailLocal1$1;
-        if ((x797$1 instanceof $c_sci_$colon$colon)) {
-          var x800$1 = x797$1.h;
-          var optA$1 = x797$1.F;
-          if ($m_sci_Nil$().a(x800$1)) {
-            var x668 = optA$1;
+      var x887$1 = s$tailLocal1$1;
+      if (($m_Ldev_bosatsu_RingOpt$Stack$Empty$() === x887$1)) {
+        var x823$1 = alist$tailLocal1$1;
+        if ((x823$1 instanceof $c_sci_$colon$colon)) {
+          var x826$1 = x823$1.h;
+          var optA$1 = x823$1.F;
+          if ($m_sci_Nil$().a(x826$1)) {
+            var x694 = optA$1;
             break;
           }
         }
-        var x668 = $m_s_None$();
+        var x694 = $m_s_None$();
         break;
       }
-      if ((x861$1 instanceof $c_Ldev_bosatsu_RingOpt$Stack$Push)) {
-        var x868$1 = x861$1.CT;
-        var x869$1 = x861$1.CU;
-        matchResult111$1: {
+      if ((x887$1 instanceof $c_Ldev_bosatsu_RingOpt$Stack$Push)) {
+        var x894$1 = x887$1.CT;
+        var x895$1 = x887$1.CU;
+        matchResult115$1: {
           var $x_2;
-          if ((x868$1 instanceof $c_Ldev_bosatsu_RingOpt$Symbol)) {
+          if ((x894$1 instanceof $c_Ldev_bosatsu_RingOpt$Symbol)) {
             var $x_2 = $m_s_None$();
-            break matchResult111$1;
+            break matchResult115$1;
           }
-          if ((x868$1 instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
-            var $x_2 = new $c_s_Some(x868$1.gQ);
-            break matchResult111$1;
+          if ((x894$1 instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
+            var $x_2 = new $c_s_Some(x894$1.gQ);
+            break matchResult115$1;
           }
-          if (($m_Ldev_bosatsu_RingOpt$One$() === x868$1)) {
+          if (($m_Ldev_bosatsu_RingOpt$One$() === x894$1)) {
             var $x_2 = new $c_s_Some($m_s_package$().bI().aR(1));
-            break matchResult111$1;
+            break matchResult115$1;
           }
-          if (($m_Ldev_bosatsu_RingOpt$Zero$() === x868$1)) {
+          if (($m_Ldev_bosatsu_RingOpt$Zero$() === x894$1)) {
             var $x_2 = new $c_s_Some($m_s_package$().bI().aR(0));
-            break matchResult111$1;
+            break matchResult115$1;
           }
-          throw new $c_s_MatchError(x868$1);
+          throw new $c_s_MatchError(x894$1);
         }
         var alist$tailLocal1$tmp1$1 = new $c_sci_$colon$colon($x_2, alist$tailLocal1$1);
-        s$tailLocal1$1 = x869$1;
+        s$tailLocal1$1 = x895$1;
         alist$tailLocal1$1 = alist$tailLocal1$tmp1$1;
         continue;
       }
-      if ((x861$1 instanceof $c_Ldev_bosatsu_RingOpt$Stack$Operate)) {
-        var x864$1 = x861$1.CS;
-        var x865$1 = x861$1.CR;
-        if (($m_Ldev_bosatsu_RingOpt$Op$Add$() === x864$1)) {
-          var x801$1 = alist$tailLocal1$1;
-          if ((x801$1 instanceof $c_sci_$colon$colon)) {
-            var x809$1 = x801$1.F;
-            var x810$1 = x801$1.h;
-            if ((x809$1 instanceof $c_s_Some)) {
-              var a$2 = x809$1.p;
-              if ((x810$1 instanceof $c_sci_$colon$colon)) {
-                var x812$1 = x810$1.F;
-                var x813$1 = x810$1.h;
-                if ((x812$1 instanceof $c_s_Some)) {
-                  var b$3 = x812$1.p;
-                  var alist$tailLocal1$tmp2$1 = new $c_sci_$colon$colon(new $c_s_Some(a$2.hQ(b$3)), x813$1);
-                  s$tailLocal1$1 = x865$1;
+      if ((x887$1 instanceof $c_Ldev_bosatsu_RingOpt$Stack$Operate)) {
+        var x890$1 = x887$1.CS;
+        var x891$1 = x887$1.CR;
+        if (($m_Ldev_bosatsu_RingOpt$Op$Add$() === x890$1)) {
+          var x827$1 = alist$tailLocal1$1;
+          if ((x827$1 instanceof $c_sci_$colon$colon)) {
+            var x835$1 = x827$1.F;
+            var x836$1 = x827$1.h;
+            if ((x835$1 instanceof $c_s_Some)) {
+              var a$2 = x835$1.p;
+              if ((x836$1 instanceof $c_sci_$colon$colon)) {
+                var x838$1 = x836$1.F;
+                var x839$1 = x836$1.h;
+                if ((x838$1 instanceof $c_s_Some)) {
+                  var b$3 = x838$1.p;
+                  var alist$tailLocal1$tmp2$1 = new $c_sci_$colon$colon(new $c_s_Some(a$2.hQ(b$3)), x839$1);
+                  s$tailLocal1$1 = x891$1;
                   alist$tailLocal1$1 = alist$tailLocal1$tmp2$1;
                   continue;
                 }
               }
             }
-            if ((x810$1 instanceof $c_sci_$colon$colon)) {
-              var x807$1 = x810$1.h;
-              var alist$tailLocal1$tmp3$1 = new $c_sci_$colon$colon($m_s_None$(), x807$1);
-              s$tailLocal1$1 = x865$1;
+            if ((x836$1 instanceof $c_sci_$colon$colon)) {
+              var x833$1 = x836$1.h;
+              var alist$tailLocal1$tmp3$1 = new $c_sci_$colon$colon($m_s_None$(), x833$1);
+              s$tailLocal1$1 = x891$1;
               alist$tailLocal1$1 = alist$tailLocal1$tmp3$1;
               continue;
             }
           }
-          var x668 = $m_s_None$();
+          var x694 = $m_s_None$();
           break;
         }
-        if (($m_Ldev_bosatsu_RingOpt$Op$Mult$() === x864$1)) {
-          var x818$1 = alist$tailLocal1$1;
-          if ((x818$1 instanceof $c_sci_$colon$colon)) {
-            var x842$1 = x818$1.F;
-            var x843$1 = x818$1.h;
-            if ((x842$1 instanceof $c_s_Some)) {
-              var x850$1 = x842$1.p;
-              if ((x843$1 instanceof $c_sci_$colon$colon)) {
-                var x845$1 = x843$1.F;
-                var x846$1 = x843$1.h;
-                if ((x845$1 instanceof $c_s_Some)) {
-                  var b$2$1 = x845$1.p;
-                  var alist$tailLocal1$tmp4$1 = new $c_sci_$colon$colon(new $c_s_Some(x850$1.ir(b$2$1)), x846$1);
-                  s$tailLocal1$1 = x865$1;
+        if (($m_Ldev_bosatsu_RingOpt$Op$Mult$() === x890$1)) {
+          var x844$1 = alist$tailLocal1$1;
+          if ((x844$1 instanceof $c_sci_$colon$colon)) {
+            var x868$1 = x844$1.F;
+            var x869$1 = x844$1.h;
+            if ((x868$1 instanceof $c_s_Some)) {
+              var x876$1 = x868$1.p;
+              if ((x869$1 instanceof $c_sci_$colon$colon)) {
+                var x871$1 = x869$1.F;
+                var x872$1 = x869$1.h;
+                if ((x871$1 instanceof $c_s_Some)) {
+                  var b$2$1 = x871$1.p;
+                  var alist$tailLocal1$tmp4$1 = new $c_sci_$colon$colon(new $c_s_Some(x876$1.ir(b$2$1)), x872$1);
+                  s$tailLocal1$1 = x891$1;
                   alist$tailLocal1$1 = alist$tailLocal1$tmp4$1;
                   continue;
                 }
-                if (($m_s_None$() === x845$1)) {
-                  if ($m_sr_BoxesRunTime$().bd(x850$1, $m_s_package$().bI().aR(0))) {
-                    var alist$tailLocal1$tmp5$1 = new $c_sci_$colon$colon(x842$1, x846$1);
-                    s$tailLocal1$1 = x865$1;
+                if (($m_s_None$() === x871$1)) {
+                  if ($m_sr_BoxesRunTime$().bd(x876$1, $m_s_package$().bI().aR(0))) {
+                    var alist$tailLocal1$tmp5$1 = new $c_sci_$colon$colon(x868$1, x872$1);
+                    s$tailLocal1$1 = x891$1;
                     alist$tailLocal1$1 = alist$tailLocal1$tmp5$1;
                     continue;
                   }
                 }
               }
             }
-            if ((($m_s_None$() === x842$1) && (x843$1 instanceof $c_sci_$colon$colon))) {
-              var x829$1 = x843$1.F;
-              var x830$1 = x843$1.h;
-              if ((x829$1 instanceof $c_s_Some)) {
-                if ($m_sr_BoxesRunTime$().bd(x829$1.p, $m_s_package$().bI().aR(0))) {
-                  var alist$tailLocal1$tmp6$1 = new $c_sci_$colon$colon(x829$1, x830$1);
-                  s$tailLocal1$1 = x865$1;
+            if ((($m_s_None$() === x868$1) && (x869$1 instanceof $c_sci_$colon$colon))) {
+              var x855$1 = x869$1.F;
+              var x856$1 = x869$1.h;
+              if ((x855$1 instanceof $c_s_Some)) {
+                if ($m_sr_BoxesRunTime$().bd(x855$1.p, $m_s_package$().bI().aR(0))) {
+                  var alist$tailLocal1$tmp6$1 = new $c_sci_$colon$colon(x855$1, x856$1);
+                  s$tailLocal1$1 = x891$1;
                   alist$tailLocal1$1 = alist$tailLocal1$tmp6$1;
                   continue;
                 }
               }
             }
-            if ((x843$1 instanceof $c_sci_$colon$colon)) {
-              var x824$1 = x843$1.h;
-              var alist$tailLocal1$tmp7$1 = new $c_sci_$colon$colon($m_s_None$(), x824$1);
-              s$tailLocal1$1 = x865$1;
+            if ((x869$1 instanceof $c_sci_$colon$colon)) {
+              var x850$1 = x869$1.h;
+              var alist$tailLocal1$tmp7$1 = new $c_sci_$colon$colon($m_s_None$(), x850$1);
+              s$tailLocal1$1 = x891$1;
               alist$tailLocal1$1 = alist$tailLocal1$tmp7$1;
               continue;
             }
           }
-          var x668 = $m_s_None$();
+          var x694 = $m_s_None$();
           break;
         }
-        if (($m_Ldev_bosatsu_RingOpt$Op$Neg$() === x864$1)) {
-          var x851$1 = alist$tailLocal1$1;
-          if ((x851$1 instanceof $c_sci_$colon$colon)) {
-            var x856$1 = x851$1.F;
-            var x857$1 = x851$1.h;
-            if ((x856$1 instanceof $c_s_Some)) {
-              var a$3$1 = x856$1.p;
-              var alist$tailLocal1$tmp8$1 = new $c_sci_$colon$colon(new $c_s_Some(a$3$1.e9()), x857$1);
-              s$tailLocal1$1 = x865$1;
+        if (($m_Ldev_bosatsu_RingOpt$Op$Neg$() === x890$1)) {
+          var x877$1 = alist$tailLocal1$1;
+          if ((x877$1 instanceof $c_sci_$colon$colon)) {
+            var x882$1 = x877$1.F;
+            var x883$1 = x877$1.h;
+            if ((x882$1 instanceof $c_s_Some)) {
+              var a$3$1 = x882$1.p;
+              var alist$tailLocal1$tmp8$1 = new $c_sci_$colon$colon(new $c_s_Some(a$3$1.e9()), x883$1);
+              s$tailLocal1$1 = x891$1;
               alist$tailLocal1$1 = alist$tailLocal1$tmp8$1;
               continue;
             }
-            if (($m_s_None$() === x856$1)) {
-              var alist$tailLocal1$tmp9$1 = new $c_sci_$colon$colon($m_s_None$(), x857$1);
-              s$tailLocal1$1 = x865$1;
+            if (($m_s_None$() === x882$1)) {
+              var alist$tailLocal1$tmp9$1 = new $c_sci_$colon$colon($m_s_None$(), x883$1);
+              s$tailLocal1$1 = x891$1;
               alist$tailLocal1$1 = alist$tailLocal1$tmp9$1;
               continue;
             }
           }
-          if ($m_sci_Nil$().a(x851$1)) {
-            var x668 = $m_s_None$();
+          if ($m_sci_Nil$().a(x877$1)) {
+            var x694 = $m_s_None$();
             break;
           }
-          throw new $c_s_MatchError(x851$1);
+          throw new $c_s_MatchError(x877$1);
         }
-        throw new $c_s_MatchError(x864$1);
+        throw new $c_s_MatchError(x890$1);
       }
-      throw new $c_s_MatchError(x861$1);
+      throw new $c_s_MatchError(x887$1);
     }
-    if ((x668 instanceof $c_s_Some)) {
-      return $f_Ldev_bosatsu_RingOpt$Expr__bestEffortConstMult__s_math_BigInt__Ldev_bosatsu_RingOpt$Expr(a, x668.p);
+    if ((x694 instanceof $c_s_Some)) {
+      return $f_Ldev_bosatsu_RingOpt$Expr__bestEffortConstMult__s_math_BigInt__Ldev_bosatsu_RingOpt$Expr(a, x694.p);
     }
-    if (($m_s_None$() === x668)) {
+    if (($m_s_None$() === x694)) {
       return new $c_Ldev_bosatsu_RingOpt$Mult(a, b);
     }
-    throw new $c_s_MatchError(x668);
+    throw new $c_s_MatchError(x694);
   }
-  throw new $c_s_MatchError(x671);
+  throw new $c_s_MatchError(x697);
 });
 $p.OC = (function(a, b) {
   return ($f_Ldev_bosatsu_RingOpt$Expr__isZero__Z(a) ? b : ($f_Ldev_bosatsu_RingOpt$Expr__isZero__Z(b) ? a : new $c_Ldev_bosatsu_RingOpt$Add(a, b)));
@@ -189889,86 +189937,86 @@ $p.c7G = (function(cnt, expr) {
     } else if ($f_s_math_Ordered__$greater__O__Z(cnt$tailLocal1, $m_s_math_BigInt$().aR(0))) {
       return $p_Ldev_bosatsu_RingOpt$Expr$__loop$7__Ldev_bosatsu_RingOpt$Expr__s_math_BigInt__Ldev_bosatsu_RingOpt$Expr(this, expr$tailLocal1, cnt$tailLocal1);
     } else {
-      var x674 = expr$tailLocal1.ux();
-      if ((x674 instanceof $c_s_Some)) {
-        var negExpr = x674.p;
+      var x700 = expr$tailLocal1.ux();
+      if ((x700 instanceof $c_s_Some)) {
+        var negExpr = x700.p;
         var cnt$tailLocal1$tmp1 = cnt$tailLocal1.e9();
         cnt$tailLocal1 = cnt$tailLocal1$tmp1;
         expr$tailLocal1 = negExpr;
         continue;
       }
-      if (($m_s_None$() === x674)) {
+      if (($m_s_None$() === x700)) {
         return $f_Ldev_bosatsu_RingOpt$Expr__normalizeNeg__Ldev_bosatsu_RingOpt$Expr($p_Ldev_bosatsu_RingOpt$Expr$__loop$7__Ldev_bosatsu_RingOpt$Expr__s_math_BigInt__Ldev_bosatsu_RingOpt$Expr(this, expr$tailLocal1, cnt$tailLocal1.e9()));
       }
-      throw new $c_s_MatchError(x674);
+      throw new $c_s_MatchError(x700);
     }
   }
 });
 $p.Pv = (function(e, evidence$1) {
-  matchResult80: {
+  matchResult84: {
     var $x_1;
     if ((e instanceof $c_Ldev_bosatsu_RingOpt$Add)) {
-      var x734 = e.l4;
-      var x735 = e.l5;
-      var l = this.Pv(x734, evidence$1);
-      var r = this.Pv(x735, evidence$1);
+      var x760 = e.l4;
+      var x761 = e.l5;
+      var l = this.Pv(x760, evidence$1);
+      var r = this.Pv(x761, evidence$1);
       if ($p_Ldev_bosatsu_RingOpt$Expr$__isEq$1__Lcats_kernel_Hash__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr__Z(this, evidence$1, l, r)) {
         var $x_1 = new $c_Ldev_bosatsu_RingOpt$Add(l, r);
-        break matchResult80;
+        break matchResult84;
       } else {
         if ((l instanceof $c_Ldev_bosatsu_RingOpt$Mult)) {
-          var x716 = l.ja;
-          var x717 = l.jb;
+          var x742 = l.ja;
+          var x743 = l.jb;
           if ((r instanceof $c_Ldev_bosatsu_RingOpt$Mult)) {
-            var x712 = r.ja;
-            var x713 = r.jb;
-            var $x_1 = ($p_Ldev_bosatsu_RingOpt$Expr$__isEq$1__Lcats_kernel_Hash__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr__Z(this, evidence$1, x716, x712) ? new $c_Ldev_bosatsu_RingOpt$Mult(x716, this.Pv(new $c_Ldev_bosatsu_RingOpt$Add(x717, x713), evidence$1)) : ($p_Ldev_bosatsu_RingOpt$Expr$__isEq$1__Lcats_kernel_Hash__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr__Z(this, evidence$1, x716, x713) ? new $c_Ldev_bosatsu_RingOpt$Mult(x716, this.Pv(new $c_Ldev_bosatsu_RingOpt$Add(x717, x712), evidence$1)) : ($p_Ldev_bosatsu_RingOpt$Expr$__isEq$1__Lcats_kernel_Hash__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr__Z(this, evidence$1, x717, x712) ? new $c_Ldev_bosatsu_RingOpt$Mult(x717, this.Pv(new $c_Ldev_bosatsu_RingOpt$Add(x716, x713), evidence$1)) : ($p_Ldev_bosatsu_RingOpt$Expr$__isEq$1__Lcats_kernel_Hash__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr__Z(this, evidence$1, x717, x713) ? new $c_Ldev_bosatsu_RingOpt$Mult(x717, this.Pv(new $c_Ldev_bosatsu_RingOpt$Add(x716, x712), evidence$1)) : new $c_Ldev_bosatsu_RingOpt$Add(l, r)))));
-            break matchResult80;
+            var x738 = r.ja;
+            var x739 = r.jb;
+            var $x_1 = ($p_Ldev_bosatsu_RingOpt$Expr$__isEq$1__Lcats_kernel_Hash__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr__Z(this, evidence$1, x742, x738) ? new $c_Ldev_bosatsu_RingOpt$Mult(x742, this.Pv(new $c_Ldev_bosatsu_RingOpt$Add(x743, x739), evidence$1)) : ($p_Ldev_bosatsu_RingOpt$Expr$__isEq$1__Lcats_kernel_Hash__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr__Z(this, evidence$1, x742, x739) ? new $c_Ldev_bosatsu_RingOpt$Mult(x742, this.Pv(new $c_Ldev_bosatsu_RingOpt$Add(x743, x738), evidence$1)) : ($p_Ldev_bosatsu_RingOpt$Expr$__isEq$1__Lcats_kernel_Hash__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr__Z(this, evidence$1, x743, x738) ? new $c_Ldev_bosatsu_RingOpt$Mult(x743, this.Pv(new $c_Ldev_bosatsu_RingOpt$Add(x742, x739), evidence$1)) : ($p_Ldev_bosatsu_RingOpt$Expr$__isEq$1__Lcats_kernel_Hash__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr__Z(this, evidence$1, x743, x739) ? new $c_Ldev_bosatsu_RingOpt$Mult(x743, this.Pv(new $c_Ldev_bosatsu_RingOpt$Add(x742, x738), evidence$1)) : new $c_Ldev_bosatsu_RingOpt$Add(l, r)))));
+            break matchResult84;
           }
         }
         if ((l instanceof $c_Ldev_bosatsu_RingOpt$Mult)) {
-          var x706 = l.ja;
-          var x707 = l.jb;
+          var x732 = l.ja;
+          var x733 = l.jb;
           if ((r instanceof $c_Ldev_bosatsu_RingOpt$Neg)) {
-            var x703 = r.fT;
-            var $x_1 = ($p_Ldev_bosatsu_RingOpt$Expr$__isEq$1__Lcats_kernel_Hash__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr__Z(this, evidence$1, x706, x703) ? new $c_Ldev_bosatsu_RingOpt$Mult(x706, new $c_Ldev_bosatsu_RingOpt$Add(x707, new $c_Ldev_bosatsu_RingOpt$Neg($m_Ldev_bosatsu_RingOpt$One$()))) : ($p_Ldev_bosatsu_RingOpt$Expr$__isEq$1__Lcats_kernel_Hash__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr__Z(this, evidence$1, x707, x703) ? new $c_Ldev_bosatsu_RingOpt$Mult(x707, new $c_Ldev_bosatsu_RingOpt$Add(x706, new $c_Ldev_bosatsu_RingOpt$Neg($m_Ldev_bosatsu_RingOpt$One$()))) : new $c_Ldev_bosatsu_RingOpt$Add(l, r)));
-            break matchResult80;
+            var x729 = r.fT;
+            var $x_1 = ($p_Ldev_bosatsu_RingOpt$Expr$__isEq$1__Lcats_kernel_Hash__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr__Z(this, evidence$1, x732, x729) ? new $c_Ldev_bosatsu_RingOpt$Mult(x732, new $c_Ldev_bosatsu_RingOpt$Add(x733, new $c_Ldev_bosatsu_RingOpt$Neg($m_Ldev_bosatsu_RingOpt$One$()))) : ($p_Ldev_bosatsu_RingOpt$Expr$__isEq$1__Lcats_kernel_Hash__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr__Z(this, evidence$1, x733, x729) ? new $c_Ldev_bosatsu_RingOpt$Mult(x733, new $c_Ldev_bosatsu_RingOpt$Add(x732, new $c_Ldev_bosatsu_RingOpt$Neg($m_Ldev_bosatsu_RingOpt$One$()))) : new $c_Ldev_bosatsu_RingOpt$Add(l, r)));
+            break matchResult84;
           }
         }
         if ((l instanceof $c_Ldev_bosatsu_RingOpt$Mult)) {
-          var x697 = l.ja;
-          var x698 = l.jb;
-          var $x_1 = ($p_Ldev_bosatsu_RingOpt$Expr$__isEq$1__Lcats_kernel_Hash__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr__Z(this, evidence$1, x697, r) ? new $c_Ldev_bosatsu_RingOpt$Mult(x697, new $c_Ldev_bosatsu_RingOpt$Add(x698, $m_Ldev_bosatsu_RingOpt$One$())) : ($p_Ldev_bosatsu_RingOpt$Expr$__isEq$1__Lcats_kernel_Hash__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr__Z(this, evidence$1, x698, r) ? new $c_Ldev_bosatsu_RingOpt$Mult(x698, new $c_Ldev_bosatsu_RingOpt$Add(x697, $m_Ldev_bosatsu_RingOpt$One$())) : new $c_Ldev_bosatsu_RingOpt$Add(l, r)));
-          break matchResult80;
+          var x723 = l.ja;
+          var x724 = l.jb;
+          var $x_1 = ($p_Ldev_bosatsu_RingOpt$Expr$__isEq$1__Lcats_kernel_Hash__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr__Z(this, evidence$1, x723, r) ? new $c_Ldev_bosatsu_RingOpt$Mult(x723, new $c_Ldev_bosatsu_RingOpt$Add(x724, $m_Ldev_bosatsu_RingOpt$One$())) : ($p_Ldev_bosatsu_RingOpt$Expr$__isEq$1__Lcats_kernel_Hash__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr__Z(this, evidence$1, x724, r) ? new $c_Ldev_bosatsu_RingOpt$Mult(x724, new $c_Ldev_bosatsu_RingOpt$Add(x723, $m_Ldev_bosatsu_RingOpt$One$())) : new $c_Ldev_bosatsu_RingOpt$Add(l, r)));
+          break matchResult84;
         }
         if ((l instanceof $c_Ldev_bosatsu_RingOpt$Neg)) {
-          var x692 = l.fT;
+          var x718 = l.fT;
           if ((r instanceof $c_Ldev_bosatsu_RingOpt$Mult)) {
-            var x688 = r.ja;
-            var x689 = r.jb;
-            var $x_1 = ($p_Ldev_bosatsu_RingOpt$Expr$__isEq$1__Lcats_kernel_Hash__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr__Z(this, evidence$1, x688, x692) ? new $c_Ldev_bosatsu_RingOpt$Mult(x688, new $c_Ldev_bosatsu_RingOpt$Add(new $c_Ldev_bosatsu_RingOpt$Neg($m_Ldev_bosatsu_RingOpt$One$()), x689)) : ($p_Ldev_bosatsu_RingOpt$Expr$__isEq$1__Lcats_kernel_Hash__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr__Z(this, evidence$1, x689, x692) ? new $c_Ldev_bosatsu_RingOpt$Mult(x689, new $c_Ldev_bosatsu_RingOpt$Add(new $c_Ldev_bosatsu_RingOpt$Neg($m_Ldev_bosatsu_RingOpt$One$()), x688)) : new $c_Ldev_bosatsu_RingOpt$Add(l, r)));
-            break matchResult80;
+            var x714 = r.ja;
+            var x715 = r.jb;
+            var $x_1 = ($p_Ldev_bosatsu_RingOpt$Expr$__isEq$1__Lcats_kernel_Hash__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr__Z(this, evidence$1, x714, x718) ? new $c_Ldev_bosatsu_RingOpt$Mult(x714, new $c_Ldev_bosatsu_RingOpt$Add(new $c_Ldev_bosatsu_RingOpt$Neg($m_Ldev_bosatsu_RingOpt$One$()), x715)) : ($p_Ldev_bosatsu_RingOpt$Expr$__isEq$1__Lcats_kernel_Hash__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr__Z(this, evidence$1, x715, x718) ? new $c_Ldev_bosatsu_RingOpt$Mult(x715, new $c_Ldev_bosatsu_RingOpt$Add(new $c_Ldev_bosatsu_RingOpt$Neg($m_Ldev_bosatsu_RingOpt$One$()), x714)) : new $c_Ldev_bosatsu_RingOpt$Add(l, r)));
+            break matchResult84;
           }
         }
         if ((r instanceof $c_Ldev_bosatsu_RingOpt$Mult)) {
-          var x682 = r.ja;
-          var x683 = r.jb;
-          var $x_1 = ($p_Ldev_bosatsu_RingOpt$Expr$__isEq$1__Lcats_kernel_Hash__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr__Z(this, evidence$1, x682, l) ? new $c_Ldev_bosatsu_RingOpt$Mult(x682, new $c_Ldev_bosatsu_RingOpt$Add($m_Ldev_bosatsu_RingOpt$One$(), x683)) : ($p_Ldev_bosatsu_RingOpt$Expr$__isEq$1__Lcats_kernel_Hash__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr__Z(this, evidence$1, x683, l) ? new $c_Ldev_bosatsu_RingOpt$Mult(x683, new $c_Ldev_bosatsu_RingOpt$Add($m_Ldev_bosatsu_RingOpt$One$(), x682)) : new $c_Ldev_bosatsu_RingOpt$Add(l, r)));
-          break matchResult80;
+          var x708 = r.ja;
+          var x709 = r.jb;
+          var $x_1 = ($p_Ldev_bosatsu_RingOpt$Expr$__isEq$1__Lcats_kernel_Hash__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr__Z(this, evidence$1, x708, l) ? new $c_Ldev_bosatsu_RingOpt$Mult(x708, new $c_Ldev_bosatsu_RingOpt$Add($m_Ldev_bosatsu_RingOpt$One$(), x709)) : ($p_Ldev_bosatsu_RingOpt$Expr$__isEq$1__Lcats_kernel_Hash__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr__Z(this, evidence$1, x709, l) ? new $c_Ldev_bosatsu_RingOpt$Mult(x709, new $c_Ldev_bosatsu_RingOpt$Add($m_Ldev_bosatsu_RingOpt$One$(), x708)) : new $c_Ldev_bosatsu_RingOpt$Add(l, r)));
+          break matchResult84;
         }
         var $x_1 = new $c_Ldev_bosatsu_RingOpt$Add(l, r);
-        break matchResult80;
+        break matchResult84;
       }
     }
     if ((e instanceof $c_Ldev_bosatsu_RingOpt$Neg)) {
       var $x_1 = new $c_Ldev_bosatsu_RingOpt$Neg(this.Pv(e.fT, evidence$1));
-      break matchResult80;
+      break matchResult84;
     }
     if ((e instanceof $c_Ldev_bosatsu_RingOpt$Mult)) {
-      var x727 = e.ja;
-      var x728 = e.jb;
-      var $x_1 = new $c_Ldev_bosatsu_RingOpt$Mult(this.Pv(x727, evidence$1), this.Pv(x728, evidence$1));
-      break matchResult80;
+      var x753 = e.ja;
+      var x754 = e.jb;
+      var $x_1 = new $c_Ldev_bosatsu_RingOpt$Mult(this.Pv(x753, evidence$1), this.Pv(x754, evidence$1));
+      break matchResult84;
     }
     matchAlts19: {
       matchAlts20: {
@@ -189987,7 +190035,7 @@ $p.Pv = (function(e, evidence$1) {
         break matchAlts19;
       }
       var $x_1 = e;
-      break matchResult80;
+      break matchResult84;
     }
     throw new $c_s_MatchError(e);
   }
@@ -190040,100 +190088,100 @@ function $p_Ldev_bosatsu_RingOpt$GroupSum$__loop$14__Lcats_kernel_Order__sci_Lis
   var intRes$tailLocal1 = intRes;
   var in$tailLocal2 = in$1;
   while (true) {
-    var x1336 = in$tailLocal2;
-    if ((x1336 instanceof $c_sci_$colon$colon)) {
-      var x1381 = x1336.F;
-      var x1382 = x1336.h;
-      var x1383 = x1381.f();
-      var x1384 = x1381.g();
-      if ((x1384 instanceof $c_Ldev_bosatsu_RingOpt$Add)) {
-        var x1387 = x1384.l4;
-        var x1388 = x1384.l5;
-        in$tailLocal2 = new $c_sci_$colon$colon($ct_T2__O__O__(new $c_T2(), x1383, x1387), new $c_sci_$colon$colon($ct_T2__O__O__(new $c_T2(), x1383, x1388), x1382));
+    var x1362 = in$tailLocal2;
+    if ((x1362 instanceof $c_sci_$colon$colon)) {
+      var x1407 = x1362.F;
+      var x1408 = x1362.h;
+      var x1409 = x1407.f();
+      var x1410 = x1407.g();
+      if ((x1410 instanceof $c_Ldev_bosatsu_RingOpt$Add)) {
+        var x1413 = x1410.l4;
+        var x1414 = x1410.l5;
+        in$tailLocal2 = new $c_sci_$colon$colon($ct_T2__O__O__(new $c_T2(), x1409, x1413), new $c_sci_$colon$colon($ct_T2__O__O__(new $c_T2(), x1409, x1414), x1408));
         continue;
       }
-      if ((x1384 instanceof $c_Ldev_bosatsu_RingOpt$Neg)) {
-        var x1379 = x1384.fT;
-        in$tailLocal2 = new $c_sci_$colon$colon($ct_T2__O__O__(new $c_T2(), x1383.e9(), x1379), x1382);
+      if ((x1410 instanceof $c_Ldev_bosatsu_RingOpt$Neg)) {
+        var x1405 = x1410.fT;
+        in$tailLocal2 = new $c_sci_$colon$colon($ct_T2__O__O__(new $c_T2(), x1409.e9(), x1405), x1408);
         continue;
       }
-      if ((x1384 instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
-        var x1371 = x1384.gQ;
-        var intRes$tailLocal1$tmp1 = intRes$tailLocal1.hQ(x1383.ir(x1371));
-        in$tailLocal2 = x1382;
+      if ((x1410 instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
+        var x1397 = x1410.gQ;
+        var intRes$tailLocal1$tmp1 = intRes$tailLocal1.hQ(x1409.ir(x1397));
+        in$tailLocal2 = x1408;
         intRes$tailLocal1 = intRes$tailLocal1$tmp1;
         continue;
       }
-      if (($m_Ldev_bosatsu_RingOpt$One$() === x1384)) {
-        var intRes$tailLocal1$tmp2 = intRes$tailLocal1.hQ(x1383);
-        in$tailLocal2 = x1382;
+      if (($m_Ldev_bosatsu_RingOpt$One$() === x1410)) {
+        var intRes$tailLocal1$tmp2 = intRes$tailLocal1.hQ(x1409);
+        in$tailLocal2 = x1408;
         intRes$tailLocal1 = intRes$tailLocal1$tmp2;
         continue;
       }
-      if (($m_Ldev_bosatsu_RingOpt$Zero$() === x1384)) {
-        in$tailLocal2 = x1382;
+      if (($m_Ldev_bosatsu_RingOpt$Zero$() === x1410)) {
+        in$tailLocal2 = x1408;
         continue;
       }
-      if ((x1384 instanceof $c_Ldev_bosatsu_RingOpt$Symbol)) {
-        var res$tailLocal1$tmp1 = res$tailLocal1.asC(x1384, x1383);
-        in$tailLocal2 = x1382;
+      if ((x1410 instanceof $c_Ldev_bosatsu_RingOpt$Symbol)) {
+        var res$tailLocal1$tmp1 = res$tailLocal1.asC(x1410, x1409);
+        in$tailLocal2 = x1408;
         res$tailLocal1 = res$tailLocal1$tmp1;
         continue;
       }
-      if ((x1384 instanceof $c_Ldev_bosatsu_RingOpt$Mult)) {
-        var x1344 = x1384.ja;
-        var x1345 = x1384.jb;
-        if ($f_Ldev_bosatsu_RingOpt$Expr__isZero__Z(x1384)) {
-          in$tailLocal2 = x1382;
+      if ((x1410 instanceof $c_Ldev_bosatsu_RingOpt$Mult)) {
+        var x1370 = x1410.ja;
+        var x1371 = x1410.jb;
+        if ($f_Ldev_bosatsu_RingOpt$Expr__isZero__Z(x1410)) {
+          in$tailLocal2 = x1408;
           continue;
         } else {
-          var x1333 = x1384.xK();
-          if ((x1333 instanceof $c_s_Some)) {
-            var cn = x1333.p;
-            in$tailLocal2 = new $c_sci_$colon$colon($ct_T2__O__O__(new $c_T2(), x1383.e9(), cn), x1382);
+          var x1359 = x1410.xK();
+          if ((x1359 instanceof $c_s_Some)) {
+            var cn = x1359.p;
+            in$tailLocal2 = new $c_sci_$colon$colon($ct_T2__O__O__(new $c_T2(), x1409.e9(), cn), x1408);
             continue;
           }
-          if (($m_s_None$() === x1333)) {
-            var x1328 = $f_Ldev_bosatsu_RingOpt$Expr__unConstMult__s_Option(x1384);
-            if ((x1328 instanceof $c_s_Some)) {
-              var x1330 = x1328.p;
-              var bi = x1330.f();
-              var inner = x1330.g();
-              in$tailLocal2 = new $c_sci_$colon$colon($ct_T2__O__O__(new $c_T2(), x1383.ir(bi), inner), x1382);
+          if (($m_s_None$() === x1359)) {
+            var x1354 = $f_Ldev_bosatsu_RingOpt$Expr__unConstMult__s_Option(x1410);
+            if ((x1354 instanceof $c_s_Some)) {
+              var x1356 = x1354.p;
+              var bi = x1356.f();
+              var inner = x1356.g();
+              in$tailLocal2 = new $c_sci_$colon$colon($ct_T2__O__O__(new $c_T2(), x1409.ir(bi), inner), x1408);
               continue;
             }
-            if (($m_s_None$() === x1328)) {
+            if (($m_s_None$() === x1354)) {
               var \u03b456$;
-              var \u03b456$ = $m_Ldev_bosatsu_RingOpt$Expr$().aQz(new $c_sci_$colon$colon(x1344, new $c_sci_$colon$colon(x1345, $m_sci_Nil$())), evidence$2$2);
+              var \u03b456$ = $m_Ldev_bosatsu_RingOpt$Expr$().aQz(new $c_sci_$colon$colon(x1370, new $c_sci_$colon$colon(x1371, $m_sci_Nil$())), evidence$2$2);
               var c1 = \u03b456$.f();
               var prodTerms = \u03b456$.g();
               if ((prodTerms instanceof $c_sci_$colon$colon)) {
-                var x1325 = prodTerms.F;
-                var x1326 = prodTerms.h;
-                if ((x1325 instanceof $c_Ldev_bosatsu_RingOpt$Add)) {
-                  if ($m_sci_Nil$().a(x1326)) {
-                    var c2 = x1383.ir(c1);
-                    var this$16 = new $c_sci_$colon$colon($ct_T2__O__O__(new $c_T2(), c2, x1325.l5), x1382);
-                    in$tailLocal2 = new $c_sci_$colon$colon($ct_T2__O__O__(new $c_T2(), c2, x1325.l4), this$16);
+                var x1351 = prodTerms.F;
+                var x1352 = prodTerms.h;
+                if ((x1351 instanceof $c_Ldev_bosatsu_RingOpt$Add)) {
+                  if ($m_sci_Nil$().a(x1352)) {
+                    var c2 = x1409.ir(c1);
+                    var this$16 = new $c_sci_$colon$colon($ct_T2__O__O__(new $c_T2(), c2, x1351.l5), x1408);
+                    in$tailLocal2 = new $c_sci_$colon$colon($ct_T2__O__O__(new $c_T2(), c2, x1351.l4), this$16);
                     continue;
                   }
                 }
               }
-              var res$tailLocal1$tmp2 = res$tailLocal1.asC(x1384, x1383);
-              in$tailLocal2 = x1382;
+              var res$tailLocal1$tmp2 = res$tailLocal1.asC(x1410, x1409);
+              in$tailLocal2 = x1408;
               res$tailLocal1 = res$tailLocal1$tmp2;
               continue;
             }
-            throw new $c_s_MatchError(x1328);
+            throw new $c_s_MatchError(x1354);
           }
-          throw new $c_s_MatchError(x1333);
+          throw new $c_s_MatchError(x1359);
         }
       }
     }
-    if ($m_sci_Nil$().a(x1336)) {
+    if ($m_sci_Nil$().a(x1362)) {
       return new $c_Ldev_bosatsu_RingOpt$GroupSum(intRes$tailLocal1, res$tailLocal1);
     }
-    throw new $c_s_MatchError(x1336);
+    throw new $c_s_MatchError(x1362);
   }
 }
 /** @constructor */
@@ -190273,48 +190321,48 @@ function $p_Ldev_bosatsu_RingOpt$Stack$__loop$12__sci_List__Ldev_bosatsu_RingOpt
   var init$tailLocal1 = init;
   var es$tailLocal3 = es;
   while (true) {
-    var x1145 = es$tailLocal3;
-    if ((x1145 instanceof $c_sci_$colon$colon)) {
-      var x1178 = x1145.F;
-      var x1179 = x1145.h;
-      if ((x1178 instanceof $c_s_util_Right)) {
-        var x1181 = x1178.K;
-        if ($is_Ldev_bosatsu_RingOpt$Leaf(x1181)) {
-          var init$tailLocal1$tmp1 = new $c_Ldev_bosatsu_RingOpt$Stack$Push(x1181, init$tailLocal1);
-          es$tailLocal3 = x1179;
+    var x1171 = es$tailLocal3;
+    if ((x1171 instanceof $c_sci_$colon$colon)) {
+      var x1204 = x1171.F;
+      var x1205 = x1171.h;
+      if ((x1204 instanceof $c_s_util_Right)) {
+        var x1207 = x1204.K;
+        if ($is_Ldev_bosatsu_RingOpt$Leaf(x1207)) {
+          var init$tailLocal1$tmp1 = new $c_Ldev_bosatsu_RingOpt$Stack$Push(x1207, init$tailLocal1);
+          es$tailLocal3 = x1205;
           init$tailLocal1 = init$tailLocal1$tmp1;
           continue;
         }
-        if ((x1181 instanceof $c_Ldev_bosatsu_RingOpt$Add)) {
-          var x1175 = x1181.l4;
-          var x1176 = x1181.l5;
-          es$tailLocal3 = new $c_sci_$colon$colon(new $c_s_util_Left($m_Ldev_bosatsu_RingOpt$Op$Add$()), new $c_sci_$colon$colon(new $c_s_util_Right(x1176), new $c_sci_$colon$colon(new $c_s_util_Right(x1175), x1179)));
+        if ((x1207 instanceof $c_Ldev_bosatsu_RingOpt$Add)) {
+          var x1201 = x1207.l4;
+          var x1202 = x1207.l5;
+          es$tailLocal3 = new $c_sci_$colon$colon(new $c_s_util_Left($m_Ldev_bosatsu_RingOpt$Op$Add$()), new $c_sci_$colon$colon(new $c_s_util_Right(x1202), new $c_sci_$colon$colon(new $c_s_util_Right(x1201), x1205)));
           continue;
         }
-        if ((x1181 instanceof $c_Ldev_bosatsu_RingOpt$Mult)) {
-          var x1166 = x1181.ja;
-          var x1167 = x1181.jb;
-          es$tailLocal3 = new $c_sci_$colon$colon(new $c_s_util_Left($m_Ldev_bosatsu_RingOpt$Op$Mult$()), new $c_sci_$colon$colon(new $c_s_util_Right(x1167), new $c_sci_$colon$colon(new $c_s_util_Right(x1166), x1179)));
+        if ((x1207 instanceof $c_Ldev_bosatsu_RingOpt$Mult)) {
+          var x1192 = x1207.ja;
+          var x1193 = x1207.jb;
+          es$tailLocal3 = new $c_sci_$colon$colon(new $c_s_util_Left($m_Ldev_bosatsu_RingOpt$Op$Mult$()), new $c_sci_$colon$colon(new $c_s_util_Right(x1193), new $c_sci_$colon$colon(new $c_s_util_Right(x1192), x1205)));
           continue;
         }
-        if ((x1181 instanceof $c_Ldev_bosatsu_RingOpt$Neg)) {
-          var x1158 = x1181.fT;
-          es$tailLocal3 = new $c_sci_$colon$colon(new $c_s_util_Left($m_Ldev_bosatsu_RingOpt$Op$Neg$()), new $c_sci_$colon$colon(new $c_s_util_Right(x1158), x1179));
+        if ((x1207 instanceof $c_Ldev_bosatsu_RingOpt$Neg)) {
+          var x1184 = x1207.fT;
+          es$tailLocal3 = new $c_sci_$colon$colon(new $c_s_util_Left($m_Ldev_bosatsu_RingOpt$Op$Neg$()), new $c_sci_$colon$colon(new $c_s_util_Right(x1184), x1205));
           continue;
         }
       }
-      if ((x1178 instanceof $c_s_util_Left)) {
-        var op = x1178.X;
+      if ((x1204 instanceof $c_s_util_Left)) {
+        var op = x1204.X;
         var init$tailLocal1$tmp2 = new $c_Ldev_bosatsu_RingOpt$Stack$Operate(op, init$tailLocal1);
-        es$tailLocal3 = x1179;
+        es$tailLocal3 = x1205;
         init$tailLocal1 = init$tailLocal1$tmp2;
         continue;
       }
     }
-    if ($m_sci_Nil$().a(x1145)) {
+    if ($m_sci_Nil$().a(x1171)) {
       return init$tailLocal1;
     }
-    throw new $c_s_MatchError(x1145);
+    throw new $c_s_MatchError(x1171);
   }
 }
 /** @constructor */
@@ -190381,16 +190429,16 @@ $p.cpB = (function(left, right) {
     return true;
   }
   if ((left instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
-    var x995 = left.gQ;
+    var x1021 = left.gQ;
     if ((right instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
-      return $m_sr_BoxesRunTime$().bd(x995, right.gQ);
+      return $m_sr_BoxesRunTime$().bd(x1021, right.gQ);
     }
   }
   if ((left instanceof $c_Ldev_bosatsu_RingOpt$Symbol)) {
-    var x987 = left.Mf;
+    var x1013 = left.Mf;
     if ((right instanceof $c_Ldev_bosatsu_RingOpt$Symbol)) {
-      var x984 = right.Mf;
-      return new $c_Lcats_syntax_EqOps(x987, this.bDL.bcV).gI(x984);
+      var x1010 = right.Mf;
+      return new $c_Lcats_syntax_EqOps(x1013, this.bDL.bcV).gI(x1010);
     }
   }
   return false;
@@ -191724,8 +191772,8 @@ function $p_Ldev_bosatsu_TotalityCheck$$anon$3__loop$3__Ldev_bosatsu_Pattern__Ld
     if (((x === null) ? (x$2 === null) : x.a(x$2))) {
       return $m_Ldev_bosatsu_set_Rel$Same$();
     }
-    var x948 = x824.b6;
-    var x949 = x824.b7;
+    var x948 = x824.b5;
+    var x949 = x824.b6;
     if ((x948 instanceof $c_Ldev_bosatsu_Pattern$Named)) {
       var x953 = x948.dQ;
       a$tailLocal2 = x953;
@@ -195400,8 +195448,8 @@ $p.a2Y = (function(g) {
           ($x_4 ? l : r).bL(x0$2);
         }
         var x12 = $ct_T2__O__O__(new $c_T2(), l.T(), r.T());
-        var x15 = x12.b6;
-        var x16 = x12.b7;
+        var x15 = x12.b5;
+        var x16 = x12.b6;
         if ($m_sci_Nil$().a(x15)) {
           var \u03b445$ = $ct_T2__O__O__(new $c_T2(), $m_sci_Nil$(), this$6);
           break matchResult5$1;
@@ -198291,8 +198339,8 @@ function $p_Ldev_bosatsu_TypedExprNormalization$Impl$IntAlgebraic$__dedupOpaque$
       }
       matchResult5: {
         var x9 = $ct_T2__O__O__(new $c_T2(), previousValue, nextValue);
-        var x24 = x9.b6;
-        var x25 = x9.b7;
+        var x24 = x9.b5;
+        var x25 = x9.b6;
         if ((($m_s_None$() === x24) && ($m_s_None$() === x25))) {
           break matchResult5;
         }
@@ -204941,7 +204989,7 @@ function $p_Ldev_bosatsu_library_DecodedLibrary$__loop$1__sci_Map__sci_List__sci
               }
               if (($m_s_None$() === x28)) {
                 var $x_5___1 = todo0;
-                var $x_5___2 = new $c_sci_$colon$colon(new $c_Ldev_bosatsu_library_DecodedLibrary$DepClosureError$MissingTransitiveDep(depKey.b6, depKey.b7), errs0);
+                var $x_5___2 = new $c_sci_$colon$colon(new $c_Ldev_bosatsu_library_DecodedLibrary$DepClosureError$MissingTransitiveDep(depKey.b5, depKey.b6), errs0);
                 acc___1 = $x_5___1;
                 acc___2 = $x_5___2;
                 break matchResult15;
@@ -206020,8 +206068,8 @@ $p.caP = (function(prevDec, dk, exportedPacks, publicDepLibs, prevPublicDepLibs)
   var this$89 = new $c_Lcats_Foldable$ToFoldableOps$$anon$6(($m_sci_List$(), $m_sci_Nil$().J(allLibNames)), ($m_Lcats_UnorderedFoldable$(), $m_Lcats_instances_package$list$().aj));
   var f$7 = new $c_sr_AbstractFunction1_$$Lambda$7afc3dd0acc1681fb022ef921c83979087aaa919(((name$2) => {
     var x401 = $ct_T2__O__O__(new $c_T2(), oldPublicVersions.R(name$2), newPublicVersions.R(name$2));
-    var x414 = x401.b6;
-    var x415 = x401.b7;
+    var x414 = x401.b5;
+    var x415 = x401.b6;
     if ((($m_s_None$() === x414) && (x415 instanceof $c_s_Some))) {
       var newDeps = x415.p;
       if (dk.c4k()) {
@@ -206787,8 +206835,8 @@ $p.cpN = (function(nec) {
         (((x0 instanceof $c_Ldev_bosatsu_library_LibConfig$Error$MinimumValidVersion) || false) ? l : r).bL(x0);
       }
       var x12 = $ct_T2__O__O__(new $c_T2(), l.T(), r.T());
-      var x15 = x12.b6;
-      var x16 = x12.b7;
+      var x15 = x12.b5;
+      var x16 = x12.b6;
       if ($m_sci_Nil$().a(x15)) {
         var \u03b44$ = $ct_T2__O__O__(new $c_T2(), $m_sci_Nil$(), errors);
         break matchResult109;
@@ -206803,8 +206851,8 @@ $p.cpN = (function(nec) {
   var summaryErrors = \u03b44$.f();
   var numberedErrors = \u03b44$.g();
   var x205 = $ct_T2__O__O__(new $c_T2(), $p_Ldev_bosatsu_library_LibConfig$Error$__numberedDoc$1__sci_List__s_Option(this, numberedErrors), $p_Ldev_bosatsu_library_LibConfig$Error$__summaryDoc$1__sci_List__s_Option(this, summaryErrors));
-  var x216 = x205.b6;
-  var x217 = x205.b7;
+  var x216 = x205.b5;
+  var x217 = x205.b6;
   if ((x216 instanceof $c_s_Some)) {
     var x221 = x216.p;
     if ((x217 instanceof $c_s_Some)) {
@@ -207353,8 +207401,8 @@ $p.bnD = (function(pv) {
 $p.cv6 = (function(major_$_lo, major_$_hi, minor_$_lo, minor_$_hi, patch_$_lo, patch_$_hi, preRelease, build) {
   if ((((major_$_hi >= 0) && (minor_$_hi >= 0)) && (patch_$_hi >= 0))) {
     var x57 = $ct_T2__O__O__(new $c_T2(), preRelease, build);
-    var x72 = x57.b6;
-    var x73 = x57.b7;
+    var x72 = x57.b5;
+    var x73 = x57.b6;
     if (($m_s_None$() === x72)) {
       if (($m_s_None$() === x73)) {
         return new $c_s_Some(($m_Ldev_bosatsu_library_Version$(), new $c_Ldev_bosatsu_library_Version(major_$_lo, major_$_hi, minor_$_lo, minor_$_hi, patch_$_lo, patch_$_hi, $m_s_None$(), $m_s_None$())));
@@ -207508,8 +207556,8 @@ function $m_Ldev_bosatsu_library_Version$DiffKind$() {
 }
 function $p_Ldev_bosatsu_library_Version$PreRelease$__compareIdentifiers__T__T__I($thiz, a, b) {
   var x23 = $ct_T2__O__O__(new $c_T2(), $thiz.bmC(a), $thiz.bmC(b));
-  var x34 = x23.b6;
-  var x35 = x23.b7;
+  var x34 = x23.b5;
+  var x35 = x23.b6;
   if ((x34 instanceof $c_s_Some)) {
     var numA = x34.p;
     if ((x35 instanceof $c_s_Some)) {
@@ -208345,8 +208393,8 @@ $p.boG = (function(c) {
 });
 $p.cwc = (function(p1, p2) {
   var x43 = $ct_T2__O__O__(new $c_T2(), p1, p2);
-  var x48 = x43.b6;
-  var x49 = x43.b7;
+  var x48 = x43.b5;
+  var x49 = x43.b6;
   if ((x48 instanceof $c_Ldev_bosatsu_pattern_SeqPart$Lit)) {
     var x55 = x48.o6;
     if ((x49 instanceof $c_Ldev_bosatsu_pattern_SeqPart$Lit)) {
@@ -208382,8 +208430,8 @@ $p.cwc = (function(p1, p2) {
 });
 $p.coj = (function(p1, p2) {
   var x56 = $ct_T2__O__O__(new $c_T2(), p1, p2);
-  var x64 = x56.b6;
-  var x65 = x56.b7;
+  var x64 = x56.b5;
+  var x65 = x56.b6;
   if ((x64 instanceof $c_Ldev_bosatsu_pattern_SeqPart$Lit)) {
     var x71 = x64.o6;
     if ((x65 instanceof $c_Ldev_bosatsu_pattern_SeqPart$Lit)) {
@@ -208552,7 +208600,7 @@ function $p_Ldev_bosatsu_pattern_SeqPattern$$anon$2__unifyUnionList__sci_List__s
     if ((this$2.an() >= 0)) {
       var length = this$2.an();
       var componentType = evidence$1__runtimeClass;
-      var destination = componentType.b5.U(length);
+      var destination = componentType.b7.U(length);
       $f_sc_IterableOnceOps__copyToArray__O__I__I__I(this$2, destination, 0, 2147483647);
       var $x_1 = destination;
     } else {
@@ -208577,7 +208625,7 @@ function $p_Ldev_bosatsu_pattern_SeqPattern$$anon$2__unifyUnionList__sci_List__s
     var ct__runtimeClass = $d_sci_List.l();
     var len = xs.d.length;
     var componentType$1 = ct__runtimeClass;
-    var ys = componentType$1.b5.U(len);
+    var ys = componentType$1.b7.U(len);
     if ((len > 0)) {
       var i = 0;
       if ((xs !== null)) {
@@ -208664,8 +208712,8 @@ function $p_Ldev_bosatsu_pattern_SeqPattern$$anon$2__subsetList__sci_List__sci_L
   var p1$tailLocal1 = p1;
   while (true) {
     var x186 = $ct_T2__O__O__(new $c_T2(), p1$tailLocal1, p2$tailLocal1);
-    var x289 = x186.b6;
-    var x290 = x186.b7;
+    var x289 = x186.b5;
+    var x290 = x186.b6;
     if ($m_sci_Nil$().a(x289)) {
       if ($m_sci_Nil$().a(x290)) {
         return true;
@@ -209020,8 +209068,8 @@ function $p_Ldev_bosatsu_pattern_SeqPattern$$anon$2__unifyPair$1__sci_List__sci_
 }
 function $p_Ldev_bosatsu_pattern_SeqPattern$$anon$2__loop$2__Ldev_bosatsu_pattern_SeqPattern__Ldev_bosatsu_pattern_SeqPattern__Ldev_bosatsu_pattern_SeqPattern($thiz, p1, p2) {
   var x372 = $ct_T2__O__O__(new $c_T2(), p1, p2);
-  var x437 = x372.b6;
-  var x438 = x372.b7;
+  var x437 = x372.b5;
+  var x438 = x372.b6;
   if ((($m_Ldev_bosatsu_pattern_SeqPattern$Empty$() === x437) && ($m_Ldev_bosatsu_pattern_SeqPattern$Empty$() === x438))) {
     return $m_Ldev_bosatsu_pattern_SeqPattern$Empty$();
   }
@@ -209160,8 +209208,8 @@ $p.KA = (function(p1, p2) {
   var p1$tailLocal3 = p1;
   while (true) {
     var x439 = $ct_T2__O__O__(new $c_T2(), p1$tailLocal3, p2$tailLocal3);
-    var x552 = x439.b6;
-    var x553 = x439.b7;
+    var x552 = x439.b5;
+    var x553 = x439.b6;
     if (($m_Ldev_bosatsu_pattern_SeqPattern$Empty$() === x552)) {
       return ($f_Ldev_bosatsu_pattern_SeqPattern__matchesEmpty__Z(p2$tailLocal3) ? new $c_sci_$colon$colon(p1$tailLocal3, $m_sci_Nil$()) : $m_sci_Nil$());
     }
@@ -209411,8 +209459,8 @@ $p.V5 = (function(p1, p2) {
       return new $c_sci_$colon$colon(p1$tailLocal4, $m_sci_Nil$());
     }
     var x554 = $ct_T2__O__O__(new $c_T2(), p1$tailLocal4, p2$tailLocal4);
-    var x637 = x554.b6;
-    var x638 = x554.b7;
+    var x637 = x554.b5;
+    var x638 = x554.b6;
     if ((x637 instanceof $c_Ldev_bosatsu_pattern_SeqPattern$Cat)) {
       var x641 = x637.dq;
       var x642 = x637.ey;
@@ -212167,8 +212215,8 @@ function $p_Ldev_bosatsu_rankn_Type$__bind$1__scm_HashMap__sci_List__V($thiz, bo
       var nextValue = f(previousValue);
       matchResult1: {
         var x1 = $ct_T2__O__O__(new $c_T2(), previousValue, nextValue);
-        var x10 = x1.b6;
-        var x11 = x1.b7;
+        var x10 = x1.b5;
+        var x11 = x1.b6;
         if ((($m_s_None$() === x10) && ($m_s_None$() === x11))) {
           break matchResult1;
         }
@@ -212228,8 +212276,8 @@ function $p_Ldev_bosatsu_rankn_Type$__bind$1__scm_HashMap__sci_List__V($thiz, bo
       var nextValue$1 = f(previousValue$1);
       matchResult5: {
         var x9 = $ct_T2__O__O__(new $c_T2(), previousValue$1, nextValue$1);
-        var x24 = x9.b6;
-        var x25 = x9.b7;
+        var x24 = x9.b5;
+        var x25 = x9.b6;
         if ((($m_s_None$() === x24) && ($m_s_None$() === x25))) {
           break matchResult5;
         }
@@ -212746,8 +212794,8 @@ $p.cuV = (function(tpe, kindOf) {
               ($x_4 ? l : r).bL(x0$2);
             }
             var x12 = $ct_T2__O__O__(new $c_T2(), l.T(), r.T());
-            var x15 = x12.b6;
-            var x16 = x12.b7;
+            var x15 = x12.b5;
+            var x16 = x12.b6;
             if ($m_sci_Nil$().a(x15)) {
               var \u03b480$ = $ct_T2__O__O__(new $c_T2(), $m_sci_Nil$(), this$29);
               break matchResult5$1;
@@ -213703,8 +213751,8 @@ $p.tw = (function(ts) {
         }
         matchResult5: {
           var x9 = $ct_T2__O__O__(new $c_T2(), previousValue, nextValue);
-          var x24 = x9.b6;
-          var x25 = x9.b7;
+          var x24 = x9.b5;
+          var x25 = x9.b6;
           if ((($m_s_None$() === x24) && ($m_s_None$() === x25))) {
             break matchResult5;
           }
@@ -214128,8 +214176,8 @@ $p.aT0 = (function(t, mfn, evidence$1) {
       matchResult250: {
         var $x_1;
         var x1397 = $ct_T2__O__O__(new $c_T2(), x$1$2, x$2$2);
-        var x1401 = x1397.b6;
-        var x1402 = x1397.b7;
+        var x1401 = x1397.b5;
+        var x1402 = x1397.b6;
         if (((x1401 instanceof $c_Ldev_bosatsu_rankn_Type$Leaf) || (x1401 instanceof $c_Ldev_bosatsu_rankn_Type$TyApply))) {
           var $x_1 = (((x1401 === x1419) && (x1402 === x1420)) ? ta$1 : new $c_Ldev_bosatsu_rankn_Type$TyApply(x1401, x1402));
           break matchResult250;
@@ -220129,7 +220177,7 @@ function $c_Lio_circe_JsonNumber$() {
   var evidence$1__runtimeClass;
   var evidence$1__runtimeClass = $d_Lio_circe_Json$JNumber.l();
   var componentType = evidence$1__runtimeClass;
-  var array = componentType.b5.U(256);
+  var array = componentType.b7.U(256);
   var i = 0;
   while ((i < 256)) {
     var $x_2 = $m_sr_ScalaRunTime$();
@@ -220749,10 +220797,10 @@ function $m_Lio_circe_parser_package$() {
   return $n_Lio_circe_parser_package$;
 }
 function $p_jl_Class__computeCachedSimpleNameBestEffort__T($thiz) {
-  if ($thiz.b5.Z) {
-    return ($thiz.b5.Q().c3x() + "[]");
+  if ($thiz.b7.Z) {
+    return ($thiz.b7.Q().c3x() + "[]");
   } else {
-    var name = $thiz.b5.N;
+    var name = $thiz.b7.N;
     var idx = ((name.length - 1) | 0);
     while (((idx >= 0) && (name.charCodeAt(idx) === 36))) {
       idx = ((idx - 1) | 0);
@@ -220787,7 +220835,7 @@ function $p_jl_Class__computeCachedSimpleNameBestEffort__T($thiz) {
 /** @constructor */
 function $c_jl_Class($data) {
   this.bgS = null;
-  this.b5 = $data;
+  this.b7 = $data;
 }
 $p = $c_jl_Class.prototype = new $h_O();
 $p.constructor = $c_jl_Class;
@@ -220796,7 +220844,7 @@ function $h_jl_Class() {
 }
 $h_jl_Class.prototype = $p;
 $p.j = (function() {
-  return ((this.b5.Y ? "interface " : (this.b5.X ? "" : "class ")) + this.b5.N);
+  return ((this.b7.Y ? "interface " : (this.b7.X ? "" : "class ")) + this.b7.N);
 });
 $p.c3x = (function() {
   if ((this.bgS === null)) {
@@ -221790,7 +221838,7 @@ $p.P = (function(o) {
   return false;
 });
 $p.c9w = (function(a) {
-  var toFill = ((a.d.length >= this.V()) ? a : $objectGetClass(a).b5.Q().b5.U(this.V()));
+  var toFill = ((a.d.length >= this.V()) ? a : $objectGetClass(a).b7.Q().b7.U(this.V()));
   var iter = this.kS();
   var end = this.V();
   var i = 0;
@@ -222820,7 +222868,7 @@ function $c_Lorg_typelevel_paiges_Doc$() {
   if ((this$8.E() >= 0)) {
     var length = this$8.E();
     var componentType = evidence$1__runtimeClass;
-    var destination = componentType.b5.U(length);
+    var destination = componentType.b7.U(length);
     this$8.cW(destination, 0, 2147483647);
     var $x_1 = destination;
   } else {
@@ -222857,7 +222905,7 @@ function $c_Lorg_typelevel_paiges_Doc$() {
   if ((this$23.E() >= 0)) {
     var length$1 = this$23.E();
     var componentType$1 = evidence$1$1__runtimeClass;
-    var destination$1 = componentType$1.b5.U(length$1);
+    var destination$1 = componentType$1.b7.U(length$1);
     this$23.cW(destination$1, 0, 2147483647);
     var $x_2 = destination$1;
   } else {
@@ -229609,8 +229657,8 @@ $p.bmS = (function(hashKey) {
 $p.c2V = (function(seq, hashKey) {
   return new $c_Lcats_collections_HashMap(seq.dk($m_Lcats_collections_HashMap$Node$().b3F(hashKey), new $c_sjsr_AnonFunction2_$$Lambda$770e9b86e03b055b1d78d82135c9f39ea48d32d7(((x$1, x$2) => {
     var x15 = $ct_T2__O__O__(new $c_T2(), x$1, x$2);
-    var x17 = x15.b7;
-    var node = x15.b6;
+    var x17 = x15.b6;
+    var node = x15.b5;
     if ((x17 !== null)) {
       var k = x17.f();
       var v = x17.g();
@@ -229627,8 +229675,8 @@ $p.c2J = (function(iterable, hashKey) {
     var z = $m_Lcats_collections_HashMap$Node$().b3F(hashKey);
     var f = ((x$1, x$2) => {
       var x20 = $ct_T2__O__O__(new $c_T2(), x$1, x$2);
-      var x22 = x20.b7;
-      var node = x20.b6;
+      var x22 = x20.b6;
+      var node = x20.b5;
       if ((x22 !== null)) {
         var k = x22.f();
         var v = x22.g();
@@ -230949,8 +230997,8 @@ $p.cMO = (function() {
 });
 $p.cgt = (function(f, EE) {
   var x171 = $ct_T2__O__O__(new $c_T2(), this, f);
-  var x190 = x171.b6;
-  var x191 = x171.b7;
+  var x190 = x171.b5;
+  var x191 = x171.b6;
   if ((x190 instanceof $c_Lcats_data_Validated$Valid)) {
     var x197 = x190.cy;
     if ((x191 instanceof $c_Lcats_data_Validated$Valid)) {
@@ -230972,8 +231020,8 @@ $p.cgt = (function(f, EE) {
 });
 $p.c6V = (function(fb, EE) {
   var x198 = $ct_T2__O__O__(new $c_T2(), this, fb);
-  var x217 = x198.b6;
-  var x218 = x198.b7;
+  var x217 = x198.b5;
+  var x218 = x198.b6;
   if ((x217 instanceof $c_Lcats_data_Validated$Valid)) {
     var x224 = x217.cy;
     if ((x218 instanceof $c_Lcats_data_Validated$Valid)) {
@@ -231061,8 +231109,8 @@ $p.l = (function(n) {
 $p.cgu = (function(f, F, L) {
   return new $c_Lcats_data_WriterT(F.cH(f.Ex, this.Ex, new $c_sjsr_AnonFunction2_$$Lambda$770e9b86e03b055b1d78d82135c9f39ea48d32d7(((x$1, x$2) => {
     var x8 = $ct_T2__O__O__(new $c_T2(), x$1, x$2);
-    var x9 = x8.b6;
-    var x10 = x8.b7;
+    var x9 = x8.b5;
+    var x10 = x8.b6;
     if ((x9 !== null)) {
       var l1 = x9.f();
       var fvz = x9.g();
@@ -232368,8 +232416,8 @@ function $s_Lcats_instances_ListInstances__cats$instances$ListInstances$$anon$1$
   var buf$tailLocal2 = buf;
   while (true) {
     var x35 = $ct_T2__O__O__(new $c_T2(), as$tailLocal2, bs$tailLocal1);
-    var x42 = x35.b6;
-    var x43 = x35.b7;
+    var x42 = x35.b5;
+    var x43 = x35.b6;
     if ((x42 instanceof $c_sci_$colon$colon)) {
       var x49 = x42.h;
       var a = x42.F;
@@ -233411,8 +233459,8 @@ $p.cla = (function(xs, ys) {
   if ((xs.V() <= ys.V())) {
     var f = ((x$1, x$2) => {
       var x10 = $ct_T2__O__O__(new $c_T2(), x$1, x$2);
-      var x12 = x10.b7;
-      var my = x10.b6;
+      var x12 = x10.b6;
+      var my = x10.b5;
       if ((x12 !== null)) {
         var k = x12.f();
         var x = x12.g();
@@ -233452,8 +233500,8 @@ $p.cla = (function(xs, ys) {
   } else {
     var f$1 = ((x$1$2, x$2$2) => {
       var x15 = $ct_T2__O__O__(new $c_T2(), x$1$2, x$2$2);
-      var x17 = x15.b7;
-      var mx = x15.b6;
+      var x17 = x15.b6;
+      var mx = x15.b5;
       if ((x17 !== null)) {
         var k$1 = x17.f();
         var y = x17.g();
@@ -244085,53 +244133,53 @@ function $p_Ldev_bosatsu_RingOpt$Stack$$anon$5__loop$10__Ldev_bosatsu_RingOpt$St
   var acc$tailLocal5 = acc;
   var current$tailLocal1 = current;
   while (true) {
-    var x1007 = current$tailLocal1;
-    if (($m_Ldev_bosatsu_RingOpt$Stack$Empty$() === x1007)) {
+    var x1033 = current$tailLocal1;
+    if (($m_Ldev_bosatsu_RingOpt$Stack$Empty$() === x1033)) {
       return acc$tailLocal5;
     }
-    if ((x1007 instanceof $c_Ldev_bosatsu_RingOpt$Stack$Push)) {
-      var x1014 = x1007.CT;
-      var x1015 = x1007.CU;
-      matchResult138: {
+    if ((x1033 instanceof $c_Ldev_bosatsu_RingOpt$Stack$Push)) {
+      var x1040 = x1033.CT;
+      var x1041 = x1033.CU;
+      matchResult142: {
         var leafHash;
         matchAlts25: {
           matchAlts26: {
-            if (($m_Ldev_bosatsu_RingOpt$Zero$() === x1014)) {
+            if (($m_Ldev_bosatsu_RingOpt$Zero$() === x1040)) {
               break matchAlts26;
             }
-            if (($m_Ldev_bosatsu_RingOpt$One$() === x1014)) {
+            if (($m_Ldev_bosatsu_RingOpt$One$() === x1040)) {
               break matchAlts26;
             }
             break matchAlts25;
           }
-          var leafHash = x1014.o();
-          break matchResult138;
+          var leafHash = x1040.o();
+          break matchResult142;
         }
-        if ((x1014 instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
-          var leafHash = x1014.gQ.o();
-          break matchResult138;
+        if ((x1040 instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
+          var leafHash = x1040.gQ.o();
+          break matchResult142;
         }
-        if ((x1014 instanceof $c_Ldev_bosatsu_RingOpt$Symbol)) {
-          var x1003 = x1014.Mf;
-          var leafHash = $thiz.bcV.hE(x1003);
-          break matchResult138;
+        if ((x1040 instanceof $c_Ldev_bosatsu_RingOpt$Symbol)) {
+          var x1029 = x1040.Mf;
+          var leafHash = $thiz.bcV.hE(x1029);
+          break matchResult142;
         }
-        throw new $c_s_MatchError(x1014);
+        throw new $c_s_MatchError(x1040);
       }
       var acc$tailLocal5$tmp1 = ((Math.imul(31, acc$tailLocal5) + leafHash) | 0);
-      current$tailLocal1 = x1015;
+      current$tailLocal1 = x1041;
       acc$tailLocal5 = acc$tailLocal5$tmp1;
       continue;
     }
-    if ((x1007 instanceof $c_Ldev_bosatsu_RingOpt$Stack$Operate)) {
-      var x1010 = x1007.CS;
-      var x1011 = x1007.CR;
-      var acc$tailLocal5$tmp2 = ((Math.imul(31, acc$tailLocal5) + x1010.o()) | 0);
-      current$tailLocal1 = x1011;
+    if ((x1033 instanceof $c_Ldev_bosatsu_RingOpt$Stack$Operate)) {
+      var x1036 = x1033.CS;
+      var x1037 = x1033.CR;
+      var acc$tailLocal5$tmp2 = ((Math.imul(31, acc$tailLocal5) + x1036.o()) | 0);
+      current$tailLocal1 = x1037;
       acc$tailLocal5 = acc$tailLocal5$tmp2;
       continue;
     }
-    throw new $c_s_MatchError(x1007);
+    throw new $c_s_MatchError(x1033);
   }
 }
 /** @constructor */
@@ -244160,14 +244208,14 @@ $p.cpC = (function(left, right) {
       return true;
     }
     if ((_1 instanceof $c_Ldev_bosatsu_RingOpt$Stack$Push)) {
-      var x1035 = _1.CT;
-      var x1036 = _1.CU;
+      var x1061 = _1.CT;
+      var x1062 = _1.CU;
       if ((_2 instanceof $c_Ldev_bosatsu_RingOpt$Stack$Push)) {
-        var x1031 = _2.CT;
-        var x1032 = _2.CU;
-        if (new $c_Lcats_syntax_EqOps(x1035, $p_Ldev_bosatsu_RingOpt$Stack$$anon$5__given_Eq_Leaf__Lcats_kernel_Eq(this)).gI(x1031)) {
-          left$tailLocal2 = x1036;
-          right$tailLocal2 = x1032;
+        var x1057 = _2.CT;
+        var x1058 = _2.CU;
+        if (new $c_Lcats_syntax_EqOps(x1061, $p_Ldev_bosatsu_RingOpt$Stack$$anon$5__given_Eq_Leaf__Lcats_kernel_Eq(this)).gI(x1057)) {
+          left$tailLocal2 = x1062;
+          right$tailLocal2 = x1058;
           continue;
         } else {
           return false;
@@ -244175,14 +244223,14 @@ $p.cpC = (function(left, right) {
       }
     }
     if ((_1 instanceof $c_Ldev_bosatsu_RingOpt$Stack$Operate)) {
-      var x1025 = _1.CS;
-      var x1026 = _1.CR;
+      var x1051 = _1.CS;
+      var x1052 = _1.CR;
       if ((_2 instanceof $c_Ldev_bosatsu_RingOpt$Stack$Operate)) {
-        var x1021 = _2.CS;
-        var x1022 = _2.CR;
-        if (((x1025 === null) ? (x1021 === null) : (x1025 === x1021))) {
-          left$tailLocal2 = x1026;
-          right$tailLocal2 = x1022;
+        var x1047 = _2.CS;
+        var x1048 = _2.CR;
+        if (((x1051 === null) ? (x1047 === null) : (x1051 === x1047))) {
+          left$tailLocal2 = x1052;
+          right$tailLocal2 = x1048;
           continue;
         } else {
           return false;
@@ -244380,15 +244428,15 @@ $p.cL5 = (function(h) {
       var x1 = this$4.eA();
       var mts = x1.f();
       var f = ((mts) => ((x$1$2, x$2$2) => {
-        var x1396 = x$1$2.R(x$2$2);
-        if ((x1396 instanceof $c_s_Some)) {
-          var existing = x1396.p;
+        var x1422 = x$1$2.R(x$2$2);
+        if ((x1422 instanceof $c_s_Some)) {
+          var existing = x1422.p;
           return x$1$2.aSQ(x$2$2, existing.jl(mts));
         }
-        if (($m_s_None$() === x1396)) {
+        if (($m_s_None$() === x1422)) {
           return x$1$2.aSQ(x$2$2, ($m_Lcats_data_NonEmptyList$(), new $c_Lcats_data_NonEmptyList(mts, $m_sci_Nil$())));
         }
-        throw new $c_s_MatchError(x1396);
+        throw new $c_s_MatchError(x1422);
       }))(mts);
       var this$9 = mts.t;
       var x1$1 = mts.s;
@@ -244458,9 +244506,9 @@ $p.cL5 = (function(h) {
       if ($m_sci_Nil$().a(divTermsCombine)) {
         var $x_1 = new $c_Ldev_bosatsu_RingOpt$SumProd(divConst, divTermsList0, this.pC);
       } else {
-        var x1493 = $m_Ldev_bosatsu_RingOpt$SumProd$().bY3(divTermsCombine, h, this.pC);
-        var \u03b459$___1 = x1493.yp;
-        var \u03b459$___2 = x1493.v6;
+        var x1519 = $m_Ldev_bosatsu_RingOpt$SumProd$().bY3(divTermsCombine, h, this.pC);
+        var \u03b459$___1 = x1519.yp;
+        var \u03b459$___2 = x1519.v6;
         var cAdd$2 = \u03b459$___1;
         var tAdd$2 = \u03b459$___2;
         var $x_1 = new $c_Ldev_bosatsu_RingOpt$SumProd(divConst.hQ(cAdd$2), $f_Ldev_bosatsu_RingOpt$MultiSet__$plus$plus__Ldev_bosatsu_RingOpt$MultiSet__Ldev_bosatsu_RingOpt$MultiSet(divTermsList0, tAdd$2), this.pC);
@@ -244540,33 +244588,33 @@ $p.cL5 = (function(h) {
   }
 });
 $p.b5y = (function(w, h) {
-  var x1599 = this.cMT();
-  if ((x1599 instanceof $c_s_Some)) {
-    return $m_Ldev_bosatsu_RingOpt$().aQ6(x1599.p, w, h, this.pC);
+  var x1625 = this.cMT();
+  if ((x1625 instanceof $c_s_Some)) {
+    return $m_Ldev_bosatsu_RingOpt$().aQ6(x1625.p, w, h, this.pC);
   }
-  if (($m_s_None$() === x1599)) {
+  if (($m_s_None$() === x1625)) {
     var this$8 = this.cL5(h);
     var f = ((x$1$2) => {
-      var x1535 = x$1$2.a0;
-      var x1536 = x$1$2.a6;
-      var x1537 = x$1$2.aa;
-      if ((x1535 instanceof $c_s_util_Right)) {
-        var mt = x1535.K;
+      var x1561 = x$1$2.a0;
+      var x1562 = x$1$2.a6;
+      var x1563 = x$1$2.aa;
+      if ((x1561 instanceof $c_s_util_Right)) {
+        var mt = x1561.K;
         var $x_2 = $m_Ldev_bosatsu_RingOpt$Expr$();
-        var $x_1 = $m_Ldev_bosatsu_RingOpt$Expr$().Kk(mt.xO(), x1536.ajH);
+        var $x_1 = $m_Ldev_bosatsu_RingOpt$Expr$().Kk(mt.xO(), x1562.ajH);
         var this$2 = $m_sci_Nil$();
-        var e1 = $x_2.UM(new $c_sci_$colon$colon($x_1, new $c_sci_$colon$colon(x1537.ajH, this$2)), this.pC);
+        var e1 = $x_2.UM(new $c_sci_$colon$colon($x_1, new $c_sci_$colon$colon(x1563.ajH, this$2)), this.pC);
         var $x_3 = w.tr(e1);
-        return new $c_T5(x1535, x1536, x1537, e1, $x_3);
+        return new $c_T5(x1561, x1562, x1563, e1, $x_3);
       }
-      if ((x1535 instanceof $c_s_util_Left)) {
-        var bi = x1535.X;
+      if ((x1561 instanceof $c_s_util_Left)) {
+        var bi = x1561.X;
         var $x_5 = $m_Ldev_bosatsu_RingOpt$Expr$();
-        var $x_4 = $f_Ldev_bosatsu_RingOpt$Expr__bestEffortConstMult__s_math_BigInt__Ldev_bosatsu_RingOpt$Expr(x1536.ajH, bi);
+        var $x_4 = $f_Ldev_bosatsu_RingOpt$Expr__bestEffortConstMult__s_math_BigInt__Ldev_bosatsu_RingOpt$Expr(x1562.ajH, bi);
         var this$5 = $m_sci_Nil$();
-        var e1$2 = $x_5.UM(new $c_sci_$colon$colon($x_4, new $c_sci_$colon$colon(x1537.ajH, this$5)), this.pC);
+        var e1$2 = $x_5.UM(new $c_sci_$colon$colon($x_4, new $c_sci_$colon$colon(x1563.ajH, this$5)), this.pC);
         var $x_6 = w.tr(e1$2);
-        return new $c_T5(x1535, x1536, x1537, e1$2, $x_6);
+        return new $c_T5(x1561, x1562, x1563, e1$2, $x_6);
       }
       throw new $c_s_MatchError(x$1$2);
     });
@@ -244837,7 +244885,7 @@ $p.b5y = (function(w, h) {
       throw new $c_s_MatchError(e$1);
     }
   }
-  throw new $c_s_MatchError(x1599);
+  throw new $c_s_MatchError(x1625);
 });
 function $isArrayOf_Ldev_bosatsu_RingOpt$SumProd(obj, depth) {
   return (!(!(((obj && obj.$classData) && (obj.$classData.D === depth)) && obj.$classData.B.n.xL)));
@@ -244994,18 +245042,18 @@ $p.b37 = (function(expr, const$1, evidence$1) {
         if (($m_sr_BoxesRunTime$().bd(const$1, (-1)) && (this.a8h <= this.a8g))) {
           var $x_1 = $f_Ldev_bosatsu_RingOpt$Expr__normalizeNeg__Ldev_bosatsu_RingOpt$Expr(expr);
         } else {
-          matchResult173: {
+          matchResult177: {
             var $x_1;
-            var x1194 = expr.ux();
-            if ((x1194 instanceof $c_s_Some)) {
-              var $x_1 = $m_Ldev_bosatsu_RingOpt$Expr$().au9(new $c_sci_$colon$colon(x1194.p, new $c_sci_$colon$colon(new $c_Ldev_bosatsu_RingOpt$Integer(const$1.e9()), $m_sci_Nil$())), evidence$1);
-              break matchResult173;
+            var x1220 = expr.ux();
+            if ((x1220 instanceof $c_s_Some)) {
+              var $x_1 = $m_Ldev_bosatsu_RingOpt$Expr$().au9(new $c_sci_$colon$colon(x1220.p, new $c_sci_$colon$colon(new $c_Ldev_bosatsu_RingOpt$Integer(const$1.e9()), $m_sci_Nil$())), evidence$1);
+              break matchResult177;
             }
-            if (($m_s_None$() === x1194)) {
+            if (($m_s_None$() === x1220)) {
               var $x_1 = $m_Ldev_bosatsu_RingOpt$Expr$().au9(new $c_sci_$colon$colon(expr, new $c_sci_$colon$colon(new $c_Ldev_bosatsu_RingOpt$Integer(const$1), $m_sci_Nil$())), evidence$1);
-              break matchResult173;
+              break matchResult177;
             }
-            throw new $c_s_MatchError(x1194);
+            throw new $c_s_MatchError(x1220);
           }
         }
       } else {
@@ -251791,7 +251839,7 @@ function $p_Ldev_bosatsu_ValueToJson__run$1__sci_List__Ldev_bosatsu_rankn_Type__
             if ((vs$proxy3.an() >= 0)) {
               var length = vs$proxy3.an();
               var componentType = evidence$1__runtimeClass;
-              var destination = componentType.b5.U(length);
+              var destination = componentType.b7.U(length);
               $f_sc_IterableOnceOps__copyToArray__O__I__I__I(vs$proxy3, destination, 0, 2147483647);
               var $x_1 = destination;
             } else {
@@ -252073,7 +252121,7 @@ function $p_Ldev_bosatsu_ValueToJson__loop$3__scm_Map__Ldev_bosatsu_rankn_Type__
                     if ((vs$proxy1.E() >= 0)) {
                       var length = vs$proxy1.E();
                       var componentType = evidence$1__runtimeClass;
-                      var destination = componentType.b5.U(length);
+                      var destination = componentType.b7.U(length);
                       vs$proxy1.cW(destination, 0, 2147483647);
                       var $x_2 = destination;
                     } else {
@@ -252198,7 +252246,7 @@ function $p_Ldev_bosatsu_ValueToJson__loop$3__scm_Map__Ldev_bosatsu_rankn_Type__
                   if ((vs$proxy2.an() >= 0)) {
                     var length$1 = vs$proxy2.an();
                     var componentType$1 = evidence$1$1__runtimeClass;
-                    var destination$1 = componentType$1.b5.U(length$1);
+                    var destination$1 = componentType$1.b7.U(length$1);
                     $f_sc_IterableOnceOps__copyToArray__O__I__I__I(vs$proxy2, destination$1, 0, 2147483647);
                     var $x_4 = destination$1;
                   } else {
@@ -252255,7 +252303,7 @@ function $p_Ldev_bosatsu_ValueToJson__loop$3__scm_Map__Ldev_bosatsu_rankn_Type__
                   if ((b$16.E() >= 0)) {
                     var length$2 = b$16.E();
                     var componentType$2 = evidence$1$2__runtimeClass;
-                    var destination$2 = componentType$2.b5.U(length$2);
+                    var destination$2 = componentType$2.b7.U(length$2);
                     b$16.q().cW(destination$2, 0, 2147483647);
                     var $x_5 = destination$2;
                   } else {
@@ -257247,8 +257295,8 @@ $p.cOA = (function(previous) {
   matchResult7: {
     var matchesPrev;
     var x16 = $ct_T2__O__O__(new $c_T2(), previous, this.J1);
-    var x31 = x16.b6;
-    var x32 = x16.b7;
+    var x31 = x16.b5;
+    var x32 = x16.b6;
     if ((($m_s_None$() === x31) && ($m_s_None$() === x32))) {
       $m_Lcats_data_Validated$();
       var matchesPrev = $m_Lcats_data_Validated$().lA;
@@ -272814,9 +272862,9 @@ function $ps_Lorg_log4s_log4sjs_StandardMessageFormatter__mdcPart$1__Lorg_log4s_
 function $ps_Lorg_log4s_log4sjs_StandardMessageFormatter__buildMDC$2__sci_Map__T(mdc) {
   return $f_sc_IterableOnceOps__mkString__T__T__T__T($f_sc_IterableOnceOps__foldRight__O__F2__O(mdc, $m_sci_Nil$(), new $c_sjsr_AnonFunction2_$$Lambda$770e9b86e03b055b1d78d82135c9f39ea48d32d7(((x$1, x$2) => {
     var x8 = $ct_T2__O__O__(new $c_T2(), x$1, x$2);
-    var x9 = x8.b6;
+    var x9 = x8.b5;
     if ((x9 !== null)) {
-      return new $c_sci_$colon$colon(", ", new $c_sci_$colon$colon(x9.f(), new $c_sci_$colon$colon("=", new $c_sci_$colon$colon(x9.g(), x8.b7))));
+      return new $c_sci_$colon$colon(", ", new $c_sci_$colon$colon(x9.f(), new $c_sci_$colon$colon("=", new $c_sci_$colon$colon(x9.g(), x8.b6))));
     }
     throw new $c_s_MatchError(x8);
   }))).c(), " {", "", "}");
@@ -273596,8 +273644,8 @@ function $ps_Lorg_typelevel_paiges_Doc__finish$1__T2__sci_List__T2(last, front) 
     var x1 = these.e();
     matchResult11$1: {
       var x202 = $ct_T2__O__O__(new $c_T2(), x0, x1);
-      var x203 = x202.b6;
-      var x204 = x202.b7;
+      var x203 = x202.b5;
+      var x204 = x202.b6;
       if ((x203 !== null)) {
         var d1 = x203.f();
         var c1 = (!(!x203.g()));
@@ -285682,8 +285730,8 @@ $p.bZg = (function(left, right) {
     return 0;
   } else {
     var x58 = $ct_T2__O__O__(new $c_T2(), left, right);
-    var x283 = x58.b6;
-    var x284 = x58.b7;
+    var x283 = x58.b5;
+    var x284 = x58.b6;
     if ((x283 instanceof $c_Lcats_parse_Parser$Expectation$OneOfStr)) {
       var x292 = x283.Cs;
       if ((x284 instanceof $c_Lcats_parse_Parser$Expectation$OneOfStr)) {
@@ -286786,7 +286834,7 @@ function $c_Lcats_parse_Parser$Impl$OneOf0(all) {
   if ((all.an() >= 0)) {
     var length = all.an();
     var componentType = evidence$1__runtimeClass;
-    var destination = componentType.b5.U(length);
+    var destination = componentType.b7.U(length);
     $f_sc_IterableOnceOps__copyToArray__O__I__I__I(all, destination, 0, 2147483647);
     var $x_1 = destination;
   } else {
@@ -292125,8 +292173,8 @@ $p.l = (function(n) {
 });
 $p.wl = (function(name) {
   var x236 = $ct_T2__O__O__(new $c_T2(), this.QK.wl(name), this.QL.wl(name));
-  var x265 = x236.b6;
-  var x266 = x236.b7;
+  var x265 = x236.b5;
+  var x266 = x236.b6;
   if ((x265 instanceof $c_s_Some)) {
     var x273 = x265.p;
     if ((x273 instanceof $c_Lcom_monovore_decline_Parser$MatchFlag)) {
@@ -292169,8 +292217,8 @@ $p.xE = (function(arg) {
 });
 $p.zu = (function(command) {
   var x292 = $ct_T2__O__O__(new $c_T2(), this.QK.zu(command), this.QL.zu(command));
-  var x303 = x292.b6;
-  var x304 = x292.b7;
+  var x303 = x292.b5;
+  var x304 = x292.b6;
   if ((($m_s_None$() === x303) && ($m_s_None$() === x304))) {
     return $m_s_None$();
   }
@@ -292185,8 +292233,8 @@ $p.zu = (function(command) {
     if ((x304 instanceof $c_s_Some)) {
       return new $c_s_Some(new $c_sjsr_AnonFunction1_$$Lambda$412915ce24663401f4bc24349a746e1dbd693dc1(((r$2) => ((args) => {
         var x277 = $ct_T2__O__O__(new $c_T2(), l$2.k(args), r$2.k(args));
-        var x288 = x277.b6;
-        var x289 = x277.b7;
+        var x288 = x277.b5;
+        var x289 = x277.b6;
         if ((x288 instanceof $c_s_util_Left)) {
           return x288;
         }
@@ -296565,8 +296613,8 @@ $p.bZh = (function(left, right) {
   var left$tailLocal3 = left;
   while (true) {
     var x193 = $ct_T2__O__O__(new $c_T2(), left$tailLocal3, right$tailLocal3);
-    var x212 = x193.b6;
-    var x213 = x193.b7;
+    var x212 = x193.b5;
+    var x213 = x193.b6;
     if (($m_Ldev_bosatsu_Kind$Type$() === x212)) {
       if (($m_Ldev_bosatsu_Kind$Type$() === x213)) {
         return 0;
@@ -312925,106 +312973,106 @@ $p.clI = (function(a, b) {
   var b$tailLocal1 = b;
   var a$tailLocal1 = a;
   while (true) {
-    var x1075 = a$tailLocal1;
-    if (($m_Ldev_bosatsu_RingOpt$Stack$Empty$() === x1075)) {
+    var x1101 = a$tailLocal1;
+    if (($m_Ldev_bosatsu_RingOpt$Stack$Empty$() === x1101)) {
       return (($m_Ldev_bosatsu_RingOpt$Stack$Empty$() === b$tailLocal1) ? 0 : (-1));
     }
-    if ((x1075 instanceof $c_Ldev_bosatsu_RingOpt$Stack$Push)) {
-      var x1082 = x1075.CT;
-      var x1083 = x1075.CU;
-      var x1057 = b$tailLocal1;
-      if ((x1057 instanceof $c_Ldev_bosatsu_RingOpt$Stack$Push)) {
-        var x1064 = x1057.CT;
-        var x1065 = x1057.CU;
-        matchResult146: {
+    if ((x1101 instanceof $c_Ldev_bosatsu_RingOpt$Stack$Push)) {
+      var x1108 = x1101.CT;
+      var x1109 = x1101.CU;
+      var x1083 = b$tailLocal1;
+      if ((x1083 instanceof $c_Ldev_bosatsu_RingOpt$Stack$Push)) {
+        var x1090 = x1083.CT;
+        var x1091 = x1083.CU;
+        matchResult150: {
           var c0;
-          if (($m_Ldev_bosatsu_RingOpt$Zero$() === x1082)) {
-            var c0 = (($m_Ldev_bosatsu_RingOpt$Zero$() === x1064) ? 0 : (-1));
-            break matchResult146;
+          if (($m_Ldev_bosatsu_RingOpt$Zero$() === x1108)) {
+            var c0 = (($m_Ldev_bosatsu_RingOpt$Zero$() === x1090) ? 0 : (-1));
+            break matchResult150;
           }
-          if (($m_Ldev_bosatsu_RingOpt$One$() === x1082)) {
-            var c0 = (($m_Ldev_bosatsu_RingOpt$Zero$() === x1064) ? 1 : (($m_Ldev_bosatsu_RingOpt$One$() === x1064) ? 0 : (-1)));
-            break matchResult146;
+          if (($m_Ldev_bosatsu_RingOpt$One$() === x1108)) {
+            var c0 = (($m_Ldev_bosatsu_RingOpt$Zero$() === x1090) ? 1 : (($m_Ldev_bosatsu_RingOpt$One$() === x1090) ? 0 : (-1)));
+            break matchResult150;
           }
-          if ((x1082 instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
-            var x1056 = x1082.gQ;
+          if ((x1108 instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
+            var x1082 = x1108.gQ;
             matchAlts27: {
               matchAlts28: {
-                if (($m_Ldev_bosatsu_RingOpt$Zero$() === x1064)) {
+                if (($m_Ldev_bosatsu_RingOpt$Zero$() === x1090)) {
                   break matchAlts28;
                 }
-                if (($m_Ldev_bosatsu_RingOpt$One$() === x1064)) {
+                if (($m_Ldev_bosatsu_RingOpt$One$() === x1090)) {
                   break matchAlts28;
                 }
                 break matchAlts27;
               }
               var c0 = 1;
-              break matchResult146;
+              break matchResult150;
             }
-            if ((x1064 instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
-              var x1045 = x1064.gQ;
-              var c0 = x1056.a2O(x1045);
-              break matchResult146;
+            if ((x1090 instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
+              var x1071 = x1090.gQ;
+              var c0 = x1082.a2O(x1071);
+              break matchResult150;
             }
             var c0 = (-1);
-            break matchResult146;
+            break matchResult150;
           }
-          if ((x1082 instanceof $c_Ldev_bosatsu_RingOpt$Symbol)) {
-            var x1053 = x1082.Mf;
-            if ((x1064 instanceof $c_Ldev_bosatsu_RingOpt$Symbol)) {
-              var x1049 = x1064.Mf;
-              var c0 = ($m_Lcats_package$(), this.bDM).ar(x1053, x1049);
-              break matchResult146;
+          if ((x1108 instanceof $c_Ldev_bosatsu_RingOpt$Symbol)) {
+            var x1079 = x1108.Mf;
+            if ((x1090 instanceof $c_Ldev_bosatsu_RingOpt$Symbol)) {
+              var x1075 = x1090.Mf;
+              var c0 = ($m_Lcats_package$(), this.bDM).ar(x1079, x1075);
+              break matchResult150;
             } else {
               var c0 = 1;
-              break matchResult146;
+              break matchResult150;
             }
           }
-          throw new $c_s_MatchError(x1082);
+          throw new $c_s_MatchError(x1108);
         }
         if ((c0 === 0)) {
-          a$tailLocal1 = x1083;
-          b$tailLocal1 = x1065;
+          a$tailLocal1 = x1109;
+          b$tailLocal1 = x1091;
           continue;
         } else {
           return c0;
         }
       }
-      if (($m_Ldev_bosatsu_RingOpt$Stack$Empty$() === x1057)) {
+      if (($m_Ldev_bosatsu_RingOpt$Stack$Empty$() === x1083)) {
         return 1;
       }
-      if ((x1057 instanceof $c_Ldev_bosatsu_RingOpt$Stack$Operate)) {
+      if ((x1083 instanceof $c_Ldev_bosatsu_RingOpt$Stack$Operate)) {
         return (-1);
       }
-      throw new $c_s_MatchError(x1057);
+      throw new $c_s_MatchError(x1083);
     }
-    if ((x1075 instanceof $c_Ldev_bosatsu_RingOpt$Stack$Operate)) {
-      var x1078 = x1075.CS;
-      var x1079 = x1075.CR;
-      var x1066 = b$tailLocal1;
-      if ((x1066 instanceof $c_Ldev_bosatsu_RingOpt$Stack$Operate)) {
-        var x1073 = x1066.CS;
-        var x1074 = x1066.CR;
-        var x$1 = x1078.ajG;
-        var y = x1073.ajG;
+    if ((x1101 instanceof $c_Ldev_bosatsu_RingOpt$Stack$Operate)) {
+      var x1104 = x1101.CS;
+      var x1105 = x1101.CR;
+      var x1092 = b$tailLocal1;
+      if ((x1092 instanceof $c_Ldev_bosatsu_RingOpt$Stack$Operate)) {
+        var x1099 = x1092.CS;
+        var x1100 = x1092.CR;
+        var x$1 = x1104.ajG;
+        var y = x1099.ajG;
         var c0$2 = ((((x$1 > y) | 0) - ((x$1 < y) | 0)) | 0);
         if ((c0$2 === 0)) {
-          a$tailLocal1 = x1079;
-          b$tailLocal1 = x1074;
+          a$tailLocal1 = x1105;
+          b$tailLocal1 = x1100;
           continue;
         } else {
           return c0$2;
         }
       }
-      if (($m_Ldev_bosatsu_RingOpt$Stack$Empty$() === x1066)) {
+      if (($m_Ldev_bosatsu_RingOpt$Stack$Empty$() === x1092)) {
         return 1;
       }
-      if ((x1066 instanceof $c_Ldev_bosatsu_RingOpt$Stack$Push)) {
+      if ((x1092 instanceof $c_Ldev_bosatsu_RingOpt$Stack$Push)) {
         return 1;
       }
-      throw new $c_s_MatchError(x1066);
+      throw new $c_s_MatchError(x1092);
     }
-    throw new $c_s_MatchError(x1075);
+    throw new $c_s_MatchError(x1101);
   }
 });
 $p.ar = (function(x, y) {
@@ -313175,18 +313223,18 @@ function $h_Ldev_bosatsu_RingOpt$SumProd$$anon$10() {
 }
 $h_Ldev_bosatsu_RingOpt$SumProd$$anon$10.prototype = $p;
 $p.ay = (function(x) {
-  var x1437 = x.f();
+  var x1463 = x.f();
   x.g();
-  if ((x1437 instanceof $c_s_Some)) {
-    var x1440 = x1437.p;
+  if ((x1463 instanceof $c_s_Some)) {
+    var x1466 = x1463.p;
     $m_Lcats_data_NonEmptyList$();
-    var x1442 = x1440.s;
-    var x1443 = x1440.t;
-    if ((x1442 instanceof $c_Ldev_bosatsu_RingOpt$Symbol)) {
+    var x1468 = x1466.s;
+    var x1469 = x1466.t;
+    if ((x1468 instanceof $c_Ldev_bosatsu_RingOpt$Symbol)) {
       return true;
     }
-    if ((x1442 instanceof $c_Ldev_bosatsu_RingOpt$Add)) {
-      if ((!x1443.b())) {
+    if ((x1468 instanceof $c_Ldev_bosatsu_RingOpt$Add)) {
+      if ((!x1469.b())) {
         return true;
       }
     }
@@ -313194,19 +313242,19 @@ $p.ay = (function(x) {
   return false;
 });
 $p.az = (function(x, default$1) {
-  var x1459 = x.f();
-  var x1460 = x.g();
-  if ((x1459 instanceof $c_s_Some)) {
-    var x1462 = x1459.p;
+  var x1485 = x.f();
+  var x1486 = x.g();
+  if ((x1485 instanceof $c_s_Some)) {
+    var x1488 = x1485.p;
     $m_Lcats_data_NonEmptyList$();
-    var x1464 = x1462.s;
-    var x1465 = x1462.t;
-    if ((x1464 instanceof $c_Ldev_bosatsu_RingOpt$Symbol)) {
-      return $ct_T2__O__O__(new $c_T2(), x1462, x1460);
+    var x1490 = x1488.s;
+    var x1491 = x1488.t;
+    if ((x1490 instanceof $c_Ldev_bosatsu_RingOpt$Symbol)) {
+      return $ct_T2__O__O__(new $c_T2(), x1488, x1486);
     }
-    if ((x1464 instanceof $c_Ldev_bosatsu_RingOpt$Add)) {
-      if ((!x1465.b())) {
-        return $ct_T2__O__O__(new $c_T2(), x1462, x1460);
+    if ((x1490 instanceof $c_Ldev_bosatsu_RingOpt$Add)) {
+      if ((!x1491.b())) {
+        return $ct_T2__O__O__(new $c_T2(), x1488, x1486);
       }
     }
   }
@@ -313235,14 +313283,14 @@ function $h_Ldev_bosatsu_RingOpt$SumProd$$anon$11() {
 }
 $h_Ldev_bosatsu_RingOpt$SumProd$$anon$11.prototype = $p;
 $p.ay = (function(x) {
-  var x1470 = x.f();
-  if ((x1470 instanceof $c_s_Some)) {
+  var x1496 = x.f();
+  if ((x1496 instanceof $c_s_Some)) {
     $m_Lcats_data_NonEmptyList$();
-    var x$1 = x1470.p;
-    var x1475 = x$1.s;
-    var x1476 = x$1.t;
-    if ((x1475 instanceof $c_Ldev_bosatsu_RingOpt$Add)) {
-      if ($m_sci_Nil$().a(x1476)) {
+    var x$1 = x1496.p;
+    var x1501 = x$1.s;
+    var x1502 = x$1.t;
+    if ((x1501 instanceof $c_Ldev_bosatsu_RingOpt$Add)) {
+      if ($m_sci_Nil$().a(x1502)) {
         x.g();
         return true;
       }
@@ -313251,15 +313299,15 @@ $p.ay = (function(x) {
   return false;
 });
 $p.az = (function(x, default$1) {
-  var x1482 = x.f();
-  if ((x1482 instanceof $c_s_Some)) {
+  var x1508 = x.f();
+  if ((x1508 instanceof $c_s_Some)) {
     $m_Lcats_data_NonEmptyList$();
-    var x$1 = x1482.p;
-    var x1487 = x$1.s;
-    var x1488 = x$1.t;
-    if ((x1487 instanceof $c_Ldev_bosatsu_RingOpt$Add)) {
-      if ($m_sci_Nil$().a(x1488)) {
-        return new $c_Ldev_bosatsu_RingOpt$Mult(x1487, new $c_Ldev_bosatsu_RingOpt$Integer(x.g()));
+    var x$1 = x1508.p;
+    var x1513 = x$1.s;
+    var x1514 = x$1.t;
+    if ((x1513 instanceof $c_Ldev_bosatsu_RingOpt$Add)) {
+      if ($m_sci_Nil$().a(x1514)) {
+        return new $c_Ldev_bosatsu_RingOpt$Mult(x1513, new $c_Ldev_bosatsu_RingOpt$Integer(x.g()));
       }
     }
   }
@@ -320319,8 +320367,8 @@ $p.al = (function() {
 });
 $p.clJ = (function(a, b) {
   var x729 = $ct_T2__O__O__(new $c_T2(), a, b);
-  var x772 = x729.b6;
-  var x773 = x729.b7;
+  var x772 = x729.b5;
+  var x773 = x729.b6;
   if ((x772 instanceof $c_Ldev_bosatsu_TypedExpr$Quantification$ForAll)) {
     var x779 = x772.rx;
     if ((x773 instanceof $c_Ldev_bosatsu_TypedExpr$Quantification$ForAll)) {
@@ -335977,8 +336025,8 @@ $p.al = (function() {
 });
 $p.clQ = (function(a, b) {
   var x214 = $ct_T2__O__O__(new $c_T2(), a, b);
-  var x231 = x214.b6;
-  var x232 = x214.b7;
+  var x231 = x214.b5;
+  var x232 = x214.b6;
   if ((x231 instanceof $c_Ldev_bosatsu_rankn_Type$Rho)) {
     if ((x232 instanceof $c_Ldev_bosatsu_rankn_Type$Rho)) {
       return $m_Ldev_bosatsu_rankn_Type$Rho$().aGM.ar(x231, x232);
@@ -336704,8 +336752,8 @@ $p.clT = (function(a, b) {
   var a$tailLocal1 = a;
   while (true) {
     var x5 = $ct_T2__O__O__(new $c_T2(), a$tailLocal1, b$tailLocal1);
-    var x105 = x5.b6;
-    var x106 = x5.b7;
+    var x105 = x5.b5;
+    var x106 = x5.b6;
     if ((x105 instanceof $c_Ldev_bosatsu_rankn_Type$TyConst)) {
       var x112 = x105.ct;
       if ((x106 instanceof $c_Ldev_bosatsu_rankn_Type$TyConst)) {
@@ -343252,7 +343300,7 @@ $p.aQH = (function(i) {
       var $x_1 = i.cQC();
     } else if ((i instanceof $c_scm_ArraySeq)) {
       var arr = i.Bw();
-      var $x_1 = $m_Lfs2_Chunk$().bYb(arr, $m_s_reflect_ClassTag$().a2D($objectGetClass(arr).b5.Q()));
+      var $x_1 = $m_Lfs2_Chunk$().bYb(arr, $m_s_reflect_ClassTag$().a2D($objectGetClass(arr).b7.Q()));
     } else if ((i instanceof $c_sci_List)) {
       if (i.b()) {
         var $x_1 = $m_Lfs2_Chunk$().Da;
@@ -347436,7 +347484,7 @@ function $p_s_MatchError__objString__T($thiz) {
     } else {
       var this$1 = $thiz.b0A;
       var cls = $objectGetClass(this$1);
-      var ofClass = ((cls === null) ? "of a JS class" : ("of class " + cls.b5.N));
+      var ofClass = ((cls === null) ? "of a JS class" : ("of class " + cls.b7.N));
       try {
         var $x_1 = (((String($thiz.b0A) + " (") + ofClass) + ")");
       } catch (e) {
@@ -348302,14 +348350,14 @@ var $d_T19 = new $TypeData().i($c_T19, "scala.Tuple19", ({
   a: 1
 }));
 function $ct_T2__O__O__($thiz, _1, _2) {
-  $thiz.b6 = _1;
-  $thiz.b7 = _2;
+  $thiz.b5 = _1;
+  $thiz.b6 = _2;
   return $thiz;
 }
 /** @constructor */
 function $c_T2() {
+  this.b5 = null;
   this.b6 = null;
-  this.b7 = null;
 }
 $p = $c_T2.prototype = new $h_O();
 $p.constructor = $c_T2;
@@ -348324,10 +348372,10 @@ $p.l = (function(n) {
   return $f_s_Product2__productElement__I__O(this, n);
 });
 $p.f = (function() {
-  return this.b6;
+  return this.b5;
 });
 $p.g = (function() {
-  return this.b7;
+  return this.b6;
 });
 $p.j = (function() {
   return (((("(" + String(this.f())) + ",") + String(this.g())) + ")");
@@ -354178,7 +354226,7 @@ function $f_s_reflect_ClassTag__equals__O__Z($thiz, x) {
   }
 }
 function $p_s_reflect_ClassTag__prettyprint$1__jl_Class__T($thiz, clazz) {
-  return (clazz.b5.Z ? (("Array[" + $p_s_reflect_ClassTag__prettyprint$1__jl_Class__T($thiz, clazz.b5.Q())) + "]") : clazz.b5.N);
+  return (clazz.b7.Z ? (("Array[" + $p_s_reflect_ClassTag__prettyprint$1__jl_Class__T($thiz, clazz.b7.Q())) + "]") : clazz.b7.N);
 }
 function $is_s_reflect_ClassTag(obj) {
   return (!(!((obj && obj.$classData) && obj.$classData.n.bn)));
@@ -372453,7 +372501,7 @@ function $c_Lcats_parse_Parser$Impl$OneOf(all) {
   if ((all.an() >= 0)) {
     var length = all.an();
     var componentType = evidence$1__runtimeClass;
-    var destination = componentType.b5.U(length);
+    var destination = componentType.b7.U(length);
     $f_sc_IterableOnceOps__copyToArray__O__I__I__I(all, destination, 0, 2147483647);
     var $x_1 = destination;
   } else {
@@ -379331,8 +379379,8 @@ $p.Kn = (function(a, b) {
   var a$tailLocal1 = a;
   while (true) {
     var x1 = $ct_T2__O__O__(new $c_T2(), a$tailLocal1, b$tailLocal1);
-    var x20 = x1.b6;
-    var x21 = x1.b7;
+    var x20 = x1.b5;
+    var x21 = x1.b6;
     if (($m_sci_Nil$().a(x20) && $m_sci_Nil$().a(x21))) {
       return 0;
     }
@@ -379488,8 +379536,8 @@ $p.gl = (function(other) {
 });
 $p.clF = (function(a, b) {
   var x67 = $ct_T2__O__O__(new $c_T2(), a, b);
-  var x144 = x67.b6;
-  var x145 = x67.b7;
+  var x144 = x67.b5;
+  var x145 = x67.b6;
   if ((x144 instanceof $c_Ldev_bosatsu_Lit$Integer)) {
     $m_Ldev_bosatsu_Lit$Integer$();
     var x151 = x144.lD;
@@ -380814,8 +380862,8 @@ $p.bZi = (function(a, b) {
   var a$tailLocal1 = a;
   while (true) {
     var x1209 = $ct_T2__O__O__(new $c_T2(), a$tailLocal1, b$tailLocal1);
-    var x1410 = x1209.b6;
-    var x1411 = x1209.b7;
+    var x1410 = x1209.b5;
+    var x1411 = x1209.b6;
     if (($m_Ldev_bosatsu_Pattern$WildCard$() === x1410)) {
       if (($m_Ldev_bosatsu_Pattern$WildCard$() === x1411)) {
         return 0;
@@ -381064,8 +381112,8 @@ $p.gl = (function(other) {
 });
 $p.clH = (function(a, b) {
   var x1137 = $ct_T2__O__O__(new $c_T2(), a, b);
-  var x1207 = x1137.b6;
-  var x1208 = x1137.b7;
+  var x1207 = x1137.b5;
+  var x1208 = x1137.b6;
   if (($m_Ldev_bosatsu_Pattern$StrPart$WildStr$() === x1207)) {
     if (($m_Ldev_bosatsu_Pattern$StrPart$WildStr$() === x1208)) {
       return 0;
@@ -381200,8 +381248,8 @@ $p.gl = (function(other) {
 });
 $p.clG = (function(a, b) {
   var x1098 = $ct_T2__O__O__(new $c_T2(), a, b);
-  var x1135 = x1098.b6;
-  var x1136 = x1098.b7;
+  var x1135 = x1098.b5;
+  var x1136 = x1098.b6;
   if (($m_Ldev_bosatsu_Pattern$ListPart$WildList$() === x1135)) {
     if (($m_Ldev_bosatsu_Pattern$ListPart$WildList$() === x1136)) {
       return 0;
@@ -383658,8 +383706,8 @@ $p.bZj = (function(a, b) {
   var a$tailLocal1 = a;
   while (true) {
     var x120 = $ct_T2__O__O__(new $c_T2(), a$tailLocal1, b$tailLocal1);
-    var x303 = x120.b6;
-    var x304 = x120.b7;
+    var x303 = x120.b5;
+    var x304 = x120.b6;
     if ((x303 instanceof $c_Ldev_bosatsu_TypeRef$TypeVar)) {
       var x310 = x303.iP;
       if ((x304 instanceof $c_Ldev_bosatsu_TypeRef$TypeVar)) {
@@ -387168,8 +387216,8 @@ $p.gl = (function(other) {
 });
 $p.clO = (function(a, b) {
   var x1 = $ct_T2__O__O__(new $c_T2(), a, b);
-  var x20 = x1.b6;
-  var x21 = x1.b7;
+  var x20 = x1.b5;
+  var x21 = x1.b6;
   if ((x20 instanceof $c_Ldev_bosatsu_pattern_SeqPart$Lit)) {
     var x27 = x20.o6;
     if ((x21 instanceof $c_Ldev_bosatsu_pattern_SeqPart$Lit)) {
@@ -387301,8 +387349,8 @@ $p.clP = (function(a, b) {
   var a$tailLocal1 = a;
   while (true) {
     var x110 = $ct_T2__O__O__(new $c_T2(), a$tailLocal1, b$tailLocal1);
-    var x133 = x110.b6;
-    var x134 = x110.b7;
+    var x133 = x110.b5;
+    var x134 = x110.b6;
     if (($m_Ldev_bosatsu_pattern_SeqPattern$Empty$() === x133)) {
       if (($m_Ldev_bosatsu_pattern_SeqPattern$Empty$() === x134)) {
         return 0;
@@ -387928,8 +387976,8 @@ $p.gl = (function(other) {
 });
 $p.clU = (function(a, b) {
   var x1264 = $ct_T2__O__O__(new $c_T2(), a, b);
-  var x1292 = x1264.b6;
-  var x1293 = x1264.b7;
+  var x1292 = x1264.b5;
+  var x1293 = x1264.b6;
   if ((x1292 instanceof $c_Ldev_bosatsu_rankn_Type$Var$Bound)) {
     $m_Ldev_bosatsu_rankn_Type$Var$Bound$();
     var x1299 = x1292.fb;
@@ -391042,8 +391090,8 @@ var $d_s_StringContext$InvalidUnicodeEscapeException = new $TypeData().i($c_s_St
 }));
 /** @constructor */
 function $c_T2$mcCC$sp(_1$mcC$sp, _2$mcC$sp) {
+  this.b5 = null;
   this.b6 = null;
-  this.b7 = null;
   this.aKU = 0;
   this.aKV = 0;
   this.aKU = _1$mcC$sp;
@@ -391087,8 +391135,8 @@ var $d_T2$mcCC$sp = new $TypeData().i($c_T2$mcCC$sp, "scala.Tuple2$mcCC$sp", ({
 }));
 /** @constructor */
 function $c_T2$mcZZ$sp(_1$mcZ$sp, _2$mcZ$sp) {
+  this.b5 = null;
   this.b6 = null;
-  this.b7 = null;
   this.aqL = false;
   this.aqM = false;
   this.aqL = _1$mcZ$sp;
@@ -394234,8 +394282,8 @@ function $f_s_math_Ordering$CachedReverse__isReverseOf__s_math_Ordering__Z($thiz
 }
 function $f_s_math_Ordering$OptionOrdering__compare__s_Option__s_Option__I($thiz, x, y) {
   var x9 = $ct_T2__O__O__(new $c_T2(), x, y);
-  var x20 = x9.b6;
-  var x21 = x9.b7;
+  var x20 = x9.b5;
+  var x21 = x9.b6;
   if (($m_s_None$() === x20)) {
     if (($m_s_None$() === x21)) {
       return 0;
@@ -394774,7 +394822,7 @@ $p.oq = (function() {
   return this.aMX;
 });
 $p.sj = (function(len) {
-  return this.aMX.b5.U(len);
+  return this.aMX.b7.U(len);
 });
 var $d_s_reflect_ClassTag$GenericClassTag = new $TypeData().i($c_s_reflect_ClassTag$GenericClassTag, "scala.reflect.ClassTag$GenericClassTag", ({
   aHB: 1,
@@ -397647,340 +397695,340 @@ $p.cAi = (function(a, b) {
 $p.cMR = (function(e) {
   var this$1 = e.Hk();
   var alist = $m_sci_Nil$();
-  var x552;
+  var x578;
   var alist$tailLocal1 = alist;
   var s$tailLocal1 = this$1;
   while (true) {
-    var x861 = s$tailLocal1;
-    if (($m_Ldev_bosatsu_RingOpt$Stack$Empty$() === x861)) {
-      var x797 = alist$tailLocal1;
-      if ((x797 instanceof $c_sci_$colon$colon)) {
-        var x800 = x797.h;
-        var optA = x797.F;
-        if ($m_sci_Nil$().a(x800)) {
-          var x552 = optA;
+    var x887 = s$tailLocal1;
+    if (($m_Ldev_bosatsu_RingOpt$Stack$Empty$() === x887)) {
+      var x823 = alist$tailLocal1;
+      if ((x823 instanceof $c_sci_$colon$colon)) {
+        var x826 = x823.h;
+        var optA = x823.F;
+        if ($m_sci_Nil$().a(x826)) {
+          var x578 = optA;
           break;
         }
       }
-      var x552 = $m_s_None$();
+      var x578 = $m_s_None$();
       break;
     }
-    if ((x861 instanceof $c_Ldev_bosatsu_RingOpt$Stack$Push)) {
-      var x868 = x861.CT;
-      var x869 = x861.CU;
-      matchResult111: {
+    if ((x887 instanceof $c_Ldev_bosatsu_RingOpt$Stack$Push)) {
+      var x894 = x887.CT;
+      var x895 = x887.CU;
+      matchResult115: {
         var $x_1;
-        if ((x868 instanceof $c_Ldev_bosatsu_RingOpt$Symbol)) {
+        if ((x894 instanceof $c_Ldev_bosatsu_RingOpt$Symbol)) {
           var $x_1 = $m_s_None$();
-          break matchResult111;
+          break matchResult115;
         }
-        if ((x868 instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
-          var $x_1 = new $c_s_Some(x868.gQ);
-          break matchResult111;
+        if ((x894 instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
+          var $x_1 = new $c_s_Some(x894.gQ);
+          break matchResult115;
         }
-        if (($m_Ldev_bosatsu_RingOpt$One$() === x868)) {
+        if (($m_Ldev_bosatsu_RingOpt$One$() === x894)) {
           var $x_1 = new $c_s_Some($m_s_package$().bI().aR(1));
-          break matchResult111;
+          break matchResult115;
         }
-        if (($m_Ldev_bosatsu_RingOpt$Zero$() === x868)) {
+        if (($m_Ldev_bosatsu_RingOpt$Zero$() === x894)) {
           var $x_1 = new $c_s_Some($m_s_package$().bI().aR(0));
-          break matchResult111;
+          break matchResult115;
         }
-        throw new $c_s_MatchError(x868);
+        throw new $c_s_MatchError(x894);
       }
       var alist$tailLocal1$tmp1 = new $c_sci_$colon$colon($x_1, alist$tailLocal1);
-      s$tailLocal1 = x869;
+      s$tailLocal1 = x895;
       alist$tailLocal1 = alist$tailLocal1$tmp1;
       continue;
     }
-    if ((x861 instanceof $c_Ldev_bosatsu_RingOpt$Stack$Operate)) {
-      var x864 = x861.CS;
-      var x865 = x861.CR;
-      if (($m_Ldev_bosatsu_RingOpt$Op$Add$() === x864)) {
-        var x801 = alist$tailLocal1;
-        if ((x801 instanceof $c_sci_$colon$colon)) {
-          var x809 = x801.F;
-          var x810 = x801.h;
-          if ((x809 instanceof $c_s_Some)) {
-            var a = x809.p;
-            if ((x810 instanceof $c_sci_$colon$colon)) {
-              var x812 = x810.F;
-              var x813 = x810.h;
-              if ((x812 instanceof $c_s_Some)) {
-                var b = x812.p;
-                var alist$tailLocal1$tmp2 = new $c_sci_$colon$colon(new $c_s_Some(a.hQ(b)), x813);
-                s$tailLocal1 = x865;
+    if ((x887 instanceof $c_Ldev_bosatsu_RingOpt$Stack$Operate)) {
+      var x890 = x887.CS;
+      var x891 = x887.CR;
+      if (($m_Ldev_bosatsu_RingOpt$Op$Add$() === x890)) {
+        var x827 = alist$tailLocal1;
+        if ((x827 instanceof $c_sci_$colon$colon)) {
+          var x835 = x827.F;
+          var x836 = x827.h;
+          if ((x835 instanceof $c_s_Some)) {
+            var a = x835.p;
+            if ((x836 instanceof $c_sci_$colon$colon)) {
+              var x838 = x836.F;
+              var x839 = x836.h;
+              if ((x838 instanceof $c_s_Some)) {
+                var b = x838.p;
+                var alist$tailLocal1$tmp2 = new $c_sci_$colon$colon(new $c_s_Some(a.hQ(b)), x839);
+                s$tailLocal1 = x891;
                 alist$tailLocal1 = alist$tailLocal1$tmp2;
                 continue;
               }
             }
           }
-          if ((x810 instanceof $c_sci_$colon$colon)) {
-            var x807 = x810.h;
-            var alist$tailLocal1$tmp3 = new $c_sci_$colon$colon($m_s_None$(), x807);
-            s$tailLocal1 = x865;
+          if ((x836 instanceof $c_sci_$colon$colon)) {
+            var x833 = x836.h;
+            var alist$tailLocal1$tmp3 = new $c_sci_$colon$colon($m_s_None$(), x833);
+            s$tailLocal1 = x891;
             alist$tailLocal1 = alist$tailLocal1$tmp3;
             continue;
           }
         }
-        var x552 = $m_s_None$();
+        var x578 = $m_s_None$();
         break;
       }
-      if (($m_Ldev_bosatsu_RingOpt$Op$Mult$() === x864)) {
-        var x818 = alist$tailLocal1;
-        if ((x818 instanceof $c_sci_$colon$colon)) {
-          var x842 = x818.F;
-          var x843 = x818.h;
-          if ((x842 instanceof $c_s_Some)) {
-            var x850 = x842.p;
-            if ((x843 instanceof $c_sci_$colon$colon)) {
-              var x845 = x843.F;
-              var x846 = x843.h;
-              if ((x845 instanceof $c_s_Some)) {
-                var b$2 = x845.p;
-                var alist$tailLocal1$tmp4 = new $c_sci_$colon$colon(new $c_s_Some(x850.ir(b$2)), x846);
-                s$tailLocal1 = x865;
+      if (($m_Ldev_bosatsu_RingOpt$Op$Mult$() === x890)) {
+        var x844 = alist$tailLocal1;
+        if ((x844 instanceof $c_sci_$colon$colon)) {
+          var x868 = x844.F;
+          var x869 = x844.h;
+          if ((x868 instanceof $c_s_Some)) {
+            var x876 = x868.p;
+            if ((x869 instanceof $c_sci_$colon$colon)) {
+              var x871 = x869.F;
+              var x872 = x869.h;
+              if ((x871 instanceof $c_s_Some)) {
+                var b$2 = x871.p;
+                var alist$tailLocal1$tmp4 = new $c_sci_$colon$colon(new $c_s_Some(x876.ir(b$2)), x872);
+                s$tailLocal1 = x891;
                 alist$tailLocal1 = alist$tailLocal1$tmp4;
                 continue;
               }
-              if (($m_s_None$() === x845)) {
-                if ($m_sr_BoxesRunTime$().bd(x850, $m_s_package$().bI().aR(0))) {
-                  var alist$tailLocal1$tmp5 = new $c_sci_$colon$colon(x842, x846);
-                  s$tailLocal1 = x865;
+              if (($m_s_None$() === x871)) {
+                if ($m_sr_BoxesRunTime$().bd(x876, $m_s_package$().bI().aR(0))) {
+                  var alist$tailLocal1$tmp5 = new $c_sci_$colon$colon(x868, x872);
+                  s$tailLocal1 = x891;
                   alist$tailLocal1 = alist$tailLocal1$tmp5;
                   continue;
                 }
               }
             }
           }
-          if ((($m_s_None$() === x842) && (x843 instanceof $c_sci_$colon$colon))) {
-            var x829 = x843.F;
-            var x830 = x843.h;
-            if ((x829 instanceof $c_s_Some)) {
-              if ($m_sr_BoxesRunTime$().bd(x829.p, $m_s_package$().bI().aR(0))) {
-                var alist$tailLocal1$tmp6 = new $c_sci_$colon$colon(x829, x830);
-                s$tailLocal1 = x865;
+          if ((($m_s_None$() === x868) && (x869 instanceof $c_sci_$colon$colon))) {
+            var x855 = x869.F;
+            var x856 = x869.h;
+            if ((x855 instanceof $c_s_Some)) {
+              if ($m_sr_BoxesRunTime$().bd(x855.p, $m_s_package$().bI().aR(0))) {
+                var alist$tailLocal1$tmp6 = new $c_sci_$colon$colon(x855, x856);
+                s$tailLocal1 = x891;
                 alist$tailLocal1 = alist$tailLocal1$tmp6;
                 continue;
               }
             }
           }
-          if ((x843 instanceof $c_sci_$colon$colon)) {
-            var x824 = x843.h;
-            var alist$tailLocal1$tmp7 = new $c_sci_$colon$colon($m_s_None$(), x824);
-            s$tailLocal1 = x865;
+          if ((x869 instanceof $c_sci_$colon$colon)) {
+            var x850 = x869.h;
+            var alist$tailLocal1$tmp7 = new $c_sci_$colon$colon($m_s_None$(), x850);
+            s$tailLocal1 = x891;
             alist$tailLocal1 = alist$tailLocal1$tmp7;
             continue;
           }
         }
-        var x552 = $m_s_None$();
+        var x578 = $m_s_None$();
         break;
       }
-      if (($m_Ldev_bosatsu_RingOpt$Op$Neg$() === x864)) {
-        var x851 = alist$tailLocal1;
-        if ((x851 instanceof $c_sci_$colon$colon)) {
-          var x856 = x851.F;
-          var x857 = x851.h;
-          if ((x856 instanceof $c_s_Some)) {
-            var a$3 = x856.p;
-            var alist$tailLocal1$tmp8 = new $c_sci_$colon$colon(new $c_s_Some(a$3.e9()), x857);
-            s$tailLocal1 = x865;
+      if (($m_Ldev_bosatsu_RingOpt$Op$Neg$() === x890)) {
+        var x877 = alist$tailLocal1;
+        if ((x877 instanceof $c_sci_$colon$colon)) {
+          var x882 = x877.F;
+          var x883 = x877.h;
+          if ((x882 instanceof $c_s_Some)) {
+            var a$3 = x882.p;
+            var alist$tailLocal1$tmp8 = new $c_sci_$colon$colon(new $c_s_Some(a$3.e9()), x883);
+            s$tailLocal1 = x891;
             alist$tailLocal1 = alist$tailLocal1$tmp8;
             continue;
           }
-          if (($m_s_None$() === x856)) {
-            var alist$tailLocal1$tmp9 = new $c_sci_$colon$colon($m_s_None$(), x857);
-            s$tailLocal1 = x865;
+          if (($m_s_None$() === x882)) {
+            var alist$tailLocal1$tmp9 = new $c_sci_$colon$colon($m_s_None$(), x883);
+            s$tailLocal1 = x891;
             alist$tailLocal1 = alist$tailLocal1$tmp9;
             continue;
           }
         }
-        if ($m_sci_Nil$().a(x851)) {
-          var x552 = $m_s_None$();
+        if ($m_sci_Nil$().a(x877)) {
+          var x578 = $m_s_None$();
           break;
         }
-        throw new $c_s_MatchError(x851);
+        throw new $c_s_MatchError(x877);
       }
-      throw new $c_s_MatchError(x864);
+      throw new $c_s_MatchError(x890);
     }
-    throw new $c_s_MatchError(x861);
+    throw new $c_s_MatchError(x887);
   }
-  if ((x552 instanceof $c_s_Some)) {
-    return x552.p.ln();
+  if ((x578 instanceof $c_s_Some)) {
+    return x578.p.ln();
   }
-  if (($m_s_None$() === x552)) {
+  if (($m_s_None$() === x578)) {
     return $bL(0, 0);
   }
-  throw new $c_s_MatchError(x552);
+  throw new $c_s_MatchError(x578);
 });
 $p.cMN = (function(e) {
   var this$1 = e.Hk();
   var alist = $m_sci_Nil$();
-  var x555;
+  var x581;
   var alist$tailLocal1 = alist;
   var s$tailLocal1 = this$1;
   while (true) {
-    var x861 = s$tailLocal1;
-    if (($m_Ldev_bosatsu_RingOpt$Stack$Empty$() === x861)) {
-      var x797 = alist$tailLocal1;
-      if ((x797 instanceof $c_sci_$colon$colon)) {
-        var x800 = x797.h;
-        var optA = x797.F;
-        if ($m_sci_Nil$().a(x800)) {
-          var x555 = optA;
+    var x887 = s$tailLocal1;
+    if (($m_Ldev_bosatsu_RingOpt$Stack$Empty$() === x887)) {
+      var x823 = alist$tailLocal1;
+      if ((x823 instanceof $c_sci_$colon$colon)) {
+        var x826 = x823.h;
+        var optA = x823.F;
+        if ($m_sci_Nil$().a(x826)) {
+          var x581 = optA;
           break;
         }
       }
-      var x555 = $m_s_None$();
+      var x581 = $m_s_None$();
       break;
     }
-    if ((x861 instanceof $c_Ldev_bosatsu_RingOpt$Stack$Push)) {
-      var x868 = x861.CT;
-      var x869 = x861.CU;
-      matchResult111: {
+    if ((x887 instanceof $c_Ldev_bosatsu_RingOpt$Stack$Push)) {
+      var x894 = x887.CT;
+      var x895 = x887.CU;
+      matchResult115: {
         var $x_1;
-        if ((x868 instanceof $c_Ldev_bosatsu_RingOpt$Symbol)) {
+        if ((x894 instanceof $c_Ldev_bosatsu_RingOpt$Symbol)) {
           var $x_1 = $m_s_None$();
-          break matchResult111;
+          break matchResult115;
         }
-        if ((x868 instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
-          var $x_1 = new $c_s_Some(x868.gQ);
-          break matchResult111;
+        if ((x894 instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
+          var $x_1 = new $c_s_Some(x894.gQ);
+          break matchResult115;
         }
-        if (($m_Ldev_bosatsu_RingOpt$One$() === x868)) {
+        if (($m_Ldev_bosatsu_RingOpt$One$() === x894)) {
           var $x_1 = new $c_s_Some($m_s_package$().bI().aR(1));
-          break matchResult111;
+          break matchResult115;
         }
-        if (($m_Ldev_bosatsu_RingOpt$Zero$() === x868)) {
+        if (($m_Ldev_bosatsu_RingOpt$Zero$() === x894)) {
           var $x_1 = new $c_s_Some($m_s_package$().bI().aR(0));
-          break matchResult111;
+          break matchResult115;
         }
-        throw new $c_s_MatchError(x868);
+        throw new $c_s_MatchError(x894);
       }
       var alist$tailLocal1$tmp1 = new $c_sci_$colon$colon($x_1, alist$tailLocal1);
-      s$tailLocal1 = x869;
+      s$tailLocal1 = x895;
       alist$tailLocal1 = alist$tailLocal1$tmp1;
       continue;
     }
-    if ((x861 instanceof $c_Ldev_bosatsu_RingOpt$Stack$Operate)) {
-      var x864 = x861.CS;
-      var x865 = x861.CR;
-      if (($m_Ldev_bosatsu_RingOpt$Op$Add$() === x864)) {
-        var x801 = alist$tailLocal1;
-        if ((x801 instanceof $c_sci_$colon$colon)) {
-          var x809 = x801.F;
-          var x810 = x801.h;
-          if ((x809 instanceof $c_s_Some)) {
-            var a = x809.p;
-            if ((x810 instanceof $c_sci_$colon$colon)) {
-              var x812 = x810.F;
-              var x813 = x810.h;
-              if ((x812 instanceof $c_s_Some)) {
-                var b = x812.p;
-                var alist$tailLocal1$tmp2 = new $c_sci_$colon$colon(new $c_s_Some(a.hQ(b)), x813);
-                s$tailLocal1 = x865;
+    if ((x887 instanceof $c_Ldev_bosatsu_RingOpt$Stack$Operate)) {
+      var x890 = x887.CS;
+      var x891 = x887.CR;
+      if (($m_Ldev_bosatsu_RingOpt$Op$Add$() === x890)) {
+        var x827 = alist$tailLocal1;
+        if ((x827 instanceof $c_sci_$colon$colon)) {
+          var x835 = x827.F;
+          var x836 = x827.h;
+          if ((x835 instanceof $c_s_Some)) {
+            var a = x835.p;
+            if ((x836 instanceof $c_sci_$colon$colon)) {
+              var x838 = x836.F;
+              var x839 = x836.h;
+              if ((x838 instanceof $c_s_Some)) {
+                var b = x838.p;
+                var alist$tailLocal1$tmp2 = new $c_sci_$colon$colon(new $c_s_Some(a.hQ(b)), x839);
+                s$tailLocal1 = x891;
                 alist$tailLocal1 = alist$tailLocal1$tmp2;
                 continue;
               }
             }
           }
-          if ((x810 instanceof $c_sci_$colon$colon)) {
-            var x807 = x810.h;
-            var alist$tailLocal1$tmp3 = new $c_sci_$colon$colon($m_s_None$(), x807);
-            s$tailLocal1 = x865;
+          if ((x836 instanceof $c_sci_$colon$colon)) {
+            var x833 = x836.h;
+            var alist$tailLocal1$tmp3 = new $c_sci_$colon$colon($m_s_None$(), x833);
+            s$tailLocal1 = x891;
             alist$tailLocal1 = alist$tailLocal1$tmp3;
             continue;
           }
         }
-        var x555 = $m_s_None$();
+        var x581 = $m_s_None$();
         break;
       }
-      if (($m_Ldev_bosatsu_RingOpt$Op$Mult$() === x864)) {
-        var x818 = alist$tailLocal1;
-        if ((x818 instanceof $c_sci_$colon$colon)) {
-          var x842 = x818.F;
-          var x843 = x818.h;
-          if ((x842 instanceof $c_s_Some)) {
-            var x850 = x842.p;
-            if ((x843 instanceof $c_sci_$colon$colon)) {
-              var x845 = x843.F;
-              var x846 = x843.h;
-              if ((x845 instanceof $c_s_Some)) {
-                var b$2 = x845.p;
-                var alist$tailLocal1$tmp4 = new $c_sci_$colon$colon(new $c_s_Some(x850.ir(b$2)), x846);
-                s$tailLocal1 = x865;
+      if (($m_Ldev_bosatsu_RingOpt$Op$Mult$() === x890)) {
+        var x844 = alist$tailLocal1;
+        if ((x844 instanceof $c_sci_$colon$colon)) {
+          var x868 = x844.F;
+          var x869 = x844.h;
+          if ((x868 instanceof $c_s_Some)) {
+            var x876 = x868.p;
+            if ((x869 instanceof $c_sci_$colon$colon)) {
+              var x871 = x869.F;
+              var x872 = x869.h;
+              if ((x871 instanceof $c_s_Some)) {
+                var b$2 = x871.p;
+                var alist$tailLocal1$tmp4 = new $c_sci_$colon$colon(new $c_s_Some(x876.ir(b$2)), x872);
+                s$tailLocal1 = x891;
                 alist$tailLocal1 = alist$tailLocal1$tmp4;
                 continue;
               }
-              if (($m_s_None$() === x845)) {
-                if ($m_sr_BoxesRunTime$().bd(x850, $m_s_package$().bI().aR(0))) {
-                  var alist$tailLocal1$tmp5 = new $c_sci_$colon$colon(x842, x846);
-                  s$tailLocal1 = x865;
+              if (($m_s_None$() === x871)) {
+                if ($m_sr_BoxesRunTime$().bd(x876, $m_s_package$().bI().aR(0))) {
+                  var alist$tailLocal1$tmp5 = new $c_sci_$colon$colon(x868, x872);
+                  s$tailLocal1 = x891;
                   alist$tailLocal1 = alist$tailLocal1$tmp5;
                   continue;
                 }
               }
             }
           }
-          if ((($m_s_None$() === x842) && (x843 instanceof $c_sci_$colon$colon))) {
-            var x829 = x843.F;
-            var x830 = x843.h;
-            if ((x829 instanceof $c_s_Some)) {
-              if ($m_sr_BoxesRunTime$().bd(x829.p, $m_s_package$().bI().aR(0))) {
-                var alist$tailLocal1$tmp6 = new $c_sci_$colon$colon(x829, x830);
-                s$tailLocal1 = x865;
+          if ((($m_s_None$() === x868) && (x869 instanceof $c_sci_$colon$colon))) {
+            var x855 = x869.F;
+            var x856 = x869.h;
+            if ((x855 instanceof $c_s_Some)) {
+              if ($m_sr_BoxesRunTime$().bd(x855.p, $m_s_package$().bI().aR(0))) {
+                var alist$tailLocal1$tmp6 = new $c_sci_$colon$colon(x855, x856);
+                s$tailLocal1 = x891;
                 alist$tailLocal1 = alist$tailLocal1$tmp6;
                 continue;
               }
             }
           }
-          if ((x843 instanceof $c_sci_$colon$colon)) {
-            var x824 = x843.h;
-            var alist$tailLocal1$tmp7 = new $c_sci_$colon$colon($m_s_None$(), x824);
-            s$tailLocal1 = x865;
+          if ((x869 instanceof $c_sci_$colon$colon)) {
+            var x850 = x869.h;
+            var alist$tailLocal1$tmp7 = new $c_sci_$colon$colon($m_s_None$(), x850);
+            s$tailLocal1 = x891;
             alist$tailLocal1 = alist$tailLocal1$tmp7;
             continue;
           }
         }
-        var x555 = $m_s_None$();
+        var x581 = $m_s_None$();
         break;
       }
-      if (($m_Ldev_bosatsu_RingOpt$Op$Neg$() === x864)) {
-        var x851 = alist$tailLocal1;
-        if ((x851 instanceof $c_sci_$colon$colon)) {
-          var x856 = x851.F;
-          var x857 = x851.h;
-          if ((x856 instanceof $c_s_Some)) {
-            var a$3 = x856.p;
-            var alist$tailLocal1$tmp8 = new $c_sci_$colon$colon(new $c_s_Some(a$3.e9()), x857);
-            s$tailLocal1 = x865;
+      if (($m_Ldev_bosatsu_RingOpt$Op$Neg$() === x890)) {
+        var x877 = alist$tailLocal1;
+        if ((x877 instanceof $c_sci_$colon$colon)) {
+          var x882 = x877.F;
+          var x883 = x877.h;
+          if ((x882 instanceof $c_s_Some)) {
+            var a$3 = x882.p;
+            var alist$tailLocal1$tmp8 = new $c_sci_$colon$colon(new $c_s_Some(a$3.e9()), x883);
+            s$tailLocal1 = x891;
             alist$tailLocal1 = alist$tailLocal1$tmp8;
             continue;
           }
-          if (($m_s_None$() === x856)) {
-            var alist$tailLocal1$tmp9 = new $c_sci_$colon$colon($m_s_None$(), x857);
-            s$tailLocal1 = x865;
+          if (($m_s_None$() === x882)) {
+            var alist$tailLocal1$tmp9 = new $c_sci_$colon$colon($m_s_None$(), x883);
+            s$tailLocal1 = x891;
             alist$tailLocal1 = alist$tailLocal1$tmp9;
             continue;
           }
         }
-        if ($m_sci_Nil$().a(x851)) {
-          var x555 = $m_s_None$();
+        if ($m_sci_Nil$().a(x877)) {
+          var x581 = $m_s_None$();
           break;
         }
-        throw new $c_s_MatchError(x851);
+        throw new $c_s_MatchError(x877);
       }
-      throw new $c_s_MatchError(x864);
+      throw new $c_s_MatchError(x890);
     }
-    throw new $c_s_MatchError(x861);
+    throw new $c_s_MatchError(x887);
   }
-  if ((x555 instanceof $c_s_Some)) {
-    return x555.p.cp();
+  if ((x581 instanceof $c_s_Some)) {
+    return x581.p.cp();
   }
-  if (($m_s_None$() === x555)) {
+  if (($m_s_None$() === x581)) {
     return 0;
   }
-  throw new $c_s_MatchError(x555);
+  throw new $c_s_MatchError(x581);
 });
 $p.tQ = (function() {
   return this.bDk;
@@ -405356,7 +405404,7 @@ class $c_ju_IllegalFormatConversionException extends $c_ju_IllegalFormatExceptio
     $ct_jl_Throwable__T__Z__Z__(this, null, true, true);
   }
   ef() {
-    return (($cToS(this.bRF) + " != ") + this.bRE.b5.N);
+    return (($cToS(this.bRF) + " != ") + this.bRE.b7.N);
   }
 }
 var $d_ju_IllegalFormatConversionException = new $TypeData().i($c_ju_IllegalFormatConversionException, "java.util.IllegalFormatConversionException", ({
@@ -405681,8 +405729,8 @@ function $m_T$package$EmptyTuple$() {
 }
 /** @constructor */
 function $c_T2$mcII$sp(_1$mcI$sp, _2$mcI$sp) {
+  this.b5 = null;
   this.b6 = null;
-  this.b7 = null;
   this.aKW = 0;
   this.aKX = 0;
   this.aKW = _1$mcI$sp;
@@ -409521,9 +409569,9 @@ function $c_Ldev_bosatsu_BuildInfo$() {
   this.ahO = null;
   this.bwX = null;
   $n_Ldev_bosatsu_BuildInfo$ = this;
-  this.QQ = "0.0.0+1-65ff7605-SNAPSHOT";
+  this.QQ = "0.0.0+1-3d420f2e-SNAPSHOT";
   this.aU0 = "3.8.2";
-  this.YG = new $c_s_Some("65ff760598c94c0b35f4e0856bb0270377747ea9");
+  this.YG = new $c_s_Some("3d420f2e20169dcabc08d8076aa7d31d1a4aac3e");
   this.ahO = "";
   this.bwX = ((((((("version: " + this.QQ) + ", scalaVersion: ") + this.aU0) + ", gitHeadCommit: ") + this.YG) + ", cRuntimeArchiveHash: ") + this.ahO);
 }
@@ -418080,13 +418128,13 @@ $p.P = (function(o) {
 });
 $p.c9w = (function(a) {
   var this$1 = $objectGetClass(a);
-  var componentType = this$1.b5.Q();
+  var componentType = this$1.b7.Q();
   var v = this.qE;
   if ((a.d.length >= (v.length | 0))) {
     var toFill = a;
   } else {
     var v$1 = this.qE;
-    var toFill = componentType.b5.U((v$1.length | 0));
+    var toFill = componentType.b7.U((v$1.length | 0));
   }
   var iter = this.DZ(0);
   var v$2 = this.qE;
@@ -438083,8 +438131,8 @@ $p.cgx = (function(ff, fa) {
 });
 $p.clk = (function(x, y) {
   var x20 = $ct_T2__O__O__(new $c_T2(), x, y);
-  var x62 = x20.b6;
-  var x63 = x20.b7;
+  var x62 = x20.b5;
+  var x63 = x20.b6;
   if ((x62 !== null)) {
     $m_Lcom_monovore_decline_Result$();
     var x65 = x62.EH;
@@ -440750,8 +440798,8 @@ $p.ca0 = (function(fa, f, G) {
         var x1 = iter.v();
         matchResult3: {
           var x7 = $ct_T2__O__O__(new $c_T2(), x0, x1);
-          var x9 = x7.b7;
-          var m = x7.b6;
+          var x9 = x7.b6;
+          var m = x7.b5;
           if ((x9 !== null)) {
             var k$1 = x9.f();
             var b = x9.g();
@@ -440823,8 +440871,8 @@ $p.cg8 = (function(fa, fb, f) {
   builder.hj(keys.V());
   var f$1 = ((builder$2, k) => {
     var x32 = $ct_T2__O__O__(new $c_T2(), fa.R(k), fb.R(k));
-    var x43 = x32.b6;
-    var x44 = x32.b7;
+    var x43 = x32.b5;
+    var x44 = x32.b6;
     if ((x43 instanceof $c_s_Some)) {
       var x48 = x43.p;
       if ((x44 instanceof $c_s_Some)) {
@@ -448424,8 +448472,8 @@ $p.sw = (function(sa, f, evidence$1) {
 });
 $p.bqr = (function(ta, tb) {
   var x1 = $ct_T2__O__O__(new $c_T2(), ta, tb);
-  var x8 = x1.b6;
-  var x9 = x1.b7;
+  var x8 = x1.b5;
+  var x9 = x1.b6;
   if ((x8 instanceof $c_s_util_Success)) {
     var a = x8.fR;
     if ((x9 instanceof $c_s_util_Success)) {
@@ -448442,8 +448490,8 @@ $p.bqr = (function(ta, tb) {
 });
 $p.cyZ = (function(ta, tb, f) {
   var x14 = $ct_T2__O__O__(new $c_T2(), ta, tb);
-  var x21 = x14.b6;
-  var x22 = x14.b7;
+  var x21 = x14.b5;
+  var x22 = x14.b6;
   if ((x21 instanceof $c_s_util_Success)) {
     var a = x21.fR;
     if ((x22 instanceof $c_s_util_Success)) {
@@ -449803,8 +449851,8 @@ $p.aSf = (function(key_$_lo, key_$_hi) {
 });
 $p.aez = (function(that, f) {
   var x157 = $ct_T2__O__O__(new $c_T2(), this, that);
-  var x172 = x157.b6;
-  var x173 = x157.b7;
+  var x172 = x157.b5;
+  var x173 = x157.b6;
   if ((x172 instanceof $c_sci_LongMap$Bin)) {
     var $x_1 = x172;
     var p1_$_lo = $x_1.UI;
@@ -456009,7 +456057,7 @@ $p.nz = (function(elem) {
   var $x_1 = $m_sci_ArraySeq$();
   var xs = this.kX();
   var newLength = ((1 + $m_jl_reflect_Array$().dd(xs)) | 0);
-  if ($d_O.R($objectGetClass(xs).b5.Q().b5)) {
+  if ($d_O.R($objectGetClass(xs).b7.Q().b7)) {
     var dest$1 = $m_ju_Arrays$().at8(xs, newLength, $d_O.r().l());
   } else {
     var dest = new $ac_O(newLength);
@@ -456037,7 +456085,7 @@ $p.cPG = (function(that) {
     var evidence$1__runtimeClass = $d_T2.l();
     var n1 = ((n > 0) ? n : 0);
     var componentType = evidence$1__runtimeClass;
-    var elements = componentType.b5.U(n1);
+    var elements = componentType.b7.U(n1);
     var i = 0;
     while ((i < n)) {
       var $x_2 = $m_sr_ScalaRunTime$();
@@ -456116,7 +456164,7 @@ $p.sp = (function(ord) {
     var original = this.kX();
     var newLength = this.E();
     $m_s_reflect_ManifestFactory$ObjectManifest$();
-    if ($d_O.R($objectGetClass(original).b5.Q().b5)) {
+    if ($d_O.R($objectGetClass(original).b7.Q().b7)) {
       var a = $m_ju_Arrays$().at8(original, newLength, $d_O.r().l());
     } else {
       var dest = new $ac_O(newLength);
@@ -457769,8 +457817,8 @@ $p.cfY = (function(fa, fb) {
   var as$tailLocal3 = as;
   while (true) {
     var x97 = $ct_T2__O__O__(new $c_T2(), as$tailLocal3, bs$tailLocal2);
-    var x116 = x97.b6;
-    var x117 = x97.b7;
+    var x116 = x97.b5;
+    var x117 = x97.b6;
     if ($m_sci_Nil$().a(x116)) {
       if ($m_sci_Nil$().a(x117)) {
         var $x_1 = acc$tailLocal3;
@@ -458542,7 +458590,7 @@ $p.nz = (function(elem) {
     $m_s_reflect_ManifestFactory$BooleanManifest$();
     var this$4 = $m_s_Array$();
     var newLength = ((1 + xs.d.length) | 0);
-    if ($d_Z.R($objectGetClass(xs).b5.Q().b5)) {
+    if ($d_Z.R($objectGetClass(xs).b7.Q().b7)) {
       var dest$1 = this$4.DF(xs, newLength);
     } else {
       var dest = new $ac_Z(newLength);
@@ -458667,7 +458715,7 @@ $p.nz = (function(elem) {
     $m_s_reflect_ManifestFactory$ByteManifest$();
     var this$4 = $m_s_Array$();
     var newLength = ((1 + xs.d.length) | 0);
-    if ($d_B.R($objectGetClass(xs).b5.Q().b5)) {
+    if ($d_B.R($objectGetClass(xs).b7.Q().b7)) {
       var dest$1 = this$4.DF(xs, newLength);
     } else {
       var dest = new $ac_B(newLength);
@@ -458792,7 +458840,7 @@ $p.nz = (function(elem) {
     $m_s_reflect_ManifestFactory$CharManifest$();
     var this$4 = $m_s_Array$();
     var newLength = ((1 + xs.d.length) | 0);
-    if ($d_C.R($objectGetClass(xs).b5.Q().b5)) {
+    if ($d_C.R($objectGetClass(xs).b7.Q().b7)) {
       var dest$1 = this$4.DF(xs, newLength);
     } else {
       var dest = new $ac_C(newLength);
@@ -458924,7 +458972,7 @@ $p.nz = (function(elem) {
     $m_s_reflect_ManifestFactory$DoubleManifest$();
     var this$4 = $m_s_Array$();
     var newLength = ((1 + xs.d.length) | 0);
-    if ($d_D.R($objectGetClass(xs).b5.Q().b5)) {
+    if ($d_D.R($objectGetClass(xs).b7.Q().b7)) {
       var dest$1 = this$4.DF(xs, newLength);
     } else {
       var dest = new $ac_D(newLength);
@@ -459050,7 +459098,7 @@ $p.nz = (function(elem) {
     $m_s_reflect_ManifestFactory$FloatManifest$();
     var this$4 = $m_s_Array$();
     var newLength = ((1 + xs.d.length) | 0);
-    if ($d_F.R($objectGetClass(xs).b5.Q().b5)) {
+    if ($d_F.R($objectGetClass(xs).b7.Q().b7)) {
       var dest$1 = this$4.DF(xs, newLength);
     } else {
       var dest = new $ac_F(newLength);
@@ -459172,7 +459220,7 @@ $p.nz = (function(elem) {
     $m_s_reflect_ManifestFactory$IntManifest$();
     var this$4 = $m_s_Array$();
     var newLength = ((1 + xs.d.length) | 0);
-    if ($d_I.R($objectGetClass(xs).b5.Q().b5)) {
+    if ($d_I.R($objectGetClass(xs).b7.Q().b7)) {
       var dest$1 = this$4.DF(xs, newLength);
     } else {
       var dest = new $ac_I(newLength);
@@ -459301,7 +459349,7 @@ $p.nz = (function(elem) {
     $m_s_reflect_ManifestFactory$LongManifest$();
     var this$4 = $m_s_Array$();
     var newLength = ((1 + ((xs.d.length >>> 1) | 0)) | 0);
-    if ($d_J.R($objectGetClass(xs).b5.Q().b5)) {
+    if ($d_J.R($objectGetClass(xs).b7.Q().b7)) {
       var dest$1 = this$4.DF(xs, newLength);
     } else {
       var dest = new $ac_J(newLength);
@@ -459396,7 +459444,7 @@ function $h_sci_ArraySeq$ofRef() {
 }
 $h_sci_ArraySeq$ofRef.prototype = $p;
 $p.m2 = (function() {
-  return $m_s_reflect_ClassTag$().a2D($objectGetClass(this.Gm).b5.Q());
+  return $m_s_reflect_ClassTag$().a2D($objectGetClass(this.Gm).b7.Q());
 });
 $p.E = (function() {
   return this.Gm.d.length;
@@ -459514,7 +459562,7 @@ $p.nz = (function(elem) {
     $m_s_reflect_ManifestFactory$ShortManifest$();
     var this$4 = $m_s_Array$();
     var newLength = ((1 + xs.d.length) | 0);
-    if ($d_S.R($objectGetClass(xs).b5.Q().b5)) {
+    if ($d_S.R($objectGetClass(xs).b7.Q().b7)) {
       var dest$1 = this$4.DF(xs, newLength);
     } else {
       var dest = new $ac_S(newLength);
@@ -461066,7 +461114,7 @@ function $h_scm_ArraySeq$ofRef() {
 }
 $h_scm_ArraySeq$ofRef.prototype = $p;
 $p.m2 = (function() {
-  return $m_s_reflect_ClassTag$().a2D($objectGetClass(this.O8).b5.Q());
+  return $m_s_reflect_ClassTag$().a2D($objectGetClass(this.O8).b7.Q());
 });
 $p.E = (function() {
   return this.O8.d.length;
@@ -465153,8 +465201,8 @@ $p.ckL = (function(fa, pf) {
 $p.cfZ = (function(fa, fb) {
   var f = ((x) => x);
   var x40 = $ct_T2__O__O__(new $c_T2(), fa, fb);
-  var x55 = x40.b6;
-  var x56 = x40.b7;
+  var x55 = x40.b5;
+  var x56 = x40.b6;
   if ((($m_s_None$() === x55) && ($m_s_None$() === x56))) {
     return $m_s_None$();
   }
