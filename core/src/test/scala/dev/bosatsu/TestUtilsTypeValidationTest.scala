@@ -219,6 +219,102 @@ class TestUtilsTypeValidationTest extends munit.FunSuite {
   private given Ordering[Type.Var.Bound] =
     Type.Var.Bound.orderBound.toOrdering
 
+  private def fn1(arg: Type, res: Type): Type =
+    Type.Fun(NonEmptyList.one(arg), res)
+
+  test("validateTypes rejects a monomorphic arg where a polymorphic one is expected") {
+    val a = Type.Var.Bound("a")
+    val aType = Type.TyVar(a)
+    // forall a. a -> a
+    val paramType = Type.forAll(List(a -> Kind.Type), fn1(aType, aType))
+    val res = validateArg(paramType, fn1(Type.IntType, Type.IntType))
+    val err = renderErrors(res)
+    assert(res.isInvalid, s"expected invalid but got valid: $err")
+    assert(err.contains("app arg type mismatch"), err)
+  }
+
+  test("validateTypes rejects a monomorphic arg for a nested forall result") {
+    val res = validateNestedForallResultArg(
+      intToIntTo(fn1(Type.IntType, Type.IntType))
+    )
+    val err = renderErrors(res)
+    assert(res.isInvalid, s"expected invalid but got valid: $err")
+    assert(err.contains("app arg type mismatch"), err)
+  }
+
+  test("validateTypes accepts a polymorphic arg where a monomorphic one is expected") {
+    val a = Type.Var.Bound("a")
+    val aType = Type.TyVar(a)
+    val argType = Type.forAll(List(a -> Kind.Type), fn1(aType, aType))
+    val res = validateArg(fn1(Type.IntType, Type.IntType), argType)
+    assert(res.isValid, renderErrors(res))
+  }
+
+  test("validateTypes accepts an arg whose type the param's existential hides") {
+    val a = Type.Var.Bound("a")
+    val listInt = Type.apply1(Type.ListType, Type.IntType)
+    val existsList =
+      Type.exists(
+        List(a -> Kind.Type),
+        Type.apply1(Type.ListType, Type.TyVar(a))
+      )
+    val res = validateArg(existsList, listInt)
+    assert(res.isValid, renderErrors(res))
+
+    // but an existential arg can't be passed where its witness is expected
+    val back = validateArg(listInt, existsList)
+    val err = renderErrors(back)
+    assert(back.isInvalid, s"expected invalid but got valid: $err")
+    assert(err.contains("app arg type mismatch"), err)
+  }
+
+  // `f: forall t. (t, t) -> String` applied to `x: arg0Type` and `y: arg1Type`
+  private def validateTwoArgGenericApp(arg0Type: Type, arg1Type: Type) = {
+    val t = Type.Var.Bound("t")
+    val tType = Type.TyVar(t)
+    val fnType = Type.forAll(
+      List(t -> Kind.Type),
+      Type.Fun(NonEmptyList.of(tType, tType), Type.StrType)
+    )
+    val fn = TypedExpr.Local(Identifier.Name("f"), fnType, tag)
+    val arg0 = TypedExpr.Local(Identifier.Name("x"), arg0Type, tag)
+    val arg1 = TypedExpr.Local(Identifier.Name("y"), arg1Type, tag)
+    val te = TypedExpr.App(fn, NonEmptyList.of(arg0, arg1), Type.StrType, tag)
+    val names: Map[TypedExpr.Name[Unit], Type] =
+      Map(fn -> fnType, arg0 -> arg0Type, arg1 -> arg1Type)
+    TestUtils.validateTypes(te, names, TypeEnv.empty)
+  }
+
+  test("validateTypes solves a function's type parameter from its args") {
+    val ok = validateTwoArgGenericApp(Type.IntType, Type.IntType)
+    assert(ok.isValid, renderErrors(ok))
+
+    val bad = validateTwoArgGenericApp(Type.IntType, Type.StrType)
+    val err = renderErrors(bad)
+    assert(bad.isInvalid, s"expected invalid but got valid: $err")
+    assert(err.contains("app arg type mismatch"), err)
+  }
+
+  test("validateTypes rejects a monomorphic recur arg for a polymorphic loop arg") {
+    val a = Type.Var.Bound("a")
+    val aType = Type.TyVar(a)
+    val polyId = Type.forAll(List(a -> Kind.Type), fn1(aType, aType))
+    val intToInt = fn1(Type.IntType, Type.IntType)
+    val seed = TypedExpr.Local(Identifier.Name("seed"), polyId, tag)
+    val step = TypedExpr.Local(Identifier.Name("step"), intToInt, tag)
+    val loop = TypedExpr.Loop(
+      NonEmptyList.one((Identifier.Name("f"), seed)),
+      TypedExpr.Recur(NonEmptyList.one(step), Type.IntType, tag),
+      tag
+    )
+    val names: Map[TypedExpr.Name[Unit], Type] =
+      Map(seed -> polyId, step -> intToInt)
+    val res = TestUtils.validateTypes(loop, names, TypeEnv.empty)
+    val err = renderErrors(res)
+    assert(res.isInvalid, s"expected invalid but got valid: $err")
+    assert(err.contains("recur arg type mismatch"), err)
+  }
+
   // `xs: List[Int]` annotated as `exists b. List[b]`, hiding `witness` for b
   private def validateIntListPack(witness: Type) = {
     val b = Type.Var.Bound("b")
