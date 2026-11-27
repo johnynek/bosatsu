@@ -5192,6 +5192,16 @@ object Matchless {
 
   private val empty = (PackageName.PredefName, Constructor("EmptyList"))
   private val cons = (PackageName.PredefName, Constructor("NonEmptyList"))
+
+  // A constructor a pattern names, with its data representation. Lowering a
+  // match resolves each pattern constructor once, so the pattern compilers
+  // read the representation instead of looking it up again.
+  private[bosatsu] final case class ResolvedCons(
+      pack: PackageName,
+      cons: Constructor,
+      repr: DataRepr
+  ) derives CanEqual
+
   private val revName = Identifier.Name("reverse")
   private def reverseFn[A](from: A) =
     Global[A](from, PackageName.PredefName, revName)
@@ -5356,6 +5366,45 @@ object Matchless {
     type UnionMatch =
       NonEmptyList[(List[LocalAnonMut], BoolExpr[B], List[(Bindable, Expr[B])])]
     type CandidateGuard = List[(Bindable, Expr[B])] => F[BoolExpr[B]]
+    // a pattern whose constructors resolveCons has resolved
+    type Pat = Pattern[ResolvedCons, Type]
+
+    // Look up a pattern constructor once, and check the arity its
+    // representation fixes.
+    def resolveCons(pack: PackageName, cname: Constructor, arity: Int): ResolvedCons =
+      variantOf(pack, cname) match {
+        case Some(DataRepr.ZeroNat) if arity != 0 =>
+          // $COVERAGE-OFF$
+          throw new IllegalStateException(
+            s"ZeroNat should have 0 params, found: $arity"
+          )
+        // $COVERAGE-ON$
+        case Some(DataRepr.SuccNat) if arity != 1 =>
+          // $COVERAGE-OFF$
+          throw new IllegalStateException(
+            s"SuccNat should have 1 param, found: $arity"
+          )
+        // $COVERAGE-ON$
+        case Some(repr) =>
+          ResolvedCons(pack, cname, repr)
+        case None =>
+          // $COVERAGE-OFF$
+          throw new IllegalStateException(
+            s"could not find $cname in global data types"
+          )
+        // $COVERAGE-ON$
+      }
+
+    def resolvePattern(p: Pattern[(PackageName, Constructor), Type]): Pat =
+      p.mapStruct[ResolvedCons] { (name, params) =>
+        Pattern.PositionalStruct(
+          resolveCons(name._1, name._2, params.length),
+          params
+        )
+      }
+
+    lazy val emptyListCons: ResolvedCons = resolveCons(empty._1, empty._2, 0)
+    lazy val nonEmptyListCons: ResolvedCons = resolveCons(cons._1, cons._2, 2)
 
     val wildMatch: UnionMatch = NonEmptyList((Nil, TrueConst, Nil), Nil)
     def isWildMatch(um: UnionMatch): Boolean =
@@ -6305,26 +6354,27 @@ object Matchless {
                       loop(argExpr, slotsPat),
                       guardOpt.traverse(loop(_, slotsBody))
                     ).flatMapN { (argExpr1, guardOpt1) =>
-                      if (pattern.names.isEmpty)
-                        bindingFreeMatchGuardExpr(argExpr1, pattern, guardOpt1)
+                      val pattern1 = resolvePattern(pattern)
+                      if (pattern1.names.isEmpty)
+                        bindingFreeMatchGuardExpr(argExpr1, pattern1, guardOpt1)
                           .map {
                             case Some(guardExpr) =>
                               Some(BoolMatchBranchGuard(guardExpr))
                             case None            =>
                               Some(
-                                ScopedMatchBranchGuard(argExpr1, pattern, guardOpt1)
+                                ScopedMatchBranchGuard(argExpr1, pattern1, guardOpt1)
                               )
                           }
                       else
                         Monad[F].pure(
-                          Some(ScopedMatchBranchGuard(argExpr1, pattern, guardOpt1))
+                          Some(ScopedMatchBranchGuard(argExpr1, pattern1, guardOpt1))
                         )
                     }
                 }
 
               (loweredGuardF, loop(branch.expr, slotsBody)).mapN {
                 (guard, te) =>
-                  MatchBranch(branch.pattern, guard, te)
+                  MatchBranch(resolvePattern(branch.pattern), guard, te)
               }
             }
           ).flatMapN { (a, b) => matchExpr(a, makeAnon, b) }
@@ -6337,7 +6387,7 @@ object Matchless {
      * 3. or we return None indicating not one of these
      */
     def maybeSimple(
-        p: Pattern[(PackageName, Constructor), Type]
+        p: Pat
     ): Option[Either[Bindable, Unit]] =
       p match {
         case Pattern.WildCard   => Some(Right(()))
@@ -6362,25 +6412,16 @@ object Matchless {
             case Pattern.ListPart.NamedList(n) :: Nil => Some(Left(n))
             case _                                    => None
           }
-        case Pattern.Annotation(p, _)                    => maybeSimple(p)
-        case Pattern.PositionalStruct((pack, cname), ps) =>
+        case Pattern.Annotation(p, _)          => maybeSimple(p)
+        case Pattern.PositionalStruct(rc, ps) =>
           // Only branch-free structs with no inner names are simple
-          variantOf(pack, cname) match {
-            case Some(dr) =>
-              dr match {
-                case DataRepr.Struct(_) | DataRepr.NewType =>
-                  ps.traverse(maybeSimple).flatMap { inners =>
-                    if (inners.forall(_ == Right(()))) Some(Right(()))
-                    else None
-                  }
-                case _ => None
+          rc.repr match {
+            case DataRepr.Struct(_) | DataRepr.NewType =>
+              ps.traverse(maybeSimple).flatMap { inners =>
+                if (inners.forall(_ == Right(()))) Some(Right(()))
+                else None
               }
-            // $COVERAGE-OFF$
-            case None =>
-              throw new IllegalStateException(
-                s"could not find $cons in global data types"
-              )
-            // $COVERAGE-ON$
+            case _ => None
           }
         case Pattern.Union(h, t) =>
           (h :: t.toList).traverse(maybeSimple).flatMap { inners =>
@@ -6391,7 +6432,7 @@ object Matchless {
 
     case class ListSearchSegment(
         glob: Pattern.ListPart.Glob,
-        items: NonEmptyList[Pattern[(PackageName, Constructor), Type]]
+        items: NonEmptyList[Pat]
     )
 
     case class ListSearchPlan(
@@ -6408,10 +6449,10 @@ object Matchless {
     // always has at least two exact segments.
     def buildListSearchPlan(
         glob: Pattern.ListPart.Glob,
-        right: NonEmptyList[Pattern.ListPart[Pattern[(PackageName, Constructor), Type]]]
+        right: NonEmptyList[Pattern.ListPart[Pat]]
     ): ListSearchPlan = {
       var currentGlob: Pattern.ListPart.Glob = glob
-      var currentItemsRev: List[Pattern[(PackageName, Constructor), Type]] = Nil
+      var currentItemsRev: List[Pat] = Nil
       var segmentsRev: List[ListSearchSegment] = Nil
 
       right.toList.foreach {
@@ -6445,18 +6486,18 @@ object Matchless {
     }
 
     def exactTrailingItems(
-        right: NonEmptyList[Pattern.ListPart[Pattern[(PackageName, Constructor), Type]]]
-    ): Option[NonEmptyList[Pattern[(PackageName, Constructor), Type]]] =
+        right: NonEmptyList[Pattern.ListPart[Pat]]
+    ): Option[NonEmptyList[Pat]] =
       right.traverse {
         case Pattern.ListPart.Item(p) => Some(p)
         case _: Pattern.ListPart.Glob => None
       }
 
     def exactMiddleItems(
-        right: NonEmptyList[Pattern.ListPart[Pattern[(PackageName, Constructor), Type]]]
+        right: NonEmptyList[Pattern.ListPart[Pat]]
     ): Option[
       (
-          NonEmptyList[Pattern[(PackageName, Constructor), Type]],
+          NonEmptyList[Pat],
           Pattern.ListPart.Glob
       )
     ] =
@@ -6544,7 +6585,7 @@ object Matchless {
 
     def matchFixedListWindowItems(
         itemMuts: NonEmptyList[LocalAnonMut],
-        exactItems: NonEmptyList[Pattern[(PackageName, Constructor), Type]]
+        exactItems: NonEmptyList[Pat]
     ): F[UnionMatch] =
       itemMuts.zip(exactItems).traverse { case (itemMut, pat) =>
         doesMatch(ListExpr.head(itemMut), pat, false, None, None)
@@ -6730,7 +6771,7 @@ object Matchless {
     def exactMiddleListSearch(
         arg: CheapExpr[B],
         leftGlob: Pattern.ListPart.Glob,
-        middleItems: NonEmptyList[Pattern[(PackageName, Constructor), Type]],
+        middleItems: NonEmptyList[Pat],
         rightGlob: Pattern.ListPart.Glob,
         candidateGuard: Option[CandidateGuard]
     ): F[UnionMatch] = {
@@ -6788,7 +6829,7 @@ object Matchless {
     def exactTrailingListSearch(
         arg: CheapExpr[B],
         glob: Pattern.ListPart.Glob,
-        exactItems: NonEmptyList[Pattern[(PackageName, Constructor), Type]]
+        exactItems: NonEmptyList[Pat]
     ): F[UnionMatch] = {
       val exactPat = Pattern.ListPat(exactItems.toList.map(Pattern.ListPart.Item(_)))
       val leftF = prepareLeftGlob(glob)
@@ -7031,7 +7072,7 @@ object Matchless {
     // if must match is true, we know that the pattern must match, so we can potentially remove some checks
     def doesMatch(
         arg: CheapExpr[B],
-        pat: Pattern[(PackageName, Constructor), Type],
+        pat: Pat,
         mustMatch: Boolean,
         rootInlined: Option[InlinedStructRoot],
         candidateGuard: Option[CandidateGuard]
@@ -7103,7 +7144,7 @@ object Matchless {
               } yield NonEmptyList.one((ms, cond, binds))
           }
         case lp @ Pattern.ListPat(_) =>
-          Pattern.ListPat.toPositionalStruct(lp, empty, cons) match {
+          Pattern.ListPat.toPositionalStruct(lp, emptyListCons, nonEmptyListCons) match {
             case Right(p) =>
               // rootInlined = None: list patterns match enum constructors, not root structs.
               doesMatch(arg, p, mustMatch, None, candidateGuard)
@@ -7172,7 +7213,7 @@ object Matchless {
         case Pattern.Annotation(p, _) =>
           // we discard types at this point
           doesMatch(arg, p, mustMatch, rootInlined, candidateGuard)
-        case Pattern.PositionalStruct((pack, cname), params) =>
+        case Pattern.PositionalStruct(rc, params) =>
           // we assume the patterns have already been optimized
           // so that useless total patterns have been replaced with _
           type Locals = Chain[(LocalAnonMut, Expr[B])]
@@ -7183,7 +7224,7 @@ object Matchless {
             // (m1 + m2 + m3) * (m4 + m5 + m6) ... =
             // we need to multiply them all out into a single set of ors
             def operate(
-                pat: Pattern[(PackageName, Constructor), Type],
+                pat: Pat,
                 idx: Int
             ): WriterT[F, Locals, UnionMatch] =
               maybeSimple(pat) match {
@@ -7241,102 +7282,94 @@ object Matchless {
                 }
               }
 
-          variantOf(pack, cname) match {
-            case Some(dr) =>
-              dr match {
-                case DataRepr.Struct(size)        => finish(forStruct(size))
-                case DataRepr.NewType             => finish(forStruct(1))
-                case DataRepr.Enum(vidx, size, f) =>
-                  // if we match the variant, then treat it as a struct
-                  val cv: BoolExpr[B] =
-                    if (mustMatch) TrueConst
-                    else CheckVariant(arg, vidx, size, f)
-                  asStruct(pos => GetEnumElement(arg, vidx, pos, size)).run
-                    .map { case (anons, ums) =>
-                      if (isWildMatch(ums)) {
-                        // we just need to check the variant
-                        assert(
-                          anons.isEmpty,
-                          "anons must by construction always be empty on wildMatch"
-                        )
-                        NonEmptyList((Nil, cv, Nil), Nil)
-                      } else {
-                        // now we need to set up the binds if the variant is right
-                        val cond1 = anons.foldLeft(cv) {
-                          case (c, (mut, expr)) =>
-                            c && SetMut(mut, expr)
-                        }
-
-                        ums.map { case (pre, cond, b) =>
-                          val pre1 = anons.foldLeft(pre) {
-                            case (pre, (mut, _)) => mut :: pre
-                          }
-                          (pre1, cond1 && cond, b)
-                        }
-                      }
+          rc.repr match {
+            case DataRepr.Struct(size)        => finish(forStruct(size))
+            case DataRepr.NewType             => finish(forStruct(1))
+            case DataRepr.Enum(vidx, size, f) =>
+              // if we match the variant, then treat it as a struct
+              val cv: BoolExpr[B] =
+                if (mustMatch) TrueConst
+                else CheckVariant(arg, vidx, size, f)
+              asStruct(pos => GetEnumElement(arg, vidx, pos, size)).run
+                .map { case (anons, ums) =>
+                  if (isWildMatch(ums)) {
+                    // we just need to check the variant
+                    assert(
+                      anons.isEmpty,
+                      "anons must by construction always be empty on wildMatch"
+                    )
+                    NonEmptyList((Nil, cv, Nil), Nil)
+                  } else {
+                    // now we need to set up the binds if the variant is right
+                    val cond1 = anons.foldLeft(cv) {
+                      case (c, (mut, expr)) =>
+                        c && SetMut(mut, expr)
                     }
-                    .flatMap(applyCandidateGuardToUnionMatch(_, candidateGuard))
-                case DataRepr.ZeroNat =>
-                  val cv: BoolExpr[B] =
-                    if (mustMatch) TrueConst
-                    else EqualsNat(arg, DataRepr.ZeroNat)
-                  finish(Monad[F].pure(NonEmptyList((Nil, cv, Nil), Nil)))
-                case DataRepr.SuccNat =>
-                  params match {
-                    case single :: Nil =>
-                      // if we match, we recur on the inner pattern and prev of current
-                      val check =
-                        if (mustMatch) TrueConst
-                        else EqualsNat(arg, DataRepr.SuccNat)
 
-                      val ignoreInner = single match {
-                        case Pattern.WildCard => true
-                        case _                => false
+                    ums.map { case (pre, cond, b) =>
+                      val pre1 = anons.foldLeft(pre) {
+                        case (pre, (mut, _)) => mut :: pre
                       }
-
-                      if (!ignoreInner) {
-                        (
-                          for {
-                            nm <- makeAnon
-                            loc = LocalAnonMut(nm)
-                            prev = PrevNat(arg)
-                            // rootInlined = None: we match the predecessor occurrence, not the root.
-                            rest <- doesMatch(loc, single, mustMatch, None, None)
-                          } yield rest.map { case (preLets, cond, res) =>
-                            (
-                              loc :: preLets,
-                              check && SetMut(loc, prev) && cond,
-                              res
-                            )
-                          }
-                        ).flatMap(
-                          applyCandidateGuardToUnionMatch(_, candidateGuard)
-                        )
-                      } else {
-                        // we don't need to bind the prev
-                        finish(Monad[F].pure(wildMatch.map {
-                          case (preLets, cond, res) =>
-                            (
-                              preLets,
-                              check && cond,
-                              res
-                            )
-                        }))
-                      }
-                    case other =>
-                      // $COVERAGE-OFF$
-                      throw new IllegalStateException(
-                        s"expected typechecked Nat to only have one param, found: $other in $pat"
-                      )
-                    // $COVERAGE-ON$
+                      (pre1, cond1 && cond, b)
+                    }
                   }
+                }
+                .flatMap(applyCandidateGuardToUnionMatch(_, candidateGuard))
+            case DataRepr.ZeroNat =>
+              val cv: BoolExpr[B] =
+                if (mustMatch) TrueConst
+                else EqualsNat(arg, DataRepr.ZeroNat)
+              finish(Monad[F].pure(NonEmptyList((Nil, cv, Nil), Nil)))
+            case DataRepr.SuccNat =>
+              params match {
+                case single :: Nil =>
+                  // if we match, we recur on the inner pattern and prev of current
+                  val check =
+                    if (mustMatch) TrueConst
+                    else EqualsNat(arg, DataRepr.SuccNat)
+
+                  val ignoreInner = single match {
+                    case Pattern.WildCard => true
+                    case _                => false
+                  }
+
+                  if (!ignoreInner) {
+                    (
+                      for {
+                        nm <- makeAnon
+                        loc = LocalAnonMut(nm)
+                        prev = PrevNat(arg)
+                        // rootInlined = None: we match the predecessor occurrence, not the root.
+                        rest <- doesMatch(loc, single, mustMatch, None, None)
+                      } yield rest.map { case (preLets, cond, res) =>
+                        (
+                          loc :: preLets,
+                          check && SetMut(loc, prev) && cond,
+                          res
+                        )
+                      }
+                    ).flatMap(
+                      applyCandidateGuardToUnionMatch(_, candidateGuard)
+                    )
+                  } else {
+                    // we don't need to bind the prev
+                    finish(Monad[F].pure(wildMatch.map {
+                      case (preLets, cond, res) =>
+                        (
+                          preLets,
+                          check && cond,
+                          res
+                        )
+                    }))
+                  }
+                case other =>
+                  // resolveCons has checked that SuccNat has one param
+                  // $COVERAGE-OFF$
+                  throw new IllegalStateException(
+                    s"expected typechecked Nat to only have one param, found: $other in $pat"
+                  )
+                // $COVERAGE-ON$
               }
-            case None =>
-              // $COVERAGE-OFF$
-              throw new IllegalStateException(
-                s"could not find $cons in global data types"
-              )
-            // $COVERAGE-ON$
           }
         case Pattern.Union(h, ts) =>
           // note this list is exactly as long as h :: ts
@@ -7385,12 +7418,12 @@ object Matchless {
     final case class BoolMatchBranchGuard(expr: Expr[B]) extends MatchBranchGuard
     final case class ScopedMatchBranchGuard(
         arg: Expr[B],
-        pattern: Pattern[(PackageName, Constructor), Type],
+        pattern: Pat,
         guard: Option[Expr[B]]
     ) extends MatchBranchGuard
 
     case class MatchBranch(
-        pattern: Pattern[(PackageName, Constructor), Type],
+        pattern: Pat,
         guard: Option[MatchBranchGuard],
         rhs: Expr[B]
     ) {
@@ -7404,8 +7437,6 @@ object Matchless {
         }
     }
 
-    type Pat = Pattern[(PackageName, Constructor), Type]
-
     // The patterns of a normalized matrix row. normalizeRow peels binders
     // and annotations off each column and splits its unions, and
     // isNonOrthogonal keeps string and list searches out of the matrix.
@@ -7413,7 +7444,7 @@ object Matchless {
     // to its bound, so it is a wildcard here.
     type HeadPat =
       Pattern.WildCard.type | Pattern.Literal |
-        Pattern.PositionalStruct[(PackageName, Constructor), ? <: Type]
+        Pattern.PositionalStruct[ResolvedCons, ? <: Type]
 
     // A row in the pattern matrix: patterns for each occurrence,
     // a right-hand side, and the bindings accumulated so far.
@@ -7443,12 +7474,12 @@ object Matchless {
     // See: https://compiler.club/compiling-pattern-matching/
     enum HeadSig derives CanEqual {
       case EnumSig(
-          ctor: (PackageName, Constructor),
+          ctor: ResolvedCons,
           variant: Int,
           arity: Int,
           famArities: List[Int]
       )
-      case StructSig(ctor: (PackageName, Constructor), arity: Int)
+      case StructSig(ctor: ResolvedCons, arity: Int)
           extends HeadSig
       case ZeroSig extends HeadSig
       case SuccSig extends HeadSig
@@ -7467,8 +7498,8 @@ object Matchless {
     // Normalize patterns to shrink the grammar into cases the matrix
     // algorithm handles (e.g., collapse simple string/list patterns, remove Annotation).
     def normalizePattern(
-        p: Pattern[(PackageName, Constructor), Type]
-    ): Pattern[(PackageName, Constructor), Type] =
+        p: Pat
+    ): Pat =
       p match {
         case Pattern.Annotation(p1, _) => normalizePattern(p1)
         case Pattern.Named(v, p1)      =>
@@ -7484,7 +7515,7 @@ object Matchless {
             case None     => sp
           }
         case lp @ Pattern.ListPat(_) =>
-          Pattern.ListPat.toPositionalStruct(lp, empty, cons) match {
+          Pattern.ListPat.toPositionalStruct(lp, emptyListCons, nonEmptyListCons) match {
             case Right(p1) => normalizePattern(p1)
             case Left(_)   =>
               val parts = lp.parts.map {
@@ -7499,7 +7530,7 @@ object Matchless {
     // Non-orthogonal patterns (string globs, non-trailing list globs) have
     // backtracking/search semantics and are not handled by the matrix compiler.
     def isNonOrthogonal(
-        p: Pattern[(PackageName, Constructor), Type]
+        p: Pat
     ): Boolean =
       p.isSearchPattern
 
@@ -7512,7 +7543,7 @@ object Matchless {
         inlined: Option[InlinedStructRoot]
     ): (
         List[(Bindable, Expr[B])],
-        HeadPat | Pattern.Union[(PackageName, Constructor), ? <: Type]
+        HeadPat | Pattern.Union[ResolvedCons, ? <: Type]
     ) =
       p match {
         case Pattern.Named(v, inner) =>
@@ -7634,38 +7665,14 @@ object Matchless {
         case Pattern.WildCard     => None
         case Pattern.Literal(lit) =>
           Some(LitSig(lit))
-        case Pattern.PositionalStruct((pack, cname), params) =>
-          variantOf(pack, cname) match {
-            case Some(DataRepr.Enum(v, s, f)) =>
-              Some(EnumSig((pack, cname), v, s, f))
-            case Some(DataRepr.Struct(s)) =>
-              Some(StructSig((pack, cname), s))
-            case Some(DataRepr.NewType) =>
-              Some(StructSig((pack, cname), 1))
-            case Some(DataRepr.ZeroNat) =>
-              if (params.isEmpty) Some(ZeroSig)
-              else {
-                // $COVERAGE-OFF$
-                throw new IllegalStateException(
-                  s"ZeroNat should have 0 params, found: $params"
-                )
-                // $COVERAGE-ON$
-              }
-            case Some(DataRepr.SuccNat) =>
-              if (params.length == 1) Some(SuccSig)
-              else {
-                // $COVERAGE-OFF$
-                throw new IllegalStateException(
-                  s"SuccNat should have 1 param, found: $params"
-                )
-                // $COVERAGE-ON$
-              }
-            case None =>
-              // $COVERAGE-OFF$
-              throw new IllegalStateException(
-                s"could not find $cname in global data types"
-              )
-            // $COVERAGE-ON$
+        case Pattern.PositionalStruct(rc, _) =>
+          // resolveCons has checked the arity of the Nat constructors
+          rc.repr match {
+            case DataRepr.Enum(v, s, f) => Some(EnumSig(rc, v, s, f))
+            case DataRepr.Struct(s)     => Some(StructSig(rc, s))
+            case DataRepr.NewType       => Some(StructSig(rc, 1))
+            case DataRepr.ZeroNat       => Some(ZeroSig)
+            case DataRepr.SuccNat       => Some(SuccSig)
           }
       }
 
@@ -7781,45 +7788,38 @@ object Matchless {
                 Some(row.patchPats(colIdx, Nil))
               case _ => None
             }
-          case Pattern.PositionalStruct((pack, cname), params) =>
-            variantOf(pack, cname) match {
-              case Some(DataRepr.Enum(v, s, f)) =>
+          case Pattern.PositionalStruct(rc, params) =>
+            // resolveCons has checked the arity of the Nat constructors
+            rc.repr match {
+              case DataRepr.Enum(v, s, f) =>
                 sig match {
                   case EnumSig(_, v1, s1, f1)
                       if (v == v1) && (s == s1) && (f == f1) =>
                     Some(row.patchPats(colIdx, params))
                   case _ => None
                 }
-              case Some(DataRepr.Struct(s)) =>
+              case DataRepr.Struct(s) =>
                 sig match {
                   case StructSig(_, s1) if s == s1 =>
                     Some(row.patchPats(colIdx, params))
                   case _ => None
                 }
-              case Some(DataRepr.NewType) =>
+              case DataRepr.NewType =>
                 sig match {
                   case StructSig(_, s1) if s1 == 1 =>
                     Some(row.patchPats(colIdx, params))
                   case _ => None
                 }
-              case Some(DataRepr.ZeroNat) =>
+              case DataRepr.ZeroNat =>
                 sig match {
-                  case ZeroSig if params.isEmpty =>
-                    Some(row.patchPats(colIdx, Nil))
-                  case _ => None
+                  case ZeroSig => Some(row.patchPats(colIdx, Nil))
+                  case _       => None
                 }
-              case Some(DataRepr.SuccNat) =>
+              case DataRepr.SuccNat =>
                 sig match {
-                  case SuccSig if params.length == 1 =>
-                    Some(row.patchPats(colIdx, params))
-                  case _ => None
+                  case SuccSig => Some(row.patchPats(colIdx, params))
+                  case _       => None
                 }
-              // $COVERAGE-OFF$
-              case None =>
-                throw new IllegalStateException(
-                  s"could not find $cname in global data types"
-                )
-              // $COVERAGE-ON$
             }
         }
       }
@@ -8071,7 +8071,7 @@ object Matchless {
 
     def bindingFreePatternBool(
         argExpr: Expr[B],
-        pattern: Pattern[(PackageName, Constructor), Type],
+        pattern: Pat,
         mustMatch: Boolean
     ): OptionT[F, BoolExpr[B]] =
       OptionT(Defer[F].defer {
@@ -8092,7 +8092,7 @@ object Matchless {
 
     def bindingFreePatternBoolCheap(
         arg: CheapExpr[B],
-        pattern: Pattern[(PackageName, Constructor), Type],
+        pattern: Pat,
         mustMatch: Boolean
     ): OptionT[F, BoolExpr[B]] =
       OptionT(Defer[F].defer {
@@ -8108,15 +8108,15 @@ object Matchless {
             case Pattern.Annotation(p, _) =>
               bindingFreePatternBoolCheap(arg, p, mustMatch)
             case lp @ Pattern.ListPat(_) =>
-              Pattern.ListPat.toPositionalStruct(lp, empty, cons) match {
+              Pattern.ListPat.toPositionalStruct(lp, emptyListCons, nonEmptyListCons) match {
                 case Right(p) =>
                   bindingFreePatternBoolCheap(arg, p, mustMatch)
                 case Left(_)  =>
                   OptionT.none
               }
-            case Pattern.PositionalStruct((pack, cname), params) =>
-              variantOf(pack, cname) match {
-                case Some(DataRepr.Struct(size)) if params.length == size =>
+            case Pattern.PositionalStruct(rc, params) =>
+              rc.repr match {
+                case DataRepr.Struct(size) if params.length == size =>
                   params.toList.zipWithIndex
                     .traverse { case (param, idx) =>
                       bindingFreePatternBool(
@@ -8126,7 +8126,7 @@ object Matchless {
                       )
                     }
                     .map(_.foldLeft(TrueConst: BoolExpr[B])(_ && _))
-                case Some(DataRepr.NewType) if params.length == 1 =>
+                case DataRepr.NewType if params.length == 1 =>
                   params.toList.zipWithIndex
                     .traverse { case (param, idx) =>
                       bindingFreePatternBool(
@@ -8136,7 +8136,7 @@ object Matchless {
                       )
                     }
                     .map(_.foldLeft(TrueConst: BoolExpr[B])(_ && _))
-                case Some(DataRepr.Enum(vidx, size, famArities))
+                case DataRepr.Enum(vidx, size, famArities)
                     if params.length == size =>
                   params.toList.zipWithIndex
                     .traverse { case (param, idx) =>
@@ -8150,12 +8150,12 @@ object Matchless {
                       if (mustMatch) TrueConst
                       else CheckVariant(arg, vidx, size, famArities): BoolExpr[B]
                     )(_ && _))
-                case Some(DataRepr.ZeroNat) if params.isEmpty =>
+                case DataRepr.ZeroNat if params.isEmpty =>
                   OptionT.some(
                     if (mustMatch) TrueConst
                     else EqualsNat(arg, DataRepr.ZeroNat)
                   )
-                case Some(DataRepr.SuccNat) if params.length == 1 =>
+                case DataRepr.SuccNat if params.length == 1 =>
                   bindingFreePatternBool(PrevNat(arg), params.head, mustMatch)
                     .map(
                       (if (mustMatch) TrueConst
@@ -8173,7 +8173,7 @@ object Matchless {
 
     def bindingFreeMatchGuardExpr(
         argExpr: Expr[B],
-        pattern: Pattern[(PackageName, Constructor), Type],
+        pattern: Pat,
         guardExpr: Option[Expr[B]]
     ): F[Option[Expr[B]]] =
       bindingFreePatternBool(argExpr, pattern, mustMatch = false).value.map {
@@ -8222,7 +8222,7 @@ object Matchless {
 
     def buildScopedGuardSetup(
         argExpr: Expr[B],
-        pattern: Pattern[(PackageName, Constructor), Type],
+        pattern: Pat,
         guardExpr: Option[Expr[B]]
     ): F[ScopedGuardSetup] = {
       val binderNames = pattern.names
@@ -8903,7 +8903,7 @@ object Matchless {
     }
 
     def isTotalFallbackPattern(
-        p: Pattern[(PackageName, Constructor), Type]
+        p: Pat
     ): Boolean =
       maybeSimple(normalizePattern(p)).nonEmpty
 
@@ -9121,7 +9121,7 @@ object Matchless {
         }.toSet
 
       def bindsWholeRoot(
-          p: Pattern[(PackageName, Constructor), Type]
+          p: Pat
       ): Boolean =
         p match {
           case Pattern.Var(_) | Pattern.Named(_, _) => true
@@ -9138,43 +9138,44 @@ object Matchless {
       // orthogonal cases before falling back.
       val orthoThreshold = 4
 
+      // Is p the pattern of the Predef constructor cname with no params?
+      def isPredefNullary(p: Pat, cname: Constructor): Boolean =
+        p match {
+          case Pattern.PositionalStruct(rc, Nil) =>
+            (rc.pack == PackageName.PredefName) && (rc.cons == cname)
+          case _ =>
+            false
+        }
+
       def boolSelectorBranches(
           bs: NonEmptyList[MatchBranch]
       ): Option[(Expr[B], Expr[B])] = {
-        val truePat: Pattern[(PackageName, Constructor), Type] =
-          Pattern.PositionalStruct(
-            (PackageName.PredefName, Constructor("True")),
-            Nil
-          )
-        val falsePat: Pattern[(PackageName, Constructor), Type] =
-          Pattern.PositionalStruct(
-            (PackageName.PredefName, Constructor("False")),
-            Nil
-          )
+        val trueCons = Constructor("True")
+        val falseCons = Constructor("False")
 
         def normalizedNoNames(
-            p: Pattern[(PackageName, Constructor), Type]
-        ): Option[Pattern[(PackageName, Constructor), Type]] = {
+            p: Pat
+        ): Option[Pat] = {
           val p1 = normalizePattern(p)
           if (p1.names.isEmpty) Some(p1)
           else None
         }
 
-        def isTrue(p: Pattern[(PackageName, Constructor), Type]): Boolean =
-          p == truePat
+        def isTrue(p: Pat): Boolean =
+          isPredefNullary(p, trueCons)
 
         def isFalseOrWild(
-            p: Pattern[(PackageName, Constructor), Type]
+            p: Pat
         ): Boolean =
-          (p == falsePat) || (p == Pattern.WildCard)
+          isPredefNullary(p, falseCons) || (p == Pattern.WildCard)
 
         bs.toList match {
           case MatchBranch(p1, None, ifTrue) :: MatchBranch(p2, None, ifFalse) :: Nil =>
             (normalizedNoNames(p1), normalizedNoNames(p2)) match {
               case (Some(np1), Some(np2)) if isTrue(np1) && isFalseOrWild(np2) =>
                 Some((ifTrue, ifFalse))
-              case (Some(np1), Some(np2)) if (np1 == falsePat) && (
-                    (np2 == truePat) || (np2 == Pattern.WildCard)
+              case (Some(np1), Some(np2)) if isPredefNullary(np1, falseCons) && (
+                    isTrue(np2) || (np2 == Pattern.WildCard)
                   ) =>
                 Some((ifFalse, ifTrue))
               case _ =>
@@ -9189,41 +9190,29 @@ object Matchless {
           selectorExpr: Expr[B],
           bs: NonEmptyList[MatchBranch]
       ): Option[F[Expr[B]]] = {
-        val ltPat: Pattern[(PackageName, Constructor), Type] =
-          Pattern.PositionalStruct(
-            (PackageName.PredefName, Constructor("LT")),
-            Nil
-          )
-        val eqPat: Pattern[(PackageName, Constructor), Type] =
-          Pattern.PositionalStruct(
-            (PackageName.PredefName, Constructor("EQ")),
-            Nil
-          )
-        val gtPat: Pattern[(PackageName, Constructor), Type] =
-          Pattern.PositionalStruct(
-            (PackageName.PredefName, Constructor("GT")),
-            Nil
-          )
+        val ltCons = Constructor("LT")
+        val eqCons = Constructor("EQ")
+        val gtCons = Constructor("GT")
 
         def normalizedNoNames(
-            p: Pattern[(PackageName, Constructor), Type]
-        ): Option[Pattern[(PackageName, Constructor), Type]] = {
+            p: Pat
+        ): Option[Pat] = {
           val p1 = normalizePattern(p)
           if (p1.names.isEmpty) Some(p1)
           else None
         }
 
         def patternVariants(
-            p: Pattern[(PackageName, Constructor), Type]
+            p: Pat
         ): Option[Set[Int]] =
           p match {
             case Pattern.WildCard =>
               Some(comparisonTrueVariants)
-            case `ltPat` =>
+            case _ if isPredefNullary(p, ltCons) =>
               Some(Set(0))
-            case `eqPat` =>
+            case _ if isPredefNullary(p, eqCons) =>
               Some(Set(1))
-            case `gtPat` =>
+            case _ if isPredefNullary(p, gtCons) =>
               Some(Set(2))
             case Pattern.Union(head, tail) =>
               (head :: tail.toList).traverse(patternVariants).map(_.foldLeft(Set.empty[Int])(_ union _))
