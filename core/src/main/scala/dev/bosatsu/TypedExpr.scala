@@ -1400,7 +1400,7 @@ object TypedExpr {
           coerce: Type.Rho,
           quantifierEvidence: Option[QuantifierEvidence]
       ): Rho[T] =
-        TypedExpr.Annotation(term, coerce, quantifierEvidence)
+        Rho.Annotation(term, coerce, quantifierEvidence)
 
       def App[T](
           fn: TypedExpr[T],
@@ -1408,87 +1408,139 @@ object TypedExpr {
           result: Type.Rho,
           tag: T
       ): Rho[T] =
-        // the type of App is result, which is a Rho
-        TypedExpr.App(fn, args, result, tag)
+        Rho.App(fn, args, result, tag)
     }
   }
 
-  /** A TypedExpr.Rho[A] is just a TypedExpr that is guaranteed to have
-    * getType.isInstance[Type.Rho]
+  export RhoImpl.{Rho, substCoerceRho, widenCoerceRho, widenRhoK}
+
+  /** Rho is transparent only inside this object, so a Rho built anywhere else
+    * comes from one of these constructors.
     */
-  opaque type Rho[+A] <: TypedExpr[A] =
-    TypedExpr[A] // an expression with a Rho type (no top level forall)
+  object RhoImpl {
 
-  object Rho {
-    def substTyExpr[A](
-        keys: NonEmptyList[Type.Var],
-        vals: NonEmptyList[Type.Tau],
-        expr: Rho[A]
-    ): Rho[A] = {
-      // replaceing vars with Taus can't make break Rho-ness
-      val fn = Type.substTy(keys, vals)
-      expr.traverseType[cats.Id](fn)
-    }
+    /** A TypedExpr.Rho[A] is just a TypedExpr that is guaranteed to have
+      * getType.isInstance[Type.Rho]
+      */
+    opaque type Rho[+A] <: TypedExpr[A] =
+      TypedExpr[A] // an expression with a Rho type (no top level forall)
 
-    inline def exists[A](
-        nel: NonEmptyList[(Type.Var.Bound, Kind)],
-        rho: Rho[A]
-    ): Rho[A] =
-      // adding an existential wrapper on a Rho keeps it a rho
-      TypedExpr.quantVars(
-        forallList = Nil,
-        existList = nel.toList,
-        rho
-      )
+    // we can always consider CoerceRho as a Coerce
+    inline def widenCoerceRho(co: CoerceRho): Coerce = co
+    inline def substCoerceRho[F[_]](fc: F[CoerceRho]): F[Coerce] = fc
+    inline def widenRhoK[F[_], G[_]](
+        fk: FunctionK[F, [X] =>> G[Rho[X]]]
+    ): FunctionK[F, [X] =>> G[TypedExpr[X]]] = fk
 
-    def AnnotatedLambda[A](
-        args: NonEmptyList[(Bindable, Type)],
-        expr: TypedExpr[A],
-        tag: A
-    ): Rho[A] =
-      // Function types are always Rho types
-      TypedExpr.AnnotatedLambda(args, expr, tag)
-
-    def Let[A](
-        name: Bindable,
-        rhs: TypedExpr[A],
-        body: Rho[A],
-        recursive: RecursionKind,
-        tag: A
-    ): Rho[A] =
-      // if the body is Rho, this is a Let-rho
-      TypedExpr.Let(name, rhs, body, recursive, tag)
-
-    def Match[A](
-        matchKind: MatchKind = MatchKind.Match,
-        arg: TypedExpr[A],
-        branches: NonEmptyList[Branch[A]],
-        tag: A
-    ): Rho[A] =
-      // if all branches are Rho this is Rho
-      TypedExpr.Match(matchKind, arg, branches, tag)
-
-    // Throw illegal argument exception if this isn't true,
-    // should always be true by construction, but this runtime check is to detect compiler bugs
-    def assertRho[A](r: TypedExpr[A]): Rho[A] =
-      r.getType match {
-        case _: Type.Rho => r
-        case _           =>
-          throw new IllegalArgumentException(
-            s"type not Rho: ${r.reprString}"
-          )
+    object Rho {
+      def substTyExpr[A](
+          keys: NonEmptyList[Type.Var],
+          vals: NonEmptyList[Type.Tau],
+          expr: Rho[A]
+      ): Rho[A] = {
+        // replaceing vars with Taus can't make break Rho-ness
+        val fn = Type.substTy(keys, vals)
+        expr.traverseType[cats.Id](fn)
       }
 
-    def zonkMeta[F[_]: Applicative, A](rho: Rho[A])(
-        fn: Type.Meta => F[Option[Type.Tau]]
-    ): F[Rho[A]] =
-      // zonking preserves Rho-ness
-      TypedExpr.zonkMeta(rho)(fn)
+      inline def exists[A](
+          nel: NonEmptyList[(Type.Var.Bound, Kind)],
+          rho: Rho[A]
+      ): Rho[A] =
+        // adding an existential wrapper on a Rho keeps it a rho
+        TypedExpr.quantVars(
+          forallList = Nil,
+          existList = nel.toList,
+          rho
+        )
 
-    implicit class RhoMethods[A](private val rho: Rho[A]) extends AnyVal {
-      def getRhoType: Type.Rho =
-        // due to us maintaining invariants in this file, this cast must succeed
-        rho.getType.asInstanceOf[Type.Rho]
+      def Annotation[A](
+          term: TypedExpr[A],
+          coerce: Type.Rho,
+          quantifierEvidence: Option[QuantifierEvidence]
+      ): Rho[A] =
+        // the type of Annotation is coerce, which is a Rho
+        TypedExpr.Annotation(term, coerce, quantifierEvidence)
+
+      def App[A](
+          fn: TypedExpr[A],
+          args: NonEmptyList[TypedExpr[A]],
+          result: Type.Rho,
+          tag: A
+      ): Rho[A] =
+        // the type of App is result, which is a Rho
+        TypedExpr.App(fn, args, result, tag)
+
+      def AnnotatedLambda[A](
+          args: NonEmptyList[(Bindable, Type)],
+          expr: TypedExpr[A],
+          tag: A
+      ): Rho[A] =
+        // Function types are always Rho types
+        TypedExpr.AnnotatedLambda(args, expr, tag)
+
+      def Let[A](
+          name: Bindable,
+          rhs: TypedExpr[A],
+          body: Rho[A],
+          recursive: RecursionKind,
+          tag: A
+      ): Rho[A] =
+        // if the body is Rho, this is a Let-rho
+        TypedExpr.Let(name, rhs, body, recursive, tag)
+
+      def letAllNonRec[A](
+          binds: NonEmptyList[(Bindable, TypedExpr[A])],
+          in: Rho[A],
+          tag: A
+      ): Rho[A] =
+        // lets have the type of their body
+        TypedExpr.letAllNonRec(binds, in, tag)
+
+      def letAllNonRecWithTags[A](
+          binds: List[(Bindable, TypedExpr[A], A)],
+          in: Rho[A]
+      ): Rho[A] =
+        // lets have the type of their body
+        TypedExpr.letAllNonRecWithTags(binds, in)
+
+      def Loop[A](
+          args: NonEmptyList[(Bindable, TypedExpr[A])],
+          body: Rho[A],
+          tag: A
+      ): Rho[A] =
+        // a Loop has the type of its body
+        TypedExpr.Loop(args, body, tag)
+
+      def Match[A](
+          matchKind: MatchKind = MatchKind.Match,
+          arg: TypedExpr[A],
+          branches: NonEmptyList[Branch[A]],
+          tag: A
+      ): Rho[A] =
+        // if all branches are Rho this is Rho
+        TypedExpr.Match(matchKind, arg, branches, tag)
+
+      // For an expression whose type the caller found sameAs a Type.Rho.
+      // sameAs compares normalized types, so this is trusted, not checked.
+      private[TypedExpr] def trustSameAs[A](expr: TypedExpr[A]): Rho[A] = expr
+
+      // Throw illegal argument exception if this isn't true,
+      // should always be true by construction, but this runtime check is to detect compiler bugs
+      def assertRho[A](r: TypedExpr[A]): Rho[A] =
+        r.getType match {
+          case _: Type.Rho => r
+          case _           =>
+            throw new IllegalArgumentException(
+              s"type not Rho: ${r.reprString}"
+            )
+        }
+
+      def zonkMeta[F[_]: Applicative, A](rho: Rho[A])(
+          fn: Type.Meta => F[Option[Type.Tau]]
+      ): F[Rho[A]] =
+        // zonking preserves Rho-ness
+        TypedExpr.zonkMeta(rho)(fn)
     }
   }
 
@@ -3100,11 +3152,7 @@ object TypedExpr {
     }
 
   type Coerce = FunctionK[TypedExpr, TypedExpr]
-  type CoerceRho = FunctionK[TypedExpr, Rho]
-
-  // we can always consider CoerceRho as a Coerce
-  inline def widenCoerceRho(co: CoerceRho): Coerce = co
-  inline def substCoerceRho[F[_]](fc: F[CoerceRho]): F[Coerce] = fc
+  type CoerceRho = FunctionK[TypedExpr, RhoImpl.Rho]
 
   // We know initTpe <:< instTpe, we may be able to simply
   // fix some of the universally quantified variables
@@ -3113,7 +3161,7 @@ object TypedExpr {
       instTpe: Type.Rho,
       kinds: Type => Option[Kind],
       evidenceHint: Option[QuantifierEvidence]
-  ): TypedExpr[A] = {
+  ): TypedExpr.Rho[A] = {
     import Type._
 
     val avoidQuantifierNames: Set[Type.Var.Bound] =
@@ -3138,7 +3186,7 @@ object TypedExpr {
     def resultFromSubs(
         subs: Map[Type.Var, Type],
         evidence: Option[QuantifierEvidence]
-    ): TypedExpr[A] = {
+    ): TypedExpr.Rho[A] = {
       val freeVars = solveSet -- subs.keySet
       val subBody = substituteTypeVar(gen1.in, subs)
       val freeExists = exList.filter { case (t, _) =>
@@ -3170,8 +3218,7 @@ object TypedExpr {
               .getOrElse(subBody)
         }
 
-      if (res0.getType.sameAs(instTpe)) res0
-      else ann(res0, instTpe, evidence)
+      annRho(res0, instTpe, evidence)
     }
 
     def evidenceSubs(ev: QuantifierEvidence): Option[Map[Type.Var, Type]] =
@@ -3250,7 +3297,7 @@ object TypedExpr {
         // learn that ?338 == $k$303, but we don't seem to know that yet
 
         // just add an annotation:
-        ann(gen1, instTpe, evidenceHint)
+        annRho(gen1, instTpe, evidenceHint)
       case Some(resultExpr) => resultExpr
     }
   }
@@ -3363,7 +3410,9 @@ object TypedExpr {
         new FunctionK[TypedExpr, Rho] { self =>
           def apply[A](expr: TypedExpr[A]): Rho[A] =
             expr match {
-              case _ if expr.getType.sameAs(tpe) => expr
+              case _ if expr.getType.sameAs(tpe) =>
+                // trusted: expr's type is sameAs the Rho tpe
+                Rho.trustSameAs(expr)
               case Annotation(t, _, _)           =>
                 // coerceRho is a widen rewrite to a new target `tpe`.
                 // Existing annotation evidence (if present) justifies that
@@ -3380,7 +3429,7 @@ object TypedExpr {
                 // All of these are widened. The lambda seems like we should be able to do
                 // better, but the type isn't a Fun(Type, Type.Rho)... this is probably unreachable for
                 // the AnnotatedLambda
-                Annotation(expr, tpe, None)
+                Rho.Annotation(expr, tpe, None)
               case gen @ Generic(_, _) =>
                 pushGeneric(gen) match {
                   case Some(e1) => self(e1)
@@ -3396,7 +3445,7 @@ object TypedExpr {
                         (n, coerceRho(rho, kinds)(arg))
                       case ((n, _), arg) => (n, arg)
                     }
-                    letAllNonRec(binds, self(body), tag)
+                    Rho.letAllNonRec(binds, self(body), tag)
                   case _ =>
                     fn.getType match {
                       case Type.Fun(argTs, _) =>
@@ -3413,7 +3462,7 @@ object TypedExpr {
                           self,
                           kinds
                         )(fn)
-                        App(fn1, cArgs.map(_._1), tpe, tag)
+                        Rho.App(fn1, cArgs.map(_._1), tpe, tag)
                       case _ =>
                         // TODO, what should we do here?
                         // It is currently certainly wrong
@@ -3421,23 +3470,25 @@ object TypedExpr {
                         // but that implies something for fn and arg
                         // but we are ignoring that, which
                         // leaves them with potentially skolems or metavars
-                        ann(expr, tpe, None)
+                        annRho(expr, tpe, None)
                     }
                 }
               case let @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
                 val (lets, tail) = flattenLets(let)
-                letAllNonRecWithTags(lets, self(tail))
+                Rho.letAllNonRecWithTags(lets, self(tail))
               case Let(arg, argE, in, rec, tag) =>
-                Let(arg, argE, self(in), rec, tag)
+                Rho.Let(arg, argE, self(in), rec, tag)
               case Loop(args, body, tag) =>
-                Loop(args, self(body), tag)
+                Rho.Loop(args, self(body), tag)
               case Recur(_, _, _) =>
-                ann(expr, tpe, None)
+                annRho(expr, tpe, None)
               case m @ Match(arg, branches, tag) =>
                 // TODO: this may be wrong. e.g. we could leaving meta in the types
                 // embedded in patterns, this does not seem to happen since we would
                 // error if metas escape typechecking
-                Match(
+                //
+                // every branch body is coerced to a Rho by self
+                Rho.Match(
                   m.matchKind,
                   arg,
                   branches.map(branch =>
@@ -4021,6 +4072,15 @@ object TypedExpr {
     if (te.getType.sameAs(tpe)) te
     else Annotation(te, tpe, quantifierEvidence)
 
+  private def annRho[A](
+      te: TypedExpr[A],
+      tpe: Type.Rho,
+      quantifierEvidence: Option[QuantifierEvidence]
+  ): Rho[A] =
+    // trusted: te's type is sameAs the Rho tpe
+    if (te.getType.sameAs(tpe)) Rho.trustSameAs(te)
+    else Rho.Annotation(te, tpe, quantifierEvidence)
+
   /** TODO this seems pretty expensive to blindly apply: we are deoptimizing the
     * nodes pretty heavily
     */
@@ -4052,7 +4112,9 @@ object TypedExpr {
 
       def apply[A](expr: TypedExpr[A]): Rho[A] =
         expr match {
-          case _ if expr.getType.sameAs(fntpe) => expr
+          case _ if expr.getType.sameAs(fntpe) =>
+            // trusted: expr's type is sameAs the function type fntpe
+            Rho.trustSameAs(expr)
           case Annotation(t, _, _)             =>
             // Same rationale as coerceRho: this pass computes a new target
             // (`fntpe`), so any existing annotation/evidence is for a prior
@@ -4068,7 +4130,7 @@ object TypedExpr {
               .foldRight(res) { case ((name, arg), res) =>
                 replaceVarType(res, name, arg)
               }
-            AnnotatedLambda(args1, cores(res1), tag)
+            Rho.AnnotatedLambda(args1, cores(res1), tag)
           case gen @ Generic(_, _) =>
             pushGeneric(gen) match {
               case Some(e1) => self(e1)
@@ -4076,21 +4138,23 @@ object TypedExpr {
                 instantiateTo(gen, fntpe, kinds, None)
             }
           case Local(_, _, _) | Global(_, _, _, _) | Literal(_, _, _) =>
-            ann(expr, fntpe, None)
+            annRho(expr, fntpe, None)
           case let @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
             val (lets, tail) = flattenLets(let)
-            letAllNonRecWithTags(lets, self(tail))
+            Rho.letAllNonRecWithTags(lets, self(tail))
           case Let(arg, argE, in, rec, tag) =>
-            Let(arg, argE, self(in), rec, tag)
+            Rho.Let(arg, argE, self(in), rec, tag)
           case Loop(args, body, tag) =>
-            Loop(args, self(body), tag)
+            Rho.Loop(args, self(body), tag)
           case Recur(_, _, _) =>
-            ann(expr, fntpe, None)
+            annRho(expr, fntpe, None)
           case m @ Match(arg, branches, tag) =>
             // TODO: this may be wrong. e.g. we could leaving meta in the types
             // embedded in patterns, this does not seem to happen since we would
             // error if metas escape typechecking
-            Match(
+            //
+            // every branch body is coerced to a Rho by self
+            Rho.Match(
               m.matchKind,
               arg,
               branches.map(branch =>
@@ -4106,7 +4170,7 @@ object TypedExpr {
               case ((n, rho: Type.Rho), arg) => (n, coerceRho(rho, kinds)(arg))
               case ((n, _), arg)             => (n, arg)
             }
-            letAllNonRec(arg1, self(body), tag)
+            Rho.letAllNonRec(arg1, self(body), tag)
           case App(_, _, _, _) =>
             /*
              * We avoid all vars (free and bound) in expr to reduce the risk of
@@ -4121,7 +4185,7 @@ object TypedExpr {
             val aArgs = lamArgs.map { case (n, t) => Local(n, t, expr.tag) }
             // name -> (expr((name: arg)): result)
             val result1 = cores(App(expr, aArgs, result, expr.tag))
-            AnnotatedLambda(lamArgs, result1, expr.tag)
+            Rho.AnnotatedLambda(lamArgs, result1, expr.tag)
         }
     }
 

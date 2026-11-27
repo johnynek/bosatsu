@@ -897,11 +897,6 @@ object Infer {
     def zonkTypedExpr[A](e: TypedExpr[A]): Infer[TypedExpr[A]] =
       TypedExpr.zonkMeta(e)(zonk)
 
-    private val widenRho: FunctionK[TypedExpr.Rho, TypedExpr] =
-      new FunctionK[TypedExpr.Rho, TypedExpr] {
-        def apply[A](fa: TypedExpr.Rho[A]): TypedExpr[A] = fa
-      }
-
     val zonkTypeExprK: FunctionK[TypedExpr.Rho, [X] =>> Infer[TypedExpr[X]]] =
       new FunctionK[TypedExpr.Rho, [X] =>> Infer[TypedExpr[X]]] {
         def apply[A](fa: TypedExpr.Rho[A]): Infer[TypedExpr[A]] =
@@ -3550,7 +3545,7 @@ object Infer {
           val cRho = checkRhoK(rho)
           if (tpe == rho) {
             // we don't need to zonk here
-            pure(cRho.andThenMap(widenRho))
+            pure(TypedExpr.widenRhoK(cRho))
           } else {
             // we need to zonk before we unskolemize because some of the metas could be skolems
             pure(
