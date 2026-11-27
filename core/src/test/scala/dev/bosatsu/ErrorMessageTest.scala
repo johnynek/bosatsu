@@ -6,7 +6,13 @@ import cats.Show
 import cats.data.{Ior, NonEmptyList, Validated}
 import cats.syntax.all._
 import dev.bosatsu.LocationMap.Colorize
-import dev.bosatsu.rankn.{Type => RankNType}
+import dev.bosatsu.rankn.{
+  ConstructorFn,
+  ConstructorParam,
+  DefinedType,
+  TypeEnv,
+  Type => RankNType
+}
 import scala.concurrent.duration.DurationInt
 
 class ErrorMessageTest extends munit.FunSuite with ParTest {
@@ -4188,6 +4194,56 @@ x = 1.0 + 2.0
     val message = totalityErr.message(Map.empty, Colorize.None)
     assert(message.contains("Unknown constructor `JNul`."))
     assert(message.contains("Did you mean constructor `JNull`?"))
+  }
+
+  test("totality arity mismatch expects the constructor's arity") {
+    val pack = PackageName.parts("P")
+    val pairCons = Identifier.Constructor("Pair")
+    val pairDt = DefinedType[Nothing](
+      packageName = pack,
+      name = TypeName(Identifier.Constructor("PairT")),
+      annotatedTypeParams = Nil,
+      constructors = List(
+        ConstructorFn(
+          pairCons,
+          List(
+            ConstructorParam(Identifier.Name("a"), RankNType.IntType, None),
+            ConstructorParam(Identifier.Name("b"), RankNType.IntType, None)
+          )
+        )
+      )
+    )
+    val typeEnv = TypeEnv.fromDefinitions(List(pairDt))
+    // three arguments for a constructor that takes two
+    val pat: Pattern[(PackageName, Identifier.Constructor), RankNType] =
+      Pattern.PositionalStruct(
+        (pack, pairCons),
+        List(Pattern.WildCard, Pattern.WildCard, Pattern.WildCard)
+      )
+    val err = TotalityCheck(typeEnv).validatePattern(pat) match {
+      case Left(NonEmptyList(e @ TotalityCheck.ArityMismatch(_, _, _, _, _), Nil)) =>
+        e
+      case other =>
+        fail(s"expected one arity mismatch, found: $other")
+    }
+    assertEquals((err.expected, err.found), (2, 3))
+
+    given Region = Region(0, 1)
+    val tag = Declaration.Var(Identifier.Name("x"))
+    val lit =
+      TypedExpr.Literal[Declaration](Lit.Integer(0L), RankNType.IntType, tag)
+    val matchExpr = TypedExpr.Match(
+      lit,
+      NonEmptyList.one(TypedExpr.Branch(pat, None, lit)(using Region(0, 1))),
+      tag
+    )
+    val message = PackageError
+      .TotalityCheckError(pack, TotalityCheck.InvalidPattern(matchExpr, err))
+      .message(Map.empty, Colorize.None)
+    assert(
+      message.contains("arity mismatch: Pair expected 2 parameters, found 3"),
+      message
+    )
   }
 
   test(

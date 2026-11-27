@@ -88,7 +88,15 @@ case class TotalityCheck(inEnv: TypeEnv[Kind.Arg]) {
         if (cmp == 0) validUnit
         else
           Left(
-            NonEmptyList.of(ArityMismatch(nm, pat, inEnv, size, params.size))
+            NonEmptyList.of(
+              ArityMismatch(
+                nm,
+                pat,
+                inEnv,
+                expected = params.size,
+                found = size
+              )
+            )
           )
     }
 
@@ -728,11 +736,15 @@ case class TotalityCheck(inEnv: TypeEnv[Kind.Arg]) {
                         p2: Option[Pattern[Cons, Type]]
                     ): Rel.SuperOrSame = {
                       val unionParams = (unstruct(p1) ::: unstruct(p2)).distinct
-                      // pos <:> (p1 | p2) we can just element wise un
-
-                      unionProduct
-                        .relate(params :: Nil, unionParams)
-                        .asInstanceOf[Rel.SuperOrSame]
+                      // pos <:> (p1 | p2) we can just element wise un.
+                      // pos >= (p1 | p2), so they are the same exactly when
+                      // pos is a subset of the union.
+                      if (
+                        unionProduct
+                          .relate(params :: Nil, unionParams)
+                          .isSubtype
+                      ) Rel.Same
+                      else Rel.Super
                     }
 
                     Left(solve(_, _))
