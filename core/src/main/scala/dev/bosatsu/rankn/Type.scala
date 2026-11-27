@@ -513,6 +513,84 @@ object Type {
     }
   }
 
+  /** Hoist forall and exists binders out of every all-covariant path.
+    *
+    * Skolemization floats existentials as well as universals over
+    * all-covariant paths, so a term checked against `Int -> exists b. List[b]`
+    * gets the type `exists b. Int -> List[b]`. This puts a type in that
+    * weak-prenex form, with universals outside existentials as in every
+    * `Type`. Inference treats a type and this form as the same type.
+    *
+    * A hoisted binder is renamed where it would clash with another binder or
+    * capture a free variable. `kindOf` must give the kind of every applied
+    * head on those paths. Where it does not, that part of the type is left
+    * unchanged.
+    */
+  def hoistQuantifiersCovariantDeep(
+      tpe: Type,
+      kindOf: Type => Option[Kind]
+  ): Type = {
+    val (outerForalls, outerExists, rho0) = splitQuantifiers(tpe)
+    val (cons, cargs) = unapplyAll(rho0)
+    kindOf(cons) match {
+      case None =>
+        tpe
+      case Some(kind) =>
+        val kindArgs = kind.toArgs
+        def isCovariant(idx: Int): Boolean =
+          kindArgs.lift(idx).exists(_.variance == Variance.co)
+
+        val cargs1 = cargs.zipWithIndex.map { case (arg, idx) =>
+          if (isCovariant(idx)) hoistQuantifiersCovariantDeep(arg, kindOf)
+          else arg
+        }
+        val freeByArg =
+          cargs1.iterator.map(t => freeBoundTyVars(t :: Nil).toSet).toVector
+        val outerNames: Set[Var.Bound] =
+          (outerForalls.iterator ++ outerExists.iterator).map(_._1).toSet ++
+            freeBoundTyVars(cons :: Nil)
+
+        val (forallsRev, existsRev, argsRev, _) =
+          cargs1.iterator.zipWithIndex.foldLeft(
+            (
+              List.empty[(Var.Bound, Kind)],
+              List.empty[(Var.Bound, Kind)],
+              List.empty[Type],
+              outerNames
+            )
+          ) { case ((fasRev, exsRev, argsRev, taken), (arg, idx)) =>
+            val (fas, exs, argRho) = splitQuantifiers(arg)
+            NonEmptyList.fromList(fas ::: exs) match {
+              case Some(binders) if isCovariant(idx) =>
+                val avoid =
+                  taken ++
+                    freeByArg.iterator.zipWithIndex.collect {
+                      case (free, i) if i != idx => free
+                    }.flatten ++
+                    freeByArg(idx)
+                val (subst, binders1) = unshadow(binders, avoid)
+                val argRho1 =
+                  if (subst.isEmpty) argRho else substituteVar(argRho, subst)
+                val (fas1, exs1) = binders1.toList.splitAt(fas.length)
+                (
+                  fas1.reverse_:::(fasRev),
+                  exs1.reverse_:::(exsRev),
+                  argRho1 :: argsRev,
+                  taken ++ binders1.iterator.map(_._1)
+                )
+              case _ =>
+                (fasRev, exsRev, arg :: argsRev, taken)
+            }
+          }
+
+        quantify(
+          outerForalls ::: forallsRev.reverse,
+          outerExists ::: existsRev.reverse,
+          applyAll(cons, argsRev.reverse)
+        )
+    }
+  }
+
   @annotation.tailrec
   private def applyAllRho(rho: Leaf | TyApply, args: List[Type]): Rho =
     args match {

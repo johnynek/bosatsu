@@ -177,6 +177,45 @@ object TypeValidator {
           tpe
       }
 
+  /** The evidence target with each hidden existential replaced by its witness.
+    *
+    * This is None unless every hidden variable is an outer existential of the
+    * target. Other evidence does not say how to fill in the target: some
+    * inference paths hide existentials of argument types, and normalization
+    * renames binders without renaming the evidence's variables.
+    */
+  private def withHiddenWitnesses(
+      ev: TypedExpr.QuantifierEvidence
+  ): Option[Type] = {
+    val (foralls, exists, rho) = Type.splitQuantifiers(ev.targetAtSolve)
+    val existNames = exists.iterator.map(_._1).toSet
+    if (!ev.existsHidden.keysIterator.forall(existNames)) None
+    else {
+      val kept = foralls ::: exists.filterNot { case (b, _) =>
+        ev.existsHidden.contains(b)
+      }
+      val avoid =
+        Type.freeBoundTyVars(
+          ev.targetAtSolve :: ev.existsHidden.valuesIterator.map(_._2).toList
+        ).toSet
+      // rename the binders we keep so they don't capture a witness's variables
+      val (rename, kept1) =
+        NonEmptyList.fromList(kept) match {
+          case Some(nel) =>
+            val (sub, nel1) = Type.unshadow(nel, avoid)
+            (sub, nel1.toList)
+          case None =>
+            (Map.empty[Type.Var, Type.TyVar], Nil)
+        }
+      val witnesses: Map[Type.Var, Type] =
+        ev.existsHidden.iterator.map { case (b, (_, w)) => (b, w) }.toMap
+      // the kept and hidden binders are disjoint, so substitute both at once
+      val rho1 = Type.substituteVar(rho, rename ++ witnesses)
+      val (kept1Foralls, kept1Exists) = kept1.splitAt(foralls.length)
+      Some(Type.quantify(kept1Foralls, kept1Exists, rho1))
+    }
+  }
+
   private def canWidenInScopeAndSolve(
       from: Type,
       to: Type,
@@ -188,10 +227,17 @@ object TypeValidator {
     val from0 = normalizeType(Type.substituteVar(from, solvedFreeBounds))
     val to0 = normalizeType(Type.substituteVar(to, solvedFreeBounds))
 
-    if (from0.sameAs(to0)) Right((true, solvedFreeBounds))
+    // inference treats a type and its weak-prenex form, with universals and
+    // existentials floated over all-covariant paths, as the same type
+    def prenex(t: Type): Type =
+      normalizeType(Type.hoistQuantifiersCovariantDeep(t, kindOf))
+
+    if (from0.sameAs(to0) || prenex(from0).sameAs(prenex(to0)))
+      Right((true, solvedFreeBounds))
     else {
-      // inference gives terms weak-prenex types, with universals floated over
-      // all-covariant paths, so compare both sides in that form
+      // to solve, float only universals: the solve below can choose the left
+      // side's outer existentials, so floating a nested left existential out
+      // would let it choose that witness too
       val from1 = normalizeType(Type.hoistForAllCovariantDeep(from0, kindOf))
       val to1 = normalizeType(Type.hoistForAllCovariantDeep(to0, kindOf))
       val unresolvedFrom =
@@ -732,6 +778,23 @@ object TypeValidator {
               path,
               s"annotation evidence target mismatch: evidence=${ev.targetAtSolve.show}, annotation=${tpe.show}"
             )
+          case Some(ev) if ev.existsHidden.nonEmpty =>
+            // the annotation packs witnesses into existentials, so the term
+            // has to widen into the annotation with the witnesses filled in
+            withHiddenWitnesses(ev) match {
+              case Some(target) =>
+                typeWidensToOrFail(
+                  term.getType,
+                  target,
+                  kindOf,
+                  normalizeType,
+                  boundKinds,
+                  path,
+                  s"annotation hides witnesses the term does not have: term type ${term.getType.show}, annotation ${tpe.show} with witnesses filled in ${target.show}"
+                )
+              case None =>
+                typeValidationPass
+            }
           case _ =>
             typeValidationPass
         }
