@@ -103,6 +103,40 @@ ThisBuild / testDataDigest := Def.uncached(
   repoFilesDigest((ThisBuild / baseDirectory).value, testDataPaths)
 )
 
+// Repo files that core's main code reads at compile time, through the macros
+// in base: the Predef source, which it embeds and checks Predef names against,
+// the sources of the other reserved packages whose names it checks, and every
+// c_runtime/*.h header, which it checks C runtime names against. Neither
+// layer of incremental compilation sees a file a macro reads: sbt 2 caches a
+// compile by its sources, classpath and options, and zinc recompiles only
+// sources whose own text or dependencies changed. So core hashes these files
+// into its extraIncOptions, which are in both the cache key and zinc's setup:
+// editing one misses the cache and makes zinc recompile all of core main.
+lazy val coreMacroInputPaths = List(
+  "core/src/main/resources/bosatsu/predef.bosatsu",
+  "test_workspace/Prog.bosatsu",
+  "test_workspace/Int64.bosatsu",
+  "test_workspace/Float64.bosatsu",
+  "test_workspace/Bosatsu/Lazy.bosatsu",
+  "test_workspace/Bosatsu/Eval.bosatsu",
+  "test_workspace/Bosatsu/IO/Core.bosatsu",
+  "test_workspace/Bosatsu/IO/Bytes.bosatsu",
+  "test_workspace/Bosatsu/Collection/Array.bosatsu",
+  "test_workspace/Bosatsu/Json.bosatsu"
+)
+
+lazy val coreMacroInputDigest =
+  taskKey[Digest]("Hash of the repo files that core's macros read at compile time")
+
+ThisBuild / coreMacroInputDigest := Def.uncached {
+  val root = (ThisBuild / baseDirectory).value
+  val headers =
+    ((root / "c_runtime") * "*.h").get().flatMap(IO.relativize(root, _))
+  repoFilesDigest(root, coreMacroInputPaths ++ headers)
+}
+
+lazy val coreMacroInputOption = "bosatsu.coreMacroInputs"
+
 // Scala.js tests also depend on two things outside their classpath: the
 // linker settings they're linked with and the Node.js that runs them. The JS
 // projects hash both into their test cache keys (see commonJsSettings).
@@ -551,6 +585,11 @@ lazy val core =
     moduleName := "compiler-core",
     assembly / test := TestResult.Passed,
     scalacOptions += "-Yexplicit-nulls",
+    // See coreMacroInputPaths. Test would inherit this from Compile, but only
+    // main code calls those macros, so an edit doesn't recompile the tests.
+    Compile / extraIncOptions +=
+      coreMacroInputOption -> (ThisBuild / coreMacroInputDigest).value.toString,
+    Test / extraIncOptions ~= (_.filterNot(_._1 == coreMacroInputOption)),
     libraryDependencies ++=
       Seq(
         blake3.value,
