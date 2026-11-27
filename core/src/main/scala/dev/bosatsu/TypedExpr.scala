@@ -1127,38 +1127,42 @@ object TypedExpr {
     def guard: Option[TypedExpr[T]] =
       guardNode.map(BranchGuard.toExpr(_))
 
-    def foldGuardExpr[A](init: A)(fn: (A, TypedExpr[T]) => A): A =
+    // The guard helpers below are inline, with inline function arguments, so
+    // a branch without a guard allocates no closures.
+    inline def foldGuardExpr[A](init: A)(inline fn: (A, TypedExpr[T]) => A): A =
       guardNode match {
-        case Some(guard) => BranchGuard.foldExpr(guard, init)(fn)
         case None        => init
+        case Some(guard) => BranchGuard.foldExpr(guard, init)(fn)
       }
 
-    def foldGuardExprScoped[A](init: A)(
-        outerFn: (A, TypedExpr[T]) => A,
-        innerFn: (A, TypedExpr[T]) => A
+    inline def foldGuardExprScoped[A](init: A)(
+        inline outerFn: (A, TypedExpr[T]) => A,
+        inline innerFn: (A, TypedExpr[T]) => A
     ): A =
       guardNode match {
-        case Some(guard) => BranchGuard.foldScopedExpr(guard, init)(outerFn, innerFn)
         case None        => init
+        case Some(guard) => BranchGuard.foldScopedExpr(guard, init)(outerFn, innerFn)
       }
 
-    def mapGuardNodeExpr[T1 >: T](
-        fn: TypedExpr[T] => TypedExpr[T1]
+    inline def mapGuardNodeExpr[T1 >: T](
+        inline fn: TypedExpr[T] => TypedExpr[T1]
     ): Option[BranchGuard[T1]] =
       mapGuardNodeScoped(identity, fn, fn)
 
     def guardPattern: Option[Pattern[(PackageName, Constructor), Type]] =
       guardNode.collect { case MatchGuard(_, pattern, _) => pattern }
 
-    def mapGuardNodeScoped[T1 >: T](
-        patternFn: Pattern[(PackageName, Constructor), Type] => Pattern[
+    inline def mapGuardNodeScoped[T1 >: T](
+        inline patternFn: Pattern[(PackageName, Constructor), Type] => Pattern[
           (PackageName, Constructor),
           Type
         ],
-        outerFn: TypedExpr[T] => TypedExpr[T1],
-        innerFn: TypedExpr[T] => TypedExpr[T1]
+        inline outerFn: TypedExpr[T] => TypedExpr[T1],
+        inline innerFn: TypedExpr[T] => TypedExpr[T1]
     ): Option[BranchGuard[T1]] =
       guardNode match {
+        case None                       =>
+          None
         case Some(BoolGuard(guardExpr)) =>
           val guardExpr1 = outerFn(guardExpr)
           if (guardExpr1 eq guardExpr) guardNode
@@ -1183,13 +1187,11 @@ object TypedExpr {
             Some(
               MatchGuard(argExpr1, pattern1, guardExpr1)(using guard.patternRegion)
             )
-        case None                      =>
-          None
       }
 
-    def mapGuardNodeExprScoped[T1 >: T](
-        outerFn: TypedExpr[T] => TypedExpr[T1],
-        innerFn: TypedExpr[T] => TypedExpr[T1]
+    inline def mapGuardNodeExprScoped[T1 >: T](
+        inline outerFn: TypedExpr[T] => TypedExpr[T1],
+        inline innerFn: TypedExpr[T] => TypedExpr[T1]
     ): Option[BranchGuard[T1]] =
       mapGuardNodeScoped(identity, outerFn, innerFn)
 
