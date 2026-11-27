@@ -86,8 +86,8 @@ object MatchlessToValue {
     }
 
     sealed abstract class LocalEnv derives CanEqual {
-      def get(b: Bindable): Eval[Value]
-      def updated(b: Bindable, v: Eval[Value]): LocalEnv =
+      def get(b: Bindable): Value
+      def updated(b: Bindable, v: Value): LocalEnv =
         LocalEnv.Node(b, v, this)
 
       def prependAll(bs: NonEmptyList[Bindable], vs: NonEmptyList[Value]): LocalEnv = {
@@ -95,7 +95,7 @@ object MatchlessToValue {
         val v = vs.iterator
         var env: LocalEnv = this
         while (b.hasNext) {
-          env = LocalEnv.Node(b.next(), Eval.now(v.next()), env)
+          env = LocalEnv.Node(b.next(), v.next(), env)
         }
         env
       }
@@ -105,19 +105,19 @@ object MatchlessToValue {
 
     object LocalEnv {
       case object Empty extends LocalEnv {
-        def get(b: Bindable): Eval[Value] =
+        def get(b: Bindable): Value =
           sys.error(s"missing local binding: $b")
         val keySet: Set[Bindable] = Set.empty
       }
 
       final case class Node(
           name: Bindable,
-          value: Eval[Value],
+          value: Value,
           tail: LocalEnv
       ) extends LocalEnv {
-        def get(b: Bindable): Eval[Value] = {
+        def get(b: Bindable): Value = {
           @annotation.tailrec
-          def loop(env: LocalEnv): Eval[Value] =
+          def loop(env: LocalEnv): Value =
             env match {
               case Node(n, v, t) =>
                 if (n == b) v
@@ -141,7 +141,7 @@ object MatchlessToValue {
         extra: DebugStr
     ) {
 
-      def let(b: Bindable, v: Eval[Value]): Scope =
+      def let(b: Bindable, v: Value): Scope =
         copy(locals = locals.updated(b, v))
 
       def letMuts(idxs: Iterator[Long]): Scope = {
@@ -375,8 +375,7 @@ object MatchlessToValue {
             localOrBind match {
               case Right(b) =>
                 inF.withScope { (scope: Scope) =>
-                  val vv = Eval.now(valueF(scope))
-                  scope.let(b, vv)
+                  scope.let(b, valueF(scope))
                 }
               case Left(LocalAnon(l)) =>
                 inF.withScope { (scope: Scope) =>
@@ -393,7 +392,6 @@ object MatchlessToValue {
             }
         }
 
-      // the locals can be recusive, so we box into Eval for laziness
       def loop(me: Expr[F]): Scoped[Value] =
         me match {
           case Lambda(Nil, None, args, res) =>
@@ -426,13 +424,15 @@ object MatchlessToValue {
             Dynamic { scope =>
               val valuesInScope = capScoped.map(scoped => scoped(scope))
 
+              // The function reads scope1 only when it is called, after fn
+              // is initialized, so the recursive name can hold fn itself.
               lazy val scope1: Scope = Scope
                 .capture(valuesInScope)
-                .let(name, Eval.later(fn))
+                .let(name, fn)
 
               // hopefully optimization/normalization has lifted anything
               // that doesn't depend on argV above this lambda
-              lazy val fn = FnValue { argV =>
+              lazy val fn: Value = FnValue { argV =>
                 val scope2 = scope1.letAll(args, argV)
                 resFn(scope2)
               }
@@ -460,7 +460,7 @@ object MatchlessToValue {
             // this has to be lazy because it could be
             // in this package, which isn't complete yet
             Dynamic((_: Scope) => res.value)
-          case Local(b)        => Dynamic(_.locals.get(b).value)
+          case Local(b)        => Dynamic(_.locals.get(b))
           case LocalAnon(a)    => Dynamic(_.anon(a))
           case LocalAnonMut(m) =>
             Dynamic { s =>
@@ -489,8 +489,7 @@ object MatchlessToValue {
             localOrBind match {
               case Right(b) =>
                 inF.withScope { (scope: Scope) =>
-                  val vv = Eval.now(valueF(scope))
-                  scope.let(b, vv)
+                  scope.let(b, valueF(scope))
                 }
               case Left(LocalAnon(l)) =>
                 inF.withScope { (scope: Scope) =>
