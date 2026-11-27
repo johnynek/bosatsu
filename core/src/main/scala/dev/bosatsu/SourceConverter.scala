@@ -218,7 +218,7 @@ final class SourceConverter(
   private lazy val tup: Array[Declaration => Expr[Declaration]] =
     (Iterator.single((tc: Declaration) =>
       Expr.Global(PackageName.PredefName, unitName, tc)
-    ) ++ (1 to Type.FnType.MaxSize).iterator
+    ) ++ (1 to Type.MaxArity).iterator
       .map { idx =>
         val tup = Type.Tuple.Arity(idx)
         val defined = tup.tpe.toDefined
@@ -235,16 +235,16 @@ final class SourceConverter(
       .traverse(conv)
       .flatMap { exps =>
         val size = exps.length
-        if (size <= Type.FnType.MaxSize) {
+        if (size <= Type.MaxArity) {
           val fn = tup(size)(tc)
           val res = Expr.buildApp(fn, exps, tc)
           success(res)
         } else {
           SourceConverter.failure(
             SourceConverter.TooManyConstructorArgs(
-              Type.Tuple.Arity(32).tpe.toDefined.name.ident,
+              Type.Tuple.Arity(Type.MaxArity).tpe.toDefined.name.ident,
               size,
-              32,
+              Type.MaxArity,
               tc.region
             )
           )
@@ -288,14 +288,14 @@ final class SourceConverter(
           (defined.packageName, defined.name.ident),
           nonEmpty
         )
-        if (size <= Type.FnType.MaxSize) {
+        if (size <= Type.MaxArity) {
           success(pat)
         } else {
           SourceConverter.partial(
             SourceConverter.TooManyConstructorArgs(
-              Type.Tuple.Arity(32).tpe.toDefined.name.ident,
+              Type.Tuple.Arity(Type.MaxArity).tpe.toDefined.name.ident,
               size,
-              32,
+              Type.MaxArity,
               region
             ),
             pat
@@ -3519,10 +3519,10 @@ object SourceConverter {
       region: Region
   ) extends Error {
     def message =
-      if (name.asString == "Tuple32") {
+      if (name.asString == s"Tuple${Type.MaxArity}") {
         Doc
           .text(
-            s"invalid tuple size. Found $argCount, but maximum allowed ${Type.FnType.MaxSize}"
+            s"invalid tuple size. Found $argCount, but maximum allowed ${Type.MaxArity}"
           )
           .render(80)
       } else {

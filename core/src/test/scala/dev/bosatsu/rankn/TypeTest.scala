@@ -555,6 +555,16 @@ class TypeTest extends munit.ScalaCheckSuite {
     prop
   }
 
+  test("Tuple.Arity unapply is the inverse of apply") {
+    (0 to (Type.MaxArity + 2)).foreach { n =>
+      assertEquals(Type.Tuple.Arity.unapply(Type.Tuple.Arity(n)), Some(n))
+    }
+    // a predef name that starts with Tuple but has no arity is not a tuple
+    val notTuple = Type.TyConst(Type.Const.predef("TupleLike"))
+    assertEquals(Type.Tuple.Arity.unapply(notTuple), None)
+    assertEquals(Type.Tuple.Arity.unapply(Type.IntType), None)
+  }
+
   test("unapplyAll is the inverse of applyAll") {
     val prop = forAll(NTypeGen.genDepth03) { ts =>
       val (left, args) = Type.unapplyAll(ts)

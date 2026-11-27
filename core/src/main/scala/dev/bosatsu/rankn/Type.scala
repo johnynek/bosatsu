@@ -1639,8 +1639,13 @@ object Type {
   val BoolType: Type.TyConst = TyConst(Const.predef("Bool"))
   val DictType: Type.TyConst = TyConst(Const.predef("Dict"))
 
+  /** The largest arity of the predef function types, Fn1 to FnN, and of the
+    * predef tuple types, Tuple1 to TupleN.
+    */
+  inline val MaxArity = 32
+
   object FnType {
-    final val MaxSize = 32
+    inline val MaxSize = MaxArity
 
     private def predefFn(n: Int) = TyConst(Const.predef(s"Fn$n"))
     private val tpes = (1 to MaxSize).map(predefFn)
@@ -1805,18 +1810,35 @@ object Type {
         TyConst(Type.Const.predef(s"Tuple$i"))
 
       private val tupTypes: Array[Type.TyConst] =
-        (Iterator.single(UnitType) ++ (1 to 32).iterator.map(alloc)).toArray
+        (Iterator.single(UnitType) ++ (1 to MaxArity).iterator.map(alloc)).toArray
+
+      private val arities: Map[Type.TyConst, Int] =
+        tupTypes.iterator.zipWithIndex.toMap
 
       def apply(n: Int): Type.TyConst =
-        if (n <= 32) tupTypes(n)
+        if (n <= MaxArity) tupTypes(n)
         else alloc(n)
 
       def unapply(t: Type): Option[Int] =
         t match {
-          case Type.UnitType => Some(0)
-          case Type.TyConst(Const.Predef(cons))
-              if cons.asString.startsWith("Tuple") =>
-            Some(cons.asString.drop(5).toInt)
+          case tc: Type.TyConst =>
+            arities.get(tc) match {
+              case None  => largerArity(tc)
+              case found => found
+            }
+          case _ => None
+        }
+
+      // apply(n) for n > MaxArity names a tuple type that predef does not
+      // define (typechecking reports that), but tuple types of every size
+      // still round trip through apply and unapply.
+      private def largerArity(tc: Type.TyConst): Option[Int] =
+        tc match {
+          case Type.TyConst(Const.Predef(cons)) =>
+            cons.asString match {
+              case s"Tuple$digits" => digits.toIntOption
+              case _               => None
+            }
           case _ => None
         }
     }
@@ -1844,7 +1866,7 @@ object Type {
       def kindSize(n: Int): Kind =
         Kind(Vector.fill(n)(Kind.Type.co)*)
 
-      (1 to 32).iterator.map(n => (Arity(n), kindSize(n))).toList
+      (1 to MaxArity).iterator.map(n => (Arity(n), kindSize(n))).toList
     }
   }
 
@@ -2364,8 +2386,8 @@ object Type {
   }
 
   def allTupleCode: String =
-    (1 to 32).iterator.map(i => s"Tuple$i()").mkString("", ",\n", ",\n") +
-      (1 to 32).iterator.map(tupleCodeGen).mkString("\n")
+    (1 to MaxArity).iterator.map(i => s"Tuple$i()").mkString("", ",\n", ",\n") +
+      (1 to MaxArity).iterator.map(tupleCodeGen).mkString("\n")
 
   val builtInKinds: Map[Type.Const.Defined, Kind] =
     (FnType.FnKinds ::: Tuple.Kinds ::: List(
