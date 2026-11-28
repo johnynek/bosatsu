@@ -937,25 +937,69 @@ foo = _ -> 1
     )
   }
 
-  // the tags of te in the order traverse visits them, and in the order map
-  // calls its function on them
-  private def traverseAndMapOrder(te: TypedExpr[Int]): (List[Int], List[Int]) = {
+  // Assert that traverse visits the tags of te in the expected order, and
+  // that map, foldLeft and foldRight call their functions on them in that
+  // order too. Traverse's laws need foldMap to agree with traverse.
+  private def assertVisitOrder(te: TypedExpr[Int], expected: List[Int]): Unit = {
     type W[X] = Writer[List[Int], X]
     val (traversed, traverseResult) = te.traverse[W, Int](t => Writer(List(t), t)).run
+    assertEquals(traverseResult, te)
+    assertEquals(traversed, expected, "traverse")
+
     val mapCalls = List.newBuilder[Int]
     val mapped = te.map { t =>
       mapCalls.addOne(t): Unit
       t
     }
     assertEquals(mapped, te)
-    assertEquals(traverseResult, te)
-    (traversed, mapCalls.result())
+    assertEquals(mapCalls.result(), expected, "map")
+
+    val foldedLeft = te.foldLeft(List.empty[Int])((acc, t) => t :: acc).reverse
+    assertEquals(foldedLeft, expected, "foldLeft")
+
+    val foldedRight =
+      te.foldRight(Eval.now(List.empty[Int]))((t, rest) => rest.map(t :: _)).value
+    assertEquals(foldedRight, expected, "foldRight")
   }
 
-  test("map and traverse visit a match guard's argument, inner guard and body in order") {
-    val (traversed, mapped) = traverseAndMapOrder(guardedMatch(0, 1, 2, 3, 4))
-    assertEquals(traversed, List(0, 1, 2, 3, 4))
-    assertEquals(mapped, traversed)
+  test("map, traverse and the folds visit a match guard's argument, inner guard and body in order") {
+    assertVisitOrder(guardedMatch(0, 1, 2, 3, 4), List(0, 1, 2, 3, 4))
+  }
+
+  test("map, traverse and the folds visit each branch's guard and body in order") {
+    def local(n: String, tag: Int): TypedExpr[Int] =
+      TypedExpr.Local(Identifier.Name(n), intTpe, tag)
+    def guarded(
+        guard: Option[TypedExpr.BranchGuard[Int]],
+        body: Int
+    ): TypedExpr.Branch[Int] =
+      TypedExpr.Branch.fromGuardNode(Pattern.WildCard, guard, local("b", body))(using
+        Region.empty
+      )
+    val branches = NonEmptyList.of(
+      guarded(
+        Some(TypedExpr.MatchGuard(local("a", 1), Pattern.WildCard, None)(using Region.empty)),
+        2
+      ),
+      guarded(Some(TypedExpr.BoolGuard(local("g", 3))), 4),
+      guarded(None, 5),
+      guarded(
+        Some(
+          TypedExpr.MatchGuard(local("a", 6), Pattern.WildCard, Some(local("g", 7)))(
+            using Region.empty
+          )
+        ),
+        8
+      )
+    )
+    val te =
+      TypedExpr.MatchExpr(Declaration.MatchKind.Match, local("s", 0), branches, 9)
+    assertVisitOrder(te, (0 to 9).toList)
+  }
+
+  test("size counts a match guard's argument, inner guard and body") {
+    // the scrutinee, the guard's argument, its inner guard and the body
+    assertEquals(guardedMatch(0, 1, 2, 3, 4).size, 4)
   }
 
   test("map keeps traverse's order where it hands a deep subtree to traverse") {
@@ -980,9 +1024,7 @@ foo = _ -> 1
       (depth - 1 to 0 by -1).map(l => 100 + 2 * l).toList :::
         List(0, 1, 2, 3, 4) :::
         (0 until depth).map(l => 101 + 2 * l).toList
-    val (traversed, mapped) = traverseAndMapOrder(te)
-    assertEquals(traversed, expected)
-    assertEquals(mapped, expected)
+    assertVisitOrder(te, expected)
   }
 
   test("traverseType visits a match guard's patterns and expressions in order") {
@@ -6268,12 +6310,30 @@ def make(y: Int):
         case TypedExpr.Match(expr, branches, tag) =>
           // all branches have the same type:
           val tbranch = branches.traverse { branch =>
+            // a MatchGuard's pattern, then its argument, then its inner guard
+            val guardF: F[Option[TypedExpr.BranchGuard[A]]] =
+              branch.guardNode.traverse {
+                case TypedExpr.BoolGuard(guard) =>
+                  traverse(guard)(fn).map(TypedExpr.BoolGuard(_))
+                case mg @ TypedExpr.MatchGuard(arg, pattern, inner) =>
+                  (
+                    pattern.traverseType(fn),
+                    traverse(arg)(fn),
+                    inner.traverse(traverse(_)(fn))
+                  ).mapN { (pattern1, arg1, inner1) =>
+                    TypedExpr.MatchGuard(arg1, pattern1, inner1)(using
+                      mg.patternRegion
+                    )
+                  }
+              }
             (
               branch.pattern.traverseType(fn),
-              branch.guard.traverse(traverse(_)(fn)),
+              guardF,
               traverse(branch.expr)(fn)
             ).mapN { (pattern, guard, expr1) =>
-              TypedExpr.Branch(pattern, guard, expr1)(using branch.patternRegion)
+              TypedExpr.Branch.fromGuardNode(pattern, guard, expr1)(using
+                branch.patternRegion
+              )
             }
           }
           (traverse(expr)(fn), tbranch).mapN(TypedExpr.Match(_, _, tag))
@@ -6281,6 +6341,27 @@ def make(y: Int):
   }
 
   private object RecursiveTraverseOracle {
+    // a branch's guard expressions in the order traverse visits them: a
+    // MatchGuard's argument, then its inner guard
+    private def guardExprs[T](branch: TypedExpr.Branch[T]): List[TypedExpr[T]] =
+      branch.guardNode match {
+        case None                                      => Nil
+        case Some(TypedExpr.BoolGuard(guard))          => guard :: Nil
+        case Some(TypedExpr.MatchGuard(arg, _, inner)) => arg :: inner.toList
+      }
+
+    private def traverseGuard[F[_]: Applicative, T, S](
+        guard: TypedExpr.BranchGuard[T]
+    )(fn: TypedExpr[T] => F[TypedExpr[S]]): F[TypedExpr.BranchGuard[S]] =
+      guard match {
+        case TypedExpr.BoolGuard(expr) =>
+          fn(expr).map(TypedExpr.BoolGuard(_))
+        case mg @ TypedExpr.MatchGuard(arg, pattern, inner) =>
+          (fn(arg), inner.traverse(fn)).mapN { (arg1, inner1) =>
+            TypedExpr.MatchGuard(arg1, pattern, inner1)(using mg.patternRegion)
+          }
+      }
+
     def traverse[F[_]: Applicative, T, S](
         typedExprT: TypedExpr[T]
     )(fn: T => F[S]): F[TypedExpr[S]] =
@@ -6328,10 +6409,12 @@ def make(y: Int):
         case TypedExpr.Match(expr, branches, tag) =>
           val tbranch = branches.traverse { branch =>
             (
-              branch.guard.traverse(guard => traverse(guard)(fn)),
+              branch.guardNode.traverse(guard =>
+                traverseGuard(guard)(expr => traverse(expr)(fn))
+              ),
               traverse(branch.expr)(fn)
             ).mapN { (guard, expr1) =>
-              TypedExpr.Branch(
+              TypedExpr.Branch.fromGuardNode(
                 branch.pattern,
                 guard,
                 expr1
@@ -6394,10 +6477,10 @@ def make(y: Int):
         case TypedExpr.Match(expr, branches, tag) =>
           val tbranch = branches.traverse { branch =>
             mon.map2(
-              branch.guard.traverse(loop(_)),
+              branch.guardNode.traverse(traverseGuard(_)(loop)),
               loop(branch.expr)
             ) { (guard, expr1) =>
-              TypedExpr.Branch(
+              TypedExpr.Branch.fromGuardNode(
                 branch.pattern,
                 guard,
                 expr1
@@ -6445,7 +6528,8 @@ def make(y: Int):
         case TypedExpr.Match(arg, branches, tag) =>
           val b1 = foldLeft(arg, b)(f)
           val b2 = branches.foldLeft(b1) { case (bnext, branch) =>
-            val bnext1 = branch.guard.fold(bnext)(foldLeft(_, bnext)(f))
+            val bnext1 =
+              guardExprs(branch).foldLeft(bnext)((b, guard) => foldLeft(guard, b)(f))
             foldLeft(branch.expr, bnext1)(f)
           }
           f(b2, tag)
@@ -6486,7 +6570,7 @@ def make(y: Int):
         val b1 = f(tag, lb)
         val b2 = branches.foldRight(b1) { case (branch, bnext) =>
           val bnext1 = foldRight(branch.expr, bnext)(f)
-          branch.guard.fold(bnext1)(foldRight(_, bnext1)(f))
+          guardExprs(branch).foldRight(bnext1)((guard, b) => foldRight(guard, b)(f))
         }
         foldRight(arg, b2)(f)
     }
@@ -6521,9 +6605,11 @@ def make(y: Int):
           TypedExpr.Match(
             map(arg)(fn),
             branches.map { branch =>
-              TypedExpr.Branch(
+              TypedExpr.Branch.fromGuardNode(
                 branch.pattern,
-                branch.guard.map(map(_)(fn)),
+                branch.guardNode.map(guard =>
+                  traverseGuard[Id, A, B](guard)(expr => map(expr)(fn))
+                ),
                 map(branch.expr)(fn)
               )(using branch.patternRegion)
             },

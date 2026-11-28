@@ -1644,6 +1644,20 @@ object Generators {
             TypedExpr.Recur(args, tpe, tag)
           }
 
+      val genGuardNode: Gen[Option[TypedExpr.BranchGuard[A]]] =
+        Gen.frequency(
+          (8, Gen.const(None)),
+          (1, recurse.map(guard => Some(TypedExpr.BoolGuard(guard)))),
+          (
+            1,
+            Gen
+              .zip(recurse, genCompiledPattern(depth), Gen.option(recurse))
+              .map { case (arg, pat, inner) =>
+                Some(TypedExpr.MatchGuard(arg, pat, inner)(using Region.empty))
+              }
+          )
+        )
+
       val matchGen =
         Gen
           .zip(
@@ -1653,16 +1667,11 @@ object Generators {
               .flatMap(
                 nonEmptyN(
                   Gen
-                    .zip(
-                      genCompiledPattern(depth),
-                      Gen.frequency(
-                        (4, Gen.const(None)),
-                        (1, recurse.map(Some(_)))
-                      ),
-                      recurse
-                    )
+                    .zip(genCompiledPattern(depth), genGuardNode, recurse)
                     .map { case (pat, guard, expr) =>
-                      TypedExpr.Branch(pat, guard, expr)(using Region.empty)
+                      TypedExpr.Branch.fromGuardNode(pat, guard, expr)(using
+                        Region.empty
+                      )
                     },
                   _
                 )
