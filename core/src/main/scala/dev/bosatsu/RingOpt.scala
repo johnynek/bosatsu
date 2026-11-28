@@ -314,7 +314,8 @@ object RingOpt {
       case Symbol(_) => None
     }
 
-    // At most add 1 Neg node
+    // At most add 1 Neg that costs anything. This can have more nodes than
+    // Neg(this): see simpleNeg in basicNorm
     def normalizeNeg: Expr[A] =
       cheapNeg match {
         case None        => Neg(expr)
@@ -713,13 +714,18 @@ object RingOpt {
           if (Order[Expr[A]].lteqv(a, b)) Mult(a, b)
           else Mult(b, a)
 
+        // basicNorm doesn't increase graphSize, so this has at most one more
+        // node than e, as Neg(e) does. normalizeNeg can have more: to make a
+        // Neg free it can put one on each side of an Add, as in
+        // -((x + 1) * z + (1 + y)) == ((-1 + -x) * z) + (-1 + -y)
         def simpleNeg(e: Expr[A]): Expr[A] =
           // normalizeNeg isn't idempotent
           e.normalizeNeg match {
             case Neg(x) => Neg(normExpr(x))
-            case notNeg =>
+            case notNeg if notNeg.graphSize <= e.graphSize + 1 =>
               // the negative was pushed down, normalize again
               normExpr(notNeg)
+            case _ => Neg(normExpr(e))
           }
 
         expr match {
