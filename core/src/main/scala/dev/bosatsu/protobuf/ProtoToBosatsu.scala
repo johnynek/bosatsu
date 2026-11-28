@@ -17,6 +17,7 @@ import dev.bosatsu.{
   PackageName,
   Padding,
   Pattern,
+  ReservedPackage,
   Statement,
   TypeRef,
   TypeName => BosatsuTypeName,
@@ -171,7 +172,7 @@ object ProtoToBosatsu {
     val imports =
       Vector(
         Option.when(bytesImports.nonEmpty) {
-          importOf(PackageName.parts("Bosatsu", "IO", "Bytes"), bytesImports)
+          importOf(ReservedPackage.IoBytes.name, bytesImports)
         },
         Option.when(usedWireImports.nonEmpty) {
           importOf(PackageName.parts("Bosatsu", "Proto", "Wire"), usedWireImports)
@@ -182,7 +183,7 @@ object ProtoToBosatsu {
         }
     val exposes =
       Option.when(bytesImports.nonEmpty) {
-        List(PackageName.parts("Bosatsu", "IO", "Bytes"))
+        List(ReservedPackage.IoBytes.name)
       }.toList
 
     val parsedPack =

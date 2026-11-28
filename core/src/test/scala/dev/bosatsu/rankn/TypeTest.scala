@@ -475,7 +475,12 @@ class TypeTest extends munit.ScalaCheckSuite {
 
   test("TauApply apply/unapply round trip") {
     forAll(genTauLeafOrApply, genTau) { (fn0, arg0) =>
-      val fn = Type.Tau.unapply(fn0).get
+      val fn: Type.Leaf | Type.Tau.TauApply =
+        fn0 match {
+          case leaf: Type.Leaf                 => leaf
+          case Type.Tau(Type.Tau.TauApply(ta)) => ta
+          case other => fail(s"expected a Leaf or TauApply: $other")
+        }
       val arg = Type.Tau.unapply(arg0).get
       val applied = Type.Tau.TauApply(fn, arg)
 
@@ -484,12 +489,9 @@ class TypeTest extends munit.ScalaCheckSuite {
       val m = Type.Tau.TauApply.unapply(applied)
       assert(!m.isEmpty, s"TauApply.unapply should match: $applied")
       val ta = m.get
-      assertEquals(ta.on, fn)
+      assertEquals(ta.on: Type, fn0)
       assertEquals(ta.arg, arg)
-      assertEquals(
-        ta.toTyApply,
-        Type.TyApply(fn.asInstanceOf[Type.Leaf | Type.TyApply], arg)
-      )
+      assertEquals(ta.toTyApply: Type, Type.apply1(fn0, arg))
     }
   }
 
@@ -551,6 +553,16 @@ class TypeTest extends munit.ScalaCheckSuite {
       Some(List("a", "b", "c").map(parse))
     )
     prop
+  }
+
+  test("Tuple.Arity unapply is the inverse of apply") {
+    (0 to (Type.MaxArity + 2)).foreach { n =>
+      assertEquals(Type.Tuple.Arity.unapply(Type.Tuple.Arity(n)), Some(n))
+    }
+    // a predef name that starts with Tuple but has no arity is not a tuple
+    val notTuple = Type.TyConst(Type.Const.predef("TupleLike"))
+    assertEquals(Type.Tuple.Arity.unapply(notTuple), None)
+    assertEquals(Type.Tuple.Arity.unapply(Type.IntType), None)
   }
 
   test("unapplyAll is the inverse of applyAll") {

@@ -103,6 +103,57 @@ ThisBuild / testDataDigest := Def.uncached(
   repoFilesDigest((ThisBuild / baseDirectory).value, testDataPaths)
 )
 
+// coreJVM's ReservedNamesTest reads, while it runs, the c_runtime/*.h headers
+// and the main sources that name reserved packages or C runtime functions,
+// the ones that mention ReservedPackage or RuntimeIdent. A suite's cache key
+// covers only the classes it depends on, which don't reach most of those
+// sources (PythonGen, ClangGen, the JS-only sources, ...), so coreJVM's tests
+// also key on these files: editing one reruns them. Only those files count,
+// so editing other main sources doesn't rerun every suite.
+lazy val reservedNamesDigest =
+  taskKey[Digest]("Hash of the files ReservedNamesTest reads while it runs")
+
+ThisBuild / reservedNamesDigest := Def.uncached {
+  val root = (ThisBuild / baseDirectory).value
+  val sourceRoots =
+    List("core/src/main/scala", "core/.jvm/src/main/scala", "core/.js/src/main/scala")
+  val namingSources =
+    sourceRoots
+      .flatMap(r => ((root / r) ** "*.scala").get())
+      .filter { f =>
+        val text = IO.read(f)
+        text.contains("ReservedPackage") || text.contains("RuntimeIdent")
+      }
+      .flatMap(IO.relativize(root, _))
+  val headers =
+    ((root / "c_runtime") * "*.h").get().flatMap(IO.relativize(root, _))
+  repoFilesDigest(root, namingSources ++ headers)
+}
+
+// Repo files that core's main code reads at compile time, through the macros
+// in base: the Predef source, which it embeds and checks Predef names
+// against. Neither layer of incremental compilation sees a file a macro reads:
+// sbt 2 caches a compile by its sources, classpath and options, and zinc
+// recompiles only sources whose own text or dependencies changed. So core
+// hashes these files into its extraIncOptions, which are in both the cache
+// key and zinc's setup: editing one misses the cache and makes zinc recompile
+// all of core main, and of core's tests, which expand those macros too. Keep
+// this list short, since each edit costs that recompile. The other built-in
+// names are checked by ReservedNamesTest, which reads its files at test time
+// (see reservedNamesDigest).
+lazy val coreMacroInputPaths = List(
+  "core/src/main/resources/bosatsu/predef.bosatsu"
+)
+
+lazy val coreMacroInputDigest =
+  taskKey[Digest]("Hash of the repo files that core's macros read at compile time")
+
+ThisBuild / coreMacroInputDigest := Def.uncached(
+  repoFilesDigest((ThisBuild / baseDirectory).value, coreMacroInputPaths)
+)
+
+lazy val coreMacroInputOption = "bosatsu.coreMacroInputs"
+
 // Scala.js tests also depend on two things outside their classpath: the
 // linker settings they're linked with and the Node.js that runs them. The JS
 // projects hash both into their test cache keys (see commonJsSettings).
@@ -551,6 +602,11 @@ lazy val core =
     moduleName := "compiler-core",
     assembly / test := TestResult.Passed,
     scalacOptions += "-Yexplicit-nulls",
+    // See coreMacroInputPaths. Test inherits this from Compile, which it
+    // needs: CheckedNamesTest expands the Predef macros, so an edit to Predef
+    // must recompile it too.
+    Compile / extraIncOptions +=
+      coreMacroInputOption -> (ThisBuild / coreMacroInputDigest).value.toString,
     libraryDependencies ++=
       Seq(
         blake3.value,
@@ -567,6 +623,10 @@ lazy val core =
         "com.thesamet.scalapb" %% "scalapb-runtime" % scalapb.compiler.Version.scalapbVersion
       )
   ).dependsOn(base, proto, intdecide % "compile->compile;test->test")
+    .jvmSettings(
+      // see reservedNamesDigest
+      Test / extraTestDigests += (ThisBuild / reservedNamesDigest).value
+    )
     .jsSettings(
       commonJsSettings
     )

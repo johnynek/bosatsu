@@ -772,18 +772,11 @@ object TypedExprLoopRecurLowering {
           }
           val helperArgPairs = groupedArgs.zip(helperArgs)
           val renameMap = helperArgPairs.iterator.map {
-            case ((oldName, _), (newName, _)) =>
-              oldName -> { (loc: Local[A]) =>
-                Local(newName, loc.tpe, loc.tag): TypedExpr[A]
-              }
+            case ((oldName, _), (newName, _)) => oldName -> newName
           }.toMap
 
           val substitutedBody =
-            TypedExpr.substituteAll(
-              renameMap,
-              grouped.terminalBody,
-              enterLambda = true
-            ).get
+            TypedExpr.substituteAll(renameMap, grouped.terminalBody)
 
           val helperFnType = Type.Fun(
             helperArgs.map(_._2),
@@ -851,14 +844,9 @@ object TypedExprLoopRecurLowering {
               }
             val subMap = args.iterator
               .map(_._1)
-              .zip(freshArgs.iterator.map {
-                case (n1, _) => { (loc: Local[A]) =>
-                  Local(n1, loc.tpe, loc.tag)
-                }
-              })
+              .zip(freshArgs.iterator.map(_._1))
               .toMap
-            val body1 =
-              TypedExpr.substituteAll(subMap, body, enterLambda = true).get
+            val body1 = TypedExpr.substituteAll(subMap, body)
             val recurBody =
               rewriteTailCalls(name, body1, tailPos = true, canRecur = true)
             if (!hasOuterRecur(recurBody, inNestedLoop = false)) None

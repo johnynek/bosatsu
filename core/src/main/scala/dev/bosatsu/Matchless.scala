@@ -843,10 +843,8 @@ object Matchless {
         st: RenameState
     ): (Expr[A], RenameState) =
       ex match {
-        case LocalAnon(id) =>
-          (env.anons.get(id).fold(ex: Expr[A])(LocalAnon(_)), st)
-        case LocalAnonMut(id) =>
-          (env.muts.get(id).fold(ex: Expr[A])(LocalAnonMut(_)), st)
+        case cheap: CheapExpr[A] =>
+          loopCheap(cheap, env, st)
         case Lambda(captures, recName, args, body) =>
           val (captures1Rev, st1) =
             captures.foldLeft((List.empty[Expr[A]], st)) { case ((acc, stN), capture) =>
@@ -923,14 +921,7 @@ object Matchless {
         case PrevNat(of) =>
           val (of1, st1) = loopExpr(of, env, st)
           (PrevNat(of1), st1)
-        case ge: GetEnumElement[?] =>
-          val (arg1, st1) = loopCheap(ge.arg, env, st)
-          (ge.copy(arg = arg1), st1)
-        case gs: GetStructElement[?] =>
-          val (arg1, st1) = loopCheap(gs.arg, env, st)
-          (gs.copy(arg = arg1), st1)
-        case Global(_, _, _) | Local(_) | ClosureSlot(_) | Literal(_) |
-            LitInt64(_) | MakeEnum(_, _, _) | MakeStruct(_) | SuccNat | ZeroNat =>
+        case MakeEnum(_, _, _) | MakeStruct(_) | SuccNat | ZeroNat =>
           (ex, st)
       }
 
@@ -939,14 +930,20 @@ object Matchless {
         env: AnonRenameEnv,
         st: RenameState
     ): (CheapExpr[A], RenameState) =
-      loopExpr(ex, env, st) match {
-        case (cheap: CheapExpr[A], st1) => (cheap, st1)
-        case (notCheap, _) =>
-          // $COVERAGE-OFF$
-          sys.error(
-            s"invariant violation: expected cheap expression while refreshing anon binders, got: $notCheap"
-          )
-        // $COVERAGE-ON$
+      ex match {
+        case LocalAnon(id) =>
+          (env.anons.get(id).fold(ex)(LocalAnon(_)), st)
+        case LocalAnonMut(id) =>
+          (env.muts.get(id).fold(ex)(LocalAnonMut(_)), st)
+        case ge: GetEnumElement[?] =>
+          val (arg1, st1) = loopCheap(ge.arg, env, st)
+          (ge.copy(arg = arg1), st1)
+        case gs: GetStructElement[?] =>
+          val (arg1, st1) = loopCheap(gs.arg, env, st)
+          (gs.copy(arg = arg1), st1)
+        case Global(_, _, _) | Local(_) | ClosureSlot(_) | Literal(_) |
+            LitInt64(_) =>
+          (ex, st)
       }
 
     def loopBool(
@@ -1023,16 +1020,8 @@ object Matchless {
   ): Expr[A] = {
     def loopExpr(ex: Expr[A]): Expr[A] =
       ex match {
-        case ClosureSlot(idx) =>
-          slots.lift(idx) match {
-            case Some(ch) => ch
-            case None     =>
-              // $COVERAGE-OFF$
-              sys.error(
-                s"missing closure slot $idx in expression: $expr"
-              )
-            // $COVERAGE-ON$
-          }
+        case cheap: CheapExpr[A] =>
+          loopCheap(cheap)
         case Lambda(captures, recName, args, body) =>
           // ClosureSlot indices are local to each lambda body, so we only
           // rewrite captures and leave the inner body unchanged.
@@ -1060,25 +1049,29 @@ object Matchless {
           WhileExpr(loopBool(cond), loopExpr(effectExpr), result)
         case PrevNat(of) =>
           PrevNat(loopExpr(of))
+        case MakeEnum(_, _, _) | MakeStruct(_) | SuccNat | ZeroNat =>
+          ex
+      }
+
+    def loopCheap(ex: CheapExpr[A]): CheapExpr[A] =
+      ex match {
+        case ClosureSlot(idx) =>
+          slots.lift(idx) match {
+            case Some(ch) => ch
+            case None     =>
+              // $COVERAGE-OFF$
+              sys.error(
+                s"missing closure slot $idx in expression: $expr"
+              )
+            // $COVERAGE-ON$
+          }
         case ge: GetEnumElement[?] =>
           ge.copy(arg = loopCheap(ge.arg))
         case gs: GetStructElement[?] =>
           gs.copy(arg = loopCheap(gs.arg))
         case Local(_) | Global(_, _, _) | LocalAnon(_) | LocalAnonMut(_) |
-            Literal(_) | LitInt64(_) | MakeEnum(_, _, _) | MakeStruct(_) | SuccNat |
-            ZeroNat =>
+            Literal(_) | LitInt64(_) =>
           ex
-      }
-
-    def loopCheap(ex: CheapExpr[A]): CheapExpr[A] =
-      loopExpr(ex) match {
-        case ch: CheapExpr[A] => ch
-        case notCheap         =>
-          // $COVERAGE-OFF$
-          sys.error(
-            s"invariant violation: expected cheap expression when rewriting closure slots, got: $notCheap"
-          )
-        // $COVERAGE-ON$
       }
 
     def loopBool(ex: BoolExpr[A]): BoolExpr[A] =
@@ -1477,46 +1470,10 @@ object Matchless {
           st: RenameState
       ): (Expr[A], RenameState) =
         ex match {
-          case Local(name) =>
-            (env.bindables.get(name).fold(ex: Expr[A])(Local(_)), st)
-          case LocalAnon(id) =>
-            (env.ids.anons.get(id).fold(ex: Expr[A])(LocalAnon(_)), st)
-          case LocalAnonMut(id) =>
-            (env.ids.muts.get(id).fold(ex: Expr[A])(LocalAnonMut(_)), st)
-          case Lambda(captures, recName, lamArgs, body) =>
-            val (captures1Rev, st1) =
-              captures.foldLeft((List.empty[Expr[A]], st)) { case ((acc, stN), cap) =>
-                val (cap1, stN1) = loopExpr(cap, env, stN)
-                (cap1 :: acc, stN1)
-              }
-            val (recName1, st2, env1) =
-              recName match {
-                case Some(name) =>
-                  val (name1, stN) = st1.freshName("bsts_inline_rec")
-                  (Some(name1), stN, env.copy(bindables = env.bindables.updated(name, name1)))
-                case None =>
-                  (None, st1, env)
-              }
-            val (argsRev, st3, env2) =
-              lamArgs.toList.foldLeft((List.empty[Bindable], st2, env1)) {
-                case ((acc, stN, envN), arg) =>
-                  val (arg1, stN1) = stN.freshName("bsts_inline_arg")
-                  (
-                    arg1 :: acc,
-                    stN1,
-                    envN.copy(bindables = envN.bindables.updated(arg, arg1))
-                  )
-              }
-            val (body1, st4) = loopExpr(body, env2, st3)
-            (
-              Lambda(
-                captures1Rev.reverse,
-                recName1,
-                NonEmptyList.fromListUnsafe(argsRev.reverse),
-                body1
-              ),
-              st4
-            )
+          case cheap: CheapExpr[A] =>
+            loopCheap(cheap, env, st)
+          case lam: Lambda[A] =>
+            loopLambda(lam, env, st)
           case WhileExpr(cond, effectExpr, result) =>
             val result1 =
               env.ids.muts.get(result.ident).fold(result)(LocalAnonMut(_))
@@ -1590,30 +1547,71 @@ object Matchless {
           case PrevNat(of) =>
             val (of1, st1) = loopExpr(of, env, st)
             (PrevNat(of1), st1)
-          case ge: GetEnumElement[?] =>
-            val (arg1, st1) = loopCheap(ge.arg, env, st)
-            (ge.copy(arg = arg1), st1)
-          case gs: GetStructElement[?] =>
-            val (arg1, st1) = loopCheap(gs.arg, env, st)
-            (gs.copy(arg = arg1), st1)
-          case Global(_, _, _) | ClosureSlot(_) | Literal(_) | LitInt64(_) | MakeEnum(_, _, _) |
-              MakeStruct(_) | SuccNat | ZeroNat =>
+          case MakeEnum(_, _, _) | MakeStruct(_) | SuccNat | ZeroNat =>
             (ex, st)
         }
+
+      def loopLambda(
+          lam: Lambda[A],
+          env: RenameEnv,
+          st: RenameState
+      ): (Lambda[A], RenameState) = {
+        val Lambda(captures, recName, lamArgs, body) = lam
+        val (captures1Rev, st1) =
+          captures.foldLeft((List.empty[Expr[A]], st)) { case ((acc, stN), cap) =>
+            val (cap1, stN1) = loopExpr(cap, env, stN)
+            (cap1 :: acc, stN1)
+          }
+        val (recName1, st2, env1) =
+          recName match {
+            case Some(name) =>
+              val (name1, stN) = st1.freshName("bsts_inline_rec")
+              (Some(name1), stN, env.copy(bindables = env.bindables.updated(name, name1)))
+            case None =>
+              (None, st1, env)
+          }
+        val (argsRev, st3, env2) =
+          lamArgs.toList.foldLeft((List.empty[Bindable], st2, env1)) {
+            case ((acc, stN, envN), arg) =>
+              val (arg1, stN1) = stN.freshName("bsts_inline_arg")
+              (
+                arg1 :: acc,
+                stN1,
+                envN.copy(bindables = envN.bindables.updated(arg, arg1))
+              )
+          }
+        val (body1, st4) = loopExpr(body, env2, st3)
+        (
+          Lambda(
+            captures1Rev.reverse,
+            recName1,
+            NonEmptyList.fromListUnsafe(argsRev.reverse),
+            body1
+          ),
+          st4
+        )
+      }
 
       def loopCheap(
           ex: CheapExpr[A],
           env: RenameEnv,
           st: RenameState
       ): (CheapExpr[A], RenameState) =
-        loopExpr(ex, env, st) match {
-          case (ch: CheapExpr[A], st1) => (ch, st1)
-          case (notCheap, _)           =>
-            // $COVERAGE-OFF$
-            sys.error(
-              s"invariant violation: expected cheap expression during inlining alpha-rename, got: $notCheap"
-            )
-          // $COVERAGE-ON$
+        ex match {
+          case Local(name) =>
+            (env.bindables.get(name).fold(ex)(Local(_)), st)
+          case LocalAnon(id) =>
+            (env.ids.anons.get(id).fold(ex)(LocalAnon(_)), st)
+          case LocalAnonMut(id) =>
+            (env.ids.muts.get(id).fold(ex)(LocalAnonMut(_)), st)
+          case ge: GetEnumElement[?] =>
+            val (arg1, st1) = loopCheap(ge.arg, env, st)
+            (ge.copy(arg = arg1), st1)
+          case gs: GetStructElement[?] =>
+            val (arg1, st1) = loopCheap(gs.arg, env, st)
+            (gs.copy(arg = arg1), st1)
+          case Global(_, _, _) | ClosureSlot(_) | Literal(_) | LitInt64(_) =>
+            (ex, st)
         }
 
       def loopBool(
@@ -1688,17 +1686,11 @@ object Matchless {
           argAnonIds.foldLeft(-1L)(_ max _),
           argMutIds.foldLeft(-1L)(_ max _)
         ).max + 1L
-      loopExpr(
+      loopLambda(
         lam0,
         emptyRenameEnv,
         RenameState(usedNames, nextId)
-      ) match {
-        case (lam1: Lambda[A], _) => lam1
-        case (other, _)           =>
-          // $COVERAGE-OFF$
-          sys.error(s"expected lambda after alpha-rename, got: $other")
-        // $COVERAGE-ON$
-      }
+      )._1
     }
 
     def betaInline(lam0: Lambda[A]): Expr[A] = {
@@ -2625,57 +2617,12 @@ object Matchless {
         case (rev, st1) => (rev.reverse, st1)
       }
 
-    def recurExprCheap(
-        expr: CheapExpr[A],
-        st: CseState
-    ): (CheapExpr[A], CseState) =
-      recurExpr(expr, st) match {
-        case (expr1: CheapExpr[A], st1) =>
-          (expr1, st1)
-        case (other, _) =>
-          // $COVERAGE-OFF$
-          throw new IllegalStateException(
-            s"expected cheap expression in bool rewriting, found: $other"
-          )
-        // $COVERAGE-ON$
-      }
-
     def recurBool(b: BoolExpr[A], st: CseState): (BoolExpr[A], CseState) =
       b match {
-        case CompareLit(expr, rel, lit) =>
-          recurExprCheap(expr, st) match {
-            case (expr1, st1) => (CompareLit(expr1, rel, lit), st1)
-          }
-        case CompareInt(left, rel, right) =>
-          val (left1, st1) = recurExprCheap(left, st)
-          val (right1, st2) = recurExprCheap(right, st1)
-          (CompareInt(left1, rel, right1), st2)
-        case CompareInt64(left, rel, right) =>
-          val (left1, st1) = recurExprCheap(left, st)
-          val (right1, st2) = recurExprCheap(right, st1)
-          (CompareInt64(left1, rel, right1), st2)
-        case CompareFloat64(left, rel, right) =>
-          val (left1, st1) = recurExprCheap(left, st)
-          val (right1, st2) = recurExprCheap(right, st1)
-          (CompareFloat64(left1, rel, right1), st2)
-        case EqualsNat(expr, nat) =>
-          recurExprCheap(expr, st) match {
-            case (expr1, st1) => (EqualsNat(expr1, nat), st1)
-          }
         case And(left, right) =>
           val (l1, st1) = recurBool(left, st)
           val (r1, st2) = recurBool(right, st1)
           (And(l1, r1), st2)
-        case CheckVariant(expr, expect, size, famArities) =>
-          recurExprCheap(expr, st) match {
-            case (expr1, st1) =>
-              (CheckVariant(expr1, expect, size, famArities), st1)
-          }
-        case CheckVariantSet(expr, expect, size, famArities) =>
-          recurExprCheap(expr, st) match {
-            case (expr1, st1) =>
-              (CheckVariantSet(expr1, expect, size, famArities), st1)
-          }
         case SetMut(target, expr) =>
           val (expr1, st1) = recurExpr(expr, st)
           (SetMut(target, expr1), st1)
@@ -2686,8 +2633,12 @@ object Matchless {
         case LetMutBool(name, in) =>
           val (in1, st1) = recurBool(in, st)
           (LetMutBool(name, in1), st1)
-        case TrueConst =>
-          (TrueConst, st)
+        case CompareLit(_, _, _) | CompareInt(_, _, _) | CompareInt64(_, _, _) |
+            CompareFloat64(_, _, _) | EqualsNat(_, _) | CheckVariant(_, _, _, _) |
+            CheckVariantSet(_, _, _, _) | TrueConst =>
+          // these hold only cheap expressions, which contain no constructor
+          // application to share
+          (b, st)
       }
 
     def recurExpr(ex: Expr[A], st: CseState): (Expr[A], CseState) = {
@@ -2718,9 +2669,8 @@ object Matchless {
             val (else1, stElse) = recurExpr(elseExpr, stThen)
             ifBranchCse(cond1, then1, else1, stElse)
           case SwitchVariant(on, famArities, cases, default) =>
-            val (on1, stOn) = recurExprCheap(on, st)
             val (casesRev, stCases) =
-              cases.toList.foldLeft((List.empty[(Int, Expr[A])], stOn)) {
+              cases.toList.foldLeft((List.empty[(Int, Expr[A])], st)) {
                 case ((acc, currSt), (variant, branch)) =>
                   val (branch1, st1) = recurExpr(branch, currSt)
                   ((variant, branch1) :: acc, st1)
@@ -2735,7 +2685,7 @@ object Matchless {
               }
             (
               SwitchVariant(
-                on1,
+                on,
                 famArities,
                 NonEmptyList.fromListUnsafe(casesRev.reverse),
                 default1
@@ -2830,41 +2780,19 @@ object Matchless {
 
     def recurBool(b: BoolExpr[A]): BoolExpr[A] =
       b match {
-        case CompareLit(expr, rel, lit) =>
-          CompareLit(recurExprCheap(expr), rel, lit)
-        case CompareInt(left, rel, right) =>
-          CompareInt(recurExprCheap(left), rel, recurExprCheap(right))
-        case CompareInt64(left, rel, right) =>
-          CompareInt64(recurExprCheap(left), rel, recurExprCheap(right))
-        case CompareFloat64(left, rel, right) =>
-          CompareFloat64(recurExprCheap(left), rel, recurExprCheap(right))
-        case EqualsNat(expr, nat) =>
-          EqualsNat(recurExprCheap(expr), nat)
         case And(left, right) =>
           And(recurBool(left), recurBool(right))
-        case CheckVariant(expr, expect, size, famArities) =>
-          CheckVariant(recurExprCheap(expr), expect, size, famArities)
-        case CheckVariantSet(expr, expect, size, famArities) =>
-          CheckVariantSet(recurExprCheap(expr), expect, size, famArities)
         case SetMut(target, value) =>
           SetMut(target, recurExpr(value))
         case LetBool(arg, value, in) =>
           LetBool(arg, recurExpr(value), recurBool(in))
         case LetMutBool(name, in) =>
           LetMutBool(name, recurBool(in))
-        case TrueConst =>
-          TrueConst
-      }
-
-    def recurExprCheap(ex: CheapExpr[A]): CheapExpr[A] =
-      recurExpr(ex) match {
-        case ch: CheapExpr[A] => ch
-        case notCheap         =>
-          // $COVERAGE-OFF$
-          throw new IllegalStateException(
-            s"expected cheap expression when hoisting loop lets, got: $notCheap"
-          )
-        // $COVERAGE-ON$
+        case CompareLit(_, _, _) | CompareInt(_, _, _) | CompareInt64(_, _, _) |
+            CompareFloat64(_, _, _) | EqualsNat(_, _) | CheckVariant(_, _, _, _) |
+            CheckVariantSet(_, _, _, _) | TrueConst =>
+          // these hold only cheap expressions, which hold no loops
+          b
       }
 
     def recurExpr(ex: Expr[A]): Expr[A] =
@@ -2883,7 +2811,7 @@ object Matchless {
           If(recurBool(cond), recurExpr(thenExpr), recurExpr(elseExpr))
         case SwitchVariant(on, famArities, cases, default) =>
           SwitchVariant(
-            recurExprCheap(on),
+            on,
             famArities,
             cases.map { case (variant, branch) =>
               (variant, recurExpr(branch))
@@ -2980,41 +2908,19 @@ object Matchless {
 
     def loopBool(boolExpr: BoolExpr[A]): BoolExpr[A] =
       boolExpr match {
-        case CompareLit(expr, rel, lit) =>
-          CompareLit(loopCheap(expr), rel, lit)
-        case CompareInt(left, rel, right) =>
-          CompareInt(loopCheap(left), rel, loopCheap(right))
-        case CompareInt64(left, rel, right) =>
-          CompareInt64(loopCheap(left), rel, loopCheap(right))
-        case CompareFloat64(left, rel, right) =>
-          CompareFloat64(loopCheap(left), rel, loopCheap(right))
-        case EqualsNat(expr, nat) =>
-          EqualsNat(loopCheap(expr), nat)
         case And(left, right) =>
           And(loopBool(left), loopBool(right))
-        case CheckVariant(expr, expect, size, famArities) =>
-          CheckVariant(loopCheap(expr), expect, size, famArities)
-        case CheckVariantSet(expr, expect, size, famArities) =>
-          CheckVariantSet(loopCheap(expr), expect, size, famArities)
         case SetMut(target, value) =>
           SetMut(target, loopExpr(value))
         case LetBool(arg, value, in) =>
           LetBool(arg, loopExpr(value), loopBool(in))
         case LetMutBool(name, in) =>
           LetMutBool(name, loopBool(in))
-        case TrueConst =>
-          TrueConst
-      }
-
-    def loopCheap(ex: CheapExpr[A]): CheapExpr[A] =
-      loopExpr(ex) match {
-        case ch: CheapExpr[A] => ch
-        case notCheap         =>
-          // $COVERAGE-OFF$
-          throw new IllegalStateException(
-            s"expected cheap expression when sinking branch-only lets, got: $notCheap"
-          )
-        // $COVERAGE-ON$
+        case CompareLit(_, _, _) | CompareInt(_, _, _) | CompareInt64(_, _, _) |
+            CompareFloat64(_, _, _) | EqualsNat(_, _) | CheckVariant(_, _, _, _) |
+            CheckVariantSet(_, _, _, _) | TrueConst =>
+          // these hold only cheap expressions, which hold no lets
+          boolExpr
       }
 
     def loopExpr(ex: Expr[A]): Expr[A] =
@@ -3035,7 +2941,7 @@ object Matchless {
           If(loopBool(cond), loopExpr(thenExpr), loopExpr(elseExpr))
         case SwitchVariant(on, famArities, cases, default) =>
           SwitchVariant(
-            loopCheap(on),
+            on,
             famArities,
             cases.map { case (variant, branch) =>
               (variant, loopExpr(branch))
@@ -3285,15 +3191,30 @@ object Matchless {
           false
       })
 
+    // A projection in a cheap position can only be replaced by a known value
+    // that is itself cheap. A known constructor application is a value, but
+    // it allocates, so the projection stays.
     def recurExprCheap(ex: CheapExpr[A], env: KnownEnv): CheapExpr[A] =
-      recurExpr(ex, env) match {
-        case ch: CheapExpr[A] => ch
-        case notCheap         =>
-          // $COVERAGE-OFF$
-          throw new IllegalStateException(
-            s"expected cheap expression while simplifying known Matchless conditions, found: $notCheap"
+      ex match {
+        case GetEnumElement(arg, variant, index, size) =>
+          foldKnownCheap(
+            GetEnumElement(recurExprCheap(arg, env), variant, index, size),
+            env
           )
-        // $COVERAGE-ON$
+        case GetStructElement(arg, index, size) =>
+          foldKnownCheap(
+            GetStructElement(recurExprCheap(arg, env), index, size),
+            env
+          )
+        case Local(_) | ClosureSlot(_) | LocalAnon(_) | LocalAnonMut(_) |
+            Global(_, _, _) | Literal(_) | LitInt64(_) =>
+          ex
+      }
+
+    def foldKnownCheap(rewritten: CheapExpr[A], env: KnownEnv): CheapExpr[A] =
+      knownValue(rewritten, env, Set.empty, Set.empty) match {
+        case Some(cheap: CheapExpr[A]) => recurExprCheap(cheap, env)
+        case _                         => rewritten
       }
 
     def recurBool(ex: BoolExpr[A], env: KnownEnv): BoolExpr[A] =
@@ -4137,13 +4058,14 @@ object Matchless {
   object StringMatcher {
     private val emptyStringLit: Lit = Lit.Str("")
     private val emptyStringExpr: Expr[Nothing] = Literal(emptyStringLit)
-    private val concatStringName = Identifier.Name("concat_String")
-    private val charToStringName = Identifier.Name("char_to_String")
-    private val partitionStringName = Identifier.Name("partition_String")
-    private val unconsStringName = Identifier.Name("uncons_String")
-    private val tailOrEmptyStringName = Identifier.Name("tail_or_empty_String")
-    private val someCons = Constructor("Some")
-    private val tuple2Cons = Constructor("Tuple2")
+    private val concatStringName = PredefNames.concat_String
+    private val charToStringName = PredefNames.char_to_String
+    private val partitionStringName = PredefName.value("partition_String")
+    private val unconsStringName = PredefName.value("uncons_String")
+    private val tailOrEmptyStringName =
+      PredefName.value("tail_or_empty_String")
+    private val someCons = PredefNames.Some
+    private val tuple2Cons = PredefName.constructor("Tuple2")
 
     final private case class Ctx[F[_], A](
         from: A,
@@ -4289,9 +4211,8 @@ object Matchless {
     private def withSomeTuple2Expr[F[_]: Monad, A](
         optionExpr: Expr[A],
         ctx: Ctx[F, A]
-    )(
-        onSome: (CheapExpr[A], CheapExpr[A]) => F[Expr[A]],
-        onNone: => F[Expr[A]]
+    )(onNone: => F[Expr[A]])(
+        onSome: (CheapExpr[A], CheapExpr[A]) => F[Expr[A]]
     ): F[Expr[A]] =
       withCheapExpr(optionExpr, ctx.newConst) { opt =>
         for {
@@ -4394,9 +4315,8 @@ object Matchless {
         bindTargets: IndexedSeq[LocalAnonMut],
         nextBind: Int,
         ctx: Ctx[F, A]
-    )(
-        onMatch: CheapExpr[A] => F[Expr[A]],
-        onMiss: => F[Expr[A]]
+    )(onMiss: => F[Expr[A]])(
+        onMatch: CheapExpr[A] => F[Expr[A]]
     ): F[Expr[A]] =
       Defer[F].defer(parts match {
         case Nil =>
@@ -4405,31 +4325,27 @@ object Matchless {
           withSomeTuple2Expr(
             call2(ctx.from, partitionStringName, arg, Literal(Lit.Str(expect))),
             ctx
-          )(
+          )(onMiss)(
             (left, right) =>
               for {
                 missExpr <- onMiss
-                matchedExpr <- ifExactStringParts(right, tail, bindTargets, nextBind, ctx)(
-                  onMatch,
-                  onMiss
+                matchedExpr <- ifExactStringParts(right, tail, bindTargets, nextBind, ctx)(onMiss)(
+                  onMatch
                 )
-              } yield If(CompareLit(left, CompareRel.Eq, emptyStringLit), matchedExpr, missExpr),
-            onMiss
+              } yield If(CompareLit(left, CompareRel.Eq, emptyStringLit), matchedExpr, missExpr)
           )
         case (charPart: StrPart.CharPart) :: tail =>
-          withSomeTuple2Expr(call1(ctx.from, unconsStringName, arg), ctx)(
+          withSomeTuple2Expr(call1(ctx.from, unconsStringName, arg), ctx)(onMiss)(
             (head, rest) => {
               val nextBind1 =
                 if (charPart.capture) nextBind + 1 else nextBind
-              ifExactStringParts(rest, tail, bindTargets, nextBind1, ctx)(
-                onMatch,
-                onMiss
+              ifExactStringParts(rest, tail, bindTargets, nextBind1, ctx)(onMiss)(
+                onMatch
               ).map { matchedExpr =>
                 if (charPart.capture) Always(SetMut(bindAt(bindTargets, nextBind), head), matchedExpr)
                 else matchedExpr
               }
-            },
-            onMiss
+            }
           )
       })
 
@@ -4533,7 +4449,7 @@ object Matchless {
           bindTargets,
           segmentBindStart,
           ctx
-        )(
+        )(Monad[F].pure(advance))(
           right =>
             for {
               pureCheck <- compilePureStringSearchPlan(
@@ -4557,8 +4473,7 @@ object Matchless {
                 If(successCheck, matched, advance),
                 stopStringSearchExpr(state)
               )
-            },
-          Monad[F].pure(advance)
+            }
         )
       } yield {
         val loopEffect =
@@ -4625,7 +4540,7 @@ object Matchless {
         effect <- withSomeTuple2Expr(
           call2(ctx.from, partitionStringName, currentMut, Literal(Lit.Str(expect))),
           ctx
-        )(
+        )(Monad[F].pure(stopStringSearchExpr(state)))(
           (left, right) => {
             val currentAdvance: Expr[A] =
               expectTailExprOpt match {
@@ -4645,7 +4560,7 @@ object Matchless {
                 UnitExpr
               )
 
-            ifExactStringParts(right, exactTail, bindTargets, segmentBindStart, ctx)(
+            ifExactStringParts(right, exactTail, bindTargets, segmentBindStart, ctx)(Monad[F].pure(onCandidateMiss))(
               remainder =>
                 for {
                   pureCheck <- compilePureStringSearchPlan(
@@ -4669,11 +4584,9 @@ object Matchless {
                     If(successCheck, matched, onCandidateMiss),
                     stopStringSearchExpr(state)
                   )
-                },
-              Monad[F].pure(onCandidateMiss)
+                }
             )
-          },
-          Monad[F].pure(stopStringSearchExpr(state))
+          }
         )
       } yield {
         val initSets =
@@ -4755,7 +4668,7 @@ object Matchless {
           bindTargets,
           segmentBindStart,
           ctx
-        )(
+        )(Monad[F].pure(advance))(
           remainder =>
             onPureMatch.map { successCheck =>
               val matchUpdates =
@@ -4775,8 +4688,7 @@ object Matchless {
                     advance
                   )
               }
-            },
-          Monad[F].pure(advance)
+            }
         )
       } yield {
         val loopEffect =
@@ -4843,7 +4755,7 @@ object Matchless {
         effect <- withSomeTuple2Expr(
           call2(ctx.from, partitionStringName, currentMut, Literal(Lit.Str(expect))),
           ctx
-        )(
+        )(Monad[F].pure(stopStringSearchExpr(state)))(
           (left, right) => {
             val currentAdvance: Expr[A] =
               expectTailExprOpt match {
@@ -4863,7 +4775,7 @@ object Matchless {
                 UnitExpr
               )
 
-            ifExactStringParts(right, exactTail, bindTargets, segmentBindStart, ctx)(
+            ifExactStringParts(right, exactTail, bindTargets, segmentBindStart, ctx)(Monad[F].pure(onCandidateMiss))(
               remainder =>
                 onPureMatch.map { successCheck =>
                   val prefixUpdates =
@@ -4888,11 +4800,9 @@ object Matchless {
                         onCandidateMiss
                       )
                   }
-                },
-              Monad[F].pure(onCandidateMiss)
+                }
             )
-          },
-          Monad[F].pure(stopStringSearchExpr(state))
+          }
         )
       } yield {
         val initSets =
@@ -5269,9 +5179,19 @@ object Matchless {
     }
   }
 
-  private val empty = (PackageName.PredefName, Constructor("EmptyList"))
-  private val cons = (PackageName.PredefName, Constructor("NonEmptyList"))
-  private val revName = Identifier.Name("reverse")
+  private val empty = (PackageName.PredefName, PredefNames.EmptyList)
+  private val cons = (PackageName.PredefName, PredefNames.NonEmptyList)
+
+  // A constructor a pattern names, with its data representation. Lowering a
+  // match resolves each pattern constructor once, so the pattern compilers
+  // read the representation instead of looking it up again.
+  private[bosatsu] final case class ResolvedCons(
+      pack: PackageName,
+      cons: Constructor,
+      repr: DataRepr
+  ) derives CanEqual
+
+  private val revName = PredefName.value("reverse")
   private def reverseFn[A](from: A) =
     Global[A](from, PackageName.PredefName, revName)
 
@@ -5435,6 +5355,45 @@ object Matchless {
     type UnionMatch =
       NonEmptyList[(List[LocalAnonMut], BoolExpr[B], List[(Bindable, Expr[B])])]
     type CandidateGuard = List[(Bindable, Expr[B])] => F[BoolExpr[B]]
+    // a pattern whose constructors resolveCons has resolved
+    type Pat = Pattern[ResolvedCons, Type]
+
+    // Look up a pattern constructor once, and check the arity its
+    // representation fixes.
+    def resolveCons(pack: PackageName, cname: Constructor, arity: Int): ResolvedCons =
+      variantOf(pack, cname) match {
+        case Some(DataRepr.ZeroNat) if arity != 0 =>
+          // $COVERAGE-OFF$
+          throw new IllegalStateException(
+            s"ZeroNat should have 0 params, found: $arity"
+          )
+        // $COVERAGE-ON$
+        case Some(DataRepr.SuccNat) if arity != 1 =>
+          // $COVERAGE-OFF$
+          throw new IllegalStateException(
+            s"SuccNat should have 1 param, found: $arity"
+          )
+        // $COVERAGE-ON$
+        case Some(repr) =>
+          ResolvedCons(pack, cname, repr)
+        case None =>
+          // $COVERAGE-OFF$
+          throw new IllegalStateException(
+            s"could not find $cname in global data types"
+          )
+        // $COVERAGE-ON$
+      }
+
+    def resolvePattern(p: Pattern[(PackageName, Constructor), Type]): Pat =
+      p.mapStruct[ResolvedCons] { (name, params) =>
+        Pattern.PositionalStruct(
+          resolveCons(name._1, name._2, params.length),
+          params
+        )
+      }
+
+    lazy val emptyListCons: ResolvedCons = resolveCons(empty._1, empty._2, 0)
+    lazy val nonEmptyListCons: ResolvedCons = resolveCons(cons._1, cons._2, 2)
 
     val wildMatch: UnionMatch = NonEmptyList((Nil, TrueConst, Nil), Nil)
     def isWildMatch(um: UnionMatch): Boolean =
@@ -5507,12 +5466,12 @@ object Matchless {
       case IntDomain, Int64Domain, Float64Domain
     }
 
-    val eqIntName = Identifier.Name("eq_Int")
-    val cmpIntName = Identifier.Name("cmp_Int")
-    val eqFloat64Name = Identifier.Name("eq_Float64")
-    val cmpFloat64Name = Identifier.Name("cmp_Float64")
-    val someConstructor = Constructor("Some")
-    val noneConstructor = Constructor("None")
+    val eqIntName = PredefNames.eq_Int
+    val cmpIntName = PredefNames.cmp_Int
+    val eqFloat64Name = PredefName.value("eq_Float64")
+    val cmpFloat64Name = PredefName.value("cmp_Float64")
+    val someConstructor = PredefNames.Some
+    val noneConstructor = PredefName.constructor("None")
 
     lazy val optionSomeData: (Int, Int, List[Int]) =
       variantOf(PackageName.PredefName, someConstructor) match {
@@ -5806,6 +5765,8 @@ object Matchless {
 
     def substituteLocals(m: Map[Bindable, CheapExpr[B]], e: Expr[B]): Expr[B] =
       e match {
+        case cheap: CheapExpr[B] =>
+          substituteLocalsCheap(m, cheap)
         case App(fn, appArgs) =>
           applyArgs(
             substituteLocals(m, fn),
@@ -5836,16 +5797,7 @@ object Matchless {
             case _        => m
           }
           Let(n, substituteLocals(m, v), substituteLocals(m1, in))
-        case Local(n) =>
-          m.get(n) match {
-            case Some(mut) => mut
-            case None      => e
-          }
-        case PrevNat(n)            => PrevNat(substituteLocals(m, n))
-        case ge: GetEnumElement[?] =>
-          ge.copy(arg = substituteLocalsCheap(m, ge.arg))
-        case gs: GetStructElement[?] =>
-          gs.copy(arg = substituteLocalsCheap(m, gs.arg))
+        case PrevNat(n)          => PrevNat(substituteLocals(m, n))
         case Lambda(c, r, as, b) =>
           // Captures are evaluated at lambda creation site, so they see the
           // outer substitution map. The body additionally excludes lambda-bound
@@ -5856,21 +5808,26 @@ object Matchless {
           Lambda(c1, r, as, b1)
         case WhileExpr(c, ef, r) =>
           WhileExpr(substituteLocalsBool(m, c), substituteLocals(m, ef), r)
-        case ClosureSlot(_) | Global(_, _, _) | LocalAnon(_) | LocalAnonMut(_) |
-            MakeEnum(_, _, _) | MakeStruct(_) | SuccNat | Literal(_) | LitInt64(_) |
-            ZeroNat =>
+        case MakeEnum(_, _, _) | MakeStruct(_) | SuccNat | ZeroNat =>
           e
       }
     def substituteLocalsCheap(
         m: Map[Bindable, CheapExpr[B]],
         e: CheapExpr[B]
     ): CheapExpr[B] =
-      substituteLocals(m, e) match {
-        case ch: CheapExpr[B] => ch
-        case notCheap         =>
-          sys.error(
-            s"invariant violation: substitution didn't maintain cheap: $e => $notCheap"
-          )
+      e match {
+        case Local(n) =>
+          m.get(n) match {
+            case Some(mut) => mut
+            case None      => e
+          }
+        case ge: GetEnumElement[?] =>
+          ge.copy(arg = substituteLocalsCheap(m, ge.arg))
+        case gs: GetStructElement[?] =>
+          gs.copy(arg = substituteLocalsCheap(m, gs.arg))
+        case ClosureSlot(_) | Global(_, _, _) | LocalAnon(_) | LocalAnonMut(_) |
+            Literal(_) | LitInt64(_) =>
+          e
       }
 
     // assign any results to result and set the condition to false
@@ -6386,26 +6343,27 @@ object Matchless {
                       loop(argExpr, slotsPat),
                       guardOpt.traverse(loop(_, slotsBody))
                     ).flatMapN { (argExpr1, guardOpt1) =>
-                      if (pattern.names.isEmpty)
-                        bindingFreeMatchGuardExpr(argExpr1, pattern, guardOpt1)
+                      val pattern1 = resolvePattern(pattern)
+                      if (pattern1.names.isEmpty)
+                        bindingFreeMatchGuardExpr(argExpr1, pattern1, guardOpt1)
                           .map {
                             case Some(guardExpr) =>
                               Some(BoolMatchBranchGuard(guardExpr))
                             case None            =>
                               Some(
-                                ScopedMatchBranchGuard(argExpr1, pattern, guardOpt1)
+                                ScopedMatchBranchGuard(argExpr1, pattern1, guardOpt1)
                               )
                           }
                       else
                         Monad[F].pure(
-                          Some(ScopedMatchBranchGuard(argExpr1, pattern, guardOpt1))
+                          Some(ScopedMatchBranchGuard(argExpr1, pattern1, guardOpt1))
                         )
                     }
                 }
 
               (loweredGuardF, loop(branch.expr, slotsBody)).mapN {
                 (guard, te) =>
-                  MatchBranch(branch.pattern, guard, te)
+                  MatchBranch(resolvePattern(branch.pattern), guard, te)
               }
             }
           ).flatMapN { (a, b) => matchExpr(a, makeAnon, b) }
@@ -6418,7 +6376,7 @@ object Matchless {
      * 3. or we return None indicating not one of these
      */
     def maybeSimple(
-        p: Pattern[(PackageName, Constructor), Type]
+        p: Pat
     ): Option[Either[Bindable, Unit]] =
       p match {
         case Pattern.WildCard   => Some(Right(()))
@@ -6443,25 +6401,16 @@ object Matchless {
             case Pattern.ListPart.NamedList(n) :: Nil => Some(Left(n))
             case _                                    => None
           }
-        case Pattern.Annotation(p, _)                    => maybeSimple(p)
-        case Pattern.PositionalStruct((pack, cname), ps) =>
+        case Pattern.Annotation(p, _)          => maybeSimple(p)
+        case Pattern.PositionalStruct(rc, ps) =>
           // Only branch-free structs with no inner names are simple
-          variantOf(pack, cname) match {
-            case Some(dr) =>
-              dr match {
-                case DataRepr.Struct(_) | DataRepr.NewType =>
-                  ps.traverse(maybeSimple).flatMap { inners =>
-                    if (inners.forall(_ == Right(()))) Some(Right(()))
-                    else None
-                  }
-                case _ => None
+          rc.repr match {
+            case DataRepr.Struct(_) | DataRepr.NewType =>
+              ps.traverse(maybeSimple).flatMap { inners =>
+                if (inners.forall(_ == Right(()))) Some(Right(()))
+                else None
               }
-            // $COVERAGE-OFF$
-            case None =>
-              throw new IllegalStateException(
-                s"could not find $cons in global data types"
-              )
-            // $COVERAGE-ON$
+            case _ => None
           }
         case Pattern.Union(h, t) =>
           (h :: t.toList).traverse(maybeSimple).flatMap { inners =>
@@ -6472,7 +6421,7 @@ object Matchless {
 
     case class ListSearchSegment(
         glob: Pattern.ListPart.Glob,
-        items: NonEmptyList[Pattern[(PackageName, Constructor), Type]]
+        items: NonEmptyList[Pat]
     )
 
     case class ListSearchPlan(
@@ -6489,10 +6438,10 @@ object Matchless {
     // always has at least two exact segments.
     def buildListSearchPlan(
         glob: Pattern.ListPart.Glob,
-        right: NonEmptyList[Pattern.ListPart[Pattern[(PackageName, Constructor), Type]]]
+        right: NonEmptyList[Pattern.ListPart[Pat]]
     ): ListSearchPlan = {
       var currentGlob: Pattern.ListPart.Glob = glob
-      var currentItemsRev: List[Pattern[(PackageName, Constructor), Type]] = Nil
+      var currentItemsRev: List[Pat] = Nil
       var segmentsRev: List[ListSearchSegment] = Nil
 
       right.toList.foreach {
@@ -6526,18 +6475,18 @@ object Matchless {
     }
 
     def exactTrailingItems(
-        right: NonEmptyList[Pattern.ListPart[Pattern[(PackageName, Constructor), Type]]]
-    ): Option[NonEmptyList[Pattern[(PackageName, Constructor), Type]]] =
+        right: NonEmptyList[Pattern.ListPart[Pat]]
+    ): Option[NonEmptyList[Pat]] =
       right.traverse {
         case Pattern.ListPart.Item(p) => Some(p)
         case _: Pattern.ListPart.Glob => None
       }
 
     def exactMiddleItems(
-        right: NonEmptyList[Pattern.ListPart[Pattern[(PackageName, Constructor), Type]]]
+        right: NonEmptyList[Pattern.ListPart[Pat]]
     ): Option[
       (
-          NonEmptyList[Pattern[(PackageName, Constructor), Type]],
+          NonEmptyList[Pat],
           Pattern.ListPart.Glob
       )
     ] =
@@ -6625,7 +6574,7 @@ object Matchless {
 
     def matchFixedListWindowItems(
         itemMuts: NonEmptyList[LocalAnonMut],
-        exactItems: NonEmptyList[Pattern[(PackageName, Constructor), Type]]
+        exactItems: NonEmptyList[Pat]
     ): F[UnionMatch] =
       itemMuts.zip(exactItems).traverse { case (itemMut, pat) =>
         doesMatch(ListExpr.head(itemMut), pat, false, None, None)
@@ -6811,7 +6760,7 @@ object Matchless {
     def exactMiddleListSearch(
         arg: CheapExpr[B],
         leftGlob: Pattern.ListPart.Glob,
-        middleItems: NonEmptyList[Pattern[(PackageName, Constructor), Type]],
+        middleItems: NonEmptyList[Pat],
         rightGlob: Pattern.ListPart.Glob,
         candidateGuard: Option[CandidateGuard]
     ): F[UnionMatch] = {
@@ -6869,7 +6818,7 @@ object Matchless {
     def exactTrailingListSearch(
         arg: CheapExpr[B],
         glob: Pattern.ListPart.Glob,
-        exactItems: NonEmptyList[Pattern[(PackageName, Constructor), Type]]
+        exactItems: NonEmptyList[Pat]
     ): F[UnionMatch] = {
       val exactPat = Pattern.ListPat(exactItems.toList.map(Pattern.ListPart.Item(_)))
       val leftF = prepareLeftGlob(glob)
@@ -7112,7 +7061,7 @@ object Matchless {
     // if must match is true, we know that the pattern must match, so we can potentially remove some checks
     def doesMatch(
         arg: CheapExpr[B],
-        pat: Pattern[(PackageName, Constructor), Type],
+        pat: Pat,
         mustMatch: Boolean,
         rootInlined: Option[InlinedStructRoot],
         candidateGuard: Option[CandidateGuard]
@@ -7184,7 +7133,7 @@ object Matchless {
               } yield NonEmptyList.one((ms, cond, binds))
           }
         case lp @ Pattern.ListPat(_) =>
-          Pattern.ListPat.toPositionalStruct(lp, empty, cons) match {
+          Pattern.ListPat.toPositionalStruct(lp, emptyListCons, nonEmptyListCons) match {
             case Right(p) =>
               // rootInlined = None: list patterns match enum constructors, not root structs.
               doesMatch(arg, p, mustMatch, None, candidateGuard)
@@ -7253,7 +7202,7 @@ object Matchless {
         case Pattern.Annotation(p, _) =>
           // we discard types at this point
           doesMatch(arg, p, mustMatch, rootInlined, candidateGuard)
-        case Pattern.PositionalStruct((pack, cname), params) =>
+        case Pattern.PositionalStruct(rc, params) =>
           // we assume the patterns have already been optimized
           // so that useless total patterns have been replaced with _
           type Locals = Chain[(LocalAnonMut, Expr[B])]
@@ -7264,7 +7213,7 @@ object Matchless {
             // (m1 + m2 + m3) * (m4 + m5 + m6) ... =
             // we need to multiply them all out into a single set of ors
             def operate(
-                pat: Pattern[(PackageName, Constructor), Type],
+                pat: Pat,
                 idx: Int
             ): WriterT[F, Locals, UnionMatch] =
               maybeSimple(pat) match {
@@ -7322,102 +7271,94 @@ object Matchless {
                 }
               }
 
-          variantOf(pack, cname) match {
-            case Some(dr) =>
-              dr match {
-                case DataRepr.Struct(size)        => finish(forStruct(size))
-                case DataRepr.NewType             => finish(forStruct(1))
-                case DataRepr.Enum(vidx, size, f) =>
-                  // if we match the variant, then treat it as a struct
-                  val cv: BoolExpr[B] =
-                    if (mustMatch) TrueConst
-                    else CheckVariant(arg, vidx, size, f)
-                  asStruct(pos => GetEnumElement(arg, vidx, pos, size)).run
-                    .map { case (anons, ums) =>
-                      if (isWildMatch(ums)) {
-                        // we just need to check the variant
-                        assert(
-                          anons.isEmpty,
-                          "anons must by construction always be empty on wildMatch"
-                        )
-                        NonEmptyList((Nil, cv, Nil), Nil)
-                      } else {
-                        // now we need to set up the binds if the variant is right
-                        val cond1 = anons.foldLeft(cv) {
-                          case (c, (mut, expr)) =>
-                            c && SetMut(mut, expr)
-                        }
-
-                        ums.map { case (pre, cond, b) =>
-                          val pre1 = anons.foldLeft(pre) {
-                            case (pre, (mut, _)) => mut :: pre
-                          }
-                          (pre1, cond1 && cond, b)
-                        }
-                      }
+          rc.repr match {
+            case DataRepr.Struct(size)        => finish(forStruct(size))
+            case DataRepr.NewType             => finish(forStruct(1))
+            case DataRepr.Enum(vidx, size, f) =>
+              // if we match the variant, then treat it as a struct
+              val cv: BoolExpr[B] =
+                if (mustMatch) TrueConst
+                else CheckVariant(arg, vidx, size, f)
+              asStruct(pos => GetEnumElement(arg, vidx, pos, size)).run
+                .map { case (anons, ums) =>
+                  if (isWildMatch(ums)) {
+                    // we just need to check the variant
+                    assert(
+                      anons.isEmpty,
+                      "anons must by construction always be empty on wildMatch"
+                    )
+                    NonEmptyList((Nil, cv, Nil), Nil)
+                  } else {
+                    // now we need to set up the binds if the variant is right
+                    val cond1 = anons.foldLeft(cv) {
+                      case (c, (mut, expr)) =>
+                        c && SetMut(mut, expr)
                     }
-                    .flatMap(applyCandidateGuardToUnionMatch(_, candidateGuard))
-                case DataRepr.ZeroNat =>
-                  val cv: BoolExpr[B] =
-                    if (mustMatch) TrueConst
-                    else EqualsNat(arg, DataRepr.ZeroNat)
-                  finish(Monad[F].pure(NonEmptyList((Nil, cv, Nil), Nil)))
-                case DataRepr.SuccNat =>
-                  params match {
-                    case single :: Nil =>
-                      // if we match, we recur on the inner pattern and prev of current
-                      val check =
-                        if (mustMatch) TrueConst
-                        else EqualsNat(arg, DataRepr.SuccNat)
 
-                      val ignoreInner = single match {
-                        case Pattern.WildCard => true
-                        case _                => false
+                    ums.map { case (pre, cond, b) =>
+                      val pre1 = anons.foldLeft(pre) {
+                        case (pre, (mut, _)) => mut :: pre
                       }
-
-                      if (!ignoreInner) {
-                        (
-                          for {
-                            nm <- makeAnon
-                            loc = LocalAnonMut(nm)
-                            prev = PrevNat(arg)
-                            // rootInlined = None: we match the predecessor occurrence, not the root.
-                            rest <- doesMatch(loc, single, mustMatch, None, None)
-                          } yield rest.map { case (preLets, cond, res) =>
-                            (
-                              loc :: preLets,
-                              check && SetMut(loc, prev) && cond,
-                              res
-                            )
-                          }
-                        ).flatMap(
-                          applyCandidateGuardToUnionMatch(_, candidateGuard)
-                        )
-                      } else {
-                        // we don't need to bind the prev
-                        finish(Monad[F].pure(wildMatch.map {
-                          case (preLets, cond, res) =>
-                            (
-                              preLets,
-                              check && cond,
-                              res
-                            )
-                        }))
-                      }
-                    case other =>
-                      // $COVERAGE-OFF$
-                      throw new IllegalStateException(
-                        s"expected typechecked Nat to only have one param, found: $other in $pat"
-                      )
-                    // $COVERAGE-ON$
+                      (pre1, cond1 && cond, b)
+                    }
                   }
+                }
+                .flatMap(applyCandidateGuardToUnionMatch(_, candidateGuard))
+            case DataRepr.ZeroNat =>
+              val cv: BoolExpr[B] =
+                if (mustMatch) TrueConst
+                else EqualsNat(arg, DataRepr.ZeroNat)
+              finish(Monad[F].pure(NonEmptyList((Nil, cv, Nil), Nil)))
+            case DataRepr.SuccNat =>
+              params match {
+                case single :: Nil =>
+                  // if we match, we recur on the inner pattern and prev of current
+                  val check =
+                    if (mustMatch) TrueConst
+                    else EqualsNat(arg, DataRepr.SuccNat)
+
+                  val ignoreInner = single match {
+                    case Pattern.WildCard => true
+                    case _                => false
+                  }
+
+                  if (!ignoreInner) {
+                    (
+                      for {
+                        nm <- makeAnon
+                        loc = LocalAnonMut(nm)
+                        prev = PrevNat(arg)
+                        // rootInlined = None: we match the predecessor occurrence, not the root.
+                        rest <- doesMatch(loc, single, mustMatch, None, None)
+                      } yield rest.map { case (preLets, cond, res) =>
+                        (
+                          loc :: preLets,
+                          check && SetMut(loc, prev) && cond,
+                          res
+                        )
+                      }
+                    ).flatMap(
+                      applyCandidateGuardToUnionMatch(_, candidateGuard)
+                    )
+                  } else {
+                    // we don't need to bind the prev
+                    finish(Monad[F].pure(wildMatch.map {
+                      case (preLets, cond, res) =>
+                        (
+                          preLets,
+                          check && cond,
+                          res
+                        )
+                    }))
+                  }
+                case other =>
+                  // resolveCons has checked that SuccNat has one param
+                  // $COVERAGE-OFF$
+                  throw new IllegalStateException(
+                    s"expected typechecked Nat to only have one param, found: $other in $pat"
+                  )
+                // $COVERAGE-ON$
               }
-            case None =>
-              // $COVERAGE-OFF$
-              throw new IllegalStateException(
-                s"could not find $cons in global data types"
-              )
-            // $COVERAGE-ON$
           }
         case Pattern.Union(h, ts) =>
           // note this list is exactly as long as h :: ts
@@ -7466,12 +7407,12 @@ object Matchless {
     final case class BoolMatchBranchGuard(expr: Expr[B]) extends MatchBranchGuard
     final case class ScopedMatchBranchGuard(
         arg: Expr[B],
-        pattern: Pattern[(PackageName, Constructor), Type],
+        pattern: Pat,
         guard: Option[Expr[B]]
     ) extends MatchBranchGuard
 
     case class MatchBranch(
-        pattern: Pattern[(PackageName, Constructor), Type],
+        pattern: Pat,
         guard: Option[MatchBranchGuard],
         rhs: Expr[B]
     ) {
@@ -7485,12 +7426,23 @@ object Matchless {
         }
     }
 
+    // The patterns of a normalized matrix row. normalizeRow peels binders
+    // and annotations off each column and splits its unions, and
+    // isNonOrthogonal keeps string and list searches out of the matrix.
+    // A match on a Pat only knows the type argument of a struct pattern up
+    // to its bound, so it is a wildcard here.
+    type HeadPat =
+      Pattern.WildCard.type | Pattern.Literal |
+        Pattern.PositionalStruct[ResolvedCons, ? <: Type]
+
     // A row in the pattern matrix: patterns for each occurrence,
     // a right-hand side, and the bindings accumulated so far.
     // pats may be empty after all columns are specialized away; in that
     // case the row is a total match for the remaining occurrences.
-    case class MatchRow(
-        pats: List[Pattern[(PackageName, Constructor), Type]],
+    // P is Pat for a row as built or specialized, and HeadPat once
+    // normalizeRow has normalized it.
+    case class MatchRow[+P](
+        pats: List[P],
         guard: Option[Expr[B]],
         rhs: Expr[B],
         binds: List[(Bindable, Expr[B])]
@@ -7498,14 +7450,11 @@ object Matchless {
       // Replace exactly one column's pattern with a new list of patterns.
       // We always patch with count == 1 because each column represents a
       // single occurrence; specialization removes or expands that one column.
-      def patchPats(
-          colIdx: Int,
-          pats1: List[Pattern[(PackageName, Constructor), Type]]
-      ): MatchRow =
+      def patchPats[P1 >: P](colIdx: Int, pats1: List[P1]): MatchRow[P1] =
         copy(pats = pats.patch(colIdx, pats1, 1))
     }
     object MatchRow {
-      def fromBranch(branch: MatchBranch): MatchRow =
+      def fromBranch(branch: MatchBranch): MatchRow[Pat] =
         MatchRow(branch.pattern :: Nil, branch.boolGuard, branch.rhs, Nil)
     }
 
@@ -7514,12 +7463,12 @@ object Matchless {
     // See: https://compiler.club/compiling-pattern-matching/
     enum HeadSig derives CanEqual {
       case EnumSig(
-          ctor: (PackageName, Constructor),
+          ctor: ResolvedCons,
           variant: Int,
           arity: Int,
           famArities: List[Int]
       )
-      case StructSig(ctor: (PackageName, Constructor), arity: Int)
+      case StructSig(ctor: ResolvedCons, arity: Int)
           extends HeadSig
       case ZeroSig extends HeadSig
       case SuccSig extends HeadSig
@@ -7538,8 +7487,8 @@ object Matchless {
     // Normalize patterns to shrink the grammar into cases the matrix
     // algorithm handles (e.g., collapse simple string/list patterns, remove Annotation).
     def normalizePattern(
-        p: Pattern[(PackageName, Constructor), Type]
-    ): Pattern[(PackageName, Constructor), Type] =
+        p: Pat
+    ): Pat =
       p match {
         case Pattern.Annotation(p1, _) => normalizePattern(p1)
         case Pattern.Named(v, p1)      =>
@@ -7555,7 +7504,7 @@ object Matchless {
             case None     => sp
           }
         case lp @ Pattern.ListPat(_) =>
-          Pattern.ListPat.toPositionalStruct(lp, empty, cons) match {
+          Pattern.ListPat.toPositionalStruct(lp, emptyListCons, nonEmptyListCons) match {
             case Right(p1) => normalizePattern(p1)
             case Left(_)   =>
               val parts = lp.parts.map {
@@ -7570,20 +7519,21 @@ object Matchless {
     // Non-orthogonal patterns (string globs, non-trailing list globs) have
     // backtracking/search semantics and are not handled by the matrix compiler.
     def isNonOrthogonal(
-        p: Pattern[(PackageName, Constructor), Type]
+        p: Pat
     ): Boolean =
       p.isSearchPattern
 
     // Pull off aliases and bindings that capture the whole occurrence.
     // This keeps the matrix focused on refutable structure.
     // Return patterns are normalized and never Named/Var/Annotation.
-    // For matrix compilation, the remaining cases are:
-    // WildCard, Literal, PositionalStruct, or Union.
     def peelPattern(
-        p: Pattern[(PackageName, Constructor), Type],
+        p: Pat,
         occ: CheapExpr[B],
         inlined: Option[InlinedStructRoot]
-    ): (List[(Bindable, Expr[B])], Pattern[(PackageName, Constructor), Type]) =
+    ): (
+        List[(Bindable, Expr[B])],
+        HeadPat | Pattern.Union[ResolvedCons, ? <: Type]
+    ) =
       p match {
         case Pattern.Named(v, inner) =>
           val (bs, core) = peelPattern(inner, occ, inlined)
@@ -7592,9 +7542,14 @@ object Matchless {
           ((v, bindOccurrenceValue(occ, inlined)) :: Nil, Pattern.WildCard)
         case Pattern.Annotation(inner, _) =>
           peelPattern(inner, occ, inlined)
-        case Pattern.WildCard | Pattern.Literal(_) |
-            Pattern.PositionalStruct(_, _) | Pattern.Union(_, _) =>
-          (Nil, p)
+        case Pattern.WildCard =>
+          (Nil, Pattern.WildCard)
+        case lit @ Pattern.Literal(_) =>
+          (Nil, lit)
+        case struct @ Pattern.PositionalStruct(_, _) =>
+          (Nil, struct)
+        case union @ Pattern.Union(_, _) =>
+          (Nil, union)
         case Pattern.StrPat(_) | Pattern.ListPat(_) =>
           // normalizePattern converts orthogonal list/string patterns into
           // PositionalStruct/Literal/WildCard, and isNonOrthogonal filters out
@@ -7606,62 +7561,78 @@ object Matchless {
         // $COVERAGE-ON$
       }
 
-    // Expand all top-level unions in the row's pattern vector.
-    // returns at liast as many rows as it takes in
-    def expandRows(rows: List[MatchRow]): List[MatchRow] = {
-      def expandPats(
-          pats: List[Pattern[(PackageName, Constructor), Type]]
-      ): NonEmptyList[List[Pattern[(PackageName, Constructor), Type]]] =
-        pats match {
-          case Nil       => NonEmptyList(Nil, Nil)
-          case p :: tail =>
-            for {
-              p1 <- Pattern.flatten(p)
-              rest <- expandPats(tail)
-            } yield p1 :: rest
-        }
-
-      rows.flatMap { row =>
-        expandPats(row.pats).toList.map(ps => row.copy(pats = ps))
+    // Peel one column's pattern and split its top-level unions. Each union
+    // alternative is peeled in turn, since it can carry its own binder, as in
+    // `(A as y) | (B as y)`. Every returned pattern is WildCard, Literal or
+    // PositionalStruct, paired with the bindings of the occurrence that
+    // choosing it makes, in source order.
+    def peelAlternatives(
+        p: Pat,
+        occ: CheapExpr[B],
+        inlined: Option[InlinedStructRoot]
+    ): NonEmptyList[(List[(Bindable, Expr[B])], HeadPat)] = {
+      val (binds, core) = peelPattern(p, occ, inlined)
+      core match {
+        case union @ Pattern.Union(_, _) =>
+          Pattern.flatten(union).flatMap { alt =>
+            peelAlternatives(alt, occ, inlined).map { case (altBinds, altCore) =>
+              (binds ::: altBinds, altCore)
+            }
+          }
+        case head: HeadPat =>
+          NonEmptyList.one((binds, head))
       }
     }
 
-    // Normalize a row by collapsing aliases into bindings and simplifying
-    // patterns, without changing the left-to-right match semantics.
-    // Invariant: row.pats.length == occs.length.
+    // Normalize a row by collapsing aliases into bindings, simplifying
+    // patterns, and splitting top-level unions into one row per alternative,
+    // without changing the left-to-right match semantics: the rows for the
+    // earlier alternatives come first, and an earlier column varies slowest.
+    // Invariant: row.pats.length == occs.length, and every returned row has
+    // that length too.
     def normalizeRow(
-        row: MatchRow,
+        row: MatchRow[Pat],
         occs: List[CheapExpr[B]],
         rootOcc: CheapExpr[B],
         inlinedRoot: Option[InlinedStructRoot]
-    ): MatchRow = {
-      val (bindsRev, patsRev) =
+    ): NonEmptyList[MatchRow[HeadPat]] = {
+      type Choice = (List[(Bindable, Expr[B])], HeadPat)
+
+      val columns: List[NonEmptyList[Choice]] =
         row.pats.iterator
           .zip(occs.iterator)
-          .foldLeft(
-            (
-              row.binds.reverse,
-              List.empty[Pattern[(PackageName, Constructor), Type]]
-            )
-          ) { case ((bs, acc), (pat, occ)) =>
-            val p1 = normalizePattern(pat)
+          .map { case (pat, occ) =>
             val maybeInlined = rootInlinedForOcc(occ, rootOcc, inlinedRoot)
-            val (moreBinds, core) = peelPattern(p1, occ, maybeInlined)
-            // we prepend in reverse order so this isn't quadratic
-            // otherwise prepending the bs accumulator would be quadratic
-            (moreBinds.reverse ::: bs, core :: acc)
+            peelAlternatives(normalizePattern(pat), occ, maybeInlined)
           }
+          .toList
 
-      row.copy(pats = patsRev.reverse, binds = bindsRev.reverse)
+      def expand(
+          cols: List[NonEmptyList[Choice]]
+      ): NonEmptyList[(List[(Bindable, Expr[B])], List[HeadPat])] =
+        cols match {
+          case Nil         => NonEmptyList.one((Nil, Nil))
+          case col :: rest =>
+            val restRows = expand(rest)
+            col.flatMap { case (binds, pat) =>
+              restRows.map { case (restBinds, pats) =>
+                (binds ::: restBinds, pat :: pats)
+              }
+            }
+        }
+
+      expand(columns).map { case (binds, pats) =>
+        row.copy(pats = pats, binds = row.binds ::: binds)
+      }
     }
 
     // Drop columns that are all wildcards to keep the matrix small.
     // Invariant: every row has the same arity as occs, and that arity is
     // preserved in the returned rows/occs.
     def dropWildColumns(
-        rows: List[MatchRow],
+        rows: NonEmptyList[MatchRow[HeadPat]],
         occs: List[CheapExpr[B]]
-    ): (List[MatchRow], List[CheapExpr[B]]) = {
+    ): (NonEmptyList[MatchRow[HeadPat]], List[CheapExpr[B]]) = {
       val keepIdxs = occs.indices.filter { idx =>
         rows.exists(r => r.pats(idx) != Pattern.WildCard)
       }.toList
@@ -7678,58 +7649,20 @@ object Matchless {
     }
 
     // Compute the head signature for a refutable pattern in a column.
-    def headSig(
-        pat: Pattern[(PackageName, Constructor), Type]
-    ): Option[HeadSig] =
+    def headSig(pat: HeadPat): Option[HeadSig] =
       pat match {
         case Pattern.WildCard     => None
         case Pattern.Literal(lit) =>
           Some(LitSig(lit))
-        case Pattern.PositionalStruct((pack, cname), params) =>
-          variantOf(pack, cname) match {
-            case Some(DataRepr.Enum(v, s, f)) =>
-              Some(EnumSig((pack, cname), v, s, f))
-            case Some(DataRepr.Struct(s)) =>
-              Some(StructSig((pack, cname), s))
-            case Some(DataRepr.NewType) =>
-              Some(StructSig((pack, cname), 1))
-            case Some(DataRepr.ZeroNat) =>
-              if (params.isEmpty) Some(ZeroSig)
-              else {
-                // $COVERAGE-OFF$
-                throw new IllegalStateException(
-                  s"ZeroNat should have 0 params, found: $params"
-                )
-                // $COVERAGE-ON$
-              }
-            case Some(DataRepr.SuccNat) =>
-              if (params.length == 1) Some(SuccSig)
-              else {
-                // $COVERAGE-OFF$
-                throw new IllegalStateException(
-                  s"SuccNat should have 1 param, found: $params"
-                )
-                // $COVERAGE-ON$
-              }
-            case None =>
-              // $COVERAGE-OFF$
-              throw new IllegalStateException(
-                s"could not find $cname in global data types"
-              )
-            // $COVERAGE-ON$
+        case Pattern.PositionalStruct(rc, _) =>
+          // resolveCons has checked the arity of the Nat constructors
+          rc.repr match {
+            case DataRepr.Enum(v, s, f) => Some(EnumSig(rc, v, s, f))
+            case DataRepr.Struct(s)     => Some(StructSig(rc, s))
+            case DataRepr.NewType       => Some(StructSig(rc, 1))
+            case DataRepr.ZeroNat       => Some(ZeroSig)
+            case DataRepr.SuccNat       => Some(SuccSig)
           }
-        case Pattern.Annotation(_, _) | Pattern.Var(_) | Pattern.Named(_, _) |
-            Pattern.StrPat(_) | Pattern.ListPat(_) | Pattern.Union(_, _) =>
-          // headSig is only called on rows that have been normalized
-          // (normalizeRow + peelPattern), had unions flattened
-          // (expandRows), and are known to be orthogonal
-          // (isNonOrthogonal == false). These cases should be eliminated
-          // before headSig, so reaching them is an invariant violation.
-          // $COVERAGE-OFF$
-          throw new IllegalStateException(
-            s"unexpected pattern in headSig: $pat"
-          )
-        // $COVERAGE-ON$
       }
 
     // Stable de-duplication to keep constructor cases in source order.
@@ -7758,11 +7691,11 @@ object Matchless {
     // 2) then columns refuting more rows,
     // 3) then lower arity expansion cost,
     // 4) then leftmost for deterministic ties.
-    def chooseColumnByScore(rows: List[MatchRow]): (Int, List[HeadSig]) = {
-      val colCount = rows.headOption match {
-        case Some(row) => row.pats.length
-        case None      => 0
-      }
+    def chooseColumnByScore(
+        rowsNel: NonEmptyList[MatchRow[HeadPat]]
+    ): (Int, List[HeadSig]) = {
+      val rows = rowsNel.toList
+      val colCount = rowsNel.head.pats.length
 
       // $COVERAGE-OFF$
       if (colCount == 0)
@@ -7826,11 +7759,11 @@ object Matchless {
     // returns a list of rows such that result.length <= rows.length
     def specializeRows(
         sig: HeadSig,
-        rows: List[MatchRow],
+        rows: List[MatchRow[HeadPat]],
         colIdx: Int,
         arity: Int
-    ): List[MatchRow] = {
-      lazy val wilds: List[Pattern[(PackageName, Constructor), Type]] =
+    ): List[MatchRow[Pat]] = {
+      lazy val wilds: List[Pat] =
         List.fill(arity)(Pattern.WildCard)
 
       rows.mapFilter { row =>
@@ -7844,66 +7777,45 @@ object Matchless {
                 Some(row.patchPats(colIdx, Nil))
               case _ => None
             }
-          case Pattern.PositionalStruct((pack, cname), params) =>
-            variantOf(pack, cname) match {
-              case Some(DataRepr.Enum(v, s, f)) =>
+          case Pattern.PositionalStruct(rc, params) =>
+            // resolveCons has checked the arity of the Nat constructors
+            rc.repr match {
+              case DataRepr.Enum(v, s, f) =>
                 sig match {
                   case EnumSig(_, v1, s1, f1)
                       if (v == v1) && (s == s1) && (f == f1) =>
                     Some(row.patchPats(colIdx, params))
                   case _ => None
                 }
-              case Some(DataRepr.Struct(s)) =>
+              case DataRepr.Struct(s) =>
                 sig match {
                   case StructSig(_, s1) if s == s1 =>
                     Some(row.patchPats(colIdx, params))
                   case _ => None
                 }
-              case Some(DataRepr.NewType) =>
+              case DataRepr.NewType =>
                 sig match {
                   case StructSig(_, s1) if s1 == 1 =>
                     Some(row.patchPats(colIdx, params))
                   case _ => None
                 }
-              case Some(DataRepr.ZeroNat) =>
+              case DataRepr.ZeroNat =>
                 sig match {
-                  case ZeroSig if params.isEmpty =>
-                    Some(row.patchPats(colIdx, Nil))
-                  case _ => None
+                  case ZeroSig => Some(row.patchPats(colIdx, Nil))
+                  case _       => None
                 }
-              case Some(DataRepr.SuccNat) =>
+              case DataRepr.SuccNat =>
                 sig match {
-                  case SuccSig if params.length == 1 =>
-                    Some(row.patchPats(colIdx, params))
-                  case _ => None
+                  case SuccSig => Some(row.patchPats(colIdx, params))
+                  case _       => None
                 }
-              // $COVERAGE-OFF$
-              case None =>
-                throw new IllegalStateException(
-                  s"could not find $cname in global data types"
-                )
-              // $COVERAGE-ON$
             }
-          // $COVERAGE-OFF$
-          case Pattern.Var(_) | Pattern.Named(_, _) | Pattern.Annotation(_, _) |
-              Pattern.StrPat(_) | Pattern.ListPat(_) | Pattern.Union(_, _) =>
-            // These cases are eliminated before specialization:
-            // - normalizeRow peels Var/Named/Annotation into bindings/wildcards.
-            // - normalizePattern strips Annotation and converts list/string
-            //   patterns where possible.
-            // - expandRows flattens Union into separate rows.
-            // - isNonOrthogonal excludes list/string search patterns.
-            // Hitting this means the matrix invariants were violated.
-            throw new IllegalStateException(
-              s"unexpected pattern in specializeRows: pat=$pat, sig=$sig, col=$colIdx, arity=$arity"
-            )
-          // $COVERAGE-ON$
         }
       }
     }
 
     def specializedKeepOffsets(
-        rows: List[MatchRow],
+        rows: List[MatchRow[Pat]],
         colIdx: Int,
         arity: Int
     ): List[Int] =
@@ -7912,11 +7824,11 @@ object Matchless {
         .toList
 
     def trimSpecializedPats(
-        pats: List[Pattern[(PackageName, Constructor), Type]],
+        pats: List[Pat],
         colIdx: Int,
         arity: Int,
         keepOffsets: List[Int]
-    ): List[Pattern[(PackageName, Constructor), Type]] = {
+    ): List[Pat] = {
       val prefix = pats.take(colIdx)
       val kept = keepOffsets.map(i => pats(colIdx + i))
       val suffix = pats.drop(colIdx + arity)
@@ -7924,10 +7836,10 @@ object Matchless {
     }
 
     def minimizeAlreadySpecializedRows(
-        rows: List[MatchRow],
+        rows: List[MatchRow[Pat]],
         colIdx: Int,
         arity: Int
-    ): (List[MatchRow], List[Int]) = {
+    ): (List[MatchRow[Pat]], List[Int]) = {
       val keepOffsets = specializedKeepOffsets(rows, colIdx, arity)
       if (keepOffsets.length == arity) (rows, keepOffsets)
       else {
@@ -7942,10 +7854,10 @@ object Matchless {
 
     def minimizeSpecializedRows(
         sig: HeadSig,
-        rows: List[MatchRow],
+        rows: List[MatchRow[HeadPat]],
         colIdx: Int,
         arity: Int
-    ): (List[MatchRow], List[Int]) =
+    ): (List[MatchRow[Pat]], List[Int]) =
       minimizeAlreadySpecializedRows(
         specializeRows(sig, rows, colIdx, arity),
         colIdx,
@@ -8148,7 +8060,7 @@ object Matchless {
 
     def bindingFreePatternBool(
         argExpr: Expr[B],
-        pattern: Pattern[(PackageName, Constructor), Type],
+        pattern: Pat,
         mustMatch: Boolean
     ): OptionT[F, BoolExpr[B]] =
       OptionT(Defer[F].defer {
@@ -8169,7 +8081,7 @@ object Matchless {
 
     def bindingFreePatternBoolCheap(
         arg: CheapExpr[B],
-        pattern: Pattern[(PackageName, Constructor), Type],
+        pattern: Pat,
         mustMatch: Boolean
     ): OptionT[F, BoolExpr[B]] =
       OptionT(Defer[F].defer {
@@ -8185,15 +8097,15 @@ object Matchless {
             case Pattern.Annotation(p, _) =>
               bindingFreePatternBoolCheap(arg, p, mustMatch)
             case lp @ Pattern.ListPat(_) =>
-              Pattern.ListPat.toPositionalStruct(lp, empty, cons) match {
+              Pattern.ListPat.toPositionalStruct(lp, emptyListCons, nonEmptyListCons) match {
                 case Right(p) =>
                   bindingFreePatternBoolCheap(arg, p, mustMatch)
                 case Left(_)  =>
                   OptionT.none
               }
-            case Pattern.PositionalStruct((pack, cname), params) =>
-              variantOf(pack, cname) match {
-                case Some(DataRepr.Struct(size)) if params.length == size =>
+            case Pattern.PositionalStruct(rc, params) =>
+              rc.repr match {
+                case DataRepr.Struct(size) if params.length == size =>
                   params.toList.zipWithIndex
                     .traverse { case (param, idx) =>
                       bindingFreePatternBool(
@@ -8203,7 +8115,7 @@ object Matchless {
                       )
                     }
                     .map(_.foldLeft(TrueConst: BoolExpr[B])(_ && _))
-                case Some(DataRepr.NewType) if params.length == 1 =>
+                case DataRepr.NewType if params.length == 1 =>
                   params.toList.zipWithIndex
                     .traverse { case (param, idx) =>
                       bindingFreePatternBool(
@@ -8213,7 +8125,7 @@ object Matchless {
                       )
                     }
                     .map(_.foldLeft(TrueConst: BoolExpr[B])(_ && _))
-                case Some(DataRepr.Enum(vidx, size, famArities))
+                case DataRepr.Enum(vidx, size, famArities)
                     if params.length == size =>
                   params.toList.zipWithIndex
                     .traverse { case (param, idx) =>
@@ -8227,12 +8139,12 @@ object Matchless {
                       if (mustMatch) TrueConst
                       else CheckVariant(arg, vidx, size, famArities): BoolExpr[B]
                     )(_ && _))
-                case Some(DataRepr.ZeroNat) if params.isEmpty =>
+                case DataRepr.ZeroNat if params.isEmpty =>
                   OptionT.some(
                     if (mustMatch) TrueConst
                     else EqualsNat(arg, DataRepr.ZeroNat)
                   )
-                case Some(DataRepr.SuccNat) if params.length == 1 =>
+                case DataRepr.SuccNat if params.length == 1 =>
                   bindingFreePatternBool(PrevNat(arg), params.head, mustMatch)
                     .map(
                       (if (mustMatch) TrueConst
@@ -8250,7 +8162,7 @@ object Matchless {
 
     def bindingFreeMatchGuardExpr(
         argExpr: Expr[B],
-        pattern: Pattern[(PackageName, Constructor), Type],
+        pattern: Pat,
         guardExpr: Option[Expr[B]]
     ): F[Option[Expr[B]]] =
       bindingFreePatternBool(argExpr, pattern, mustMatch = false).value.map {
@@ -8299,7 +8211,7 @@ object Matchless {
 
     def buildScopedGuardSetup(
         argExpr: Expr[B],
-        pattern: Pattern[(PackageName, Constructor), Type],
+        pattern: Pat,
         guardExpr: Option[Expr[B]]
     ): F[ScopedGuardSetup] = {
       val binderNames = pattern.names
@@ -8465,7 +8377,7 @@ object Matchless {
         branches: NonEmptyList[MatchBranch],
         inlinedRoot: Option[InlinedStructRoot]
     ): F[Expr[B]] = {
-      val rows0 = branches.toList.map(MatchRow.fromBranch)
+      val rows0 = branches.map(MatchRow.fromBranch)
 
       // Matches have already passed totality checking, so the initial matrix
       // must match. We thread this through recursive submatrices so the last
@@ -8521,18 +8433,18 @@ object Matchless {
       // rowsIn.forall(r => r.pats.length == occsIn.length).
       // Also, rowsIn order matches source branch order (left-to-right).
       def compileRows(
-          rowsIn: List[MatchRow],
+          rowsIn: NonEmptyList[MatchRow[Pat]],
           occsIn: List[CheapExpr[B]],
           mustMatch: Boolean
       ): F[Expr[B]] =
         Defer[F].defer(materializeOccs(occsIn).flatMap { case (occLets, occsMemoed) =>
-          val norm = rowsIn.map(normalizeRow(_, occsMemoed, arg, inlinedRoot))
-          val expanded = expandRows(norm)
-          val (rows, occs) = dropWildColumns(expanded, occsMemoed)
+          val expanded =
+            rowsIn.flatMap(normalizeRow(_, occsMemoed, arg, inlinedRoot))
+          val (rowsNel, occs) = dropWildColumns(expanded, occsMemoed)
 
           val compiled: F[Expr[B]] =
-            rows match {
-              case MatchRow(p0, g0, r0, b0) :: tail
+            rowsNel match {
+              case NonEmptyList(MatchRow(p0, g0, r0, b0), tail)
                   if p0.forall(_ == Pattern.WildCard) =>
                 val rhsExpr = lets(b0, r0)
                 g0 match {
@@ -8541,36 +8453,37 @@ object Matchless {
                   case Some(guard) =>
                     val guardExpr = lets(b0, guard)
                     guardToBoolExpr(guardExpr).flatMap { guardCond =>
-                      if (tail.nonEmpty) {
-                        // A guarded wildcard row does not constrain the scrutinee shape;
-                        // if this matrix must match, then when the guard is false the tail
-                        // must still be total.
-                        compileRows(tail, occs, mustMatch).map {
-                          fallback =>
-                            If(guardCond, rhsExpr, fallback)
-                        }
-                      } else {
-                        // totality checking rejects this shape; keep defensive
-                        // fallback behavior in case malformed TypedExpr reaches here.
-                        Monad[F].pure(If(guardCond, rhsExpr, UnitExpr))
+                      NonEmptyList.fromList(tail) match {
+                        case Some(tailRows) =>
+                          // A guarded wildcard row does not constrain the scrutinee shape;
+                          // if this matrix must match, then when the guard is false the tail
+                          // must still be total.
+                          compileRows(tailRows, occs, mustMatch).map {
+                            fallback =>
+                              If(guardCond, rhsExpr, fallback)
+                          }
+                        case None =>
+                          // totality checking rejects this shape; keep defensive
+                          // fallback behavior in case malformed TypedExpr reaches here.
+                          Monad[F].pure(If(guardCond, rhsExpr, UnitExpr))
                       }
                     }
                 }
-              case Nil =>
-                // this should be impossible in well-typed code
-                Monad[F].pure(UnitExpr)
               case _ =>
-                val (colIdx, sigs) = chooseColumnByScore(rows)
+                val (colIdx, sigs) = chooseColumnByScore(rowsNel)
+                val rows = rowsNel.toList
 
                 val occ = occs(colIdx)
 
                 val defaultRows =
-                  rows
-                    .mapFilter(r =>
-                      if r.pats(colIdx) == Pattern.WildCard then
-                        Some(r.patchPats(colIdx, Nil))
-                      else None
-                    )
+                  NonEmptyList.fromList(
+                    rows
+                      .mapFilter(r =>
+                        if r.pats(colIdx) == Pattern.WildCard then
+                          Some(r.patchPats(colIdx, Nil))
+                        else None
+                      )
+                  )
 
                 val defaultOccs = occs.patch(colIdx, Nil, 1)
 
@@ -8582,7 +8495,7 @@ object Matchless {
                   (
                       BoolExpr[B],
                       List[LocalAnonMut],
-                      List[MatchRow],
+                      List[MatchRow[Pat]],
                       List[CheapExpr[B]]
                   )
                 ] =
@@ -8722,9 +8635,12 @@ object Matchless {
                 ): F[Expr[B]] =
                   Defer[F].defer(sigs match {
                     case Nil =>
-                      if (defaultRows.nonEmpty)
-                        compileRows(defaultRows, defaultOccs, mustMatch)
-                      else Monad[F].pure(UnitExpr)
+                      defaultRows match {
+                        case Some(defaults) =>
+                          compileRows(defaults, defaultOccs, mustMatch)
+                        case None =>
+                          Monad[F].pure(UnitExpr)
+                      }
                     case sig :: rest =>
                       val caseMustMatch =
                         mustMatch &&
@@ -8732,36 +8648,37 @@ object Matchless {
                           defaultRows.isEmpty
                       buildCase(sig, caseMustMatch).flatMap {
                         case (cond, preLets, newRows, newOccs) =>
-                          if (newRows.isEmpty) compileCases(rest, mustMatch)
-                          else {
-                            val subMustMatch =
-                              mustMatch
-                            compileRows(newRows, newOccs, subMustMatch).flatMap {
-                              thenExpr =>
-                                cond match {
-                                  case TrueConst =>
-                                    Monad[F].pure(letMutAll(preLets, thenExpr))
-                                  case _ =>
-                                    val hasElse =
-                                      rest.nonEmpty || defaultRows.nonEmpty
+                          NonEmptyList.fromList(newRows) match {
+                            case None => compileCases(rest, mustMatch)
+                            case Some(newRowsNel) =>
+                              val subMustMatch =
+                                mustMatch
+                              compileRows(newRowsNel, newOccs, subMustMatch).flatMap {
+                                thenExpr =>
+                                  cond match {
+                                    case TrueConst =>
+                                      Monad[F].pure(letMutAll(preLets, thenExpr))
+                                    case _ =>
+                                      val hasElse =
+                                        rest.nonEmpty || defaultRows.nonEmpty
 
-                                    val branchF: F[Expr[B]] =
-                                      if (!hasElse)
-                                        if (mustMatch)
-                                          Monad[F].pure(always(cond, thenExpr))
+                                      val branchF: F[Expr[B]] =
+                                        if (!hasElse)
+                                          if (mustMatch)
+                                            Monad[F].pure(always(cond, thenExpr))
+                                          else
+                                            Monad[F].pure(
+                                              If(cond, thenExpr, UnitExpr)
+                                            )
                                         else
-                                          Monad[F].pure(
-                                            If(cond, thenExpr, UnitExpr)
-                                          )
-                                      else
-                                        compileCases(rest, mustMatch).map {
-                                          elseExpr =>
-                                            If(cond, thenExpr, elseExpr)
-                                        }
+                                          compileCases(rest, mustMatch).map {
+                                            elseExpr =>
+                                              If(cond, thenExpr, elseExpr)
+                                          }
 
-                                    branchF.map(letMutAll(preLets, _))
-                                }
-                            }
+                                      branchF.map(letMutAll(preLets, _))
+                                  }
+                              }
                           }
                       }
                   })
@@ -8776,21 +8693,27 @@ object Matchless {
                     val newOccs = occs.patch(colIdx, Nil, 1)
                     // Sorting only changes test order; specialization by `lit`
                     // still selects the exact original rows/rhs for that literal.
-                    if (newRows.isEmpty) {
-                      // $COVERAGE-OFF$
-                      throw new IllegalStateException(
-                        s"expected literal specialization rows for $lit in $sigs"
-                      )
-                    // $COVERAGE-ON$
-                    } else compileRows(newRows, newOccs, mustMatch).map((lit, _))
+                    NonEmptyList.fromList(newRows) match {
+                      case Some(newRowsNel) =>
+                        compileRows(newRowsNel, newOccs, mustMatch).map((lit, _))
+                      case None =>
+                        // $COVERAGE-OFF$
+                        throw new IllegalStateException(
+                          s"expected literal specialization rows for $lit in $sigs"
+                        )
+                      // $COVERAGE-ON$
+                    }
                   }
 
                   def fallbackExpr: F[Expr[B]] =
                     // Wildcard rows become `defaultRows` and represent `_`.
                     // We compile those once here as the shared fallback path.
-                    if (defaultRows.nonEmpty)
-                      compileRows(defaultRows, defaultOccs, mustMatch)
-                    else Monad[F].pure(UnitExpr)
+                    defaultRows match {
+                      case Some(defaults) =>
+                        compileRows(defaults, defaultOccs, mustMatch)
+                      case None =>
+                        Monad[F].pure(UnitExpr)
+                    }
 
                   def buildTree(
                       lits: Vector[(Lit, Expr[B])],
@@ -8853,22 +8776,26 @@ object Matchless {
                         )
                         val newOccs = occs.patch(colIdx, fields, 1)
 
-                        if (newRows.isEmpty) Monad[F].pure((variant, UnitExpr))
-                        else {
-                          val subMustMatch = mustMatch
-                          compileRows(newRows, newOccs, subMustMatch).map {
-                            (variant, _)
-                          }
+                        NonEmptyList.fromList(newRows) match {
+                          case None => Monad[F].pure((variant, UnitExpr))
+                          case Some(newRowsNel) =>
+                            val subMustMatch = mustMatch
+                            compileRows(newRowsNel, newOccs, subMustMatch).map {
+                              (variant, _)
+                            }
                         }
                     }
 
                   val hasAllVariants = enumSigs.length == famArities.length
                   val defaultExprF: F[Option[Expr[B]]] =
-                    if (defaultRows.nonEmpty)
-                      compileRows(defaultRows, defaultOccs, mustMatch).map(Some(_))
-                    else if (!mustMatch && !hasAllVariants)
-                      Monad[F].pure(Some(UnitExpr))
-                    else Monad[F].pure(None)
+                    defaultRows match {
+                      case Some(defaults) =>
+                        compileRows(defaults, defaultOccs, mustMatch).map(Some(_))
+                      case None =>
+                        if (!mustMatch && !hasAllVariants)
+                          Monad[F].pure(Some(UnitExpr))
+                        else Monad[F].pure(None)
+                    }
 
                   (enumSigs.traverse(compileCase), defaultExprF).mapN {
                     (compiledCases, defaultExpr) =>
@@ -8965,39 +8892,19 @@ object Matchless {
     }
 
     def isTotalFallbackPattern(
-        p: Pattern[(PackageName, Constructor), Type]
+        p: Pat
     ): Boolean =
       maybeSimple(normalizePattern(p)).nonEmpty
 
     def matrixFallbackMultiplicity(
         branches: NonEmptyList[MatchBranch]
     ): Int = {
-      case class TaggedRow(row: MatchRow, isFallback: Boolean)
-
-      def expandTaggedRows(rows: List[TaggedRow]): List[TaggedRow] = {
-        def expandPats(
-            pats: List[Pattern[(PackageName, Constructor), Type]]
-        ): NonEmptyList[List[Pattern[(PackageName, Constructor), Type]]] =
-          pats match {
-            case Nil       => NonEmptyList(Nil, Nil)
-            case p :: tail =>
-              for {
-                p1 <- Pattern.flatten(p)
-                rest <- expandPats(tail)
-              } yield p1 :: rest
-          }
-
-        rows.flatMap { tr =>
-          expandPats(tr.row.pats).toList.map(ps =>
-            tr.copy(row = tr.row.copy(pats = ps))
-          )
-        }
-      }
+      case class TaggedRow[+P](row: MatchRow[P], isFallback: Boolean)
 
       def dropWildColumnsTagged(
-          rows: List[TaggedRow],
+          rows: NonEmptyList[TaggedRow[HeadPat]],
           occs: List[CheapExpr[B]]
-      ): (List[TaggedRow], List[CheapExpr[B]]) = {
+      ): (NonEmptyList[TaggedRow[HeadPat]], List[CheapExpr[B]]) = {
         val keepIdxs = occs.indices.filter { idx =>
           rows.exists(tr => tr.row.pats(idx) != Pattern.WildCard)
         }.toList
@@ -9015,10 +8922,10 @@ object Matchless {
 
       def specializeTaggedRows(
           sig: HeadSig,
-          rows: List[TaggedRow],
+          rows: List[TaggedRow[HeadPat]],
           colIdx: Int,
           arity: Int
-      ): List[TaggedRow] =
+      ): List[TaggedRow[Pat]] =
         rows.flatMap { tr =>
           specializeRows(sig, tr.row :: Nil, colIdx, arity)
             .map(r => TaggedRow(r, tr.isFallback))
@@ -9027,10 +8934,10 @@ object Matchless {
       val dummyMut: LocalAnonMut = LocalAnonMut(Long.MinValue)
 
       def minimizeAlreadySpecializedTaggedRows(
-          rows: List[TaggedRow],
+          rows: List[TaggedRow[Pat]],
           colIdx: Int,
           arity: Int
-      ): (List[TaggedRow], List[Int]) = {
+      ): (List[TaggedRow[Pat]], List[Int]) = {
         val keepOffsets = specializedKeepOffsets(rows.map(_.row), colIdx, arity)
         if (keepOffsets.length == arity) (rows, keepOffsets)
         else {
@@ -9052,10 +8959,10 @@ object Matchless {
 
       def minimizeSpecializedTaggedRows(
           sig: HeadSig,
-          rows: List[TaggedRow],
+          rows: List[TaggedRow[HeadPat]],
           colIdx: Int,
           arity: Int
-      ): (List[TaggedRow], List[Int]) =
+      ): (List[TaggedRow[Pat]], List[Int]) =
         minimizeAlreadySpecializedTaggedRows(
           specializeTaggedRows(sig, rows, colIdx, arity),
           colIdx,
@@ -9064,11 +8971,11 @@ object Matchless {
 
       def specializeTaggedCase(
           sig: HeadSig,
-          rows: List[TaggedRow],
+          rows: List[TaggedRow[HeadPat]],
           occ: CheapExpr[B],
           occs: List[CheapExpr[B]],
           colIdx: Int
-      ): (List[TaggedRow], List[CheapExpr[B]]) =
+      ): (List[TaggedRow[Pat]], List[CheapExpr[B]]) =
         sig match {
           case EnumSig(_, v, s, _) =>
             val (newRows, keepOffsets) =
@@ -9089,39 +8996,43 @@ object Matchless {
         }
 
       def compileRowsCount(
-          rowsIn: List[TaggedRow],
+          rowsIn: NonEmptyList[TaggedRow[Pat]],
           occsIn: List[CheapExpr[B]],
           mustMatch: Boolean
       ): Int = {
-        val norm = rowsIn.map(tr =>
-          tr.copy(row = normalizeRow(tr.row, occsIn, dummyMut, None))
-        )
-        val expanded = expandTaggedRows(norm)
-        val (rows, occs) = dropWildColumnsTagged(expanded, occsIn)
+        val expanded = rowsIn.flatMap { tr =>
+          normalizeRow(tr.row, occsIn, dummyMut, None)
+            .map(row => tr.copy(row = row))
+        }
+        val (rowsNel, occs) = dropWildColumnsTagged(expanded, occsIn)
 
-        rows match {
-          case TaggedRow(MatchRow(p0, g0, _, _), isFallback) :: tail
+        rowsNel match {
+          case NonEmptyList(TaggedRow(MatchRow(p0, g0, _, _), isFallback), tail)
               if p0.forall(_ == Pattern.WildCard) =>
             val thisLeaf = if (isFallback) 1 else 0
             g0 match {
               case None =>
                 thisLeaf
               case Some(_) =>
-                if (tail.nonEmpty)
-                  thisLeaf + compileRowsCount(tail, occs, mustMatch = false)
-                else thisLeaf
+                NonEmptyList.fromList(tail) match {
+                  case Some(tailRows) =>
+                    thisLeaf + compileRowsCount(tailRows, occs, mustMatch = false)
+                  case None =>
+                    thisLeaf
+                }
             }
-          case Nil =>
-            0
           case _ =>
-            val (colIdx, sigs) = chooseColumnByScore(rows.map(_.row))
+            val (colIdx, sigs) = chooseColumnByScore(rowsNel.map(_.row))
+            val rows = rowsNel.toList
             val occ = occs(colIdx)
             val defaultRows =
-              rows.mapFilter { tr =>
-                if (tr.row.pats(colIdx) == Pattern.WildCard)
-                  Some(tr.copy(row = tr.row.patchPats(colIdx, Nil)))
-                else None
-              }
+              NonEmptyList.fromList(
+                rows.mapFilter { tr =>
+                  if (tr.row.pats(colIdx) == Pattern.WildCard)
+                    Some(tr.copy(row = tr.row.patchPats(colIdx, Nil)))
+                  else None
+                }
+              )
             val defaultOccs = occs.patch(colIdx, Nil, 1)
 
             def compileCasesCount(
@@ -9130,21 +9041,25 @@ object Matchless {
             ): Int =
               sigs match {
                 case Nil =>
-                  if (defaultRows.nonEmpty)
-                    compileRowsCount(defaultRows, defaultOccs, mustMatch)
-                  else 0
+                  defaultRows match {
+                    case Some(defaults) =>
+                      compileRowsCount(defaults, defaultOccs, mustMatch)
+                    case None =>
+                      0
+                  }
                 case sig :: rest =>
                   val (newRows, newOccs) =
                     specializeTaggedCase(sig, rows, occ, occs, colIdx)
-                  if (newRows.isEmpty) compileCasesCount(rest, mustMatch)
-                  else {
-                    val subMustMatch =
-                      mustMatch && newRows.forall(_.row.guard.isEmpty)
-                    val thenCount =
-                      compileRowsCount(newRows, newOccs, subMustMatch)
-                    val hasElse = rest.nonEmpty || defaultRows.nonEmpty
-                    if (hasElse) thenCount + compileCasesCount(rest, mustMatch)
-                    else thenCount
+                  NonEmptyList.fromList(newRows) match {
+                    case None => compileCasesCount(rest, mustMatch)
+                    case Some(newRowsNel) =>
+                      val subMustMatch =
+                        mustMatch && newRowsNel.forall(_.row.guard.isEmpty)
+                      val thenCount =
+                        compileRowsCount(newRowsNel, newOccs, subMustMatch)
+                      val hasElse = rest.nonEmpty || defaultRows.nonEmpty
+                      if (hasElse) thenCount + compileCasesCount(rest, mustMatch)
+                      else thenCount
                   }
               }
 
@@ -9152,7 +9067,7 @@ object Matchless {
         }
       }
 
-      val rows0 = branches.toList.zipWithIndex.map { case (branch, idx) =>
+      val rows0 = branches.zipWithIndex.map { case (branch, idx) =>
         TaggedRow(MatchRow.fromBranch(branch), idx == branches.length - 1)
       }
       compileRowsCount(
@@ -9195,7 +9110,7 @@ object Matchless {
         }.toSet
 
       def bindsWholeRoot(
-          p: Pattern[(PackageName, Constructor), Type]
+          p: Pat
       ): Boolean =
         p match {
           case Pattern.Var(_) | Pattern.Named(_, _) => true
@@ -9212,43 +9127,44 @@ object Matchless {
       // orthogonal cases before falling back.
       val orthoThreshold = 4
 
+      // Is p the pattern of the Predef constructor cname with no params?
+      def isPredefNullary(p: Pat, cname: Constructor): Boolean =
+        p match {
+          case Pattern.PositionalStruct(rc, Nil) =>
+            (rc.pack == PackageName.PredefName) && (rc.cons == cname)
+          case _ =>
+            false
+        }
+
       def boolSelectorBranches(
           bs: NonEmptyList[MatchBranch]
       ): Option[(Expr[B], Expr[B])] = {
-        val truePat: Pattern[(PackageName, Constructor), Type] =
-          Pattern.PositionalStruct(
-            (PackageName.PredefName, Constructor("True")),
-            Nil
-          )
-        val falsePat: Pattern[(PackageName, Constructor), Type] =
-          Pattern.PositionalStruct(
-            (PackageName.PredefName, Constructor("False")),
-            Nil
-          )
+        val trueCons = PredefNames.True
+        val falseCons = PredefNames.False
 
         def normalizedNoNames(
-            p: Pattern[(PackageName, Constructor), Type]
-        ): Option[Pattern[(PackageName, Constructor), Type]] = {
+            p: Pat
+        ): Option[Pat] = {
           val p1 = normalizePattern(p)
           if (p1.names.isEmpty) Some(p1)
           else None
         }
 
-        def isTrue(p: Pattern[(PackageName, Constructor), Type]): Boolean =
-          p == truePat
+        def isTrue(p: Pat): Boolean =
+          isPredefNullary(p, trueCons)
 
         def isFalseOrWild(
-            p: Pattern[(PackageName, Constructor), Type]
+            p: Pat
         ): Boolean =
-          (p == falsePat) || (p == Pattern.WildCard)
+          isPredefNullary(p, falseCons) || (p == Pattern.WildCard)
 
         bs.toList match {
           case MatchBranch(p1, None, ifTrue) :: MatchBranch(p2, None, ifFalse) :: Nil =>
             (normalizedNoNames(p1), normalizedNoNames(p2)) match {
               case (Some(np1), Some(np2)) if isTrue(np1) && isFalseOrWild(np2) =>
                 Some((ifTrue, ifFalse))
-              case (Some(np1), Some(np2)) if (np1 == falsePat) && (
-                    (np2 == truePat) || (np2 == Pattern.WildCard)
+              case (Some(np1), Some(np2)) if isPredefNullary(np1, falseCons) && (
+                    isTrue(np2) || (np2 == Pattern.WildCard)
                   ) =>
                 Some((ifFalse, ifTrue))
               case _ =>
@@ -9263,41 +9179,29 @@ object Matchless {
           selectorExpr: Expr[B],
           bs: NonEmptyList[MatchBranch]
       ): Option[F[Expr[B]]] = {
-        val ltPat: Pattern[(PackageName, Constructor), Type] =
-          Pattern.PositionalStruct(
-            (PackageName.PredefName, Constructor("LT")),
-            Nil
-          )
-        val eqPat: Pattern[(PackageName, Constructor), Type] =
-          Pattern.PositionalStruct(
-            (PackageName.PredefName, Constructor("EQ")),
-            Nil
-          )
-        val gtPat: Pattern[(PackageName, Constructor), Type] =
-          Pattern.PositionalStruct(
-            (PackageName.PredefName, Constructor("GT")),
-            Nil
-          )
+        val ltCons = PredefNames.LT
+        val eqCons = PredefNames.EQ
+        val gtCons = PredefNames.GT
 
         def normalizedNoNames(
-            p: Pattern[(PackageName, Constructor), Type]
-        ): Option[Pattern[(PackageName, Constructor), Type]] = {
+            p: Pat
+        ): Option[Pat] = {
           val p1 = normalizePattern(p)
           if (p1.names.isEmpty) Some(p1)
           else None
         }
 
         def patternVariants(
-            p: Pattern[(PackageName, Constructor), Type]
+            p: Pat
         ): Option[Set[Int]] =
           p match {
             case Pattern.WildCard =>
               Some(comparisonTrueVariants)
-            case `ltPat` =>
+            case _ if isPredefNullary(p, ltCons) =>
               Some(Set(0))
-            case `eqPat` =>
+            case _ if isPredefNullary(p, eqCons) =>
               Some(Set(1))
-            case `gtPat` =>
+            case _ if isPredefNullary(p, gtCons) =>
               Some(Set(2))
             case Pattern.Union(head, tail) =>
               (head :: tail.toList).traverse(patternVariants).map(_.foldLeft(Set.empty[Int])(_ union _))

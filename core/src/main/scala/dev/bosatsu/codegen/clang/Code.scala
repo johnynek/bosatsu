@@ -214,10 +214,12 @@ object Code {
       else None
     }
 
+  private val allocEnum0: Ident = RuntimeIdent("alloc_enum0")
+
   private def allocEnum0Arg(expr: Expression): Option[Expression] =
     expr match {
-      case Apply(Ident("alloc_enum0"), arg :: Nil) => Some(arg)
-      case _                                        => None
+      case Apply(Ident(allocEnum0.name), arg :: Nil) => Some(arg)
+      case _                                          => None
     }
 
   private def isBoolLike(expr: Expression): Boolean =
@@ -468,7 +470,7 @@ object Code {
                     (allocEnum0Arg(thenX), allocEnum0Arg(elseX)) match {
                       case (Some(thenArg), Some(elseArg)) =>
                         val enumArg = simplifyTernary(expr, thenArg, elseArg)
-                        Ident("alloc_enum0")(enumArg)
+                        allocEnum0(enumArg)
                       case _ =>
                         simplifyTernary(expr, thenX, elseX)
                     }

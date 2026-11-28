@@ -51,6 +51,41 @@ sealed abstract class Rel derives CanEqual { lhs =>
 }
 
 object Rel {
+  /** The relation of two products, given the relation `f` of each pair of
+    * parts: the parts' relations combined with `|+|`, from the first pair on,
+    * stopping at the first Disjoint. Products of different lengths are
+    * Disjoint. This allocates nothing.
+    */
+  inline def zipCombine[A](as: List[A], bs: List[A])(
+      inline f: (A, A) => Rel
+  ): Rel = {
+    var left = as
+    var right = bs
+    var acc: Rel = Same
+    var done = false
+    while (!done) {
+      left match {
+        case l :: lt =>
+          right match {
+            case r :: rt =>
+              acc = acc |+| f(l, r)
+              if (acc == Disjoint) done = true
+              else {
+                left = lt
+                right = rt
+              }
+            case Nil =>
+              acc = Disjoint
+              done = true
+          }
+        case Nil =>
+          if (right.nonEmpty) acc = Disjoint
+          done = true
+      }
+    }
+    acc
+  }
+
   sealed abstract class SuperOrSame extends Rel
 
   case object Same extends SuperOrSame

@@ -65,6 +65,40 @@ class RelLaws extends munit.ScalaCheckSuite {
       assertEquals(a.invert |+| b.invert, (a |+| b).invert)
     }
   }
+
+  // zipCombine with a relation of the parts that counts its calls
+  private def checkZipCombine(as: List[Rel], bs: List[Rel]): Unit = {
+    var calls = 0
+    val res = Rel.zipCombine(as, bs) { (a, b) =>
+      calls += 1
+      a |+| b.invert
+    }
+    val rels = as.zip(bs).map { case (a, b) => a |+| b.invert }
+    val expected =
+      if (as.length == bs.length) rels.foldLeft(Same: Rel)(_ |+| _)
+      else Disjoint
+    // the parts are related up to the first Disjoint
+    val related =
+      rels.indexWhere(_ == Disjoint) match {
+        case -1  => rels.length
+        case idx => idx + 1
+      }
+    assertEquals(res, expected)
+    assertEquals(calls, related)
+  }
+
+  property("zipCombine combines the parts of products of one length") {
+    forAll { (pairs: List[(Rel, Rel)]) =>
+      val (as, bs) = pairs.unzip
+      checkZipCombine(as, bs)
+    }
+  }
+
+  property("zipCombine is Disjoint for products of different lengths") {
+    forAll { (as: List[Rel], bs: List[Rel]) =>
+      checkZipCombine(as, bs)
+    }
+  }
 }
 
 abstract class GenIntersectionRelLaws extends munit.ScalaCheckSuite { laws =>

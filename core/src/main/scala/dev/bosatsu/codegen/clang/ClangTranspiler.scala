@@ -13,7 +13,7 @@ import dev.bosatsu.{
   PackageName,
   Par,
   PlatformIO,
-  TypeName
+  ReservedPackage
 }
 import dev.bosatsu.tool.{CliException, ExitCode}
 import dev.bosatsu.rankn.Type
@@ -755,10 +755,13 @@ case object ClangTranspiler extends Transpiler {
     */
   def validMain(tpe: Type): Either[String, Code.Ident] = {
     val ProgMain =
-      Type.Const.Defined(PackageName.parts("Bosatsu", "Prog"), TypeName("Main"))
+      Type.Const.Defined(
+        ReservedPackage.Prog.name,
+        ReservedPackage.Prog.typeName("Main")
+      )
     tpe match {
       case Type.TyConst(ProgMain) =>
-        Right(Code.Ident("bsts_Bosatsu_Prog_run_main"))
+        Right(RuntimeIdent("bsts_Bosatsu_Prog_run_main"))
       case notMain =>
         Left(
           s"unknown type for main: ${Type.fullyResolvedDocument.document(notMain).render(80)}"

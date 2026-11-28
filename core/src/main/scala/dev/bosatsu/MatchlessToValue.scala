@@ -3,7 +3,6 @@ package dev.bosatsu
 import cats.{Eval, Functor, Applicative}
 import cats.data.NonEmptyList
 import cats.evidence.Is
-import cats.syntax.all.*
 import scala.collection.immutable.LongMap
 import dev.bosatsu.BosatsuInt as BInt
 
@@ -86,8 +85,8 @@ object MatchlessToValue {
     }
 
     sealed abstract class LocalEnv derives CanEqual {
-      def get(b: Bindable): Eval[Value]
-      def updated(b: Bindable, v: Eval[Value]): LocalEnv =
+      def get(b: Bindable): Value
+      def updated(b: Bindable, v: Value): LocalEnv =
         LocalEnv.Node(b, v, this)
 
       def prependAll(bs: NonEmptyList[Bindable], vs: NonEmptyList[Value]): LocalEnv = {
@@ -95,7 +94,7 @@ object MatchlessToValue {
         val v = vs.iterator
         var env: LocalEnv = this
         while (b.hasNext) {
-          env = LocalEnv.Node(b.next(), Eval.now(v.next()), env)
+          env = LocalEnv.Node(b.next(), v.next(), env)
         }
         env
       }
@@ -105,19 +104,19 @@ object MatchlessToValue {
 
     object LocalEnv {
       case object Empty extends LocalEnv {
-        def get(b: Bindable): Eval[Value] =
+        def get(b: Bindable): Value =
           sys.error(s"missing local binding: $b")
         val keySet: Set[Bindable] = Set.empty
       }
 
       final case class Node(
           name: Bindable,
-          value: Eval[Value],
+          value: Value,
           tail: LocalEnv
       ) extends LocalEnv {
-        def get(b: Bindable): Eval[Value] = {
+        def get(b: Bindable): Value = {
           @annotation.tailrec
-          def loop(env: LocalEnv): Eval[Value] =
+          def loop(env: LocalEnv): Value =
             env match {
               case Node(n, v, t) =>
                 if (n == b) v
@@ -141,7 +140,7 @@ object MatchlessToValue {
         extra: DebugStr
     ) {
 
-      def let(b: Bindable, v: Eval[Value]): Scope =
+      def let(b: Bindable, v: Value): Scope =
         copy(locals = locals.updated(b, v))
 
       def letMuts(idxs: Iterator[Long]): Scope = {
@@ -205,6 +204,21 @@ object MatchlessToValue {
       }
       def toFn: Scope => A
       def withScope(ws: Scope => Scope): Scoped[A]
+
+      // map and withScope build each closure at the call site, so every
+      // interpreter node gets its own monomorphic closure instead of sharing
+      // one megamorphic andThen.
+      inline def mapI[B](inline fn: A => B): Scoped[B] =
+        this match {
+          case Static(a)  => Static(fn(a))
+          case Dynamic(f) => Dynamic(s => fn(f(s)))
+        }
+
+      inline def withScopeI(inline ws: Scope => Scope): Scoped[A] =
+        this match {
+          case st @ Static(_) => st
+          case Dynamic(f)     => Dynamic(s => f(ws(s)))
+        }
     }
     case class Dynamic[A](toFn: Scope => A) extends Scoped[A] {
       def apply(s: Scope) = toFn(s)
@@ -310,15 +324,15 @@ object MatchlessToValue {
       private def boolExpr(ix: BoolExpr[F]): Scoped[Boolean] =
         ix match {
           case CompareLit(expr, rel, lit) =>
-            loop(expr).map { e =>
+            loop(expr).mapI { e =>
               compareLiteralValue(e.asExternal.toAny, rel, lit)
             }
           case CompareInt(left, rel, right) =>
-            (loop(left), loop(right)).mapN { (lhs, rhs) =>
+            Applicative[Scoped].map2(loop(left), loop(right)) { (lhs, rhs) =>
               compareIntValues(lhs.asExternal.toAny, rel, rhs.asExternal.toAny)
             }
           case CompareInt64(left, rel, right) =>
-            (loop(left), loop(right)).mapN { (lhs, rhs) =>
+            Applicative[Scoped].map2(loop(left), loop(right)) { (lhs, rhs) =>
               compareInt64Values(
                 lhs.asExternal.toAny,
                 rel,
@@ -326,7 +340,7 @@ object MatchlessToValue {
               )
             }
           case CompareFloat64(left, rel, right) =>
-            (loop(left), loop(right)).mapN { (lhs, rhs) =>
+            Applicative[Scoped].map2(loop(left), loop(right)) { (lhs, rhs) =>
               (lhs.asExternal.toAny, rhs.asExternal.toAny) match {
                 case (ld: java.lang.Double, rd: java.lang.Double) =>
                   Matchless.compareFloat64Values(
@@ -343,11 +357,11 @@ object MatchlessToValue {
             val natF = loop(nat)
 
             if (zeroOrSucc.isZero)
-              natF.map { v =>
+              natF.mapI { v =>
                 Value.VInt.isZero(v)
               }
             else
-              natF.map { v =>
+              natF.mapI { v =>
                 !Value.VInt.isZero(v)
               }
 
@@ -356,10 +370,10 @@ object MatchlessToValue {
             boolExpr(ix1).and(boolExpr(ix2))
 
           case CheckVariant(enumV, idx, _, _) =>
-            loop(enumV).map(_.asSum.variant == idx)
+            loop(enumV).mapI(_.asSum.variant == idx)
           case CheckVariantSet(enumV, idxs, _, famArities) =>
             val inSet = InSetCompiler.compile(famArities.length, idxs)
-            loop(enumV).map(v => InSetCompiler.eval(inSet, v.asSum.variant))
+            loop(enumV).mapI(v => InSetCompiler.eval(inSet, v.asSum.variant))
 
           case SetMut(LocalAnonMut(mut), expr) =>
             val exprF = loop(expr)
@@ -374,12 +388,11 @@ object MatchlessToValue {
 
             localOrBind match {
               case Right(b) =>
-                inF.withScope { (scope: Scope) =>
-                  val vv = Eval.now(valueF(scope))
-                  scope.let(b, vv)
+                inF.withScopeI { (scope: Scope) =>
+                  scope.let(b, valueF(scope))
                 }
               case Left(LocalAnon(l)) =>
-                inF.withScope { (scope: Scope) =>
+                inF.withScopeI { (scope: Scope) =>
                   val vv = valueF(scope)
                   scope.copy(anon = scope.anon.updated(l, vv))
                 }
@@ -393,7 +406,6 @@ object MatchlessToValue {
             }
         }
 
-      // the locals can be recusive, so we box into Eval for laziness
       def loop(me: Expr[F]): Scoped[Value] =
         me match {
           case Lambda(Nil, None, args, res) =>
@@ -426,13 +438,15 @@ object MatchlessToValue {
             Dynamic { scope =>
               val valuesInScope = capScoped.map(scoped => scoped(scope))
 
+              // The function reads scope1 only when it is called, after fn
+              // is initialized, so the recursive name can hold fn itself.
               lazy val scope1: Scope = Scope
                 .capture(valuesInScope)
-                .let(name, Eval.later(fn))
+                .let(name, fn)
 
               // hopefully optimization/normalization has lifted anything
               // that doesn't depend on argV above this lambda
-              lazy val fn = FnValue { argV =>
+              lazy val fn: Value = FnValue { argV =>
                 val scope2 = scope1.letAll(args, argV)
                 resFn(scope2)
               }
@@ -460,7 +474,7 @@ object MatchlessToValue {
             // this has to be lazy because it could be
             // in this package, which isn't complete yet
             Dynamic((_: Scope) => res.value)
-          case Local(b)        => Dynamic(_.locals.get(b).value)
+          case Local(b)        => Dynamic(_.locals.get(b))
           case LocalAnon(a)    => Dynamic(_.anon(a))
           case LocalAnonMut(m) =>
             Dynamic { s =>
@@ -488,12 +502,11 @@ object MatchlessToValue {
 
             localOrBind match {
               case Right(b) =>
-                inF.withScope { (scope: Scope) =>
-                  val vv = Eval.now(valueF(scope))
-                  scope.let(b, vv)
+                inF.withScopeI { (scope: Scope) =>
+                  scope.let(b, valueF(scope))
                 }
               case Left(LocalAnon(l)) =>
-                inF.withScope { (scope: Scope) =>
+                inF.withScopeI { (scope: Scope) =>
                   val vv = valueF(scope)
                   scope.copy(anon = scope.anon.updated(l, vv))
                 }
@@ -580,7 +593,7 @@ object MatchlessToValue {
               res
             }
           case GetEnumElement(expr, v, idx, _) =>
-            loop(expr).map { e =>
+            loop(expr).mapI { e =>
               val sum = e.asSum
               // we could assert e.asSum.variant == v
               // we can comment this out when bugs
@@ -595,12 +608,12 @@ object MatchlessToValue {
               // this is a newtype
               loopFn
             } else {
-              loop(expr).map { p =>
+              loopFn.mapI { p =>
                 p.asProduct.get(idx)
               }
             }
           case PrevNat(expr) =>
-            loop(expr).map { bv =>
+            loop(expr).mapI { bv =>
               Value.VInt.decrement(bv)
             }
           case cons: ConsExpr =>

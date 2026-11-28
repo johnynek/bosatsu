@@ -595,8 +595,8 @@ object Expr {
   /*
    * Allocate these once
    */
-  private val TrueCtor = Constructor("True")
-  private val FalseCtor = Constructor("False")
+  private val TrueCtor = PredefNames.True
+  private val FalseCtor = PredefNames.False
 
   private val TruePat: Pattern[(PackageName, Constructor), Type] =
     Pattern.PositionalStruct((PackageName.PredefName, TrueCtor), Nil)

@@ -7,7 +7,7 @@ import Expr._
 import Type.Var.Bound
 import Type.forAll
 
-import TestUtils.{checkEnvExpr, checkLast, testPackage}
+import TestUtils.{checkEnvExpr, checkLast, predefResolvedImport, testPackage}
 
 import Identifier.Constructor
 
@@ -3049,5 +3049,83 @@ main = ignore_env_fixed
 """,
       "forall err, res. (Prog[Env, err, res], res) -> forall e. Prog[Env, e, res]"
     )
+  }
+
+  test("subsumption against a function type whose result has a forall") {
+    // These expected types reach the function rule without being
+    // skolemized, so the function's result is a forall: first the widest
+    // branch type of an inferred match, then an annotation on an application.
+    parseProgram(
+      """#
+(id: forall a. a -> a) = x -> x
+(konst: Int -> (forall a. a -> a)) = _ -> id
+
+def pick(b: Bool, f: Int -> (forall a. a -> a), g: Int -> (forall b. b -> b)):
+  match b:
+    case True: f
+    case False: g
+
+main = pick(True, konst, konst)(1)("x")
+""",
+      "String"
+    )
+
+    parseProgram(
+      """#
+(id: forall a. a -> a) = x -> x
+(k: Int -> (Int -> (forall b. b -> b))) = _ -> _ -> id
+
+def ap(h: Int -> (Int -> (forall b. b -> b))) -> (Int -> (forall a. a -> a)):
+  h(1)
+
+main = ap(k)(1)("x")
+""",
+      "String"
+    )
+
+    // the results are not just renamings of each other: the expected
+    // result needs an instance of the actual one
+    parseProgram(
+      """#
+(const: forall a, b. a -> b -> a) = x -> _ -> x
+(k: Int -> (Int -> (forall a, b. a -> b -> a))) = _ -> _ -> const
+
+def ap(h: Int -> (Int -> (forall a, b. a -> b -> a))) -> (Int -> (forall c. c -> Int -> c)):
+  h(1)
+
+main = ap(k)(1)("x")(2)
+""",
+      "String"
+    )
+  }
+
+  test("a function result with a forall that does not subsume is a type error") {
+    val stmts = Parser.unsafeParse(
+      Statement.parser,
+      """#
+def bad(h: Int -> (Int -> (forall a. a -> a))) -> (Int -> (forall a. a -> Int)):
+  h(1)
+"""
+    )
+    val errs =
+      Package.inferBody(testPackage, predefResolvedImport :: Nil, stmts) match {
+        case Ior.Left(errs)    => errs.toList
+        case Ior.Both(errs, _) => errs.toList
+        case Ior.Right(_)      => fail("expected a type error")
+      }
+    val inferErrors = errs.flatMap {
+      case te: PackageError.TypeErrorIn =>
+        te.tpeErr match {
+          case combined: Infer.Error.Combine => combined.flatten.toList
+          case single: Infer.Error.Single    => single :: Nil
+        }
+      case other => fail(s"expected only inference errors, found: $other")
+    }
+    assert(inferErrors.nonEmpty, s"expected an inference error, found: $errs")
+    inferErrors.foreach {
+      case _: Infer.Error.TypeError => ()
+      case other                    =>
+        fail(s"expected only type errors, found: $other")
+    }
   }
 }

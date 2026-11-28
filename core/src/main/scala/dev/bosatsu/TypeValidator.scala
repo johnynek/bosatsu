@@ -87,30 +87,7 @@ object TypeValidator {
       }
     }
 
-    def loop(tpe: Type): Type = {
-      val t0 = normalizeAliasHead(tpe)
-      if (t0 ne tpe) loop(t0)
-      else
-        t0 match {
-          case t @ Type.ForAll(vars, in) =>
-            val in1 = loop(in)
-            if (in1 eq in) t
-            else Type.forAll(vars, in1)
-          case t @ Type.Exists(vars, in) =>
-            val in1 = loop(in)
-            if (in1 eq in) t
-            else Type.exists(vars, in1)
-          case t @ Type.TyApply(on, arg) =>
-            val on1 = loop(on)
-            val arg1 = loop(arg)
-            if ((on1 eq on) && (arg1 eq arg)) t
-            else Type.apply1(on1, arg1)
-          case other =>
-            other
-        }
-    }
-
-    loop
+    Type.rewriteDeep(normalizeAliasHead)
   }
 
   /** Directional type-connectivity check used by validation:
@@ -538,7 +515,7 @@ object TypeValidator {
           t
         case Type.TyConst(_) => t
       }
-    te.traverseType[cats.Id](checkType(_, Set.empty)): Unit
+    te.foreachType(t => checkType(t, Set.empty): Unit)
 
     def checkExpr(expr: TypedExpr[A]): Unit =
       expr match {
