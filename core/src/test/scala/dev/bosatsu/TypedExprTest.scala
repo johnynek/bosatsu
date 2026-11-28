@@ -900,6 +900,121 @@ foo = _ -> 1
       TypedExpr.substituteAll(Map(x -> int(2)), withLambda),
       let("y", int(2), lam("z", intTpe, varTE("z", intTpe)))
     )
+
+    // a loop is refused too
+    val withLoop =
+      TypedExpr.Loop(
+        NonEmptyList.one((Identifier.Name("i"), varTE("x", intTpe))),
+        varTE("i", intTpe),
+        ()
+      )
+    assertEquals(TypedExpr.substituteNoLambda(Map(x -> int(2)), withLoop), None)
+  }
+
+  // Match(s, [Branch(_, MatchGuard(a, _, Some(g)), b)]) with the given tags
+  private def guardedMatch(
+      scrutinee: Int,
+      arg: Int,
+      inner: Int,
+      body: Int,
+      matchTag: Int
+  ): TypedExpr[Int] = {
+    def local(n: String, tag: Int): TypedExpr[Int] =
+      TypedExpr.Local(Identifier.Name(n), intTpe, tag)
+    val guard =
+      TypedExpr.MatchGuard(local("a", arg), Pattern.WildCard, Some(local("g", inner)))(
+        using Region.empty
+      )
+    val branch =
+      TypedExpr.Branch.fromGuardNode(Pattern.WildCard, Some(guard), local("b", body))(
+        using Region.empty
+      )
+    TypedExpr.MatchExpr(
+      Declaration.MatchKind.Match,
+      local("s", scrutinee),
+      NonEmptyList.one(branch),
+      matchTag
+    )
+  }
+
+  // the tags of te in the order traverse visits them, and in the order map
+  // calls its function on them
+  private def traverseAndMapOrder(te: TypedExpr[Int]): (List[Int], List[Int]) = {
+    type W[X] = Writer[List[Int], X]
+    val (traversed, traverseResult) = te.traverse[W, Int](t => Writer(List(t), t)).run
+    val mapCalls = List.newBuilder[Int]
+    val mapped = te.map { t =>
+      mapCalls.addOne(t): Unit
+      t
+    }
+    assertEquals(mapped, te)
+    assertEquals(traverseResult, te)
+    (traversed, mapCalls.result())
+  }
+
+  test("map and traverse visit a match guard's argument, inner guard and body in order") {
+    val (traversed, mapped) = traverseAndMapOrder(guardedMatch(0, 1, 2, 3, 4))
+    assertEquals(traversed, List(0, 1, 2, 3, 4))
+    assertEquals(mapped, traversed)
+  }
+
+  test("map keeps traverse's order where it hands a deep subtree to traverse") {
+    // more levels of single-branch matches than map recurses through directly
+    val depth = 600
+    var te = guardedMatch(0, 1, 2, 3, 4)
+    var level = 0
+    while (level < depth) {
+      val branch =
+        TypedExpr.Branch.fromGuardNode(Pattern.WildCard, None, te)(using Region.empty)
+      te = TypedExpr.MatchExpr(
+        Declaration.MatchKind.Match,
+        TypedExpr.Local(Identifier.Name(s"s$level"), intTpe, 100 + 2 * level),
+        NonEmptyList.one(branch),
+        101 + 2 * level
+      )
+      level = level + 1
+    }
+    // the outer scrutinees, outermost first, then the guarded match, then the
+    // outer match tags, innermost first
+    val expected =
+      (depth - 1 to 0 by -1).map(l => 100 + 2 * l).toList :::
+        List(0, 1, 2, 3, 4) :::
+        (0 until depth).map(l => 101 + 2 * l).toList
+    val (traversed, mapped) = traverseAndMapOrder(te)
+    assertEquals(traversed, expected)
+    assertEquals(mapped, expected)
+  }
+
+  test("traverseType visits a match guard's patterns and expressions in order") {
+    def tpe(n: String): Type =
+      Type.TyConst(Type.Const.Defined(TestUtils.testPackage, TypeName(Constructor(n))))
+    def local(n: String, t: String): TypedExpr[Unit] =
+      TypedExpr.Local(Identifier.Name(n), tpe(t), ())
+    val guard =
+      TypedExpr.MatchGuard(
+        local("a", "Arg"),
+        Pattern.Annotation(Pattern.WildCard, tpe("GuardPattern")),
+        Some(local("g", "Inner"))
+      )(using Region.empty)
+    val branch =
+      TypedExpr.Branch.fromGuardNode(
+        Pattern.Annotation(Pattern.WildCard, tpe("Pattern")),
+        Some(guard),
+        local("b", "Body")
+      )(using Region.empty)
+    val m = TypedExpr.MatchExpr(
+      Declaration.MatchKind.Match,
+      local("s", "Scrutinee"),
+      NonEmptyList.one(branch),
+      ()
+    )
+    type W[X] = Writer[List[Type], X]
+    val (seen, result) = m.traverseType[W](t => Writer(List(t), t)).run
+    assertEquals(result, m)
+    assertEquals(
+      seen,
+      List("Scrutinee", "Pattern", "GuardPattern", "Arg", "Inner", "Body").map(tpe)
+    )
   }
 
   lazy val genNonFree: Gen[TypedExpr[Unit]] =

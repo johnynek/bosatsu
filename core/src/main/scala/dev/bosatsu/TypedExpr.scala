@@ -1455,10 +1455,13 @@ object TypedExpr {
     opaque type Rho[+A] <: TypedExpr[A] =
       TypedExpr[A] // an expression with a Rho type (no top level forall)
 
-    // we can always consider CoerceRho as a Coerce
+    // we can always consider CoerceRho as a Coerce. These widen a Rho to a
+    // TypedExpr inside F or G, which is only sound when F and G are covariant:
+    // through a contravariant G, a consumer that needs a Rho would accept any
+    // TypedExpr.
     inline def widenCoerceRho(co: CoerceRho): Coerce = co
-    inline def substCoerceRho[F[_]](fc: F[CoerceRho]): F[Coerce] = fc
-    inline def widenRhoK[F[_], G[_]](
+    inline def substCoerceRho[F[+_]](fc: F[CoerceRho]): F[Coerce] = fc
+    inline def widenRhoK[F[_], G[+_]](
         fk: FunctionK[F, [X] =>> G[Rho[X]]]
     ): FunctionK[F, [X] =>> G[TypedExpr[X]]] = fk
 
@@ -1543,7 +1546,7 @@ object TypedExpr {
         TypedExpr.Loop(args, body, tag)
 
       def Match[A](
-          matchKind: MatchKind = MatchKind.Match,
+          matchKind: MatchKind,
           arg: TypedExpr[A],
           branches: NonEmptyList[Branch[A]],
           tag: A
@@ -3715,7 +3718,9 @@ object TypedExpr {
           stack = args.toList ::: stack
         case m: MatchExpr[A] =>
           stack = m.arg :: stack
-          m.branches.toList.foreach { branch =>
+          val branches = m.branches.iterator
+          while (branches.hasNext) {
+            val branch = branches.next()
             stack = branch.expr :: branch.foldGuardExpr(stack)((st, g) => g :: st)
           }
       }
