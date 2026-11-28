@@ -2647,6 +2647,29 @@ def quick_sort0(cmp, left, right):
 
   }
 
+  test("a hidden type escaping a function body explains why") {
+    evalFail(List("""
+package Escape
+
+def hoist(f: Bool -> exists a. (a, a -> Int)) -> exists a. Bool -> (a, a -> Int): f
+""")) { case kie: PackageError.TypeErrorIn =>
+      val message = kie.message(Map.empty, Colorize.None)
+      assert(
+        message.contains(
+          "of an existential value unpacked here would escape into the type"
+        ),
+        message
+      )
+      assert(
+        message.contains(
+          "Each call can unpack a value with a different hidden type"
+        ),
+        message
+      )
+      ()
+    }
+  }
+
   test("recursive local function mismatch points at definition and names unknowns") {
     evalFail(List("""
 package RecOrder
@@ -3904,6 +3927,7 @@ x = 1.0 + 2.0
     val known = Identifier.Constructor("JNull")
     val inferEnv = new rankn.Infer.Env(
       rankn.RefSpace.constRef(0L),
+      rankn.RefSpace.constRef(-1L),
       Map.empty,
       Map(
         (pack, known) -> (
@@ -3937,6 +3961,7 @@ x = 1.0 + 2.0
     val known = Identifier.Constructor("JNull")
     val inferEnv = new rankn.Infer.Env(
       rankn.RefSpace.constRef(0L),
+      rankn.RefSpace.constRef(-1L),
       Map.empty,
       Map(
         (pack, known) -> (

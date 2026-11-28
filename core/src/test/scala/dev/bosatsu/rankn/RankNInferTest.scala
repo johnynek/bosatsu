@@ -1955,7 +1955,7 @@ def main(x):
   (z: exists b. List[b]) = x
   (y, z)
 """,
-      "forall c. exists a, b. List[c] -> (List[a], List[b])"
+      "forall c. List[c] -> (exists a. List[a], exists b. List[b])"
     )
     // the witness is x's type, which a later use can still solve
     parseProgram(
@@ -1999,38 +1999,181 @@ def main(f): (f([]): exists a. a)
     )
   }
 
-  test("match branches that give a lambda argument as the witness agree") {
-    // One function returns both branches, so both have the same witness.
-    // A branch returning x makes it x's type, and the other branches have
-    // to agree with it.
+  test("match branches under a lambda each pack their own witness") {
+    // exists a. Int -> a is checked as Int -> exists a. a, the same type, so
+    // each call, and so each branch, hides its own type: a branch returning
+    // x doesn't constrain x's type.
     parseProgram(
       """#
 main = x -> ((n -> x if eq_Int(n, 0) else 1): exists a. Int -> a)
 """,
-      "Int -> (exists a. Int -> a)"
+      "forall c. c -> (exists a. Int -> a)"
     )
     parseProgram(
       """#
 main = x -> ((n -> 1 if eq_Int(n, 0) else x): exists a. Int -> a)
 """,
-      "Int -> (exists a. Int -> a)"
+      "forall c. c -> (exists a. Int -> a)"
     )
     parseProgram(
       """#
 def main(x, y): ((n -> x if eq_Int(n, 0) else y): exists a. Int -> a)
 """,
-      "forall c. (c, c) -> (exists a. Int -> a)"
+      "forall c, d. (c, d) -> (exists a. Int -> a)"
     )
     parseProgram(
       """#
-main = x -> ((n -> x if eq_Int(n, 0) else x): exists a. Int -> a)
+main = x -> ((n -> [x] if eq_Int(n, 0) else x): exists a. Int -> a)
 """,
       "forall c. c -> (exists a. Int -> a)"
     )
-    // x would have to be List[x]
-    parseProgramIllTyped("""#
-main = x -> ((n -> [x] if eq_Int(n, 0) else x): exists a. Int -> a)
+  }
+
+  test("one hidden type for every call of a function needs agreeing branches") {
+    // a is not covariant in (a, a -> Int), so exists a. Int -> (a, a -> Int)
+    // hides one type for every call, and both branches have to give it.
+    // A branch returning x makes it x's type, and the other branch agrees.
+    parseProgram(
+      """#
+def inc(i: Int) -> Int: i.add(1)
+
+main = x -> ((n -> (x, inc) if eq_Int(n, 0) else (1, inc)): exists a. Int -> (a, a -> Int))
+""",
+      "Int -> (exists a. Int -> (a, a -> Int))"
+    )
+    // branches that hide different types are rejected
+    assertExistentialEscape("""#
+def inc(i: Int) -> Int: i.add(1)
+def len(_: String) -> Int: 0
+
+main = (n -> (1, inc) if eq_Int(n, 0) else ("s", len)): exists a. Int -> (a, a -> Int)
 """)
+  }
+
+  /** Check that a program fails to type with an ExistentialEscape, and no
+    * other kind of error.
+    */
+  def assertExistentialEscape(statements: String): Unit = {
+    val stmts = Parser.unsafeParse(Statement.parser, statements)
+    val errs =
+      Package.inferBody(testPackage, predefResolvedImport :: Nil, stmts) match {
+        case Ior.Left(errs)    => errs.toList
+        case Ior.Both(errs, _) => errs.toList
+        case Ior.Right(_)      => fail(s"expected a type error in: $statements")
+      }
+    val inferErrors = errs.flatMap {
+      case te: PackageError.TypeErrorIn =>
+        te.tpeErr match {
+          case combined: Infer.Error.Combine => combined.flatten.toList
+          case single: Infer.Error.Single    => single :: Nil
+        }
+      case other => fail(s"expected only inference errors, found: $other")
+    }
+    assert(
+      inferErrors.exists {
+        case _: Infer.Error.ExistentialEscape => true
+        case _                                => false
+      },
+      s"expected an ExistentialEscape, found: $inferErrors"
+    )
+  }
+
+  test("a hidden type can't be shared by the calls of a function") {
+    // Each of these was accepted, and a caller could unpack the result once,
+    // then apply the function from one call to the value from another:
+    //   def bad(f: exists a. Bool -> (a, a -> Int)) -> Int:
+    //     match f:
+    //       case g:
+    //         (_, h) = g(True)
+    //         (v, _) = g(False)
+    //         h(v)
+    // which fails at runtime with h adding 1 to "s".
+
+    // the branches give different witnesses to one hidden type
+    assertExistentialEscape("""#
+mk = (b -> (1, x -> x.add(1)) if b else ("s", _ -> 0)): exists a. Bool -> (a, a -> Int)
+""")
+    // the same with each branch packing its own value
+    assertExistentialEscape("""#
+mk = (b -> ((1, x -> x.add(1)): exists e. (e, e -> Int)) if b else (("s", _ -> 0): exists e. (e, e -> Int))): exists a. Bool -> (a, a -> Int)
+""")
+    // the result of each call hides its own type, so no one type fits them
+    assertExistentialEscape("""#
+def hoist(f: Bool -> exists a. (a, a -> Int)) -> exists a. Bool -> (a, a -> Int): f
+""")
+    // the argument of each call hides its own type
+    assertExistentialEscape("""#
+main = (x -> x): exists e. (exists a. (a, a -> Int)) -> (e, e -> Int)
+""")
+    // unpacking the argument in the body names its hidden type there
+    assertExistentialEscape("""#
+def fst(p: (a, b)) -> a:
+  (x, _) = p
+  x
+def snd(p: (a, b)) -> b:
+  (_, y) = p
+  y
+def f(x: exists a. (a, a -> Int)): (fst(x), snd(x))
+""")
+    // a constructor's own type parameter is hidden like an existential
+    assertExistentialEscape("""#
+struct Tup(a, b)
+enum FreeF[a]:
+  Pure(a: a)
+  Mapped[b](prev: FreeF[b], fn: b -> a)
+
+enum Opt[a]: None, Some(a: a)
+
+def branch(b: FreeF[a]):
+  match b:
+    case Mapped(prev, fn): Some(Tup(prev, fn))
+    case _: None
+""")
+    // the hidden type of x is kept with each item instead of being named
+    parseProgram(
+      """#
+def f(x: exists a. (a, a -> Int)): [x]
+""",
+      "(exists a. (a, a -> Int)) -> List[exists a. (a, a -> Int)]"
+    )
+  }
+
+  test("match branches can each pack their own witness") {
+    // A def's result type is per call, so one branch can hide Int and the
+    // other String in exists a. (a, a -> b): a call only ever applies the
+    // function it gets to the value it gets.
+    parseProgram(
+      """#
+enum Flag: Yes, No
+
+def mk[b](flag: Flag, fi: Int -> b, fs: String -> b) -> exists a. (a, a -> b):
+  match flag:
+    case Yes: ((1, fi): exists a. (a, a -> b))
+    case No: (("s", fs): exists a. (a, a -> b))
+""",
+      "forall b. (Flag, Int -> b, String -> b) -> (exists a. (a, a -> b))"
+    )
+    // the same without annotating the branches
+    parseProgram(
+      """#
+enum Flag: Yes, No
+
+def mk[b](flag: Flag, fi: Int -> b, fs: String -> b) -> exists a. (a, a -> b):
+  match flag:
+    case Yes: (1, fi)
+    case No: ("s", fs)
+""",
+      "forall b. (Flag, Int -> b, String -> b) -> (exists a. (a, a -> b))"
+    )
+    // a lambda checked against the same per call type
+    parseProgram(
+      """#
+enum Flag: Yes, No
+
+main: Flag -> (exists a. (a, a -> Int)) = flag -> (1, x -> x.add(1)) if flag matches Yes else ("s", _ -> 10)
+""",
+      "Flag -> (exists a. (a, a -> Int))"
+    )
   }
 
   test("annotations with quantifiers inside a lambda still type check") {
