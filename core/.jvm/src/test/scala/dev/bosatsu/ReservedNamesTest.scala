@@ -488,5 +488,16 @@ class ReservedNamesTest extends munit.FunSuite {
         "y.scala:7: `bsts_integer_cpm` is not one of the identifiers in the c_runtime/*.h headers. Did you mean `bsts_integer_cmp`?"
       )
     )
+    // equally close names are all suggested
+    assertEquals(
+      ReservedNamesScan.checkRuntimeUses(
+        "y.scala",
+        List(RuntimeUse("bsts_c", 8)),
+        Set("bsts_a", "bsts_b")
+      ),
+      List(
+        "y.scala:8: `bsts_c` is not one of the identifiers in the c_runtime/*.h headers. Did you mean one of `bsts_a`, `bsts_b`?"
+      )
+    )
   }
 }
