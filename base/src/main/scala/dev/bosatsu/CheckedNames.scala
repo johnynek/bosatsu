@@ -12,52 +12,47 @@ import scala.quoted.{Expr, Quotes}
   *
   * The file is read while core compiles, so build.sbt lists it in
   * `coreMacroInputPaths`: that way, editing it recompiles core. Core embeds
-  * the Predef source anyway, so that recompile is needed regardless. Use these
-  * only for files that build.sbt tracks. The other reserved packages and the C
-  * runtime headers are checked by a test instead (`ReservedNamesTest`), so
-  * that editing them doesn't recompile core.
+  * the Predef source anyway, so that recompile is needed regardless. That is
+  * why these check only Predef: the other reserved packages and the C runtime
+  * headers are checked by a test instead (`ReservedNamesTest`), so that
+  * editing them doesn't recompile core.
   */
 object CheckedNames {
 
-  /** `name`, which the export list of the source at `path` names as a value */
-  inline def exportedValue(inline path: String, inline name: String): String =
-    ${ exportedValueImpl('path, 'name) }
+  /** The Predef source, relative to the repository root */
+  inline val predefSource = "core/src/main/resources/bosatsu/predef.bosatsu"
 
-  /** `name`, which the export list of the source at `path` names as a type */
-  inline def exportedType(inline path: String, inline name: String): String =
-    ${ exportedTypeImpl('path, 'name) }
+  /** `name`, which Predef's export list names as a value */
+  inline def exportedValue(inline name: String): String =
+    ${ exportedValueImpl('name) }
 
-  /** `name`, a constructor of a type that the source at `path` exports with
-    * its constructors
+  /** `name`, which Predef's export list names as a type */
+  inline def exportedType(inline name: String): String =
+    ${ exportedTypeImpl('name) }
+
+  /** `name`, a constructor of a type that Predef exports with its
+    * constructors
     */
-  inline def constructor(inline path: String, inline name: String): String =
-    ${ constructorImpl('path, 'name) }
+  inline def constructor(inline name: String): String =
+    ${ constructorImpl('name) }
 
-  /** `name`, which the source at `path` declares `external` */
-  inline def external(inline path: String, inline name: String): String =
-    ${ externalImpl('path, 'name) }
+  /** `name`, which Predef declares `external` */
+  inline def external(inline name: String): String =
+    ${ externalImpl('name) }
 
-  def exportedValueImpl(path: Expr[String], name: Expr[String])(using
-      Quotes
-  ): Expr[String] =
-    checkSourceName(path, name, "exported values")(_.exportedValues)
+  def exportedValueImpl(name: Expr[String])(using Quotes): Expr[String] =
+    checkPredefName(name, "exported values")(_.exportedValues)
 
-  def exportedTypeImpl(path: Expr[String], name: Expr[String])(using
-      Quotes
-  ): Expr[String] =
-    checkSourceName(path, name, "exported types")(_.exportedTypes)
+  def exportedTypeImpl(name: Expr[String])(using Quotes): Expr[String] =
+    checkPredefName(name, "exported types")(_.exportedTypes)
 
-  def constructorImpl(path: Expr[String], name: Expr[String])(using
-      Quotes
-  ): Expr[String] =
-    checkSourceName(path, name, "constructors of the types exported with ()")(
+  def constructorImpl(name: Expr[String])(using Quotes): Expr[String] =
+    checkPredefName(name, "constructors of the types exported with ()")(
       _.constructors
     )
 
-  def externalImpl(path: Expr[String], name: Expr[String])(using
-      Quotes
-  ): Expr[String] =
-    checkSourceName(path, name, "external declarations")(_.externals)
+  def externalImpl(name: Expr[String])(using Quotes): Expr[String] =
+    checkPredefName(name, "external declarations")(_.externals)
 
   private def literal(expr: Expr[String], what: String)(using
       quotes: Quotes
@@ -69,16 +64,7 @@ object CheckedNames {
       )
     )
 
-  private def sourceNames(path: String, pathExpr: Expr[String])(using
-      quotes: Quotes
-  ): BosatsuSourceNames =
-    BosatsuSourceNames.scan(path, Macro.readRepoFile(path)) match {
-      case Right(names) => names
-      case Left(err)    => quotes.reflect.report.errorAndAbort(err, pathExpr)
-    }
-
-  private def checkSourceName(
-      pathExpr: Expr[String],
+  private def checkPredefName(
       nameExpr: Expr[String],
       listName: String
   )(select: BosatsuSourceNames => List[String])(using
@@ -86,9 +72,13 @@ object CheckedNames {
   ): Expr[String] = {
     import quotes.reflect.report
 
-    val path = literal(pathExpr, "source path")
+    val path = predefSource
     val name = literal(nameExpr, "name")
-    val names = sourceNames(path, pathExpr)
+    val names =
+      BosatsuSourceNames.scan(path, Macro.readRepoFile(path)) match {
+        case Right(names) => names
+        case Left(err)    => report.errorAndAbort(err, nameExpr)
+      }
     val known = select(names)
     if (known.contains(name)) Expr(name)
     else if (known.isEmpty) {

@@ -6,11 +6,8 @@ case class Externals(toMap: Map[(PackageName, Bindable), FfiCall]) {
   def add(pn: PackageName, value: Bindable, f: FfiCall): Externals =
     Externals(toMap + ((pn, value) -> f))
 
-  def add(pn: PackageName, value: String, f: FfiCall): Externals =
-    Externals(toMap + ((pn, Identifier.Name(value)) -> f))
-
-  /** Registers `f` under `key`, such as a checked
-    * `ReservedPackage.Prog.external("pure")`
+  /** Registers `f` under `key`, such as `ReservedPackage.Prog.external("pure")`
+    * or the compile-time checked `PredefName.external("add")`
     */
   def add(key: (PackageName, Bindable), f: FfiCall): Externals =
     Externals(toMap + (key -> f))

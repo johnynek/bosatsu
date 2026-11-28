@@ -2,9 +2,9 @@ package dev.bosatsu
 
 import scala.util.matching.Regex
 
-/** The names a Bosatsu source declares, which the compiler checks the
-  * built-in names it spells out against when it is itself compiled (see
-  * [[CheckedNames]]).
+/** The names a Bosatsu source declares, which the built-in names the compiler
+  * spells out are checked against: Predef's when the compiler is compiled (see
+  * [[CheckedNames]]), the other reserved packages' by a test.
   *
   * This is a line scan, not a Bosatsu parser. It relies on the layout of the
   * repository's own sources: top-level declarations start in column 0, an

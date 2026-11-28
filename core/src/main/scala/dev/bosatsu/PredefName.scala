@@ -10,25 +10,25 @@ import dev.bosatsu.Identifier.{Bindable, Constructor, Name}
 object PredefName {
 
   /** The Predef source, which [[Predef.predefString]] embeds */
-  inline val source = "core/src/main/resources/bosatsu/predef.bosatsu"
+  inline val source = CheckedNames.predefSource
 
   /** A value in Predef's export list */
   inline def value(inline name: String): Name =
-    Name(CheckedNames.exportedValue(source, name))
+    Name(CheckedNames.exportedValue(name))
 
   /** A constructor of a type that Predef exports with its constructors */
   inline def constructor(inline name: String): Constructor =
-    Constructor(CheckedNames.constructor(source, name))
+    Constructor(CheckedNames.constructor(name))
 
   /** A type in Predef's export list */
   inline def typeName(inline name: String): TypeName =
-    TypeName(Constructor(CheckedNames.exportedType(source, name)))
+    TypeName(Constructor(CheckedNames.exportedType(name)))
 
   /** An external that Predef declares, as the key [[Externals]] registers its
     * implementation under
     */
   inline def external(inline name: String): (PackageName, Bindable) =
-    (PackageName.PredefName, Name(CheckedNames.external(source, name)))
+    (PackageName.PredefName, Name(CheckedNames.external(name)))
 }
 
 /** The Predef names that the compiler spells out in more than one place */

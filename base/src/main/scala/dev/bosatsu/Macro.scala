@@ -11,13 +11,13 @@ object Macro {
     * compiler's working directory under sbt. Under bazel the repository is at
     * external/org_bykn_bosatsu instead.
     */
-  def repoFile(path: String): Option[File] =
+  private def repoFile(path: String): Option[File] =
     List(path, s"external/org_bykn_bosatsu/$path").iterator
       .map(new File(_))
       .find(_.exists())
 
   /** Reads `file`, joining its lines with `\n` */
-  def readFile(file: File)(using quotes: Quotes): String = {
+  private def readFile(file: File)(using quotes: Quotes): String = {
     import quotes.reflect.report
 
     try {

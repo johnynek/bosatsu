@@ -61,21 +61,9 @@ ThisBuild / scmInfo := Some(
 // whose last pass is cached. That cache key covers the suite's classes and
 // everything they depend on, classpath resources and test options, but not
 // files read at runtime, so these are hashed into every suite's key: a change
-// to any of them reruns the tests. Besides these, testDataDigest hashes every
-// c_runtime/*.h header. ReservedNamesTest checks the built-in names the
-// compiler spells out against the headers and the test_workspace sources,
-// and it scans the JS-only sources for those names, which the JVM tests'
-// classpath doesn't cover.
+// to any of them reruns the tests.
 lazy val testDataPaths =
-  List(
-    "test_workspace",
-    ".github/workflows",
-    "bosatsu_libs.json",
-    "core/.js/src/main/scala"
-  )
-
-def cRuntimeHeaders(root: File): Seq[String] =
-  ((root / "c_runtime") * "*.h").get().flatMap(IO.relativize(root, _))
+  List("test_workspace", ".github/workflows", "bosatsu_libs.json")
 
 lazy val testDataDigest =
   taskKey[Digest]("Hash of the repo files that tests read while they run")
@@ -111,9 +99,35 @@ def repoFilesDigest(root: File, paths: Seq[String]): Digest = {
   Digest.sha256Hash(sha.digest())
 }
 
-ThisBuild / testDataDigest := Def.uncached {
+ThisBuild / testDataDigest := Def.uncached(
+  repoFilesDigest((ThisBuild / baseDirectory).value, testDataPaths)
+)
+
+// coreJVM's ReservedNamesTest reads, while it runs, the c_runtime/*.h headers
+// and the main sources that name reserved packages or C runtime functions,
+// the ones that mention ReservedPackage or RuntimeIdent. A suite's cache key
+// covers only the classes it depends on, which don't reach most of those
+// sources (PythonGen, ClangGen, the JS-only sources, ...), so coreJVM's tests
+// also key on these files: editing one reruns them. Only those files count,
+// so editing other main sources doesn't rerun every suite.
+lazy val reservedNamesDigest =
+  taskKey[Digest]("Hash of the files ReservedNamesTest reads while it runs")
+
+ThisBuild / reservedNamesDigest := Def.uncached {
   val root = (ThisBuild / baseDirectory).value
-  repoFilesDigest(root, testDataPaths ++ cRuntimeHeaders(root))
+  val sourceRoots =
+    List("core/src/main/scala", "core/.jvm/src/main/scala", "core/.js/src/main/scala")
+  val namingSources =
+    sourceRoots
+      .flatMap(r => ((root / r) ** "*.scala").get())
+      .filter { f =>
+        val text = IO.read(f)
+        text.contains("ReservedPackage") || text.contains("RuntimeIdent")
+      }
+      .flatMap(IO.relativize(root, _))
+  val headers =
+    ((root / "c_runtime") * "*.h").get().flatMap(IO.relativize(root, _))
+  repoFilesDigest(root, namingSources ++ headers)
 }
 
 // Repo files that core's main code reads at compile time, through the macros
@@ -123,9 +137,10 @@ ThisBuild / testDataDigest := Def.uncached {
 // recompiles only sources whose own text or dependencies changed. So core
 // hashes these files into its extraIncOptions, which are in both the cache
 // key and zinc's setup: editing one misses the cache and makes zinc recompile
-// all of core main. Keep this list short, since each edit costs that
-// recompile. The other built-in names are checked by ReservedNamesTest, which
-// reads its files at test time (see testDataPaths).
+// all of core main, and of core's tests, which expand those macros too. Keep
+// this list short, since each edit costs that recompile. The other built-in
+// names are checked by ReservedNamesTest, which reads its files at test time
+// (see reservedNamesDigest).
 lazy val coreMacroInputPaths = List(
   "core/src/main/resources/bosatsu/predef.bosatsu"
 )
@@ -587,11 +602,11 @@ lazy val core =
     moduleName := "compiler-core",
     assembly / test := TestResult.Passed,
     scalacOptions += "-Yexplicit-nulls",
-    // See coreMacroInputPaths. Test would inherit this from Compile, but only
-    // main code calls those macros, so an edit doesn't recompile the tests.
+    // See coreMacroInputPaths. Test inherits this from Compile, which it
+    // needs: CheckedNamesTest expands the Predef macros, so an edit to Predef
+    // must recompile it too.
     Compile / extraIncOptions +=
       coreMacroInputOption -> (ThisBuild / coreMacroInputDigest).value.toString,
-    Test / extraIncOptions ~= (_.filterNot(_._1 == coreMacroInputOption)),
     libraryDependencies ++=
       Seq(
         blake3.value,
@@ -608,6 +623,10 @@ lazy val core =
         "com.thesamet.scalapb" %% "scalapb-runtime" % scalapb.compiler.Version.scalapbVersion
       )
   ).dependsOn(base, proto, intdecide % "compile->compile;test->test")
+    .jvmSettings(
+      // see reservedNamesDigest
+      Test / extraTestDigests += (ThisBuild / reservedNamesDigest).value
+    )
     .jsSettings(
       commonJsSettings
     )
