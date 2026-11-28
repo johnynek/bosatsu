@@ -226,6 +226,20 @@ object Infer {
             t
         }
 
+    /** The ForAll that the alias at the head of t expands to, if it is one.
+      *
+      * Aliases are transparent, so `type Poly = forall a. a -> a` is spelled
+      * as a Rho but stands for a sigma type: it is instantiated and
+      * skolemized as its expansion.
+      */
+    final def forAllAliasExpansion(t: Type): Option[Type.ForAll] =
+      if (aliases.isEmpty) None
+      else
+        normalizeAliasHead(t) match {
+          case fa: Type.ForAll => Some(fa)
+          case _               => None
+        }
+
     final def normalizeAliasesDeep(t: Type): Type =
       if (aliases.isEmpty) t
       else Type.rewriteDeep(normalizeAliasHead)(t)
@@ -530,8 +544,8 @@ object Infer {
         * In check mode the expected rho is usually in weak prenex form, but
         * not always: checkApply checks an application against its annotation
         * without skolemizing it, so a function result can still have a
-        * forall, which subsCheckFn handles, or rho can be an alias of a
-        * forall, which subsCheckRho handles.
+        * forall, which subsCheckFn handles, or be an alias of one, which
+        * subsCheckRho handles.
         */
       def instSigma(sigma: Type, r: Region): Infer[FunctionK[TypedExpr, R]]
 
@@ -794,6 +808,13 @@ object Infer {
     private def skolemize(
         t: Type,
         region: Region
+    ): Infer[(List[Type.Var.Skolem], List[Type.TyMeta], Type.Rho)] =
+      GetEnv.flatMap(env => skolemizeIn(env, t, region))
+
+    private def skolemizeIn(
+        env: Env,
+        t: Type,
+        region: Region
     ): Infer[(List[Type.Var.Skolem], List[Type.TyMeta], Type.Rho)] = {
 
       // Rule PRPOLY, which we only apply on completely covariant paths
@@ -816,9 +837,30 @@ object Infer {
               univ.map(_._1).iterator.zip(sksT.iterator))
               .toMap[Type.Var, Type.Leaf]
           )
-          (sks2, ms2, ty) <- loopLeafApply(ty1, allCo = true)
+          (sks2, ms2, ty) <- loopCo(ty1)
         } yield (sks1 ::: sks2, ms ::: ms2, ty)
       }
+
+      // t is on a completely covariant path. An alias there is skolemized
+      // as its expansion when that has a forall to skolemize, as for
+      // type Poly = forall a. a -> a, since the alias stands for that sigma
+      // type. Otherwise we keep the alias as it is, without any existentials
+      // its expansion would add: aliases of existentials stay as they were.
+      def loopCo(
+          t: Type
+      ): Infer[
+        (List[Type.Var.Skolem], List[Type.TyMeta], Type.Leaf | Type.TyApply)
+      ] =
+        t match {
+          case quant: (Type.ForAll | Type.Exists) => prpoly(quant)
+          case la: (Type.Leaf | Type.TyApply)     =>
+            val expanded = env.normalizeAliasHead(la)
+            if (expanded eq la) loopLeafApply(la, allCo = true)
+            else
+              loopCo(expanded).map { res =>
+                if (res._1.isEmpty) (Nil, Nil, la) else res
+              }
+        }
 
       def loopLeafApply(
           t: Type.Leaf | Type.TyApply,
@@ -847,20 +889,17 @@ object Infer {
           t: Type,
           allCo: Boolean
       ): Infer[(List[Type.Var.Skolem], List[Type.TyMeta], Type)] =
-        t match {
-          case quant: (Type.ForAll | Type.Exists) =>
-            if (allCo) prpoly(quant)
-            else pure((Nil, Nil, quant))
-          case la: (Type.Leaf | Type.TyApply) =>
-            loopLeafApply(la, allCo)
-        }
+        if (allCo) loopCo(t)
+        else
+          t match {
+            case quant: (Type.ForAll | Type.Exists) =>
+              pure((Nil, Nil, quant))
+            case la: (Type.Leaf | Type.TyApply) =>
+              loopLeafApply(la, allCo)
+          }
 
       // the top is a completely covariant path
-      t match {
-        case quant: (Type.ForAll | Type.Exists) => prpoly(quant)
-        case la: (Type.Leaf | Type.TyApply)     =>
-          loopLeafApply(la, allCo = true)
-      }
+      loopCo(t)
     }
 
     def getFreeTyVars(ts: List[Type]): Infer[Set[Type.Var]] =
@@ -948,7 +987,9 @@ object Infer {
 
     /*
      * Return a Rho type (not a Forall), by assigning
-     * new meta variables for each of the outer ForAll variables
+     * new meta variables for each of the outer ForAll variables.
+     * An alias of a ForAll at the head is instantiated as its expansion,
+     * so the result never stands for a sigma type.
      */
     def instantiate(t: Type): Infer[Type.Rho] =
       t match {
@@ -958,10 +999,18 @@ object Infer {
           // but it's not trivial
           univs
             .traverse { case (_, k) => newMetaType(k).map(Type.Tau(_)) }
-            .map { vars1T =>
-              substTyRho(univs.map(_._1), vars1T)(rho)
+            .flatMap { vars1T =>
+              // the body can be an alias of a ForAll, as in
+              // forall b. Const[b] with type Const[b] = forall a. a -> b
+              instantiate(substTyRho(univs.map(_._1), vars1T)(rho))
             }
-        case rho: Type.Rho => pure(rho)
+        case rho: Type.Rho =>
+          GetEnv.flatMap { env =>
+            env.forAllAliasExpansion(rho) match {
+              case Some(sigma) => instantiate(sigma)
+              case None        => pure(rho)
+            }
+          }
       }
 
     // Replace only the outer existentials with skolems, keep foralls intact.
@@ -1052,9 +1101,10 @@ object Infer {
      * It need not be: an annotation that checkApply checks against without
      * skolemizing it, or the widest branch type widenBranches checks each
      * branch against, can keep a forall in a function result, and
-     * subsCheckFn handles that. Nor need rho be a Rho once the alias at its
-     * head is expanded, as for (e: Poly) with type Poly = forall a. a -> a,
-     * and subsCheckAliasExpansion handles that.
+     * subsCheckFn handles that. Such a result can also be an alias of a
+     * forall, as in (g(1): Int -> Poly) with type Poly = forall a. a -> a,
+     * so rho need not be a Rho once the alias at its head is expanded, and
+     * subsCheckAliasExpansion handles that.
      */
     def subsCheckRho(
         t: Type,
@@ -1069,14 +1119,14 @@ object Infer {
             case Some(inf) => inf
             case None      =>
               GetEnv.flatMap { env =>
-                env.normalizeAliasHead(rho) match {
-                  case sigma: Type.ForAll =>
+                env.forAllAliasExpansion(rho) match {
+                  case Some(sigma) =>
                     // rho is an alias of a ForAll, which we must skolemize
                     // before we instantiate t. Instantiating t first, as SPEC
                     // does, makes metas older than the skolems, and solving
                     // them to a skolem then fails the escape check.
                     subsCheckAliasExpansion(t, sigma, rho, left, right, direction)
-                  case _ =>
+                  case None =>
                     // Rule SPEC
                     for {
                       faRho <- instantiate(t)
@@ -1285,29 +1335,58 @@ object Infer {
     ): Infer[(NonEmptyList[Type], Type)] =
       fnType match {
         case Type.Fun(arg, res) =>
-          val fnArity = arg.length
-          if (fnArity == arity) pure((arg, res))
-          else
-            fail(Error.ArityMismatch(fnArity, fnRegion, arity, evidenceRegion))
+          fnOfArity(arity, arg, res, fnRegion, evidenceRegion)
         case rho =>
-          if (Type.FnType.ValidArity.unapply(arity)) {
-            val sized = NonEmptyList.fromListUnsafe((1 to arity).toList)
-            for {
-              argT <- sized.traverse(_ => newMeta)
-              resT <- newMeta
-              _ <- unifyRho(
-                rho,
-                Type.Fun(argT, resT),
-                fnRegion,
-                evidenceRegion,
-                direction
-              )
-            } yield (argT, resT)
-          } else {
-            fail(
-              Error.ArityTooLarge(arity, Type.FnType.MaxSize, evidenceRegion)
-            )
+          GetEnv.flatMap { env =>
+            env.normalizeAliasHead(rho) match {
+              case Type.Fun(arg, res) =>
+                // An alias of a function type: read the argument and result
+                // types off its expansion. Unifying it with a function of
+                // fresh metas would need a Tau result, but the result can
+                // stand for a sigma type, as in type Q = Int -> Poly.
+                fnOfArity(arity, arg, res, fnRegion, evidenceRegion)
+              case _ =>
+                unifyFnRhoMetas(arity, rho, fnRegion, evidenceRegion, direction)
+            }
           }
+      }
+
+    private def fnOfArity(
+        arity: Int,
+        arg: NonEmptyList[Type],
+        res: Type,
+        fnRegion: Region,
+        evidenceRegion: Region
+    ): Infer[(NonEmptyList[Type], Type)] = {
+      val fnArity = arg.length
+      if (fnArity == arity) pure((arg, res))
+      else fail(Error.ArityMismatch(fnArity, fnRegion, arity, evidenceRegion))
+    }
+
+    private def unifyFnRhoMetas(
+        arity: Int,
+        rho: Type.Rho,
+        fnRegion: Region,
+        evidenceRegion: Region,
+        direction: Error.Direction
+    ): Infer[(NonEmptyList[Type], Type)] =
+      if (Type.FnType.ValidArity.unapply(arity)) {
+        val sized = NonEmptyList.fromListUnsafe((1 to arity).toList)
+        for {
+          argT <- sized.traverse(_ => newMeta)
+          resT <- newMeta
+          _ <- unifyRho(
+            rho,
+            Type.Fun(argT, resT),
+            fnRegion,
+            evidenceRegion,
+            direction
+          )
+        } yield (argT, resT)
+      } else {
+        fail(
+          Error.ArityTooLarge(arity, Type.FnType.MaxSize, evidenceRegion)
+        )
       }
 
     // the same check as Kind.validApply, but we keep the constructor kind
@@ -2126,18 +2205,33 @@ object Infer {
         tpe: Type,
         tpeRegion: Region
     ): Infer[TypedExpr[A]] =
-      checkApplyDom(TypedExpr.Domain.TypeDom)(fn, args, tag, tpe)
-        .flatMap {
-          case Some(res) => pure(res)
-          case None      =>
-            tpe match {
-              case rho: Type.Rho =>
-                applyRhoExpect(fn, args, tag, Expected.Check(rho, tpeRegion))
-              case notRho =>
-                val inner = Expr.App(fn, args, tag)
-                checkSigma(inner, notRho)
-            }
+      GetEnv.flatMap { env =>
+        env.forAllAliasExpansion(tpe) match {
+          case Some(_) =>
+            // tpe is an alias of a ForAll: check against it as the sigma
+            // type it stands for, which skolemizes its expansion, rather
+            // than solve the function's type parameters to the alias
+            checkSigma(Expr.App(fn, args, tag), tpe)
+          case None =>
+            checkApplyDom(TypedExpr.Domain.TypeDom)(fn, args, tag, tpe)
+              .flatMap {
+                case Some(res) => pure(res)
+                case None      =>
+                  tpe match {
+                    case rho: Type.Rho =>
+                      applyRhoExpect(
+                        fn,
+                        args,
+                        tag,
+                        Expected.Check(rho, tpeRegion)
+                      )
+                    case notRho =>
+                      val inner = Expr.App(fn, args, tag)
+                      checkSigma(inner, notRho)
+                  }
+              }
         }
+      }
 
     def checkApplyRho[A: HasRegion](
         fn: Expr[A],
@@ -2613,81 +2707,83 @@ object Infer {
 
           inline def default = checkAnnotated(inner, tpe, region(tag), expect)
 
-          tpe match {
-            case rho: Type.Rho =>
-              // expect can directly hold this type without instantiation
-              maybeSimple(inner) match {
-                case Some(simp) =>
-                  // we can check direct instantiation
-                  simp.flatMap { te =>
-                    te.getType match {
-                      case Type.ForAll(fas, in) =>
-                        Type
-                          .instantiate(
-                            fas.iterator.toMap,
-                            in,
-                            Map.empty,
-                            rho,
-                            Map.empty
-                          )
-                          .flatMap(
-                            Type.Instantiation.Solved.fromInstantiation
-                          ) match {
-                          case Some(instantiation) =>
-                            // we know that substituting in gives rho
-                            // check kinds
-                            // substitute
-                            // see if substitute rho with subs <:< expected
-                            // else set inferred value
-                            val validKinds: Infer[Unit] =
-                              validateSubs(
-                                instantiation.subs.toList,
-                                region(term),
-                                region(tag)
-                              )
-
-                            def inferAnnotated: Infer[Expected.Inferred[A]] =
-                              checkedKinds.map { ks =>
-                                (TypedExpr.coerceRho(rho, ks)(te), rho)
-                              }
-
-                            validKinds.parProductR(expect.fold(inferAnnotated) { (r1, reg1) =>
-                              val quantifierEvidence =
-                                quantifierEvidenceFromInstantiation(
-                                  sourceAtSolve = te.getType,
-                                  targetAtSolve = rho,
-                                  instantiation = instantiation
-                                )
-                              for {
-                                co <- subsCheckRho2(
-                                  rho,
-                                  r1,
+          GetEnv.flatMap { env =>
+            tpe match {
+              case rho: Type.Rho if env.forAllAliasExpansion(rho).isEmpty =>
+                // expect can directly hold this type without instantiation
+                maybeSimple(inner) match {
+                  case Some(simp) =>
+                    // we can check direct instantiation
+                    simp.flatMap { te =>
+                      te.getType match {
+                        case Type.ForAll(fas, in) =>
+                          Type
+                            .instantiate(
+                              fas.iterator.toMap,
+                              in,
+                              Map.empty,
+                              rho,
+                              Map.empty
+                            )
+                            .flatMap(
+                              Type.Instantiation.Solved.fromInstantiation
+                            ) match {
+                            case Some(instantiation) =>
+                              // we know that substituting in gives rho
+                              // check kinds
+                              // substitute
+                              // see if substitute rho with subs <:< expected
+                              // else set inferred value
+                              val validKinds: Infer[Unit] =
+                                validateSubs(
+                                  instantiation.subs.toList,
                                   region(term),
-                                  reg1,
-                                  Error.Direction.ExpectRight
+                                  region(tag)
                                 )
-                                z <- zonkTypedExpr(
-                                  TypedExpr.Annotation(
-                                    te,
-                                    rho,
-                                    quantifierEvidence
-                                  )
-                                )
-                              } yield co(z)
-                            })
-                          case None =>
-                            default
-                        }
-                      case _ =>
-                        default
-                    }
-                  }
 
-                case None => default
-              }
-            case _ =>
-              // expect can't hold a sigma type
-              default
+                              def inferAnnotated: Infer[Expected.Inferred[A]] =
+                                checkedKinds.map { ks =>
+                                  (TypedExpr.coerceRho(rho, ks)(te), rho)
+                                }
+
+                              validKinds.parProductR(expect.fold(inferAnnotated) { (r1, reg1) =>
+                                val quantifierEvidence =
+                                  quantifierEvidenceFromInstantiation(
+                                    sourceAtSolve = te.getType,
+                                    targetAtSolve = rho,
+                                    instantiation = instantiation
+                                  )
+                                for {
+                                  co <- subsCheckRho2(
+                                    rho,
+                                    r1,
+                                    region(term),
+                                    reg1,
+                                    Error.Direction.ExpectRight
+                                  )
+                                  z <- zonkTypedExpr(
+                                    TypedExpr.Annotation(
+                                      te,
+                                      rho,
+                                      quantifierEvidence
+                                    )
+                                  )
+                                } yield co(z)
+                              })
+                            case None =>
+                              default
+                          }
+                        case _ =>
+                          default
+                      }
+                    }
+
+                  case None => default
+                }
+              case _ =>
+                // expect can't hold a sigma type, or an alias of one
+                default
+            }
           }
 
         case m @ Match(term, branches, tag) =>
