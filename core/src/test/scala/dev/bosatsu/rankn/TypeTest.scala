@@ -2399,4 +2399,22 @@ class TypeTest extends munit.ScalaCheckSuite {
       Some("forall a, b, c. a -> (b -> c)")
     )
   }
+
+  test("rewriteDeep rewrites under an existential") {
+    val a = Type.Var.Bound("a")
+    val vars = NonEmptyList.one((a, Kind.Type))
+    // exists a. Dict[a, Int], rewriting Int to String
+    val before =
+      Type.Exists(vars, Type.TyApply(Type.TyApply(Type.DictType, Type.TyVar(a)), Type.IntType))
+    val head: Type => Type = {
+      case t if t == Type.IntType => Type.StrType
+      case t                      => t
+    }
+    val after = Type.rewriteDeep(head)(before)
+    val expected =
+      Type.Exists(vars, Type.TyApply(Type.TyApply(Type.DictType, Type.TyVar(a)), Type.StrType))
+    assert(after.sameAs(expected), s"$after is not $expected")
+    // nothing to rewrite keeps the same instance
+    assert(Type.rewriteDeep(head)(expected) eq expected)
+  }
 }

@@ -2351,6 +2351,34 @@ main = (cmp_guard, enum_guard)
     }
   }
 
+  test("Matchless.simplifyKnownConditions folds a projection to a known cheap value") {
+    // let t = (1, 2) in (if t.0 == 1 then 10 else 20): the comparison's
+    // argument must stay cheap, and t.0 is known to be the literal 1
+    val t = Matchless.LocalAnon(0L)
+    val one = Lit.fromInt(1)
+    val expr: Matchless.Expr[Unit] =
+      Matchless.Let(
+        Left(t),
+        Matchless.App(
+          Matchless.MakeStruct(2),
+          NonEmptyList.of(Matchless.Literal(one), Matchless.Literal(Lit.fromInt(2)))
+        ),
+        Matchless.If(
+          Matchless.CompareLit(
+            Matchless.GetStructElement(t, 0, 2),
+            Matchless.CompareRel.Eq,
+            one
+          ),
+          Matchless.Literal(Lit.fromInt(10)),
+          Matchless.Literal(Lit.fromInt(20))
+        )
+      )
+    assertEquals(
+      Matchless.simplifyKnownConditions(expr),
+      Matchless.Literal(Lit.fromInt(10))
+    )
+  }
+
   test("Matchless.simplifyKnownConditions inlines an applied LetMut function") {
     val y = Matchless.Local(Identifier.Name("y"))
     val expr = Matchless.App(letMutFunction, NonEmptyList.one(y))
@@ -5871,6 +5899,48 @@ ${tmpLines}
       case other =>
         fail(s"expected generic helper reference to inline to a lambda, found: $other")
     }
+  }
+
+  test("optimized Matchless folds a projection of a known global to a cheap value") {
+    // use = if xs.0 == 1 then 10 else 20, with xs = (1, 2): the comparison's
+    // argument must stay cheap, and xs.0 is known to be the literal 1
+    val pack = PackageName.parts("Known", "Tuple")
+    val xsName = Identifier.Name("xs")
+    val useName = Identifier.Name("use")
+    val one = Lit.fromInt(1)
+    val xsExpr: Matchless.Expr[Unit] =
+      Matchless.App(
+        Matchless.MakeStruct(2),
+        NonEmptyList.of(Matchless.Literal(one), Matchless.Literal(Lit.fromInt(2)))
+      )
+    val useExpr: Matchless.Expr[Unit] =
+      Matchless.If(
+        Matchless.CompareLit(
+          Matchless.GetStructElement(Matchless.Global((), pack, xsName), 0, 2),
+          Matchless.CompareRel.Eq,
+          one
+        ),
+        Matchless.Literal(Lit.fromInt(10)),
+        Matchless.Literal(Lit.fromInt(20))
+      )
+    val rawCompiled =
+      SortedMap(() -> Map(pack -> List((xsName, xsExpr), (useName, useExpr))))
+    val topoSort =
+      dev.bosatsu.graph.Toposort.sort(List(((), pack)))(_ => Nil)
+
+    val optimized =
+      Par.withEC {
+        MatchlessGlobalInlining.optimize(
+          rawCompiled,
+          topoSort,
+          (_, _) => (),
+          Matchless.LocalPassOptions.Default
+        )
+      }
+    assertEquals(
+      optimized(())(pack).toMap.apply(useName),
+      Matchless.Literal(Lit.fromInt(10))
+    )
   }
 
   test("optimized Matchless rewrites same-package callee alias chains") {

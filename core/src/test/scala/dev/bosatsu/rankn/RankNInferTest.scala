@@ -3334,15 +3334,16 @@ def bad(h: Int -> (Int -> (forall a. a -> a))) -> (Int -> (forall a. a -> Int)):
   test("subsumption against an alias of a forall type") {
     // Poly is spelled as a Rho but expands to a ForAll. Checking a
     // polymorphic value against it must skolemize the expansion before
-    // instantiating the value: first an annotated binding, then an
-    // annotation on an application, which checkApply does not skolemize.
+    // instantiating the value: an annotated binding, an annotation on an
+    // application, and a function result that checkApply does not skolemize.
+    // Each infers the type the alias stands for.
     parseProgram(
       """#
 type Poly = forall a. a -> a
 (id: forall a. a -> a) = x -> x
 (main: Poly) = id
 """,
-      "Poly"
+      "forall a. a -> a"
     )
 
     parseProgram(
@@ -3352,7 +3353,7 @@ type Poly = forall a. a -> a
 (f: Int -> (forall a. a -> a)) = _ -> id
 main = (f(1): Poly)
 """,
-      "Poly"
+      "forall a. a -> a"
     )
 
     parseProgram(
@@ -3361,7 +3362,17 @@ type Const[b] = forall a. a -> b
 (f: Int -> (forall a. a -> Int)) = _ -> (_ -> 1)
 main = (f(1): Const[Int])
 """,
-      "Const[Int]"
+      "forall a. a -> Int"
+    )
+
+    parseProgram(
+      """#
+type Poly = forall a. a -> a
+(id: forall a. a -> a) = x -> x
+(g: Int -> Int -> (forall a. a -> a)) = _ -> _ -> id
+main = (g(1): Int -> Poly)
+""",
+      "Int -> Poly"
     )
 
     // the alias is also on the left of a check here, when the match
@@ -3395,6 +3406,163 @@ main = (f(1): Poly)
 type Poly = forall a. a -> a
 (f: Int -> (forall a. a -> Int)) = _ -> (_ -> 1)
 main = (f(1): Poly)
+"""
+    )
+  }
+
+  test("values of an alias of a forall type are polymorphic") {
+    // An alias of a forall is skolemized and instantiated as its expansion,
+    // so a value declared with it is checked as polymorphic and is
+    // instantiated at each use.
+    parseProgram(
+      """#
+type Poly = forall a. a -> a
+(id: Poly) = x -> x
+main = (id(1), id("s"))
+""",
+      "(Int, String)"
+    )
+
+    parseProgram(
+      """#
+type Poly = forall a. a -> a
+def both(f: Poly) -> (Int, String): (f(1), f("s"))
+main = both(x -> x)
+""",
+      "(Int, String)"
+    )
+
+    parseProgram(
+      """#
+type Poly = forall a. a -> a
+struct Box(f: Poly)
+main = match Box(x -> x):
+  case Box(f): (f(1), f("s"))
+""",
+      "(Int, String)"
+    )
+
+    // in a contravariant position the alias is not skolemized, and the
+    // function's argument is instantiated where the body uses it
+    parseProgram(
+      """#
+type Poly = forall a. a -> a
+(id: forall a. a -> a) = x -> x
+def use(f: Poly -> Int) -> Int: f(id)
+main = use(p -> p(1))
+""",
+      "Int"
+    )
+
+    // an alias with parameters, and a forall over one
+    parseProgram(
+      """#
+type Twice[b] = forall a. a -> b -> b
+type K = forall b. Twice[b]
+(k: K) = _ -> y -> y
+main = k("s")(1)
+""",
+      "Int"
+    )
+  }
+
+  test("an alias of a forall type in a function result or type argument") {
+    // the forall floats out of the covariant result, as it does when
+    // written out, so the lambda is checked against Int -> a -> a
+    parseProgram(
+      """#
+type Poly = forall a. a -> a
+type Q = Int -> Poly
+(g: Q) = _ -> x -> x
+main = (g(1)(2), g(1)("s"))
+""",
+      "(Int, String)"
+    )
+
+    // applying the result of type Poly instantiates it
+    parseProgram(
+      """#
+type Poly = forall a. a -> a
+(id: forall a. a -> a) = x -> x
+(f: Int -> Poly) = _ -> id
+main = f(1)(2)
+""",
+      "Int"
+    )
+
+    // an alias in a covariant type argument also floats, and keeps its
+    // spelling in the type of the binding
+    parseProgram(
+      """#
+type Poly = forall a. a -> a
+(xs: List[Poly]) = [x -> x]
+main = xs
+""",
+      "List[Poly]"
+    )
+
+    // an alias of a function type with no forall is applied through its
+    // expansion
+    parseProgram(
+      """#
+type F = Int -> Int
+(f: F) = x -> x
+main = f(1)
+""",
+      "Int"
+    )
+  }
+
+  test("a meta is never solved to an alias of a forall type") {
+    // p is instantiated where it is used, as if it were declared with the
+    // forall its alias stands for, so the list's element type is a -> a,
+    // not Poly
+    parseProgram(
+      """#
+type Poly = forall a. a -> a
+(id: forall a. a -> a) = x -> x
+(p: Poly) = x -> x
+def pair(a: x, b: x) -> List[x]: [a, b]
+main = pair(p, id)
+""",
+      "forall a. List[a -> a]"
+    )
+
+    parseProgram(
+      """#
+type Poly = forall a. a -> a
+(p: Poly) = x -> x
+main = [p]
+""",
+      "forall a. List[a -> a]"
+    )
+  }
+
+  test("ill-typed uses of an alias of a forall type are type errors") {
+    assertTypeErrorsOnly(
+      """#
+type Poly = forall a. a -> a
+(id: Poly) = _ -> 1
+"""
+    )
+    assertTypeErrorsOnly(
+      """#
+type Poly = forall a. a -> a
+def app(f: Poly) -> Int: f(1)
+main = app(_ -> 1)
+"""
+    )
+    assertTypeErrorsOnly(
+      """#
+type Poly = forall a. a -> a
+def app(f: Poly) -> Int: f("s")
+"""
+    )
+    assertTypeErrorsOnly(
+      """#
+type Poly = forall a. a -> a
+type Q = Int -> Poly
+(g: Q) = x -> _ -> x
 """
     )
   }
