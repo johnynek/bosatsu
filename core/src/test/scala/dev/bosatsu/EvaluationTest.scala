@@ -3208,6 +3208,49 @@ test = Assertion(res matches 1, "one")
     )
   }
 
+  test("match branches pack their own witness of exists a. (a, a -> b)") {
+    // A def's result type is per call, so each branch can hide its own type,
+    // and the function a branch packs is only ever applied to the value of
+    // the same branch.
+    runBosatsuTest(
+      List("""
+package Foo
+
+def mk[b](flag: Bool, fi: Int -> b, fs: String -> b) -> exists a. (a, a -> b):
+  match flag:
+    case True: ((1, fi): exists a. (a, a -> b))
+    case False: (("s", fs): exists a. (a, a -> b))
+
+# the same without annotating the branches
+def mk2[b](flag: Bool, fi: Int -> b, fs: String -> b) -> exists a. (a, a -> b):
+  match flag:
+    case True: (1, fi)
+    case False: ("s", fs)
+
+# a lambda checked against the same per call type
+mk3: Bool -> (exists a. (a, a -> Int)) = flag -> (1, x -> x.add(1)) if flag else ("s", _ -> 10)
+
+def use(p: exists a. (a, a -> b)) -> b:
+  (v, f) = p
+  f(v)
+
+def inc(x: Int) -> Int: x.add(1)
+def ten(_: String) -> Int: 10
+
+test = TestSuite("packed witnesses", [
+  Assertion(use(mk(True, inc, ten)) matches 2, "mk True"),
+  Assertion(use(mk(False, inc, ten)) matches 10, "mk False"),
+  Assertion(use(mk2(True, inc, ten)) matches 2, "mk2 True"),
+  Assertion(use(mk2(False, inc, ten)) matches 10, "mk2 False"),
+  Assertion(use(mk3(True)) matches 2, "mk3 True"),
+  Assertion(use(mk3(False)) matches 10, "mk3 False"),
+])
+"""),
+      "Foo",
+      6
+    )
+  }
+
   test("test non-base 10 literals") {
     runBosatsuTest(
       List("""

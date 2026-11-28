@@ -738,7 +738,8 @@ class TypeTest extends munit.ScalaCheckSuite {
     val kindOfFn: Type => Option[Kind] = {
       case tc: Type.TyConst if Type.FnType.unapply(tc).exists(_._2 == 1) =>
         Some(Kind(Kind.Type.contra, Kind.Type.co))
-      case _ => None
+      case Type.ListType => Some(Kind(Kind.Type.co))
+      case _             => None
     }
     def assertHoists(tpe: Type, expected: Type) = {
       val hoisted = Type.hoistQuantifiersCovariantDeep(tpe, kindOfFn)
@@ -810,6 +811,62 @@ class TypeTest extends munit.ScalaCheckSuite {
       Type.IntType
     )
     assertHoists(contra, contra)
+
+    // an existential whose variable is not covariant in its body stays: each
+    // call of Int -> exists b. b -> b can hide its own type
+    val endo = Type.Fun(
+      Type.IntType,
+      Type.exists(List(b -> Kind.Type), Type.Fun(Type.TyVar(b), Type.TyVar(b)))
+    )
+    assertHoists(endo, endo)
+    // and so does one under a head whose variance is unknown
+    val unknownHead = Type.Fun(
+      Type.IntType,
+      Type.exists(
+        List(b -> Kind.Type),
+        Type.apply1(Type.OptionType, Type.TyVar(b))
+      )
+    )
+    assertHoists(unknownHead, unknownHead)
+
+    // a forall under an existential of the type can't move out past it:
+    // exists b. List[forall a. a -> b] is not forall a. exists b. List[a -> b]
+    val underExists = Type.exists(
+      List(b -> Kind.Type),
+      Type.apply1(
+        Type.ListType,
+        Type.forAll(List(a -> Kind.Type), Type.Fun(Type.TyVar(a), Type.TyVar(b)))
+      )
+    )
+    assertHoists(underExists, underExists)
+  }
+
+  test("occursOnlyCovariantly follows variances through applications") {
+    val a = Type.Var.Bound("a")
+    val b = Type.Var.Bound("b")
+    val kindOfFn: Type => Option[Kind] = {
+      case tc: Type.TyConst if Type.FnType.unapply(tc).exists(_._2 == 1) =>
+        Some(Kind(Kind.Type.contra, Kind.Type.co))
+      case Type.ListType => Some(Kind(Kind.Type.co))
+      case _             => None
+    }
+    def co(t: Type): Boolean = Type.occursOnlyCovariantly(a, t, kindOfFn)
+    val ta = Type.TyVar(a)
+
+    assert(co(ta))
+    assert(co(Type.IntType))
+    assert(co(Type.apply1(Type.ListType, ta)))
+    assert(co(Type.Fun(Type.IntType, ta)))
+    assert(!co(Type.Fun(ta, Type.IntType)))
+    assert(!co(Type.Fun(ta, ta)))
+    // two contravariant positions make a covariant one
+    assert(co(Type.Fun(Type.Fun(ta, Type.IntType), Type.IntType)))
+    // a head with an unknown kind counts as invariant
+    assert(!co(Type.apply1(Type.OptionType, ta)))
+    // a binder of the same name hides it
+    assert(co(Type.Fun(Type.exists(List(a -> Kind.Type), ta), Type.IntType)))
+    // other variables don't matter
+    assert(co(Type.Fun(Type.TyVar(b), ta)))
   }
 
   test("hoistQuantifiersCovariantDeep is idempotent") {

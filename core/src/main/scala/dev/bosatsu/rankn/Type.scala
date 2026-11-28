@@ -541,13 +541,58 @@ object Type {
     }
   }
 
-  /** Hoist forall and exists binders out of every all-covariant path.
+  /** True when v occurs free in t only on covariant paths: under an even
+    * number of contravariant arguments and no invariant one, or not at all.
+    * An occurrence under a phantom argument doesn't matter. `kindOf` gives
+    * the variances, and an argument of a head whose kind it doesn't give
+    * counts as invariant.
     *
-    * Skolemization floats existentials as well as universals over
-    * all-covariant paths, so a term checked against `Int -> exists b. List[b]`
-    * gets the type `exists b. Int -> List[b]`. This puts a type in that
-    * weak-prenex form, with universals outside existentials as in every
-    * `Type`. Inference treats a type and this form as the same type.
+    * This is when an `exists v` can move over a covariant position: for a
+    * covariant C, `C[exists v. G[v]]` and `exists v. C[G[v]]` are the same
+    * type only when v is covariant in G, since then `exists b. b` is a witness
+    * that fits every value. Otherwise only `exists v. C[G[v]]` is a subtype of
+    * `C[exists v. G[v]]`: each call of a `Bool -> exists a. (a, a -> Int)` can
+    * hide its own type, and no one type need fit all of them.
+    */
+  def occursOnlyCovariantly(
+      v: Var.Bound,
+      t: Type,
+      kindOf: Type => Option[Kind]
+  ): Boolean = {
+    def loop(t: Type, variance: Variance): Boolean =
+      t match {
+        case TyVar(b: Var.Bound) =>
+          (b =!= v) || (variance == Variance.co) ||
+          (variance == Variance.phantom)
+        case ForAll(vars, in) =>
+          vars.exists { case (b, _) => b === v } || loop(in, variance)
+        case Exists(vars, in) =>
+          vars.exists { case (b, _) => b === v } || loop(in, variance)
+        case ta: TyApply =>
+          val (cons, args) = unapplyAll(ta)
+          val argVariances =
+            kindOf(cons).fold(List.empty[Variance])(_.toArgs.map(_.variance))
+          loop(cons, variance) &&
+          args.iterator.zipWithIndex.forall { case (arg, idx) =>
+            loop(arg, variance * argVariances.lift(idx).getOrElse(Variance.in))
+          }
+        case TyVar(_: Var.Skolem) | TyConst(_) | TyMeta(_) => true
+      }
+
+    loop(t, Variance.co)
+  }
+
+  /** Hoist forall binders, and the exists binders whose variables occur only
+    * covariantly in their bodies, out of every all-covariant path.
+    *
+    * This puts a type in a weak-prenex form, with universals outside
+    * existentials as in every `Type`, that is the same type. So two binders
+    * stay where they are. An existential whose variable is not covariant in
+    * its body (see occursOnlyCovariantly): `Bool -> exists a. (a, a -> Int)`
+    * is not `exists a. Bool -> (a, a -> Int)`. And a universal under an
+    * existential of the type, which would have to move outside it:
+    * `exists a. Option[forall b. b -> a]` is not
+    * `forall b. exists a. Option[b -> a]`.
     *
     * A hoisted binder is renamed where it would clash with another binder or
     * capture a free variable. `kindOf` must give the kind of every applied
@@ -587,7 +632,19 @@ object Type {
               outerNames
             )
           ) { case ((fasRev, exsRev, argsRev, taken), (arg, idx)) =>
-            val (fas, exs, argRho) = splitQuantifiers(arg)
+            val (fas0, exs0, argBody) = splitQuantifiers(arg)
+            // A forall can't move out past this type's own existentials, and
+            // nor can the existentials under it: exists a. F[forall b. G] is
+            // not forall b. exists a. F[G], whose witness for a can depend
+            // on b.
+            val (fas, exs, argRho) =
+              if (fas0.nonEmpty && outerExists.nonEmpty) (Nil, Nil, arg)
+              else {
+                val (hoistedExs, keptExs) = exs0.partition { case (b, _) =>
+                  occursOnlyCovariantly(b, argBody, kindOf)
+                }
+                (fas0, hoistedExs, quantify(Nil, keptExs, argBody))
+              }
             NonEmptyList.fromList(fas ::: exs) match {
               case Some(binders) if isCovariant(idx) =>
                 val avoid =

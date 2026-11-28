@@ -43,7 +43,14 @@ class InferEnvTest extends munit.ScalaCheckSuite {
   property("addVars keeps openVars equal to the open entries of vars") {
     forAll(Gen.mapOf(genBinding), genBatches) { (init, batches) =>
       val env0 =
-        new Infer.Env(RefSpace.constRef(0L), init, Map.empty, Map.empty, Map.empty)
+        new Infer.Env(
+          RefSpace.constRef(0L),
+          RefSpace.constRef(Infer.Unpacks.empty),
+          init,
+          Map.empty,
+          Map.empty,
+          Map.empty
+        )
       val env = batches.foldLeft(env0)(_.addVars(_))
 
       assertEquals(
@@ -78,6 +85,7 @@ class InferEnvTest extends munit.ScalaCheckSuite {
     val env =
       new Infer.Env(
         RefSpace.constRef(0L),
+        RefSpace.constRef(Infer.Unpacks.empty),
         Map.empty,
         Map.empty,
         Map.empty,

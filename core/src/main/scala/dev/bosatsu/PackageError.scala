@@ -1439,6 +1439,24 @@ object PackageError {
 
             (doc, Some(metaR))
 
+          case Infer.Error.ExistentialEscape(escaped, into, region) =>
+            val tmap = showTypes(pack, into :: escaped.toList, localTypeNames)
+            val context = contextDoc(region)
+            val hidden =
+              Doc.intercalate(Doc.text(", "), escaped.toList.map(tmap(_)))
+
+            (
+              tmap.withUnknownTypes(
+                Doc.text("the hidden type ") + hidden + Doc.text(
+                  " of an existential value unpacked here would escape into the type "
+                ) + tmap(into) + Doc.char('.') + Doc.hardLine +
+                  Doc.text(
+                    "Each of the values unpacked here, such as one per call of a function or one per item of a list, can hide a different type, so no one type outside can name it."
+                  ) + Doc.hardLine + context
+              ),
+              Some(region)
+            )
+
           case Infer.Error.NotPolymorphicEnough(tpe, _, _, region) =>
             val tmap = showTypes(pack, tpe :: Nil, localTypeNames)
             val context = contextDoc(region)
