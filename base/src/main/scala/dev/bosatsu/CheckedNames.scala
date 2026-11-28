@@ -77,16 +77,21 @@ object CheckedNames {
     val names =
       BosatsuSourceNames.scan(path, Macro.readRepoFile(path)) match {
         case Right(names) => names
-        case Left(err)    => report.errorAndAbort(err, nameExpr)
+        // $COVERAGE-OFF$ these error paths run only while the compiler
+        // compiles, and only if the Predef source's layout changes
+        case Left(err) => report.errorAndAbort(err, nameExpr)
+        // $COVERAGE-ON$
       }
     val known = select(names)
     if (known.contains(name)) Expr(name)
     else if (known.isEmpty) {
+      // $COVERAGE-OFF$
       // a scan that finds nothing must not quietly reject every name
       report.errorAndAbort(
         s"found no $listName in $path, so `$name` can't be one of them",
         nameExpr
       )
+      // $COVERAGE-ON$
     } else
       report.errorAndAbort(
         notFound(name, s"the $listName of ${names.packageName} in $path", known),

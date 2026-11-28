@@ -25,10 +25,12 @@ object Macro {
       try src.getLines().mkString("\n")
       finally src.close()
     } catch {
+      // $COVERAGE-OFF$ these error paths run only while the compiler compiles
       case NonFatal(err) =>
         report.errorAndAbort(
           s"could not read existing file: ${file.getPath}. Exception: $err"
         )
+      // $COVERAGE-ON$
     }
   }
 
@@ -36,10 +38,12 @@ object Macro {
   def readRepoFile(path: String)(using quotes: Quotes): String =
     repoFile(path) match {
       case Some(file) => readFile(file)
-      case None       =>
+      // $COVERAGE-OFF$ these error paths run only while the compiler compiles
+      case None =>
         quotes.reflect.report.errorAndAbort(
           s"no file found at: $path. working directory is ${System.getProperty("user.dir")}"
         )
+      // $COVERAGE-ON$
     }
 
   def loadFileInCompileImpl(
@@ -49,10 +53,12 @@ object Macro {
 
     fileExpr.value match {
       case Some(path) => Expr(readRepoFile(path))
-      case None       =>
+      // $COVERAGE-OFF$ these error paths run only while the compiler compiles
+      case None =>
         report.errorAndAbort(
           s"expected string literal, found: ${fileExpr.show}"
         )
+      // $COVERAGE-ON$
     }
   }
 }
