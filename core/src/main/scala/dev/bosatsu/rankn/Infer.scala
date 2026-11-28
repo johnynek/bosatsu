@@ -1,6 +1,6 @@
 package dev.bosatsu.rankn
 
-import cats.{Functor, Id, Monad}
+import cats.{Id, Monad}
 import cats.arrow.FunctionK
 import cats.data.{Chain, NonEmptyChain, NonEmptyList}
 
@@ -898,12 +898,6 @@ object Infer {
     def zonkTypedExpr[A](e: TypedExpr[A]): Infer[TypedExpr[A]] =
       TypedExpr.zonkMeta(e)(zonk)
 
-    val zonkTypeExprK: FunctionK[TypedExpr.Rho, [X] =>> Infer[TypedExpr[X]]] =
-      new FunctionK[TypedExpr.Rho, [X] =>> Infer[TypedExpr[X]]] {
-        def apply[A](fa: TypedExpr.Rho[A]): Infer[TypedExpr[A]] =
-          zonkTypedExpr(fa)
-      }
-
     def substTyRho(
         keys: NonEmptyList[Type.Var],
         vals: NonEmptyList[Type.Tau]
@@ -1600,26 +1594,6 @@ object Infer {
     private def clearMeta(m: Type.Meta): Infer[Unit] =
       lift(m.ref.set(None))
 
-    implicit class AndThenMap[F[_], G[_], J[_]](
-        private val fk: FunctionK[F, [X] =>> G[J[X]]]
-    ) extends AnyVal {
-      def andThenMap[H[_]](
-          fn2: FunctionK[J, H]
-      )(implicit G: Functor[G]): FunctionK[F, [X] =>> G[H[X]]] =
-        new FunctionK[F, [X] =>> G[H[X]]] {
-          def apply[A](fa: F[A]): G[H[A]] =
-            fk(fa).map(fn2(_))
-        }
-
-      def andThenFlatMap[H[_]](
-          fn2: FunctionK[J, [X] =>> G[H[X]]]
-      )(implicit G: Monad[G]): FunctionK[F, [X] =>> G[H[X]]] =
-        new FunctionK[F, [X] =>> G[H[X]]] {
-          def apply[A](fa: F[A]): G[H[A]] =
-            fk(fa).flatMap(fn2(_))
-        }
-    }
-
     def checkEscapeSkols[A](
         skols: List[Type.Var.Skolem],
         declared: Type,
@@ -1674,26 +1648,31 @@ object Infer {
             }
       }
 
-    def subsUpper[F[_], G[_]: Functor](
+    /** Skolemize declared, run fn on its rho, then check that none of the
+      * skolems or existential metas escaped into declared or envTpes.
+      *
+      * The escape checks see only the metas fn solved before its Infer
+      * returned, so fn returns a pure coercion: it can't put off inference
+      * work until the coercion is applied. checkSigma has to check a term
+      * before the escape checks, so it runs them itself.
+      */
+    def subsUpper(
         declared: Type,
         region: Region,
         envTpes: Infer[List[Type]]
     )(
-        fn: (
-            List[Type.TyMeta],
-            Type.Rho
-        ) => Infer[FunctionK[F, [X] =>> G[TypedExpr[X]]]]
+        fn: Type.Rho => Infer[TypedExpr.Coerce]
     )(
         onErr: NonEmptyList[Type] => Error
-    ): Infer[FunctionK[F, [X] =>> G[TypedExpr[X]]]] =
+    ): Infer[TypedExpr.Coerce] =
       for {
         (skols, metas, rho) <- skolemize(declared, region)
         // metas are existentials introduced from covariant positions in declared;
         // callers decide whether to quantify them, we only ensure they don't escape.
-        coerce <- fn(metas, rho)
+        coerce <- fn(rho)
         // if there are no skolem variables, we can shortcut here, because empty.filter(fn) == empty
         resSkols <- checkEscapeSkols(skols, declared, envTpes, coerce, onErr) {
-          (coerce, nel) => coerce.andThenMap(unskolemize(nel))
+          (coerce, nel) => coerce.andThen(unskolemize(nel))
         }
         res <- checkEscapeMetas(metas, declared, envTpes, resSkols, onErr) {
           (coerce, _) =>
@@ -1764,11 +1743,11 @@ object Infer {
         case Some(inf) => inf
         case None      =>
           // DEEP-SKOL rule
-          subsUpper[TypedExpr, cats.Id](
+          subsUpper(
             declared,
             right,
             pure(inferred :: Nil)
-          ) { (_, rho) =>
+          ) { rho =>
             // subsCheck only needs a coercion; any meta writes happen during
             // subsCheckRho, and remaining existentials are handled by callers
             // that produce a TypedExpr (e.g. checkSigma/quantify).
@@ -3574,31 +3553,43 @@ object Infer {
           }
       }
 
+    /** Check t against the sigma type tpe: skolemize tpe, check t against the
+      * resulting rho, then check that none of the skolems or existential metas
+      * escaped into the environment.
+      *
+      * The escape checks have to come after t is checked, because checking t
+      * can solve a meta in the environment to one of them. In
+      * `x -> (x: forall a. a -> a)` the lambda argument x has a meta type, and
+      * checking x against `sk -> sk` solves that meta to `sk -> sk`, so the
+      * lambda's type would mention the skolem.
+      */
     def checkSigma[A: HasRegion](t: Expr[A], tpe: Type): Infer[TypedExpr[A]] = {
       val regionT = region(t)
+      val onErr: NonEmptyList[Type] => Error =
+        Error.NotPolymorphicEnough(tpe, t, _, regionT)
       for {
-        check <- subsUpper[[X] =>> (Expr[X], HasRegion[X]), Infer](
-          tpe,
-          regionT,
-          envTypes
-        ) { (metas, rho) =>
-          val cRho = checkRhoK(rho)
-          if (tpe == rho) {
-            // we don't need to zonk here
-            pure(TypedExpr.widenRhoK(cRho))
-          } else {
-            // we need to zonk before we unskolemize because some of the metas could be skolems
-            pure(
-              cRho
-                .andThenFlatMap[TypedExpr](zonkTypeExprK)
-                .andThenFlatMap[TypedExpr](quantifyMetas(metas, rho))
-            )
-          }
-        } { badTvs =>
-          Error.NotPolymorphicEnough(tpe, t, badTvs, regionT)
+        (skols, metas, rho) <- skolemize(tpe, regionT)
+        te <- checkRho(t, rho)
+        // quantifyMetas writes the unsolved existential metas, after which the
+        // environment no longer refers to them, so look for them first
+        _ <- checkEscapeMetas(metas, tpe, envTypes, (), onErr) { (u, _) =>
+          pure(u)
         }
-        te <- check((t, implicitly[HasRegion[A]]))
-      } yield te
+        res <-
+          if (tpe == rho) {
+            // there was nothing to skolemize, so we don't need to zonk here
+            pure(te)
+          } else {
+            for {
+              // we need to zonk before we unskolemize because some of the metas could be skolems
+              zte <- zonkTypedExpr(te)
+              qte <- quantifyMetas(metas, rho)(zte)
+              res <- checkEscapeSkols(skols, tpe, envTypes, qte, onErr) {
+                (qte, nel) => unskolemize(nel)(qte)
+              }
+            } yield res
+          }
+      } yield res
     }
 
     /** invariant: rho needs to be in weak-prenex form
@@ -3608,19 +3599,6 @@ object Infer {
         rho: Type.Rho
     ): Infer[TypedExpr.Rho[A]] =
       typeCheckRho(t, Expected.Check(rho, region(t)))
-
-    // same as checkRho but as a FunctionK
-    def checkRhoK(
-        rho: Type.Rho
-    ): FunctionK[[X] =>> (Expr[X], HasRegion[X]), [X] =>> Infer[
-      TypedExpr.Rho[X]
-    ]] =
-      new FunctionK[[X] =>> (Expr[X], HasRegion[X]), [X] =>> Infer[
-        TypedExpr.Rho[X]
-      ]] {
-        def apply[A](fa: (Expr[A], HasRegion[A])): Infer[TypedExpr.Rho[A]] =
-          checkRho(fa._1, rho)(using fa._2)
-      }
 
     /** recall a rho type never has a top level Forall
       */

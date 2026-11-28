@@ -1861,6 +1861,87 @@ def add(x):
     )
   }
 
+  test("a lambda argument checked against a polytype is a type error") {
+    // A lambda argument has a meta type, which checking it against a
+    // skolemized annotation solves to a type with the skolems in it. The
+    // escape check has to run after the check to see that.
+    def assertOnlyTypeErrors(statements: String): Unit = {
+      val stmts = Parser.unsafeParse(Statement.parser, statements)
+      val errs =
+        Package.inferBody(testPackage, predefResolvedImport :: Nil, stmts) match {
+          case Ior.Left(errs)    => errs.toList
+          case Ior.Both(errs, _) => errs.toList
+          case Ior.Right(_)      => fail(s"expected a type error in: $statements")
+        }
+      val inferErrors = errs.flatMap {
+        case te: PackageError.TypeErrorIn =>
+          te.tpeErr match {
+            case combined: Infer.Error.Combine => combined.flatten.toList
+            case single: Infer.Error.Single    => single :: Nil
+          }
+        case other => fail(s"expected only inference errors, found: $other")
+      }
+      assert(inferErrors.nonEmpty, s"expected an inference error, found: $errs")
+      inferErrors.foreach {
+        case _: Infer.Error.TypeError => ()
+        case other                    =>
+          fail(s"expected only type errors, found: $other")
+      }
+    }
+
+    assertOnlyTypeErrors("""#
+main = x -> (x: forall a. a -> a)
+""")
+    // the skolem is under a type constructor
+    assertOnlyTypeErrors("""#
+main = x -> (x: forall a. List[a])
+""")
+    // the forall is in a function result, which skolemize also opens
+    assertOnlyTypeErrors("""#
+main = x -> (x: Int -> (forall a. a -> a))
+""")
+    // an annotated let checks its right hand side the same way
+    assertOnlyTypeErrors("""#
+def main(x):
+  (y: forall a. a -> a) = x
+  y(1)
+""")
+    // the skolem can escape through an outer lambda's argument too
+    assertOnlyTypeErrors("""#
+main = x -> _ -> (x: forall a. a -> a)
+""")
+    // an existential meta escapes the same way: x's meta is solved to a type
+    // that refers to it
+    assertOnlyTypeErrors("""#
+main = x -> (x: exists a. List[a])
+""")
+  }
+
+  test("annotations with quantifiers inside a lambda still type check") {
+    // the argument's type is closed, so nothing escapes
+    parseProgram(
+      """#
+def f(x: forall a. a -> a) -> Int: (x: forall a. a -> a)(1)
+""",
+      "(forall a. a -> a) -> Int"
+    )
+    parseProgram(
+      """#
+main = (x: Int) -> (x: exists a. a)
+""",
+      "Int -> (exists a. a)"
+    )
+    // only a local term is checked against the polytype
+    parseProgram(
+      """#
+def main(x):
+  (y: forall a. a -> a) = z -> z
+  y(x)
+""",
+      "forall a. a -> a"
+    )
+  }
+
   test("top level matches don't introduce colliding bindings") {
     parseProgramIllTyped("""#
 struct Pair(fst, snd)
