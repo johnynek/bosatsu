@@ -3070,28 +3070,32 @@ main = pick(True, konst, konst)(1)("x")
       "String"
     )
 
-    // `ap` is not applied: the type validator rejects any argument for a
-    // parameter whose result has a forall, which is a separate issue
     parseProgram(
       """#
+(id: forall a. a -> a) = x -> x
+(k: Int -> (Int -> (forall b. b -> b))) = _ -> _ -> id
+
 def ap(h: Int -> (Int -> (forall b. b -> b))) -> (Int -> (forall a. a -> a)):
   h(1)
 
-main = ap
+main = ap(k)(1)("x")
 """,
-      "(Int -> Int -> (forall b. b -> b)) -> Int -> (forall a. a -> a)"
+      "String"
     )
 
     // the results are not just renamings of each other: the expected
     // result needs an instance of the actual one
     parseProgram(
       """#
+(const: forall a, b. a -> b -> a) = x -> _ -> x
+(k: Int -> (Int -> (forall a, b. a -> b -> a))) = _ -> _ -> const
+
 def ap(h: Int -> (Int -> (forall a, b. a -> b -> a))) -> (Int -> (forall c. c -> Int -> c)):
   h(1)
 
-main = ap
+main = ap(k)(1)("x")(2)
 """,
-      "(Int -> Int -> (forall a, b. a -> b -> a)) -> Int -> (forall c. c -> Int -> c)"
+      "String"
     )
   }
 
@@ -3117,10 +3121,11 @@ def bad(h: Int -> (Int -> (forall a. a -> a))) -> (Int -> (forall a. a -> Int)):
         }
       case other => fail(s"expected only inference errors, found: $other")
     }
+    assert(inferErrors.nonEmpty, s"expected an inference error, found: $errs")
     inferErrors.foreach {
-      case internal: Infer.Error.InternalError =>
-        fail(s"expected a type error, found an internal error: $internal")
-      case _ => ()
+      case _: Infer.Error.TypeError => ()
+      case other                    =>
+        fail(s"expected only type errors, found: $other")
     }
   }
 }

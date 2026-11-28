@@ -658,7 +658,11 @@ object Type {
     )
 
   def apply1Rho(fn: Rho, arg: Type): Rho =
-    applyAllRho(fn, arg :: Nil)
+    fn match {
+      // the common case: no binders to lift, so no list to build
+      case la: (Leaf | TyApply) => TyApply(la, arg)
+      case ex: Exists           => applyAllRho(ex, arg :: Nil)
+    }
 
   def apply1(fn: Type, arg: Type): Type =
     fn match {

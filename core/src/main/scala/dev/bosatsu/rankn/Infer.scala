@@ -528,9 +528,9 @@ object Infer {
         * of type sigma.
         *
         * In check mode the expected rho is usually in weak prenex form, but
-        * not always: an annotation on an application, or the widest branch
-        * type of a match, can still have a forall in a function result.
-        * subsCheckFn handles that case.
+        * not always: checkApply checks an application against its annotation
+        * without skolemizing it, so a function result can still have a
+        * forall. subsCheckFn handles that case.
         */
       def instSigma(sigma: Type, r: Region): Infer[FunctionK[TypedExpr, R]]
 
@@ -1042,11 +1042,17 @@ object Infer {
 
     /*
      * If t <:< rho then coerce to rho
-     * invariant: second argument is in weak prenex form, which means that all
-     * the covariant positions have lifted the ForAlls out, e.g.
+     *
+     * rho is usually in weak prenex form, which means that all the covariant
+     * positions have lifted the ForAlls out, e.g.
      * forall a. a -> (forall b. b -> b)
      * was rewritten to:
      * forall a, b. a -> (b -> b)
+     * It need not be: an annotation that checkApply checks against without
+     * skolemizing it, or the widest branch type widenBranches checks each
+     * branch against, can keep a forall in a function result, and
+     * subsCheckFn handles that. An alias at the head of rho must still expand
+     * to a Rho, as the alias normalization in subsCheckRho2 assumes.
      */
     def subsCheckRho(
         t: Type,
