@@ -209,6 +209,36 @@ class ExprTest extends munit.ScalaCheckSuite {
     assertEquals(Expr.freeBoundTyVars(expr), List(a))
   }
 
+  test("freeBoundTyVars visits a MatchGuard's argument, inner guard and check in order") {
+    def tv(n: String): Type.Var.Bound = Type.Var.Bound(n)
+    def annotated(name: String, tpeVar: String, tag: Int): Expr[Int] =
+      Expr.Annotation(Expr.Local(Identifier.Name(name), tag), Type.TyVar(tv(tpeVar)), tag)
+    def annotatedPattern(
+        tpeVar: String
+    ): Pattern[(PackageName, Identifier.Constructor), Type] =
+      Pattern.Annotation(Pattern.WildCard, Type.TyVar(tv(tpeVar)))
+
+    val branch = Expr.Branch.fromGuardNode(
+      annotatedPattern("pattern"),
+      Some(
+        Expr.MatchGuard(
+          annotated("x", "arg", 1),
+          annotatedPattern("guardpattern"),
+          Some(annotated("g", "inner", 2)),
+          Some(annotated("c", "check", 3))
+        )(using Region.empty)
+      ),
+      annotated("b", "body", 4)
+    )(using Region.empty)
+    val expr = Expr.Match(annotated("s", "scrutinee", 0), NonEmptyList.one(branch), 5)
+
+    val expected =
+      List("scrutinee", "pattern", "guardpattern", "arg", "inner", "check", "body")
+        .map(tv)
+    assertEquals(freeBoundTyVarsViaTraverseType(expr), expected)
+    assertEquals(Expr.freeBoundTyVars(expr), expected)
+  }
+
   test("globalRefs includes constructors referenced only in MatchGuard patterns") {
     val guardPkg = PackageName.parts("Guard", "Expr")
     val guardCtor = Identifier.Constructor("Hit")
