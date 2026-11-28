@@ -2968,8 +2968,11 @@ object TypedExpr {
   }
 
   // How deep the direct Traverse[TypedExpr].map recurses before handing a
-  // subtree to the stack-safe traverse[Id].
-  private inline val MaxDirectMapDepth = 512
+  // subtree to the stack-safe traverse[Id]. Keep it small: each level is two
+  // frames, which are large before the JIT compiles them, and 512 levels
+  // overflowed a 96 KiB thread stack on Java 17. Past it, a deep subtree costs
+  // what map always did when it was traverse[Id].
+  private inline val MaxDirectMapDepth = 64
 
   implicit val traverseTypedExpr: Traverse[TypedExpr] =
     new Traverse[TypedExpr] {
