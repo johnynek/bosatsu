@@ -45,7 +45,7 @@ class InferEnvTest extends munit.ScalaCheckSuite {
       val env0 =
         new Infer.Env(
           RefSpace.constRef(0L),
-          RefSpace.constRef(-1L),
+          RefSpace.constRef(Infer.Unpacks.empty),
           init,
           Map.empty,
           Map.empty,
@@ -85,7 +85,7 @@ class InferEnvTest extends munit.ScalaCheckSuite {
     val env =
       new Infer.Env(
         RefSpace.constRef(0L),
-        RefSpace.constRef(-1L),
+        RefSpace.constRef(Infer.Unpacks.empty),
         Map.empty,
         Map.empty,
         Map.empty,

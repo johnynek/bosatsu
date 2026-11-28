@@ -2662,7 +2662,7 @@ def hoist(f: Bool -> exists a. (a, a -> Int)) -> exists a. Bool -> (a, a -> Int)
       )
       assert(
         message.contains(
-          "Each call can unpack a value with a different hidden type"
+          "such as one per call of a function or one per item of a list, can hide a different type"
         ),
         message
       )
@@ -3927,7 +3927,7 @@ x = 1.0 + 2.0
     val known = Identifier.Constructor("JNull")
     val inferEnv = new rankn.Infer.Env(
       rankn.RefSpace.constRef(0L),
-      rankn.RefSpace.constRef(-1L),
+      rankn.RefSpace.constRef(rankn.Infer.Unpacks.empty),
       Map.empty,
       Map(
         (pack, known) -> (
@@ -3961,7 +3961,7 @@ x = 1.0 + 2.0
     val known = Identifier.Constructor("JNull")
     val inferEnv = new rankn.Infer.Env(
       rankn.RefSpace.constRef(0L),
-      rankn.RefSpace.constRef(-1L),
+      rankn.RefSpace.constRef(rankn.Infer.Unpacks.empty),
       Map.empty,
       Map(
         (pack, known) -> (

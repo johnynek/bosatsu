@@ -149,13 +149,26 @@ object Infer {
   )
   type Name = (Option[PackageName], Identifier)
 
+  /** What inference has unpacked from values of existential types.
+    *
+    * last is the id of the latest skolem made for a hidden type (see
+    * newUnpackSkolem), or -1. Ids only grow, so an escape check can tell
+    * whether a computation unpacked anything. patternBound has the ids of
+    * those a pattern binds for a constructor's own type parameters, which a
+    * function body doesn't pack again (see repackUnpacked).
+    */
+  final case class Unpacks(last: Long, patternBound: SortedSet[Long])
+
+  object Unpacks {
+    val empty: Unpacks = Unpacks(-1L, SortedSet.empty)
+  }
+
   class Env private (
       val uniq: Ref[Long],
-      /** The id of the latest skolem made by unpacking a value of an
-        * existential type (see newUnpackSkolem), or -1. Ids only grow, so an
-        * escape check can tell whether a computation unpacked anything.
+      /** What inference has unpacked from values of existential types (see
+        * newUnpackSkolem and Infer.Unpacks).
         */
-      val lastUnpack: Ref[Long],
+      val unpacks: Ref[Unpacks],
       val vars: Map[Name, Type],
       /** The entries of `vars` whose types are open: they contain a meta
         * variable or a free type variable (including skolems).
@@ -179,7 +192,7 @@ object Infer {
 
     def this(
         uniq: Ref[Long],
-        lastUnpack: Ref[Long],
+        unpacks: Ref[Unpacks],
         vars: Map[Name, Type],
         typeCons: Map[(PackageName, Constructor), Cons],
         variances: Map[Type.Const.Defined, Kind],
@@ -187,7 +200,7 @@ object Infer {
     ) =
       this(
         uniq,
-        lastUnpack,
+        unpacks,
         vars,
         vars.filter { case (_, t) => Env.isOpen(t) },
         typeCons,
@@ -206,7 +219,7 @@ object Infer {
       }
       new Env(
         uniq,
-        lastUnpack,
+        unpacks,
         vars = (vars + vt.head) ++ vt.tail,
         open,
         typeCons,
@@ -220,7 +233,7 @@ object Infer {
     def deeper: Env =
       new Env(
         uniq,
-        lastUnpack,
+        unpacks,
         vars,
         openVars,
         typeCons,
@@ -309,8 +322,8 @@ object Infer {
     ): RefSpace[Env] =
       for {
         uniq <- RefSpace.newRef(0L)
-        lastUnpack <- RefSpace.newRef(-1L)
-      } yield new Env(uniq, lastUnpack, vars, tpes, kinds, aliases)
+        unpacks <- RefSpace.newRef(Unpacks.empty)
+      } yield new Env(uniq, unpacks, vars, tpes, kinds, aliases)
 
     private def hasMeta(t: Type): Boolean =
       t match {
@@ -441,9 +454,10 @@ object Infer {
         reg: Region
     ) extends TypeError
     /** A hidden type of an existential value unpacked inside a function
-      * body, or inside a function type's arguments or result, escaped into
-      * the type `into` outside it. Each call can unpack a value with a
-      * different hidden type, so no one type outside can name it.
+      * body, or inside a type argument (the arguments and result of a
+      * function type, or the items of a List), escaped into the type `into`
+      * outside it. Each of the values unpacked there, one per call or per
+      * item, can hide a different type, so no one type outside can name it.
       */
     case class ExistentialEscape(
         escaped: NonEmptyList[Type],
@@ -774,6 +788,28 @@ object Infer {
 
     val currentLevel: Infer[Int] = GetEnv.map(_.level)
 
+    /** Run fa, then run unpackEscapes on outside(a) if fa unpacked a value of
+      * an existential type (see checkUnpackEscape). This is its own node,
+      * since it wraps every comparison of type arguments.
+      */
+    case class CheckUnpackEscape[A](
+        fa: Infer[A],
+        outside: A => List[Type],
+        region: Region
+    ) extends Infer[A] {
+      def run(env: Env) =
+        env.uniq.get.flatMap { start =>
+          fa.run(env).flatMap {
+            case Right(a) =>
+              env.unpacks.get.flatMap { unpacks =>
+                if (unpacks.last < start) RefSpace.pure(Right(a))
+                else unpackEscapes(start, outside(a), region).as(a).run(env)
+              }
+            case left @ Left(_) => RefSpace.pure(left)
+          }
+        }
+    }
+
     case class Lift[A](res: RefSpace[Either[Error, A]]) extends Infer[A] {
       def run(env: Env) = res
     }
@@ -820,6 +856,18 @@ object Infer {
           case Kind.Type                    =>
             fail(Error.KindCannotTyApply(ta, region))
         }
+
+    /** What skolemize makes of a type: the skolems for its universals, the
+      * metas for its top level existentials, the skolems among skols for
+      * universals under those existentials (which their witnesses can't
+      * mention, see checkWitnessesFree), and the rho that is left.
+      */
+    final case class Skolemized(
+        skols: List[Type.Var.Skolem],
+        metas: List[Type.TyMeta],
+        innerSkols: List[Type.Var.Skolem],
+        rho: Type.Rho
+    )
 
     /** Skolemize on a function just recurses on the result type.
       *
@@ -873,7 +921,7 @@ object Infer {
         t: Type,
         region: Region,
         existsLevel: Int
-    ): Infer[(List[Type.Var.Skolem], List[Type.TyMeta], Type.Rho)] =
+    ): Infer[Skolemized] =
       GetEnv.flatMap(env => skolemizeIn(env, t, region, existsLevel))
 
     private def skolemizeIn(
@@ -881,7 +929,7 @@ object Infer {
         t: Type,
         region: Region,
         existsLevel: Int
-    ): Infer[(List[Type.Var.Skolem], List[Type.TyMeta], Type.Rho)] = {
+    ): Infer[Skolemized] = {
 
       val kindOf: Type => Option[Kind] = env.getKindOpt(_)
 
@@ -914,7 +962,7 @@ object Infer {
       def prpoly(
           quant: Type.ForAll | Type.Exists,
           top: Boolean
-      ): Infer[(List[Type.Var.Skolem], List[Type.TyMeta], Type.Rho)] = {
+      ): Infer[Skolemized] = {
         val (univ, exists, ty) = Type.splitQuantifiers(quant)
         for {
           sks1 <- univ.traverse { case (b, k) =>
@@ -928,10 +976,13 @@ object Infer {
               .toMap[Type.Var, Type.Leaf]
           )
           res <- NonEmptyList.fromList(exists) match {
-            case None                    => loopCo(ty0)
+            case None =>
+              loopCo(ty0).map { case (sks, ms, rho) =>
+                Skolemized(sks, ms, Nil, rho)
+              }
             case Some(existsNel) if !top =>
               // a nested existential stays where it is
-              pure((Nil, Nil, Type.Exists(existsNel, ty0)))
+              pure(Skolemized(Nil, Nil, Nil, Type.Exists(existsNel, ty0)))
             case Some(_) =>
               val (moved, bound) = exists.partition { case (b, _) =>
                 movesIntoResult(b, ty0)
@@ -949,10 +1000,9 @@ object Infer {
                   case Some(movedNel) => moveIntoResult(movedNel, ty1)
                 }
                 (sks2, ms2, ty3) <- loopCo(ty2)
-              } yield (sks2, ms ::: ms2, ty3)
+              } yield Skolemized(sks2, ms ::: ms2, if (ms.isEmpty) Nil else sks2, ty3)
           }
-          (sks2, ms2, ty2) = res
-        } yield (sks1 ::: sks2, ms2, ty2)
+        } yield res.copy(skols = sks1 ::: res.skols)
       }
 
       // t is on a completely covariant path below the top. An alias there is
@@ -963,8 +1013,9 @@ object Infer {
           t: Type
       ): Infer[(List[Type.Var.Skolem], List[Type.TyMeta], Type.Rho)] =
         t match {
-          case quant: (Type.ForAll | Type.Exists) => prpoly(quant, top = false)
-          case la: (Type.Leaf | Type.TyApply)     =>
+          case quant: (Type.ForAll | Type.Exists) =>
+            prpoly(quant, top = false).map(s => (s.skols, s.metas, s.rho))
+          case la: (Type.Leaf | Type.TyApply) =>
             val expanded = env.normalizeAliasHead(la)
             if (expanded eq la) loopLeafApply(la, allCo = true)
             else
@@ -1012,9 +1063,41 @@ object Infer {
       // the top is a completely covariant path
       t match {
         case quant: (Type.ForAll | Type.Exists) => prpoly(quant, top = true)
-        case notQuant                           => loopCo(notQuant)
+        case notQuant                           =>
+          loopCo(notQuant).map { case (sks, ms, rho) =>
+            Skolemized(sks, ms, Nil, rho)
+          }
       }
     }
+
+    /** Fail with onErr if a skolem in inner is free in the witness of one of
+      * metas. skolemize makes inner for the foralls under the top level
+      * existentials that metas stand for: in
+      * `exists a. Option[forall b. (b -> a, a -> b)]` the witness for a is
+      * chosen once for every b, so it can't be b. Otherwise the term would
+      * only have the type forall b. exists a. ..., whose witness can depend
+      * on b, and could turn a String into an Int.
+      */
+    private def checkWitnessesFree(
+        metas: List[Type.TyMeta],
+        inner: List[Type.Var.Skolem],
+        onErr: NonEmptyList[Type] => Error
+    ): Infer[Unit] =
+      if (metas.isEmpty || inner.isEmpty) unit
+      else
+        metas.traverse(Type.zonkMeta(_)(zonkThroughAll)).flatMap { witnesses =>
+          val innerSet = inner.toSet
+          val bad = Type
+            .freeTyVars(witnesses)
+            .collect {
+              case sk: Type.Var.Skolem if innerSet(sk) => Type.TyVar(sk): Type
+            }
+            .distinct
+          NonEmptyList.fromList(bad) match {
+            case None      => unit
+            case Some(nel) => fail(onErr(nel))
+          }
+        }
 
     def getFreeTyVars(ts: List[Type]): Infer[Set[Type.Var]] =
       ts.traverse(zonkType).map(Type.freeTyVars(_).toSet)
@@ -1301,50 +1384,22 @@ object Infer {
             }
           } else
             (t, rho) match {
-          case (ex @ Type.Exists(vars, in), rho2) =>
+          case (Type.Exists(vars, in), rho2) =>
             // Exists on the left: unpack the value, giving its hidden types
-            // rigid names (skolems), and continue.
-            def unpack: Infer[TypedExpr.CoerceRho] =
-              vars
-                .traverse { case (b, k) => newUnpackSkolem(b, k) }
-                .flatMap { skols =>
-                  val env = vars.iterator
-                    .map(_._1)
-                    .zip(skols.iterator.map(Type.TyVar(_)))
-                    .toMap[Type.Var, Type.TyVar]
-                  val in1 = Type.substituteRhoVar(in, env)
-                  subsCheckRho2(in1, rho2, left, right, direction)
-                }
-
-            rho2 match {
-              case meta @ Type.TyMeta(m) =>
-                readMeta(m).flatMap {
-                  case Some(tau) =>
-                    subsCheckRho2(ex, tau, left, right, direction)
-                  case None =>
-                    ex match {
-                      case Type.Tau(exTau) =>
-                        // Keep the value packed: the meta gets the
-                        // existential type itself. Unpacking would give the
-                        // hidden type a name that the meta could carry out of
-                        // the place the value is used: in a function of x,
-                        // [x] would type every call's list with the same
-                        // hidden type.
-                        for {
-                          _ <- unifyUnboundVar(
-                            meta,
-                            exTau,
-                            right,
-                            left,
-                            direction.flip
-                          )
-                          ks <- checkedKinds
-                        } yield TypedExpr.coerceRho(ex, ks)
-                      case _ => unpack
-                    }
-                }
-              case _ => unpack
-            }
+            // rigid names (skolems), and continue. The skolems name the
+            // hidden types of this one value, so where the value is one of
+            // many, such as an item of a List or the result of each call,
+            // checkUnpackEscape keeps them from leaving.
+            vars
+              .traverse { case (b, k) => newUnpackSkolem(b, k) }
+              .flatMap { skols =>
+                val env = vars.iterator
+                  .map(_._1)
+                  .zip(skols.iterator.map(Type.TyVar(_)))
+                  .toMap[Type.Var, Type.TyVar]
+                val in1 = Type.substituteRhoVar(in, env)
+                subsCheckRho2(in1, rho2, left, right, direction)
+              }
           case (rho1, typeExists @ Type.Exists(vars, in)) =>
             subsInstantiate(TypedExpr.Domain.RhoDom)(
               rho1,
@@ -1404,17 +1459,14 @@ object Infer {
               (l1, r1) <- unifyTyApp(rho1, kl, kr, left, right, direction)
               // Check from right to left
               _ <- subsCheckRho2(l1, l2, left, right, direction)
-              _ <- kl.arg.variance match {
-                case Variance.Covariant =>
-                  subsCheck(r1, r2, left, right, direction)
-                case Variance.Contravariant =>
-                  subsCheck(r2, r1, right, left, direction.flip)
-                case Variance.Phantom =>
-                  // this doesn't matter
-                  unit
-                case Variance.Invariant =>
-                  unifyType(r1, r2, left, right, direction)
-              }
+              _ <- subsCheckTyArg(
+                kl.arg.variance,
+                r1,
+                r2,
+                left,
+                right,
+                direction
+              )
               ks <- checkedKinds
             } yield TypedExpr.coerceRho(ta, ks)
           case (ta @ Type.TyApply(l1, r1), rho2: Type.Leaf) =>
@@ -1434,17 +1486,14 @@ object Infer {
               // Check from right to left
               _ <- subsCheckRho2(l1, l2, left, right, direction)
               // we know that l2 has kind kl
-              _ <- kl.arg.variance match {
-                case Variance.Covariant =>
-                  subsCheck(r1, r2, left, right, direction)
-                case Variance.Contravariant =>
-                  subsCheck(r2, r1, right, left, direction.flip)
-                case Variance.Phantom =>
-                  // this doesn't matter
-                  unit
-                case Variance.Invariant =>
-                  unifyType(r1, r2, left, right, direction)
-              }
+              _ <- subsCheckTyArg(
+                kl.arg.variance,
+                r1,
+                r2,
+                left,
+                right,
+                direction
+              )
               ks <- checkedKinds
             } yield TypedExpr.coerceRho(rho2, ks)
           case (t1: Type.Leaf, t2: Type.Leaf) =>
@@ -1458,6 +1507,40 @@ object Infer {
             ) // TODO this coerce seems right, since we have unified
         }
         }
+
+    /** Check the arguments r1 and r2 of two applied types against each other
+      * by the variance of the argument.
+      *
+      * A type constructor can hold many values of its argument, as a function
+      * can return a different value from each call, so a hidden type that
+      * comparing them unpacks names one of those values, and can't leave the
+      * comparison: List[exists a. (a, a -> Int)] is not
+      * exists a. List[(a, a -> Int)], since each item can hide its own type.
+      */
+    private def subsCheckTyArg(
+        variance: Variance,
+        r1: Type,
+        r2: Type,
+        left: Region,
+        right: Region,
+        direction: Error.Direction
+    ): Infer[Unit] =
+      variance match {
+        case Variance.Phantom =>
+          // this doesn't matter
+          unit
+        case notPhantom =>
+          checkUnpackEscape[Unit](_ => r1 :: r2 :: Nil, right) {
+            notPhantom match {
+              case Variance.Covariant =>
+                subsCheck(r1, r2, left, right, direction).void
+              case Variance.Contravariant =>
+                subsCheck(r2, r1, right, left, direction.flip).void
+              case _ =>
+                unifyType(r1, r2, left, right, direction)
+            }
+          }
+      }
 
     def unifyFnRho(
         arity: Int,
@@ -1755,7 +1838,10 @@ object Infer {
               validateKinds(t1, r1) &>
                 validateKinds(t2, r2) &>
                 unifyRho(a1, a2, r1, r2, direction) &>
-                unifyType(b1, b2, r1, r2, direction)
+                // as for subsCheckTyArg, the argument can hold many values
+                checkUnpackEscape[Unit](_ => b1 :: b2 :: Nil, r2)(
+                  unifyType(b1, b2, r1, r2, direction)
+                )
             case (Type.TyConst(c1), Type.TyConst(c2)) if c1 == c2 => unit
             case (Type.TyVar(v1), Type.TyVar(v2)) if v1 === v2    => unit
             case (Type.TyVar(b @ Type.Var.Bound(_)), _)           =>
@@ -1790,7 +1876,10 @@ object Infer {
               validateKinds(t1.toTyApply, r1) &>
                 validateKinds(t2.toTyApply, r2) &>
                 unifyTau(t1.on, t2.on, r1, r2, direction) &>
-                unifyTau(t1.arg, t2.arg, r1, r2, direction)
+                // as for subsCheckTyArg, the argument can hold many values
+                checkUnpackEscape[Unit](_ => t1.arg :: t2.arg :: Nil, r2)(
+                  unifyTau(t1.arg, t2.arg, r1, r2, direction)
+                )
             case (Type.TyConst(c1), Type.TyConst(c2)) if c1 == c2 => unit
             case (Type.TyVar(v1), Type.TyVar(v2)) if v1 === v2    => unit
             case (Type.TyVar(b @ Type.Var.Bound(_)), _)           =>
@@ -1864,7 +1953,24 @@ object Infer {
       for {
         sk <- newSkolemTyVar(tv, kind, existential = true)
         env <- GetEnv
-        _ <- lift(env.lastUnpack.set(sk.id))
+        _ <- lift(env.unpacks.get.flatMap { u =>
+          env.unpacks.set(u.copy(last = sk.id))
+        })
+      } yield sk
+
+    /** newUnpackSkolem for a type parameter of a constructor that a pattern
+      * binds, which the match it is in would have to pack again.
+      */
+    def newPatternSkolem(
+        tv: Type.Var.Bound,
+        kind: Kind
+    ): Infer[Type.Var.Skolem] =
+      for {
+        sk <- newSkolemTyVar(tv, kind, existential = true)
+        env <- GetEnv
+        _ <- lift(env.unpacks.get.flatMap { u =>
+          env.unpacks.set(Unpacks(sk.id, u.patternBound + sk.id))
+        })
       } yield sk
 
     /** Resolve every solved meta, existential ones too, without writing
@@ -1885,9 +1991,10 @@ object Infer {
       * unpacked existential (newUnpackSkolem) is free in a type outside: the
       * environment's types or outside(a).
       *
-      * fa is a place that can run more than once, such as a function body, and
-      * each run can unpack a value with a different hidden type. No one type
-      * outside can name all of them: in
+      * fa is a place that can see more than one value, such as a function
+      * body or a type argument of a type constructor, and each value can be
+      * unpacked with a different hidden type. No one type outside can name
+      * all of them: in
       * `def f(x: exists a. (a, a -> Int)): (fst(x), snd(x))` the result type
       * `(sk, sk -> Int)` would let a caller apply one call's function to
       * another call's value.
@@ -1900,41 +2007,84 @@ object Infer {
         outside: A => List[Type],
         region: Region
     )(fa: Infer[A]): Infer[A] =
+      CheckUnpackEscape(fa, outside, region)
+
+    // fail if a skolem made for an unpacked hidden type since start is free in
+    // outTypes or the environment's types
+    private def unpackEscapes(
+        start: Long,
+        outTypes: List[Type],
+        region: Region
+    ): Infer[Unit] =
+      for {
+        envTpes <- envTypes
+        zonked <- (outTypes ::: envTpes).traverse(
+          Type.zonkMeta(_)(zonkThroughAll)
+        )
+        isInner = (v: Type.Var) =>
+          v match {
+            case Type.Var.Skolem(_, _, existential, id) =>
+              existential && (id >= start)
+            case _ => false
+          }
+        escaped = Type.freeTyVars(zonked).filter(isInner).distinct
+        _ <- NonEmptyList.fromList(escaped) match {
+          case None      => unit
+          case Some(nel) =>
+            // the first outside type a skolem escapes into
+            val into = zonked
+              .find(t => Type.freeTyVars(t :: Nil).exists(isInner))
+              .getOrElse(Type.TyVar(nel.head))
+            fail(Error.ExistentialEscape(nel.map(Type.TyVar(_)), into, region))
+        }
+      } yield ()
+
+    /** Pack again, around an inferred function body te of type rho, the
+      * hidden types the body unpacked since start (newUnpackSkolem) that
+      * appear in its type but in none of paramTypes or the environment's
+      * types.
+      * Each call then returns a value of an existential type hiding the type
+      * of that call's value: `def f(x: exists a. (a, a -> Int)): [x]` gets
+      * `(exists a. (a, a -> Int)) -> exists b. List[(b, b -> Int)]`.
+      * Hidden types that do appear outside are left for checkUnpackEscape.
+      */
+    private def repackUnpacked[A](
+        start: Long,
+        paramTypes: List[Type],
+        te: TypedExpr.Rho[A],
+        rho: Type.Rho,
+        region: Region
+    ): Infer[(TypedExpr.Rho[A], Type.Rho)] =
       GetEnv.flatMap { env =>
-        for {
-          start <- lift(env.uniq.get)
-          a <- fa
-          last <- lift(env.lastUnpack.get)
-          _ <-
-            if (last < start) unit
-            else {
-              val outTypes = outside(a)
-              for {
-                envTpes <- envTypes
-                zonked <- (outTypes ::: envTpes).traverse(
-                  Type.zonkMeta(_)(zonkThroughAll)
-                )
-                isInner = (v: Type.Var) =>
-                  v match {
-                    case Type.Var.Skolem(_, _, existential, id) =>
-                      existential && (id >= start)
-                    case _ => false
-                  }
-                escaped = Type.freeTyVars(zonked).filter(isInner).distinct
-                _ <- NonEmptyList.fromList(escaped) match {
-                  case None      => unit
-                  case Some(nel) =>
-                    // the first outside type a skolem escapes into
-                    val into = zonked
-                      .find(t => Type.freeTyVars(t :: Nil).exists(isInner))
-                      .getOrElse(Type.TyVar(nel.head))
-                    fail(
-                      Error.ExistentialEscape(nel.map(Type.TyVar(_)), into, region)
-                    )
-                }
-              } yield ()
-            }
-        } yield a
+        lift(env.unpacks.get).flatMap { unpacks =>
+          if (unpacks.last < start) pure((te, rho))
+          else
+            for {
+              zte <- TypedExpr.Rho.zonkMeta(te)(zonk)
+              bodyType <- Type.zonkMeta(rho)(zonkThroughAll)
+              envTpes <- envTypes
+              outside <- (paramTypes ::: envTpes).traverse(
+                Type.zonkMeta(_)(zonkThroughAll)
+              )
+              outsideVars = Type.freeTyVars(outside).toSet
+              // only the ones in the body's type, and not a constructor's
+              // own type parameter a pattern bound: its binder would have to
+              // be at the match
+              inner = Type.freeTyVars(bodyType :: Nil).collect {
+                case sk @ Type.Var.Skolem(_, _, true, id)
+                    if (id >= start) && !outsideVars(sk) &&
+                      !unpacks.patternBound(id) =>
+                  sk
+              }.distinct
+              res <- NonEmptyList.fromList(inner) match {
+                case None      => pure((zte, rho))
+                case Some(nel) =>
+                  val packed = unskolemizeExists(nel.toList)(zte)
+                  assertRho(packed.getType, "a packed function body", region)
+                    .map((packed, _))
+              }
+            } yield res
+        }
       }
 
     // TODO: it would be nice to support kind inference on skolem variables
@@ -2007,10 +2157,15 @@ object Infer {
     ): Infer[TypedExpr.Coerce] =
       for {
         outer <- currentLevel
-        (skols, metas, rho) <- skolemize(declared, region, outer + 1)
+        Skolemized(skols, metas, innerSkols, rho) <- skolemize(
+          declared,
+          region,
+          outer + 1
+        )
         // metas are existentials introduced from covariant positions in declared;
         // callers decide whether to quantify them.
         coerce <- if (metas.isEmpty) fn(rho) else Deeper(fn(rho))
+        _ <- checkWitnessesFree(metas, innerSkols, onErr)
         // if there are no skolem variables, we can shortcut here, because empty.filter(fn) == empty
         res <- checkEscapeSkols(skols, declared, envTpes, coerce, onErr) {
           (coerce, nel) => coerce.andThen(unskolemize(nel))
@@ -2752,8 +2907,16 @@ object Infer {
                   // all functions args of kind type
                   newMeta.map((n, _))
               }
-              (typedBody, bodyT) <- extendEnvNonEmptyList(nameVarsT)(
+              start <- GetEnv.flatMap(env => lift(env.uniq.get))
+              (typedBody0, bodyT0) <- extendEnvNonEmptyList(nameVarsT)(
                 inferRho(result)
+              )
+              (typedBody, bodyT) <- repackUnpacked(
+                start,
+                nameVarsT.toList.map(_._2),
+                typedBody0,
+                bodyT0,
+                lambdaRegion
               )
             } yield (
               TypedExpr.Rho.AnnotatedLambda(
@@ -2765,7 +2928,10 @@ object Infer {
             ))
 
           expect.fold(inferLambda) { (expTy, rr) =>
-            checkUnpackEscape[TypedExpr.Rho[A]](_ => expTy :: Nil, lambdaRegion)(for {
+            checkUnpackEscape[TypedExpr.Rho[A]](
+              _ => expTy :: Nil,
+              lambdaRegion
+            )(for {
               // we know expTy is in weak-prenex form, and since Fn is covariant, bodyT must be
               // in weak prenex form
               (varsT, bodyT) <- unifyFnRho(
@@ -3679,7 +3845,7 @@ object Infer {
             .flatMap { env =>
               consExists
                 .traverse { case (b, ka) =>
-                  newUnpackSkolem(b, ka.kind)
+                  newPatternSkolem(b, ka.kind)
                     .map(sk => (b, Type.TyVar(sk)))
                 }
                 .map { skolemSubs =>
@@ -3917,7 +4083,11 @@ object Infer {
         Error.NotPolymorphicEnough(tpe, t, _, regionT)
       for {
         outer <- currentLevel
-        (skols, metas, rho) <- skolemize(tpe, regionT, outer + 1)
+        Skolemized(skols, metas, innerSkols, rho) <- skolemize(
+          tpe,
+          regionT,
+          outer + 1
+        )
         res <-
           if (tpe == rho) {
             // there was nothing to skolemize, so we don't need to zonk here
@@ -3926,6 +4096,7 @@ object Infer {
             val checked =
               for {
                 te <- checkRho(t, rho)
+                _ <- checkWitnessesFree(metas, innerSkols, onErr)
                 // we need to zonk before we unskolemize because some of the
                 // metas could be skolems
                 zte <- zonkTypedExpr(te)

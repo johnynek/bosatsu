@@ -1955,7 +1955,7 @@ def main(x):
   (z: exists b. List[b]) = x
   (y, z)
 """,
-      "forall c. List[c] -> (exists a. List[a], exists b. List[b])"
+      "forall c. List[c] -> (exists a, b. (List[a], List[b]))"
     )
     // the witness is x's type, which a later use can still solve
     parseProgram(
@@ -2105,8 +2105,10 @@ def hoist(f: Bool -> exists a. (a, a -> Int)) -> exists a. Bool -> (a, a -> Int)
     assertExistentialEscape("""#
 main = (x -> x): exists e. (exists a. (a, a -> Int)) -> (e, e -> Int)
 """)
-    // unpacking the argument in the body names its hidden type there
-    assertExistentialEscape("""#
+    // unpacking the argument in the body names its hidden type there, so
+    // each call packs the result again, here once for each projection
+    parseProgram(
+      """#
 def fst(p: (a, b)) -> a:
   (x, _) = p
   x
@@ -2114,8 +2116,12 @@ def snd(p: (a, b)) -> b:
   (_, y) = p
   y
 def f(x: exists a. (a, a -> Int)): (fst(x), snd(x))
-""")
-    // a constructor's own type parameter is hidden like an existential
+""",
+      "(exists a. (a, a -> Int)) -> (exists b, c. (b, c -> Int))"
+    )
+    // a constructor's own type parameter is hidden like an existential. Only
+    // its match could pack it again, so without an annotation on the result
+    // it can't leave the function
     assertExistentialEscape("""#
 struct Tup(a, b)
 enum FreeF[a]:
@@ -2129,13 +2135,83 @@ def branch(b: FreeF[a]):
     case Mapped(prev, fn): Some(Tup(prev, fn))
     case _: None
 """)
-    // the hidden type of x is kept with each item instead of being named
+    // each call packs the list of its x again
     parseProgram(
       """#
 def f(x: exists a. (a, a -> Int)): [x]
 """,
-      "(exists a. (a, a -> Int)) -> List[exists a. (a, a -> Int)]"
+      "(exists a. (a, a -> Int)) -> (exists b. List[(b, b -> Int)])"
     )
+  }
+
+  test("a hidden type can't be shared by the items of a List or struct") {
+    // Each of these was accepted, and bad applied the function from one item
+    // to the value from another, adding 1 to "s" at runtime.
+    val prelude = """#
+def inc(x: Int) -> Int: x.add(1)
+def len(_: String) -> Int: 0
+
+def bad(zs: exists a. List[(a, a -> Int)]) -> Int:
+  match zs:
+    case [(_, h), (v, _)]: h(v)
+    case _: 0
+
+xs: List[exists a. (a, a -> Int)] = [((1, inc): exists a. (a, a -> Int)), (("s", len): exists a. (a, a -> Int))]
+"""
+    // each item hides its own type, which is fine
+    parseProgram(prelude, "List[exists a. (a, a -> Int)]")
+    // but they aren't one hidden type for the whole list
+    assertExistentialEscape(prelude + """
+ys: exists a. List[(a, a -> Int)] = xs
+""")
+    assertExistentialEscape(prelude + """
+def to_one(xs: List[exists a. (a, a -> Int)]) -> exists a. List[(a, a -> Int)]: xs
+""")
+    assertExistentialEscape(prelude + """
+main = bad(xs)
+""")
+    // the results of mapping a function whose calls hide their own types
+    assertExistentialEscape(prelude + """
+def mk(i: Int) -> exists a. (a, a -> Int):
+  (1, inc) if i.eq_Int(1) else ("s", len)
+def go(f: Int -> exists a. (a, a -> Int)) -> Int: bad([1, 2].map_List(f))
+""")
+    // the items of a list literal are compared with one another
+    parseProgramIllTyped(prelude + """
+def mk(i: Int) -> exists a. (a, a -> Int):
+  (1, inc) if i.eq_Int(1) else ("s", len)
+ys = [mk(1), mk(2)]
+main = bad(ys)
+""")
+    // the fields of a struct are like the items of a list
+    assertExistentialEscape("""#
+def inc(x: Int) -> Int: x.add(1)
+def len(_: String) -> Int: 0
+
+struct Two[a](x: a, y: a)
+
+t: Two[exists a. (a, a -> Int)] = Two(((1, inc): exists a. (a, a -> Int)), (("s", len): exists a. (a, a -> Int)))
+u: exists a. Two[(a, a -> Int)] = t
+""")
+  }
+
+  test("an existential's witness can't depend on a forall under it") {
+    // exists a. Option[forall b. (b -> a, a -> b)] chooses a once for every
+    // b, so a can't be b. With a := b, bad turned "hello" into an Int.
+    parseProgramIllTyped("""#
+def inc(x: Int) -> Int: x.add(1)
+def ident(i: b) -> b: i
+p: forall b. (b -> b, b -> b) = (ident, ident)
+y: exists a. Option[forall b. (b -> a, a -> b)] = Some(p)
+def bad3(z: exists a. Option[forall b. (b -> a, a -> b)]) -> Int:
+  match z:
+    case Some(q):
+      (to_a, _) = q
+      (_, from_a) = q
+      inc(from_a(to_a("hello")))
+    case _: 0
+main = bad3(y)
+""")
   }
 
   test("match branches can each pack their own witness") {

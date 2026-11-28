@@ -1451,7 +1451,7 @@ object PackageError {
                   " of an existential value unpacked here would escape into the type "
                 ) + tmap(into) + Doc.char('.') + Doc.hardLine +
                   Doc.text(
-                    "Each call can unpack a value with a different hidden type, so no one type outside can name it."
+                    "Each of the values unpacked here, such as one per call of a function or one per item of a list, can hide a different type, so no one type outside can name it."
                   ) + Doc.hardLine + context
               ),
               Some(region)

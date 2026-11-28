@@ -586,10 +586,13 @@ object Type {
     * covariantly in their bodies, out of every all-covariant path.
     *
     * This puts a type in a weak-prenex form, with universals outside
-    * existentials as in every `Type`, that is the same type. An existential
-    * whose variable is not covariant in its body stays where it is (see
-    * occursOnlyCovariantly): `Bool -> exists a. (a, a -> Int)` is not
-    * `exists a. Bool -> (a, a -> Int)`.
+    * existentials as in every `Type`, that is the same type. So two binders
+    * stay where they are. An existential whose variable is not covariant in
+    * its body (see occursOnlyCovariantly): `Bool -> exists a. (a, a -> Int)`
+    * is not `exists a. Bool -> (a, a -> Int)`. And a universal under an
+    * existential of the type, which would have to move outside it:
+    * `exists a. Option[forall b. b -> a]` is not
+    * `forall b. exists a. Option[b -> a]`.
     *
     * A hoisted binder is renamed where it would clash with another binder or
     * capture a free variable. `kindOf` must give the kind of every applied
@@ -629,11 +632,19 @@ object Type {
               outerNames
             )
           ) { case ((fasRev, exsRev, argsRev, taken), (arg, idx)) =>
-            val (fas, exs0, argBody) = splitQuantifiers(arg)
-            val (exs, keptExs) = exs0.partition { case (b, _) =>
-              occursOnlyCovariantly(b, argBody, kindOf)
-            }
-            val argRho = quantify(Nil, keptExs, argBody)
+            val (fas0, exs0, argBody) = splitQuantifiers(arg)
+            // A forall can't move out past this type's own existentials, and
+            // nor can the existentials under it: exists a. F[forall b. G] is
+            // not forall b. exists a. F[G], whose witness for a can depend
+            // on b.
+            val (fas, exs, argRho) =
+              if (fas0.nonEmpty && outerExists.nonEmpty) (Nil, Nil, arg)
+              else {
+                val (hoistedExs, keptExs) = exs0.partition { case (b, _) =>
+                  occursOnlyCovariantly(b, argBody, kindOf)
+                }
+                (fas0, hoistedExs, quantify(Nil, keptExs, argBody))
+              }
             NonEmptyList.fromList(fas ::: exs) match {
               case Some(binders) if isCovariant(idx) =>
                 val avoid =

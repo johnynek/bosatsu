@@ -828,6 +828,17 @@ class TypeTest extends munit.ScalaCheckSuite {
       )
     )
     assertHoists(unknownHead, unknownHead)
+
+    // a forall under an existential of the type can't move out past it:
+    // exists b. List[forall a. a -> b] is not forall a. exists b. List[a -> b]
+    val underExists = Type.exists(
+      List(b -> Kind.Type),
+      Type.apply1(
+        Type.ListType,
+        Type.forAll(List(a -> Kind.Type), Type.Fun(Type.TyVar(a), Type.TyVar(b)))
+      )
+    )
+    assertHoists(underExists, underExists)
   }
 
   test("occursOnlyCovariantly follows variances through applications") {
