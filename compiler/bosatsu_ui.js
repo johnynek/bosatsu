@@ -54223,7 +54223,18 @@ function $p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__simpleNeg$1__Lcats_kernel_Order_
   if ((x391 instanceof $c_Ldev_bosatsu_RingOpt$Neg)) {
     return new $c_Ldev_bosatsu_RingOpt$Neg($p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__normExpr$1__Lcats_kernel_Order__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr($thiz, o$6, x391.fU));
   }
-  return $p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__normExpr$1__Lcats_kernel_Order__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr($thiz, o$6, x391);
+  var $x_1 = $f_Ldev_bosatsu_RingOpt$Expr__graphSize__J(x391);
+  var x$1_$_lo = $x_1.l;
+  var x$1_$_hi = $x_1.h;
+  var $x_2 = $f_Ldev_bosatsu_RingOpt$Expr__graphSize__J(e);
+  var x_$_lo = $x_2.l;
+  var x_$_hi = $x_2.h;
+  var lo = ((1 + x_$_lo) | 0);
+  var hi = ((x_$_hi + ((lo === 0) | 0)) | 0);
+  if (((x$1_$_hi === hi) ? ((x$1_$_lo >>> 0) <= (lo >>> 0)) : (x$1_$_hi < hi))) {
+    return $p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__normExpr$1__Lcats_kernel_Order__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr($thiz, o$6, x391);
+  }
+  return new $c_Ldev_bosatsu_RingOpt$Neg($p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__normExpr$1__Lcats_kernel_Order__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr($thiz, o$6, e));
 }
 function $p_Ldev_bosatsu_RingOpt$Expr$ExprOps$__step$1__Lcats_kernel_Order__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr__Ldev_bosatsu_RingOpt$Expr($thiz, o$7, nx, ny) {
   if ((nx instanceof $c_Ldev_bosatsu_RingOpt$Integer)) {
@@ -409750,9 +409761,9 @@ function $c_Ldev_bosatsu_BuildInfo$() {
   this.ahP = null;
   this.bwX = null;
   $n_Ldev_bosatsu_BuildInfo$ = this;
-  this.QT = "0.0.0+1-4478ee0b-SNAPSHOT";
+  this.QT = "0.0.0+1-f302bcf2-SNAPSHOT";
   this.aU1 = "3.8.2";
-  this.YH = new $c_s_Some("4478ee0bd217dc1f00bad56be2f7bc8b3eeaccbb");
+  this.YH = new $c_s_Some("f302bcf222578f2ca6b11d04ef1d2e61d265814c");
   this.ahP = "";
   this.bwX = ((((((("version: " + this.QT) + ", scalaVersion: ") + this.aU1) + ", gitHeadCommit: ") + this.YH) + ", cRuntimeArchiveHash: ") + this.ahP);
 }
