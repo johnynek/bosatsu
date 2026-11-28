@@ -1467,7 +1467,7 @@ object TypedExpr {
     }
   }
 
-  export RhoImpl.{Rho, substCoerceRho, widenCoerceRho, widenRhoK}
+  export RhoImpl.{Rho, substCoerceRho, widenCoerceRho}
 
   /** Rho is transparent only inside this object, so a Rho built anywhere else
     * comes from one of these constructors.
@@ -1481,14 +1481,10 @@ object TypedExpr {
       TypedExpr[A] // an expression with a Rho type (no top level forall)
 
     // we can always consider CoerceRho as a Coerce. These widen a Rho to a
-    // TypedExpr inside F or G, which is only sound when F and G are covariant:
-    // through a contravariant G, a consumer that needs a Rho would accept any
-    // TypedExpr.
+    // TypedExpr inside F, which is only sound when F is covariant: through a
+    // contravariant F, a consumer that needs a Rho would accept any TypedExpr.
     inline def widenCoerceRho(co: CoerceRho): Coerce = co
     inline def substCoerceRho[F[+_]](fc: F[CoerceRho]): F[Coerce] = fc
-    inline def widenRhoK[F[_], G[+_]](
-        fk: FunctionK[F, [X] =>> G[Rho[X]]]
-    ): FunctionK[F, [X] =>> G[TypedExpr[X]]] = fk
 
     object Rho {
       def substTyExpr[A](
