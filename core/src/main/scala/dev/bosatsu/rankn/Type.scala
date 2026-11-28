@@ -11,6 +11,8 @@ import dev.bosatsu.{
   TypeName,
   Identifier,
   Parser,
+  PredefName,
+  ReservedPackage,
   TypeParser,
   Require,
   Variance
@@ -84,95 +86,111 @@ object Type {
   sealed abstract class Leaf extends Rho {
     override def normalize: Leaf = this
   }
-  // no forall or exists anywhere
-  // Any Rho that is not an TyApply is always a Tau
-  // TyApply is Tau
-  opaque type Tau <: Rho = Rho
 
-  object Tau {
-    given Order[Tau] = Rho.orderRho
+  /** Tau is defined in its own object, so that it is opaque in the rest of
+    * this file and only the definitions here can see it is a Rho. Use it
+    * through the export, as Type.Tau. (The object can't be private: inline
+    * methods of Tau refer to it from other files.)
+    */
+  object TauScope {
+    // no forall or exists anywhere
+    // Any Rho that is not an TyApply is always a Tau
+    // TyApply is Tau
+    opaque type Tau <: Rho = Rho
 
-    def tauConst(c: Const): Tau = TyConst(c)
-    def tauVar(v: Var): Tau = TyVar(v)
-    def tauMeta(m: Meta): Tau = TyMeta(m)
+    object Tau {
+      given Order[Tau] = Rho.orderRho
 
-    inline def apply(l: Leaf): Tau = l
+      def tauConst(c: Const): Tau = TyConst(c)
+      def tauVar(v: Var): Tau = TyVar(v)
+      def tauMeta(m: Meta): Tau = TyMeta(m)
 
-    opaque type TauApply <: Tau = TyApply
-    implicit class TauApplyMethods(private val ta: TauApply) extends AnyVal {
-      inline def on: Tau = ta.on
-      inline def arg: Tau =
-        // This cast is safe because TauApply is a Tau
-        ta.arg.asInstanceOf[Rho]
+      inline def apply(l: Leaf): Tau = l
 
-      inline def toTyApply: TyApply = ta
-    }
+      opaque type TauApply <: Tau = TyApply
+      implicit class TauApplyMethods(private val ta: TauApply) extends AnyVal {
+        inline def on: Tau = ta.on
+        inline def arg: Tau =
+          // This cast is safe because TauApply is a Tau
+          ta.arg.asInstanceOf[Rho]
 
-    object TauApply {
-      def apply(on: Tau, arg: Tau): TauApply = {
-        // TODO: when exists becomes tau, this needs to change:
-        val onLA = on.asInstanceOf[Leaf | TyApply]
-        TyApply(onLA, arg)
+        inline def toTyApply: TyApply = ta
       }
 
-      // a scala3 zero allocation match result
-      class TauApplyMatch(tau: Tau) extends AnyVal {
-        def isEmpty: Boolean = !tau.isInstanceOf[TyApply]
-        def get: TauApply = tau.asInstanceOf[TyApply]
-      }
+      object TauApply {
+        def apply(on: Leaf | TauApply, arg: Tau): TauApply =
+          TyApply(on, arg)
 
-      def unapply(t: Tau): TauApplyMatch = new TauApplyMatch(t)
-    }
-
-    opaque type TauExists <: Tau = Exists
-    implicit class TauExistsMethods(private val te: TauExists) extends AnyVal {
-      inline def vars: NonEmptyList[(Var.Bound, Kind)] = te.vars
-      inline def in: Tau = te.in
-      inline def toExists: Exists = te
-    }
-
-    object TauExists {
-      def apply(vars: NonEmptyList[(Var.Bound, Kind)], in: Tau): TauExists =
-        existsRho(vars, in)
-
-      // a scala3 zero allocation match result
-      class TauExistsMatch(tau: Tau) extends AnyVal {
-        def isEmpty: Boolean = !tau.isInstanceOf[Exists]
-        def get: TauExists = tau.asInstanceOf[Exists]
-      }
-
-      def unapply(t: Tau): TauExistsMatch = new TauExistsMatch(t)
-    }
-
-    def isTau(t: Type): Boolean = {
-      @annotation.tailrec
-      def loop(ts: List[Type]): Boolean =
-        ts match {
-          case (_: Leaf) :: rest        => loop(rest)
-          case TyApply(on, arg) :: rest =>
-            loop(on :: arg :: rest)
-          case (Exists(_, in) :: rest) =>
-            loop(in :: rest)
-          case (_: ForAll) :: _ => false
-          case Nil              => true
+        // a scala3 zero allocation match result
+        class TauApplyMatch(tau: Tau) extends AnyVal {
+          def isEmpty: Boolean = !tau.isInstanceOf[TyApply]
+          def get: TauApply = tau.asInstanceOf[TyApply]
         }
 
-      t match {
-        case _: Leaf         => true
-        case TyApply(t1, t2) => loop(t1 :: t2 :: Nil)
-        case Exists(_, in)   => loop(in :: Nil)
-        case _: ForAll       => false
+        def unapply(t: Tau): TauApplyMatch = new TauApplyMatch(t)
       }
-    }
 
-    // a scala3 zero allocation match result
-    class TauMatch(t: Type) extends AnyVal {
-      def isEmpty: Boolean = !isTau(t)
-      def get: Tau = t.asInstanceOf[Rho]
-    }
+      opaque type TauExists <: Tau = Exists
+      implicit class TauExistsMethods(private val te: TauExists) extends AnyVal {
+        inline def vars: NonEmptyList[(Var.Bound, Kind)] = te.vars
+        inline def in: Tau = te.in
+        inline def toExists: Exists = te
+      }
 
-    def unapply(t: Type): TauMatch = new TauMatch(t)
+      object TauExists {
+        def apply(vars: NonEmptyList[(Var.Bound, Kind)], in: Tau): TauExists =
+          existsRho(vars, in)
+
+        // a scala3 zero allocation match result
+        class TauExistsMatch(tau: Tau) extends AnyVal {
+          def isEmpty: Boolean = !tau.isInstanceOf[Exists]
+          def get: TauExists = tau.asInstanceOf[Exists]
+        }
+
+        def unapply(t: Tau): TauExistsMatch = new TauExistsMatch(t)
+      }
+
+      def isTau(t: Type): Boolean = {
+        @annotation.tailrec
+        def loop(ts: List[Type]): Boolean =
+          ts match {
+            case (_: Leaf) :: rest        => loop(rest)
+            case TyApply(on, arg) :: rest =>
+              loop(on :: arg :: rest)
+            case (Exists(_, in) :: rest) =>
+              loop(in :: rest)
+            case (_: ForAll) :: _ => false
+            case Nil              => true
+          }
+
+        t match {
+          case _: Leaf         => true
+          case TyApply(t1, t2) => loop(t1 :: t2 :: Nil)
+          case Exists(_, in)   => loop(in :: Nil)
+          case _: ForAll       => false
+        }
+      }
+
+      // a scala3 zero allocation match result
+      class TauMatch(t: Type) extends AnyVal {
+        def isEmpty: Boolean = !isTau(t)
+        def get: Tau = t.asInstanceOf[Rho]
+      }
+
+      def unapply(t: Type): TauMatch = new TauMatch(t)
+
+      /** Resolve known meta variables nested inside a Tau. The result is a
+        * Tau: zonking only replaces metas with taus, and lifts an exists out
+        * of the function of an apply.
+        */
+      def zonkMeta[F[_]: Applicative](t: Tau)(
+          mfn: Meta => F[Option[Tau]]
+      ): F[Tau] =
+        zonkRhoMeta(t)(mfn)
+    }
   }
+
+  export TauScope.Tau
 
   case class TyConst(tpe: Const) extends Leaf
   case class TyVar(toVar: Var) extends Leaf
@@ -180,16 +198,18 @@ object Type {
 
   // apply doesn't have nested Exists (apply binds tighter)
   case class TyApply(on: Leaf | TyApply, arg: Type) extends Rho {
-    lazy val normalize: Rho = {
-      // normalization can't make a rho into an exists
-      val onLA = on.normalize.asInstanceOf[Leaf | TyApply]
-      TyApply(onLA, arg.normalize)
-    }
+    lazy val normalize: TyApply =
+      TyApply(Type.normalizeLeafApply(on), arg.normalize)
   }
 
   case class ForAll(vars: NonEmptyList[(Var.Bound, Kind)], in: Rho)
       extends Type {
-    lazy val normalize: Type = Type.runNormalize(this)
+    lazy val normalize: Type = {
+      val (foralls, exists, in1) = splitQuantifiers(this)
+      val (normFas, normExs, normIn) =
+        Type.normalizeQuantified(foralls, exists, in1)
+      quantify(normFas, normExs, normIn)
+    }
 
     /** Alpha-rename quantified binders to avoid names already in use.
       *
@@ -208,7 +228,15 @@ object Type {
   // exists aren't nested, so in must be a Leaf or TyApply
   case class Exists(vars: NonEmptyList[(Var.Bound, Kind)], in: Leaf | TyApply)
       extends Rho {
-    lazy val normalize: Rho = Type.runNormalize(this).asInstanceOf[Rho]
+    lazy val normalize: Rho = {
+      // there are no foralls to normalize, so none come back
+      val (_, normExs, normIn) =
+        Type.normalizeQuantified(Nil, vars.toList, in)
+      NonEmptyList.fromList(normExs) match {
+        case None      => normIn
+        case Some(nel) => Exists(nel, normIn)
+      }
+    }
 
     /** Alpha-rename quantified binders to avoid names already in use.
       *
@@ -479,22 +507,161 @@ object Type {
     }
   }
 
+  /** Hoist forall binders out of every all-covariant path.
+    *
+    * [[hoistForAllCovariant]] only hoists out of the arguments of the root
+    * head. This version first hoists inside each covariant argument, so
+    * `Int -> Int -> forall b. b -> b` becomes `forall b. Int -> Int -> b -> b`.
+    * That is the weak-prenex form inference gives to a term checked against a
+    * type, since skolemization floats universals over all-covariant paths.
+    *
+    * `kindOf` must give the kind of every applied head on those paths. Where
+    * it does not, that part of the type is left unchanged.
+    */
+  def hoistForAllCovariantDeep(
+      tpe: Type,
+      kindOf: Type => Option[Kind]
+  ): Type = {
+    val (outerForalls, rho0) = liftUniversals(tpe)
+    val (cons, cargs) = unapplyAll(rho0)
+    kindOf(cons) match {
+      case None =>
+        tpe
+      case Some(kind) =>
+        val kindArgs = kind.toArgs
+        val cargs1 = cargs.iterator.zipWithIndex.map { case (arg, idx) =>
+          if (kindArgs.lift(idx).exists(_.variance == Variance.co))
+            hoistForAllCovariantDeep(arg, kindOf)
+          else arg
+        }.toList
+        hoistForAllCovariant(
+          forAll(outerForalls, applyAll(cons, cargs1)),
+          kindOf
+        )
+    }
+  }
+
+  /** Hoist forall and exists binders out of every all-covariant path.
+    *
+    * Skolemization floats existentials as well as universals over
+    * all-covariant paths, so a term checked against `Int -> exists b. List[b]`
+    * gets the type `exists b. Int -> List[b]`. This puts a type in that
+    * weak-prenex form, with universals outside existentials as in every
+    * `Type`. Inference treats a type and this form as the same type.
+    *
+    * A hoisted binder is renamed where it would clash with another binder or
+    * capture a free variable. `kindOf` must give the kind of every applied
+    * head on those paths. Where it does not, that part of the type is left
+    * unchanged.
+    */
+  def hoistQuantifiersCovariantDeep(
+      tpe: Type,
+      kindOf: Type => Option[Kind]
+  ): Type = {
+    val (outerForalls, outerExists, rho0) = splitQuantifiers(tpe)
+    val (cons, cargs) = unapplyAll(rho0)
+    kindOf(cons) match {
+      case None =>
+        tpe
+      case Some(kind) =>
+        val kindArgs = kind.toArgs
+        def isCovariant(idx: Int): Boolean =
+          kindArgs.lift(idx).exists(_.variance == Variance.co)
+
+        val cargs1 = cargs.zipWithIndex.map { case (arg, idx) =>
+          if (isCovariant(idx)) hoistQuantifiersCovariantDeep(arg, kindOf)
+          else arg
+        }
+        val freeByArg =
+          cargs1.iterator.map(t => freeBoundTyVars(t :: Nil).toSet).toVector
+        val outerNames: Set[Var.Bound] =
+          (outerForalls.iterator ++ outerExists.iterator).map(_._1).toSet ++
+            freeBoundTyVars(cons :: Nil)
+
+        val (forallsRev, existsRev, argsRev, _) =
+          cargs1.iterator.zipWithIndex.foldLeft(
+            (
+              List.empty[(Var.Bound, Kind)],
+              List.empty[(Var.Bound, Kind)],
+              List.empty[Type],
+              outerNames
+            )
+          ) { case ((fasRev, exsRev, argsRev, taken), (arg, idx)) =>
+            val (fas, exs, argRho) = splitQuantifiers(arg)
+            NonEmptyList.fromList(fas ::: exs) match {
+              case Some(binders) if isCovariant(idx) =>
+                val avoid =
+                  taken ++
+                    freeByArg.iterator.zipWithIndex.collect {
+                      case (free, i) if i != idx => free
+                    }.flatten ++
+                    freeByArg(idx)
+                val (subst, binders1) = unshadow(binders, avoid)
+                val argRho1 =
+                  if (subst.isEmpty) argRho else substituteVar(argRho, subst)
+                val (fas1, exs1) = binders1.toList.splitAt(fas.length)
+                (
+                  fas1.reverse_:::(fasRev),
+                  exs1.reverse_:::(exsRev),
+                  argRho1 :: argsRev,
+                  taken ++ binders1.iterator.map(_._1)
+                )
+              case _ =>
+                (fasRev, exsRev, arg :: argsRev, taken)
+            }
+          }
+
+        quantify(
+          outerForalls ::: forallsRev.reverse,
+          outerExists ::: existsRev.reverse,
+          applyAll(cons, argsRev.reverse)
+        )
+    }
+  }
+
   @annotation.tailrec
-  private def applyAllRho(rho: Leaf | TyApply, args: List[Type]): Rho =
+  private def applyAllLeafApply(
+      rho: Leaf | TyApply,
+      args: List[Type]
+  ): Leaf | TyApply =
     args match {
       case Nil     => rho
-      case a :: as => applyAllRho(TyApply(rho, a), as)
+      case a :: as => applyAllLeafApply(TyApply(rho, a), as)
     }
+
+  /** When a quantified type is applied to args, its body moves under the
+    * binders together with the args. Return the free bound variables of `fn`
+    * and `args` if any of `binders` is among them, since those binders must
+    * be renamed to keep from capturing a variable of an arg.
+    */
+  private def bindersCapturing(
+      fn: Type,
+      binders: Iterator[(Var.Bound, Kind)],
+      args: List[Type]
+  ): Option[Set[Var.Bound]] = {
+    val freeBound = freeBoundTyVars(fn :: args)
+    if (freeBound.isEmpty) None
+    else {
+      val freeBoundSet: Set[Var.Bound] = freeBound.toSet
+      if (binders.exists { case (b, _) => freeBoundSet(b) }) Some(freeBoundSet)
+      else None
+    }
+  }
+
+  private def renameLeafApply(
+      renames: Iterator[((Var.Bound, Kind), Var.Bound)],
+      in: Leaf | TyApply
+  ): Leaf | TyApply =
+    substituteLeafApplyVar(
+      in,
+      renames.map { case ((b0, _), b1) => (b0, TyVar(b1)) }.toMap[Var, Leaf]
+    )
 
   def apply1Rho(fn: Rho, arg: Type): Rho =
     fn match {
-      case rho: (Leaf | TyApply) => TyApply(rho, arg)
-      case ex: Exists            =>
-        applyAll(ex, arg :: Nil) match {
-          case rho: Rho   => rho
-          case _: ForAll =>
-            sys.error(s"internal error: applyAll on Rho produced ForAll: $fn")
-        }
+      // the common case: no binders to lift, so no list to build
+      case la: (Leaf | TyApply) => TyApply(la, arg)
+      case ex: Exists           => applyAllRho(ex, arg :: Nil)
     }
 
   def apply1(fn: Type, arg: Type): Type =
@@ -503,46 +670,52 @@ object Type {
       case q        => applyAll(q, arg :: Nil)
     }
 
-  def applyAll(fn: Type, args: List[Type]): Type =
-    if args.isEmpty then fn
-    else
-      (fn match {
-        case (_: ForAll) | (_: Exists) =>
-          val (foralls, exists, rho) = splitQuantifiers(fn)
-          val freeBound = freeBoundTyVars(fn :: args)
-          if (freeBound.isEmpty) {
-            quantify(foralls, exists, applyAllRho(rho, args))
-          } else {
-            val freeBoundSet: Set[Var.Bound] = freeBound.toSet
-            val collisions =
-              (foralls.iterator ++ exists.iterator).exists { case (b, _) =>
-                freeBoundSet(b)
-              }
-            if (!collisions) {
+  /** Applying a Rho never introduces a forall, so the result is a Rho. */
+  def applyAllRho(fn: Rho, args: List[Type]): Rho =
+    fn match {
+      case la: (Leaf | TyApply) => applyAllLeafApply(la, args)
+      case ex @ Exists(vars, in) =>
+        if (args.isEmpty) ex
+        else
+          bindersCapturing(ex, vars.iterator, args) match {
+            case None =>
               // we don't need to rename the vars
-              quantify(foralls, exists, applyAllRho(rho, args))
-            } else {
+              Exists(vars, applyAllLeafApply(in, args))
+            case Some(freeBoundSet) =>
+              // we have to to rename the collisions so the free set
+              // is unchanged
+              val ex1 = alignBinders(vars, freeBoundSet)
+              val in1 = renameLeafApply(ex1.iterator, in)
+              val ex2 = ex1.map { case ((_, k), b) => (b, k) }
+              Exists(ex2, applyAllLeafApply(in1, args))
+          }
+    }
+
+  def applyAll(fn: Type, args: List[Type]): Type =
+    fn match {
+      case rho: Rho => applyAllRho(rho, args)
+      case fa: ForAll =>
+        if (args.isEmpty) fa
+        else {
+          val (foralls, exists, rho) = splitQuantifiers(fa)
+          bindersCapturing(fa, foralls.iterator ++ exists.iterator, args) match {
+            case None =>
+              // we don't need to rename the vars
+              quantify(foralls, exists, applyAllLeafApply(rho, args))
+            case Some(freeBoundSet) =>
               // we have to to rename the collisions so the free set
               // is unchanged
               val fa1 = alignBinders(foralls, freeBoundSet)
               val ex1 = alignBinders(exists, freeBoundSet ++ fa1.map(_._2))
-              val subMap = (fa1.iterator ++ ex1.iterator)
-                .map { case ((b0, _), b1) =>
-                  (b0, TyVar(b1))
-                }
-                .toMap[Var, Leaf]
-
-              val rho1 = substituteLeafApplyVar(rho, subMap)
+              val rho1 = renameLeafApply(fa1.iterator ++ ex1.iterator, rho)
 
               val fa2 = fa1.map { case ((_, k), b) => (b, k) }
               val ex2 = ex1.map { case ((_, k), b) => (b, k) }
 
-              quantify(fa2, ex2, applyAllRho(rho1, args))
-            }
+              quantify(fa2, ex2, applyAllLeafApply(rho1, args))
           }
-        case lt: (Leaf | TyApply) => applyAllRho(lt, args)
-      }
-    )
+        }
+    }
 
   def unapplyAll(fn: Type): (Type, List[Type]) = {
     @annotation.tailrec
@@ -781,6 +954,40 @@ object Type {
         })
     }
 
+  /** Rewrite every node of a type with `head`, repeating at a node until
+    * `head` returns it unchanged (by reference), then rewriting its children.
+    *
+    * A rewrite, such as expanding a type alias, can turn a Rho into a ForAll
+    * or an Exists, so changed nodes are rebuilt with the total smart
+    * constructors, which lift quantifiers as needed.
+    */
+  def rewriteDeep(head: Type => Type): Type => Type = {
+    def loop(t: Type): Type = {
+      val t0 = head(t)
+      if (t0 ne t) loop(t0)
+      else
+        t match {
+          case fa @ ForAll(vars, in) =>
+            val in1 = loop(in)
+            if (in1 eq in) fa
+            else forAll(vars, in1)
+          case ex @ Exists(vars, in) =>
+            val in1 = loop(in)
+            if (in1 eq in) ex
+            else exists(vars, in1)
+          case ta @ TyApply(on, arg) =>
+            val on1 = loop(on)
+            val arg1 = loop(arg)
+            if ((on1 eq on) && (arg1 eq arg)) ta
+            else apply1(on1, arg1)
+          case leaf: Leaf =>
+            leaf
+        }
+    }
+
+    loop
+  }
+
   def packageNamesIn(t: Type): List[PackageName] =
     allConsts(t :: Nil).map(_.tpe.toDefined.packageName).distinct
 
@@ -821,14 +1028,9 @@ object Type {
     t match {
       case TyApply(on, arg) =>
         val arg1 = substituteVar(arg, env)
-        substituteRhoVar(on, env) match {
-          case la: (Leaf | TyApply) => TyApply(la, arg1)
-          case e: Exists            =>
-            // we need (exists x, y, ... ff)[arg1]
-            // so if we lift the exists out, we need to rename so we don't shadow
-            // the rho substitution can't introduce ForAll, so the cast is safe:
-            applyAll(e, arg1 :: Nil).asInstanceOf[Rho]
-        }
+        // if on becomes (exists x, y, ... ff), then apply1Rho lifts the exists
+        // out of the apply, renaming x, y, ... so they don't shadow arg1
+        apply1Rho(substituteRhoVar(on, env), arg1)
 
       case Exists(vars, in) =>
         val boundSet = vars.iterator.map(_._1).toSet
@@ -918,6 +1120,19 @@ object Type {
       toFrees: SortedMap[Var.Bound, (Kind, Var.Bound)],
       toSubs: SortedMap[Var.Bound, (Kind, Type)]
   )
+
+  object Instantiation {
+
+    /** An instantiation that left no variable of the left side free: `frees`
+      * is empty, so every one was solved in `subs`.
+      */
+    opaque type Solved <: Instantiation = Instantiation
+
+    object Solved {
+      def fromInstantiation(inst: Instantiation): Option[Solved] =
+        if (inst.frees.isEmpty) Some(inst) else None
+    }
+  }
 
   /** Attempt to instantiate `vars` in `from` so it can match `to`.
     *
@@ -1302,68 +1517,77 @@ object Type {
 
   final inline def normalize(tpe: Type): Type = tpe.normalize
 
-  private def runNormalize(tpe: Type): Type =
-    tpe match {
-      case t: (ForAll | Exists) =>
-        def removeDups[A, B](lst: List[(A, B)]): List[(A, B)] = {
-          def loop(lst: List[(A, B)]): (List[(A, B)], Set[A]) =
-            lst match {
-              case (pair @ (b, _)) :: rest =>
-                val res @ (r1, back) = loop(rest)
-                if (back(b)) res
-                else {
-                  val b1 = back + b
-                  // if rest eq r1, then pair :: rest == lst
-                  if (r1 eq rest) (lst, b1)
-                  else (pair :: r1, b1)
-                }
-              case Nil => (Nil, Set.empty)
-            }
-
-          loop(lst)._1
-        }
-        val (foralls0, exists0, in0) = splitQuantifiers(t)
-        val foralls = removeDups(foralls0)
-        val exists = removeDups(exists0)
-
-        val inFree = freeBoundTyVars(in0 :: Nil)
-        // sort the quantification by the order of appearance
-        val order = inFree.iterator.zipWithIndex.toMap
-        val inFreeSet = inFree.toSet
-        val ex1 = exists
-          .filter { case (b, _) => inFreeSet(b) }
-          .sortBy { case (b, _) => order(b) }
-
-        val inFreeFa = inFreeSet -- ex1.iterator.map(_._1)
-        val fa1 = foralls
-          .filter { case (b, _) => inFreeFa(b) }
-          .sortBy { case (b, _) => order(b) }
-
-        val frees = inFreeFa -- fa1.iterator.map(_._1)
-        val bs = alignBinders(fa1 ::: ex1, frees)
-
-        if (bs.nonEmpty) {
-          val subMap =
-            bs.iterator
-              .map { case ((bold, _), bnew) =>
-                bold -> TyVar(bnew)
-              }
-              .toMap[Type.Var, Type.Rho]
-
-          val newVars = bs.map { case ((_, k), b) => (b, k) }
-          // subMap is nonEmpty, so this is a new type so runNormalize
-          val normin = runNormalize(substituteRhoVar(in0, subMap))
-          val forAllSize = fa1.size
-          val (normfas, normexs) = newVars.splitAt(forAllSize)
-          quantify(forallList = normfas, existList = normexs, normin)
-        } else {
-          // there is nothing to substitute, so we have nothing
-          // to quantify
-          in0.normalize
-        }
-      case ta @ TyApply(_, _) => ta.normalize
-      case leaf: Leaf         => leaf
+  private def normalizeLeafApply(la: Leaf | TyApply): Leaf | TyApply =
+    la match {
+      case leaf: Leaf  => leaf
+      case ta: TyApply => ta.normalize
     }
+
+  /** Normalize the parts of a quantified type: drop unused and duplicate
+    * binders, order them by first appearance and give them canonical names.
+    * The result is the normalized forall binders, exists binders and body.
+    */
+  private def normalizeQuantified(
+      foralls0: List[(Var.Bound, Kind)],
+      exists0: List[(Var.Bound, Kind)],
+      in0: Leaf | TyApply
+  ): (List[(Var.Bound, Kind)], List[(Var.Bound, Kind)], Leaf | TyApply) = {
+    def removeDups[A, B](lst: List[(A, B)]): List[(A, B)] = {
+      def loop(lst: List[(A, B)]): (List[(A, B)], Set[A]) =
+        lst match {
+          case (pair @ (b, _)) :: rest =>
+            val res @ (r1, back) = loop(rest)
+            if (back(b)) res
+            else {
+              val b1 = back + b
+              // if rest eq r1, then pair :: rest == lst
+              if (r1 eq rest) (lst, b1)
+              else (pair :: r1, b1)
+            }
+          case Nil => (Nil, Set.empty)
+        }
+
+      loop(lst)._1
+    }
+    val foralls = removeDups(foralls0)
+    val exists = removeDups(exists0)
+
+    val inFree = freeBoundTyVars(in0 :: Nil)
+    // sort the quantification by the order of appearance
+    val order = inFree.iterator.zipWithIndex.toMap
+    val inFreeSet = inFree.toSet
+    val ex1 = exists
+      .filter { case (b, _) => inFreeSet(b) }
+      .sortBy { case (b, _) => order(b) }
+
+    val inFreeFa = inFreeSet -- ex1.iterator.map(_._1)
+    val fa1 = foralls
+      .filter { case (b, _) => inFreeFa(b) }
+      .sortBy { case (b, _) => order(b) }
+
+    val frees = inFreeFa -- fa1.iterator.map(_._1)
+    val bs = alignBinders(fa1 ::: ex1, frees)
+
+    if (bs.nonEmpty) {
+      val subMap =
+        bs.iterator
+          .map { case ((bold, _), bnew) =>
+            bold -> TyVar(bnew)
+          }
+          .toMap[Type.Var, Type.Leaf]
+
+      val newVars = bs.map { case ((_, k), b) => (b, k) }
+      // subMap is nonEmpty, so this is a new type
+      val normin = normalizeLeafApply(substituteLeafApplyVar(in0, subMap))
+      val forAllSize = fa1.size
+      val (normfas, normexs) = newVars.splitAt(forAllSize)
+      (normfas, normexs, normin)
+    } else {
+      // there is nothing to substitute, so we have nothing
+      // to quantify
+      (Nil, Nil, normalizeLeafApply(in0))
+    }
+  }
 
   def kindOfOption(
       cons: TyConst => Option[Kind]
@@ -1418,11 +1642,18 @@ object Type {
   /** These are upper-case to leverage scala's pattern matching on upper-cased
     * vals
     */
-  val BoolType: Type.TyConst = TyConst(Const.predef("Bool"))
-  val DictType: Type.TyConst = TyConst(Const.predef("Dict"))
+  val BoolType: Type.TyConst =
+    TyConst(Const.predef(PredefName.typeName("Bool")))
+  val DictType: Type.TyConst =
+    TyConst(Const.predef(PredefName.typeName("Dict")))
+
+  /** The largest arity of the predef function types, Fn1 to FnN, and of the
+    * predef tuple types, Tuple1 to TupleN.
+    */
+  inline val MaxArity = 32
 
   object FnType {
-    final val MaxSize = 32
+    inline val MaxSize = MaxArity
 
     private def predefFn(n: Int) = TyConst(Const.predef(s"Fn$n"))
     private val tpes = (1 to MaxSize).map(predefFn)
@@ -1469,21 +1700,28 @@ object Type {
       }.toList
     }
   }
-  val IntType: Type.TyConst = TyConst(Const.predef("Int"))
-  val Float64Type: Type.TyConst = TyConst(Const.predef("Float64"))
-  val ListType: Type.TyConst = TyConst(Const.predef("List"))
-  val OptionType: Type.TyConst = TyConst(Const.predef("Option"))
-  val StrType: Type.TyConst = TyConst(Const.predef("String"))
-  val CharType: Type.TyConst = TyConst(Const.predef("Char"))
-  val TestType: Type.TyConst = TyConst(Const.predef("Test"))
+  val IntType: Type.TyConst = TyConst(Const.predef(PredefName.typeName("Int")))
+  val Float64Type: Type.TyConst =
+    TyConst(Const.predef(PredefName.typeName("Float64")))
+  val ListType: Type.TyConst =
+    TyConst(Const.predef(PredefName.typeName("List")))
+  val OptionType: Type.TyConst =
+    TyConst(Const.predef(PredefName.typeName("Option")))
+  val StrType: Type.TyConst =
+    TyConst(Const.predef(PredefName.typeName("String")))
+  val CharType: Type.TyConst =
+    TyConst(Const.predef(PredefName.typeName("Char")))
+  val TestType: Type.TyConst =
+    TyConst(Const.predef(PredefName.typeName("Test")))
   val ProgTestType: Type.TyConst =
     TyConst(
       Const.Defined(
-        PackageName.parts("Bosatsu", "Prog"),
-        TypeName("ProgTest")
+        ReservedPackage.Prog.name,
+        ReservedPackage.Prog.typeName("ProgTest")
       )
     )
-  val UnitType: Type.TyConst = TyConst(Type.Const.predef("Unit"))
+  val UnitType: Type.TyConst =
+    TyConst(Const.predef(PredefName.typeName("Unit")))
 
   def const(pn: PackageName, name: TypeName): Type.Leaf =
     TyConst(Type.Const.Defined(pn, name))
@@ -1587,18 +1825,35 @@ object Type {
         TyConst(Type.Const.predef(s"Tuple$i"))
 
       private val tupTypes: Array[Type.TyConst] =
-        (Iterator.single(UnitType) ++ (1 to 32).iterator.map(alloc)).toArray
+        (Iterator.single(UnitType) ++ (1 to MaxArity).iterator.map(alloc)).toArray
+
+      private val arities: Map[Type.TyConst, Int] =
+        tupTypes.iterator.zipWithIndex.toMap
 
       def apply(n: Int): Type.TyConst =
-        if (n <= 32) tupTypes(n)
+        if (n <= MaxArity) tupTypes(n)
         else alloc(n)
 
       def unapply(t: Type): Option[Int] =
         t match {
-          case Type.UnitType => Some(0)
-          case Type.TyConst(Const.Predef(cons))
-              if cons.asString.startsWith("Tuple") =>
-            Some(cons.asString.drop(5).toInt)
+          case tc: Type.TyConst =>
+            arities.get(tc) match {
+              case None  => largerArity(tc)
+              case found => found
+            }
+          case _ => None
+        }
+
+      // apply(n) for n > MaxArity names a tuple type that predef does not
+      // define (typechecking reports that), but tuple types of every size
+      // still round trip through apply and unapply.
+      private def largerArity(tc: Type.TyConst): Option[Int] =
+        tc match {
+          case Type.TyConst(Const.Predef(cons)) =>
+            cons.asString match {
+              case s"Tuple$digits" => digits.toIntOption
+              case _               => None
+            }
           case _ => None
         }
     }
@@ -1626,7 +1881,7 @@ object Type {
       def kindSize(n: Int): Kind =
         Kind(Vector.fill(n)(Kind.Type.co)*)
 
-      (1 to 32).iterator.map(n => (Arity(n), kindSize(n))).toList
+      (1 to MaxArity).iterator.map(n => (Arity(n), kindSize(n))).toList
     }
   }
 
@@ -1664,6 +1919,10 @@ object Type {
 
     def predef(name: String): Defined =
       Defined(PackageName.PredefName, TypeName(Identifier.Constructor(name)))
+
+    /** A Predef type, such as a checked `PredefName.typeName("Bool")` */
+    def predef(name: TypeName): Defined =
+      Defined(PackageName.PredefName, name)
 
     object Predef {
       def unapply(c: Const): Option[Identifier.Constructor] =
@@ -1910,9 +2169,9 @@ object Type {
       writeMeta: (Meta, Tau) => F[Unit]
   ): Meta => F[Option[Tau]] = {
 
-    val pureNone = Monad[F].pure(Option.empty[Rho])
+    val pureNone = Monad[F].pure(Option.empty[Tau])
 
-    lazy val fn: Meta => F[Option[Rho]] = { (m: Meta) =>
+    lazy val fn: Meta => F[Option[Tau]] = { (m: Meta) =>
       if (m.existential && !transparent(m)) pureNone
       else
         readMeta(m).flatMap {
@@ -1923,7 +2182,7 @@ object Type {
             // that this variable is existential and can see through it
             Monad[F].pure(sm)
           case sty @ Some(ty) =>
-            zonkRhoMeta(ty)(fn).flatMap { ty1 =>
+            Tau.zonkMeta(ty)(fn).flatMap { ty1 =>
               if ((ty1: Type) == ty) Monad[F].pure(sty)
               else {
                 // we were able to resolve more of the inner metas
@@ -2146,8 +2405,8 @@ object Type {
   }
 
   def allTupleCode: String =
-    (1 to 32).iterator.map(i => s"Tuple$i()").mkString("", ",\n", ",\n") +
-      (1 to 32).iterator.map(tupleCodeGen).mkString("\n")
+    (1 to MaxArity).iterator.map(i => s"Tuple$i()").mkString("", ",\n", ",\n") +
+      (1 to MaxArity).iterator.map(tupleCodeGen).mkString("\n")
 
   val builtInKinds: Map[Type.Const.Defined, Kind] =
     (FnType.FnKinds ::: Tuple.Kinds ::: List(

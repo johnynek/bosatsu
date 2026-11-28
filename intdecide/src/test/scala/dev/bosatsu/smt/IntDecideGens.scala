@@ -239,6 +239,27 @@ object IntDecideGens {
   ): Option[Env] =
     envs.find(env => facts.forall(evalBool(_, env)) && !evalBool(goal, env))
 
+  /** A limit large enough for the goals built here.
+    *
+    * `IntDecide.DefaultWorkLimit` is sized for the recursion check's
+    * obligations, which are far smaller than many goals built here, and a few
+    * of those need more than it. The third law of `IntDecide.implies` is
+    * about a limit large enough; for the goals built here, this is one by
+    * far: of 900,000 sampled, two needed more than the default, and neither
+    * ten times it.
+    */
+  val largeWorkLimit: Long = 100L * IntDecide.DefaultWorkLimit
+
+  /** `IntDecide.implies` with the default limit, then with `largeWorkLimit`
+    * if the default is reached: the result the laws are about.
+    */
+  def decide(goal: BoolExpr, facts: List[BoolExpr]): IntDecide.Result =
+    IntDecide.implies(goal, facts, IntDecide.DefaultWorkLimit) match {
+      case IntDecide.Result.Unknown(IntDecide.Reason.WorkLimit) =>
+        IntDecide.implies(goal, facts, largeWorkLimit)
+      case other                                                => other
+    }
+
   /** The model as an evaluation environment, under one interpretation of
     * division by zero.
     */
@@ -539,6 +560,9 @@ object IntDecideGens {
   /** Facts and a goal that follows from them: one of the constructions
     * above, with unrelated facts added (more facts never stop a goal
     * following) and the goal sometimes restated.
+    *
+    * Check these with `forAllNoShrink`: shrinking drops facts, and the goal
+    * may not follow from fewer.
     */
   val provableCaseGen: Gen[(List[BoolExpr], BoolExpr)] =
     for {

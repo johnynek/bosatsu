@@ -314,7 +314,8 @@ object RingOpt {
       case Symbol(_) => None
     }
 
-    // At most add 1 Neg node
+    // At most add 1 Neg that costs anything. This can have more nodes than
+    // Neg(this): see simpleNeg in basicNorm
     def normalizeNeg: Expr[A] =
       cheapNeg match {
         case None        => Neg(expr)
@@ -713,13 +714,18 @@ object RingOpt {
           if (Order[Expr[A]].lteqv(a, b)) Mult(a, b)
           else Mult(b, a)
 
+        // basicNorm doesn't increase graphSize, so this has at most one more
+        // node than e, as Neg(e) does. normalizeNeg can have more: to make a
+        // Neg free it can put one on each side of an Add, as in
+        // -((x + 1) * z + (1 + y)) == ((-1 + -x) * z) + (-1 + -y)
         def simpleNeg(e: Expr[A]): Expr[A] =
           // normalizeNeg isn't idempotent
           e.normalizeNeg match {
             case Neg(x) => Neg(normExpr(x))
-            case notNeg =>
+            case notNeg if notNeg.graphSize <= e.graphSize + 1 =>
               // the negative was pushed down, normalize again
               normExpr(notNeg)
+            case _ => Neg(normExpr(e))
           }
 
         expr match {
@@ -756,6 +762,33 @@ object RingOpt {
                     case _    => add(nx, ny)
                   }
               }
+
+            def isNeg(e: Expr[A]): Boolean =
+              e match {
+                case Neg(_) => true
+                case _      => false
+              }
+
+            // We build the sum right-nested, so each Add has one summand on
+            // its left, except the innermost, which has the last two. A Neg
+            // that is a direct child of an Add is a subtraction and costs
+            // nothing, but only one per Add (see Expr.opCounts), so only the
+            // innermost Add can pay for a Neg: when both its summands are
+            // Negs. Unless every summand is a Neg, move the last one that
+            // isn't to the end.
+            def freeNegs(summands: List[Expr[A]]): List[Expr[A]] = {
+              val rev = summands.reverse
+              rev match {
+                case Neg(_) :: Neg(_) :: _ =>
+                  rev.span(isNeg) match {
+                    case (negsRev, notNeg :: beforeRev) =>
+                      (notNeg :: (negsRev ::: beforeRev)).reverse
+                    case (_, Nil) => summands
+                  }
+                case _ => summands
+              }
+            }
+
             def flatAdd(
                 es: List[Expr[A]],
                 const: BigInt,
@@ -779,11 +812,15 @@ object RingOpt {
                   }
                 case Nil =>
                   if (acc.isEmpty) canonInt(const)
-                  else
-                    step(
-                      acc.sorted.reduceRight(step(_, _)),
-                      canonInt(const)
-                    )
+                  else {
+                    // a nonzero constant goes first, unless freeNegs
+                    // moves it
+                    val summands = canonInt[A](const) match {
+                      case Zero => acc.sorted
+                      case c    => c :: acc.sorted
+                    }
+                    freeNegs(summands).reduceRight(step(_, _))
+                  }
               }
 
             flatAdd(x :: y :: Nil, BigInt(0), Nil)

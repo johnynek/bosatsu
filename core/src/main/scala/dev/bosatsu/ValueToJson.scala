@@ -17,25 +17,28 @@ import JsonEncodingError._
 case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
   private val arrayTypeConst: Type.Const.Defined =
     Type.Const.Defined(
-      PackageName.parts("Bosatsu", "Collection", "Array"),
-      TypeName("Array")
+      ReservedPackage.Array.name,
+      ReservedPackage.Array.typeName("Array")
     )
   private val bytesTypeConst: Type.Const.Defined =
     Type.Const.Defined(
-      PackageName.parts("Bosatsu", "IO", "Bytes"),
-      TypeName("Bytes")
+      ReservedPackage.IoBytes.name,
+      ReservedPackage.IoBytes.typeName("Bytes")
     )
   private val bosatsuJsonTypeConst: Type.Const.Defined =
-    Type.Const.Defined(PackageName.parts("Bosatsu", "Json"), TypeName("Json"))
+    Type.Const.Defined(
+      ReservedPackage.Json.name,
+      ReservedPackage.Json.typeName("Json")
+    )
   private val optionalTypeConst: Type.Const.Defined =
     Type.Const.Defined(
-      PackageName.parts("Bosatsu", "Json"),
-      TypeName("Optional")
+      ReservedPackage.Json.name,
+      ReservedPackage.Json.typeName("Optional")
     )
   private val nullableTypeConst: Type.Const.Defined =
     Type.Const.Defined(
-      PackageName.parts("Bosatsu", "Json"),
-      TypeName("Nullable")
+      ReservedPackage.Json.name,
+      ReservedPackage.Json.typeName("Nullable")
     )
 
   private object OptionalT {

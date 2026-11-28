@@ -36,13 +36,13 @@ import dev.bosatsu.rankn.{DefinedType, Type, TypeEnv}
   * Adding a case to `Intrinsic` adds it to both checks.
   */
 object Int64Intrinsics {
-  val packageName: PackageName = PackageName.parts("Bosatsu", "Num", "Int64")
-  val typeName: TypeName = TypeName("Int64")
+  val packageName: PackageName = ReservedPackage.Int64.name
+  val typeName: TypeName = ReservedPackage.Int64.typeName("Int64")
   val int64Type: Type.TyConst =
     Type.TyConst(Type.Const.Defined(packageName, typeName))
 
   private val comparisonType: Type =
-    Type.TyConst(Type.Const.predef("Comparison"))
+    Type.TyConst(Type.Const.predef(PredefName.typeName("Comparison")))
 
   private def binary(result: Type): Type =
     Type.Fun(NonEmptyList.of(int64Type, int64Type), result)
@@ -50,18 +50,24 @@ object Int64Intrinsics {
   enum Intrinsic(val name: Bindable, val expectedType: Type) derives CanEqual {
     // Lowered to the builtin signed 64-bit compare.
     case EqInt64
-        extends Intrinsic(Identifier.Name("eq_Int64"), binary(Type.BoolType))
+        extends Intrinsic(
+          ReservedPackage.Int64.value("eq_Int64"),
+          binary(Type.BoolType)
+        )
     case CmpInt64
-        extends Intrinsic(Identifier.Name("cmp_Int64"), binary(comparisonType))
+        extends Intrinsic(
+          ReservedPackage.Int64.value("cmp_Int64"),
+          binary(comparisonType)
+        )
     // Folded to a constant when applied to an Int literal.
     case IntToInt64
         extends Intrinsic(
-          Identifier.Name("int_to_Int64"),
+          ReservedPackage.Int64.value("int_to_Int64"),
           Type.Fun(Type.IntType, Type.TyApply(Type.OptionType, int64Type))
         )
     case IntLowBitsToInt64
         extends Intrinsic(
-          Identifier.Name("int_low_bits_to_Int64"),
+          ReservedPackage.Int64.value("int_low_bits_to_Int64"),
           Type.Fun(Type.IntType, int64Type)
         )
   }

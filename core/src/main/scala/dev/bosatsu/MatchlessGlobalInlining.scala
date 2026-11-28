@@ -290,43 +290,31 @@ object MatchlessGlobalInlining {
     def summaryKey(from: K, pack: PackageName, name: Bindable): SummaryKey[K] =
       SummaryKey(depFor(from, pack), pack, name)
 
-    def cheapReferenceValue(value: Expr[K]): Option[Matchless.CheapExpr[K]] =
-      value match {
-        case lit @ (Matchless.Literal(_) | Matchless.LitInt64(_)) =>
-          Some(lit)
-        case global @ Matchless.Global(_, _, _) =>
-          Some(global)
-        case local @ Matchless.Local(_) =>
-          Some(local)
-        case slot @ Matchless.ClosureSlot(_) =>
-          Some(slot)
-        case anon @ Matchless.LocalAnon(_) =>
-          Some(anon)
-        case anonMut @ Matchless.LocalAnonMut(_) =>
-          Some(anonMut)
-        case ge @ Matchless.GetEnumElement(_, _, _, _) =>
-          Some(ge)
-        case gs @ Matchless.GetStructElement(_, _, _) =>
-          Some(gs)
-        case _ =>
-          None
-      }
-
     def inlineReferenceExpr(
         from: K,
         pack: PackageName,
-        name: Bindable,
-        allowNonCheap: Boolean
+        name: Bindable
     ): Option[Expr[K]] =
       summaries
         .get(summaryKey(from, pack, name))
         .filter(shouldInlineReference)
+        .map {
+          case summary: LambdaSummary[K] => summary.lambda
+          case summary: ValueSummary[K]  => summary.value
+        }
+
+    // A reference in a cheap position can only be replaced by a cheap value.
+    def inlineCheapReference(
+        from: K,
+        pack: PackageName,
+        name: Bindable
+    ): Option[Matchless.CheapExpr[K]] =
+      summaries
+        .get(summaryKey(from, pack, name))
+        .filter(shouldInlineReference)
         .flatMap {
-          case summary: LambdaSummary[K] =>
-            if (allowNonCheap) Some(summary.lambda) else None
-          case summary: ValueSummary[K]  =>
-            if (allowNonCheap) Some(summary.value)
-            else cheapReferenceValue(summary.value)
+          case ValueSummary(cheap: Matchless.CheapExpr[K], _, _, _) => Some(cheap)
+          case _: ValueSummary[K] | _: LambdaSummary[K]            => None
         }
 
     def knownSummaryValue(
@@ -452,7 +440,7 @@ object MatchlessGlobalInlining {
         case Matchless.PrevNat(of) =>
           Matchless.PrevNat(loop(of))
         case global @ Matchless.Global(from, pack, name) =>
-          inlineReferenceExpr(from, pack, name, allowNonCheap = true)
+          inlineReferenceExpr(from, pack, name)
             .fold(global: Expr[K])(loop)
         case Matchless.GetEnumElement(arg, variant, index, size) =>
           val rewritten =
@@ -472,27 +460,29 @@ object MatchlessGlobalInlining {
     def loopCheap(ex: Matchless.CheapExpr[K]): Matchless.CheapExpr[K] =
       ex match {
         case global @ Matchless.Global(from, pack, name) =>
-          inlineReferenceExpr(from, pack, name, allowNonCheap = false) match {
-            case Some(inlined) =>
-              inlined match {
-                case cheap: Matchless.CheapExpr[K] =>
-                  loopCheap(cheap)
-                case notCheap =>
-                  throw new IllegalStateException(
-                    s"expected cheap global inline during Matchless global inlining, found: $notCheap"
-                  )
-              }
-            case None =>
-              global
-          }
-        case _ =>
-          loop(ex) match {
-            case ch: Matchless.CheapExpr[K] => ch
-            case notCheap                   =>
-              throw new IllegalStateException(
-                s"expected cheap expression during Matchless global inlining, found: $notCheap"
-              )
-          }
+          inlineCheapReference(from, pack, name)
+            .fold(global: Matchless.CheapExpr[K])(loopCheap)
+        case Matchless.GetEnumElement(arg, variant, index, size) =>
+          foldKnownCheap(
+            Matchless.GetEnumElement(loopCheap(arg), variant, index, size)
+          )
+        case Matchless.GetStructElement(arg, index, size) =>
+          foldKnownCheap(Matchless.GetStructElement(loopCheap(arg), index, size))
+        case Matchless.Local(_) | Matchless.ClosureSlot(_) |
+            Matchless.LocalAnon(_) | Matchless.LocalAnonMut(_) |
+            Matchless.Literal(_) | Matchless.LitInt64(_) =>
+          ex
+      }
+
+    // A projection in a cheap position can only be replaced by a known value
+    // that is itself cheap. A known constructor application is a value, but
+    // it allocates, so the projection stays.
+    def foldKnownCheap(
+        rewritten: Matchless.CheapExpr[K]
+    ): Matchless.CheapExpr[K] =
+      knownSummaryValue(rewritten, Set.empty) match {
+        case Some(cheap: Matchless.CheapExpr[K]) => loopCheap(cheap)
+        case _                                   => rewritten
       }
 
     def loopBool(ex: Matchless.BoolExpr[K]): Matchless.BoolExpr[K] =

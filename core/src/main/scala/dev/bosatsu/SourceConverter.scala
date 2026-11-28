@@ -213,12 +213,12 @@ final class SourceConverter(
         }
     }
 
-  private val unitName = Identifier.Constructor("Unit")
+  private val unitName = PredefNames.Unit
   // this is lazy so it isn't initialized before Type
   private lazy val tup: Array[Declaration => Expr[Declaration]] =
     (Iterator.single((tc: Declaration) =>
       Expr.Global(PackageName.PredefName, unitName, tc)
-    ) ++ (1 to Type.FnType.MaxSize).iterator
+    ) ++ (1 to Type.MaxArity).iterator
       .map { idx =>
         val tup = Type.Tuple.Arity(idx)
         val defined = tup.tpe.toDefined
@@ -235,16 +235,16 @@ final class SourceConverter(
       .traverse(conv)
       .flatMap { exps =>
         val size = exps.length
-        if (size <= Type.FnType.MaxSize) {
+        if (size <= Type.MaxArity) {
           val fn = tup(size)(tc)
           val res = Expr.buildApp(fn, exps, tc)
           success(res)
         } else {
           SourceConverter.failure(
             SourceConverter.TooManyConstructorArgs(
-              Type.Tuple.Arity(32).tpe.toDefined.name.ident,
+              Type.Tuple.Arity(Type.MaxArity).tpe.toDefined.name.ident,
               size,
-              32,
+              Type.MaxArity,
               tc.region
             )
           )
@@ -288,14 +288,14 @@ final class SourceConverter(
           (defined.packageName, defined.name.ident),
           nonEmpty
         )
-        if (size <= Type.FnType.MaxSize) {
+        if (size <= Type.MaxArity) {
           success(pat)
         } else {
           SourceConverter.partial(
             SourceConverter.TooManyConstructorArgs(
-              Type.Tuple.Arity(32).tpe.toDefined.name.ident,
+              Type.Tuple.Arity(Type.MaxArity).tpe.toDefined.name.ident,
               size,
-              32,
+              Type.MaxArity,
               region
             ),
             pat
@@ -465,12 +465,12 @@ final class SourceConverter(
 
     val truePat: Pattern[(PackageName, Constructor), Type] =
       Pattern.PositionalStruct(
-        (PackageName.PredefName, Constructor("True")),
+        (PackageName.PredefName, PredefNames.True),
         Nil
       )
     val falsePat: Pattern[(PackageName, Constructor), Type] =
       Pattern.PositionalStruct(
-        (PackageName.PredefName, Constructor("False")),
+        (PackageName.PredefName, PredefNames.False),
         Nil
       )
 
@@ -505,7 +505,7 @@ final class SourceConverter(
         annots: List[TypeRef]
     ): Result[Option[Expr[Declaration]]] = {
       val trueExpr: Expr[Declaration] =
-        Expr.Global(PackageName.PredefName, Identifier.Constructor("True"), condDecl)
+        Expr.Global(PackageName.PredefName, PredefNames.True, condDecl)
 
       annots.reverse.traverse(toType(_, condDecl.region)).map {
         case Nil =>
@@ -566,7 +566,7 @@ final class SourceConverter(
       val guardExpr =
         condMatches.guard
           .traverse(withBound(_, pnames))
-          .map(_.filterNot(isPredefBoolConst(_, Constructor("True"))))
+          .map(_.filterNot(isPredefBoolConst(_, PredefNames.True)))
       val bodyExpr =
         (
           withBound(ifTrueDecl, pnames),
@@ -621,7 +621,7 @@ final class SourceConverter(
               convertPattern(condMatches.pattern, condDecl.region),
               condMatches.guard
                 .traverse(withBound(_, outerNames ++ guardNames))
-                .map(_.filterNot(isPredefBoolConst(_, Constructor("True")))),
+                .map(_.filterNot(isPredefBoolConst(_, PredefNames.True))),
               conditionalAnnotationCheck(condDecl, annots)
             ).parMapN { (arg, pattern, guardOpt, checkExpr) =>
               (
@@ -638,7 +638,7 @@ final class SourceConverter(
           withBound(condDecl, outerNames).map { guardExpr =>
             (
               Option(guardExpr)
-                .filterNot(isPredefBoolConst(_, Constructor("True")))
+                .filterNot(isPredefBoolConst(_, PredefNames.True))
                 .map(Expr.BoolGuard(_)),
               Nil
             )
@@ -849,16 +849,16 @@ final class SourceConverter(
         val hasPatternBindings = p.names.nonEmpty
         val isDefinitelyTotal = p.definitelyTotal
         val True: Expr[Declaration] =
-          Expr.Global(PackageName.PredefName, Identifier.Constructor("True"), m)
+          Expr.Global(PackageName.PredefName, PredefNames.True, m)
         val False: Expr[Declaration] = Expr.Global(
           PackageName.PredefName,
-          Identifier.Constructor("False"),
+          PredefNames.False,
           m
         )
         val guardExpr =
           guard
             .traverse(withBound(_, p.names))
-            .map(_.filterNot(isPredefBoolConst(_, Constructor("True"))))
+            .map(_.filterNot(isPredefBoolConst(_, PredefNames.True)))
 
         // A syntactic guard keeps bindings local to the predicate even if the
         // guard later fails to convert. Only a successfully-canonicalized
@@ -923,7 +923,7 @@ final class SourceConverter(
           val fnName: Expr[Declaration] =
             Expr.Global(
               PackageName.PredefName,
-              Identifier.Name("char_to_String"),
+              PredefNames.char_to_String,
               expr.tag
             )
 
@@ -947,13 +947,13 @@ final class SourceConverter(
                 case Nil =>
                   Expr.Global(
                     PackageName.PredefName,
-                    Identifier.Constructor("EmptyList"),
+                    PredefNames.EmptyList,
                     restDecl
                   )
                 case h :: tail =>
                   val cons = Expr.Global(
                     PackageName.PredefName,
-                    Identifier.Constructor("NonEmptyList"),
+                    PredefNames.NonEmptyList,
                     restDecl
                   )
                   val tailExpr = listOf(tail, h.tag)
@@ -963,7 +963,7 @@ final class SourceConverter(
             val fnName: Expr[Declaration] =
               Expr.Global(
                 PackageName.PredefName,
-                Identifier.Name("concat_String"),
+                PredefNames.concat_String,
                 s
               )
 
@@ -1048,7 +1048,7 @@ final class SourceConverter(
                   // To do filters, we lift all results into lists,
                   // so single items must be made singleton lists
                   val empty: Expr[Declaration] =
-                    Expr.Global(pn, Identifier.Constructor("EmptyList"), cond)
+                    Expr.Global(pn, PredefNames.EmptyList, cond)
                   val ressing = res match {
                     case SpliceOrItem.Item(r) =>
                       val rdec: Declaration = r
@@ -1057,7 +1057,7 @@ final class SourceConverter(
                         Expr.App(
                           Expr.Global(
                             pn,
-                            Identifier.Constructor("NonEmptyList"),
+                            PredefNames.NonEmptyList,
                             rdec
                           ),
                           NonEmptyList(ritem, empty :: Nil),
@@ -1123,7 +1123,7 @@ final class SourceConverter(
             val newBound = binding.names
             val pn = PackageName.PredefName
             val opExpr: Expr[Declaration] =
-              Expr.Global(pn, Identifier.Name("foldl_List"), l)
+              Expr.Global(pn, PredefName.value("foldl_List"), l)
             val dictSymbol = unusedNames(decl.allNames).next()
             val init: Expr[Declaration] = Expr.Local(dictSymbol, l)
             val added = (withBound(k, newBound), withBound(v, newBound)).mapN(
@@ -1939,11 +1939,11 @@ final class SourceConverter(
   }
 
   private val empty = Pattern.PositionalStruct(
-    (PackageName.PredefName, Constructor("EmptyList")),
+    (PackageName.PredefName, PredefNames.EmptyList),
     Nil
   )
   private val nonEmpty =
-    (PackageName.PredefName, Constructor("NonEmptyList"))
+    (PackageName.PredefName, PredefNames.NonEmptyList)
 
   /** As much as possible, convert a list pattern into a normal enum pattern
     * which simplifies matching, and possibly allows us to more easily
@@ -3519,10 +3519,10 @@ object SourceConverter {
       region: Region
   ) extends Error {
     def message =
-      if (name.asString == "Tuple32") {
+      if (name.asString == s"Tuple${Type.MaxArity}") {
         Doc
           .text(
-            s"invalid tuple size. Found $argCount, but maximum allowed ${Type.FnType.MaxSize}"
+            s"invalid tuple size. Found $argCount, but maximum allowed ${Type.MaxArity}"
           )
           .render(80)
       } else {

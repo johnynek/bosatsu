@@ -4,7 +4,7 @@ import cats.{Eq}
 import cats.data.{NonEmptyList, ValidatedNec}
 import cats.syntax.all._
 import dev.bosatsu.graph.Toposort
-import dev.bosatsu.rankn.{ConstructorFn, Type, TypeEnv}
+import dev.bosatsu.rankn.{ConstructorFn, DefinedType, Type, TypeEnv}
 import scala.collection.mutable
 import Identifier.Constructor
 
@@ -50,9 +50,9 @@ object Inhabitedness {
   type Result[+A] = ValidatedNec[Error, A]
 
   private val EmptyListCons: (PackageName, Constructor) =
-    (PackageName.PredefName, Constructor("EmptyList"))
+    (PackageName.PredefName, PredefNames.EmptyList)
   private val NonEmptyListCons: (PackageName, Constructor) =
-    (PackageName.PredefName, Constructor("NonEmptyList"))
+    (PackageName.PredefName, PredefNames.NonEmptyList)
 
   // Keep quantifier expansion finite and fast in adversarial inputs.
   private val MaxQuantifierVars = 10
@@ -79,12 +79,39 @@ object Inhabitedness {
   private val MaxSearchVisits = 10000
   private val MaxSearchDepth = 32
 
+  /** A data type the check reaches, as `dataKey` makes it: `tpe` is `dt`, a
+    * type of the env, applied to `args`. Keys are equal and hash as their
+    * types do, and `Type` caches its hash.
+    *
+    * `tpe` is always in normal form: `checkType` normalizes a type before
+    * making its key, and `dataKey` normalizes again after substituting the
+    * state markers. Normalizing is idempotent, so on keys plain `==` is the
+    * same as `sameAs` (alpha-equivalence) without normalizing again. It also
+    * agrees with `hashCode`, the cached structural hash. Comparing with
+    * `sameAs` would need `hashCode` to hash the normal form too, or two
+    * equal keys could hash apart. So keep every key normalized when it is
+    * built, rather than comparing more loosely here.
+    */
+  private final class DataKey(
+      val tpe: Type,
+      val dt: DefinedType[Kind.Arg],
+      val args: List[Type]
+  ) {
+    override def equals(that: Any): Boolean =
+      that match {
+        case k: DataKey => tpe == k.tpe
+        case _          => false
+      }
+
+    override def hashCode: Int = tpe.hashCode
+  }
+
   /** How `checkType` reads the answer for a data type's `dataKey`. Under a
     * function argument it reads through `contravariant`, so a reader can
     * tell which keys are read where a larger answer gives a smaller result.
     */
   private trait DataStates {
-    def stateOf(key: Type): State
+    def stateOf(key: DataKey): State
     def contravariant: DataStates
   }
 
@@ -269,11 +296,14 @@ object Inhabitedness {
     private val markerStates: Map[Type.Var.Bound, State] =
       Map(inhabitedMarker -> Inhabited, uninhabitedMarker -> Uninhabited)
 
+    // The key of the data type `t`, which is `dt` applied to `args`.
     private def dataKey(
         t: Type,
+        dt: DefinedType[Kind.Arg],
+        args: List[Type],
         varState: Map[Type.Var.Bound, State]
-    ): Type =
-      if (varState.isEmpty) t
+    ): DataKey =
+      if (varState.isEmpty) new DataKey(t, dt, args)
       else {
         val sub: Map[Type.Var, Type] =
           Type
@@ -290,8 +320,13 @@ object Inhabitedness {
             }
             .toMap
 
-        if (sub.isEmpty) t
-        else Type.substituteVar(t, sub).normalize
+        if (sub.isEmpty) new DataKey(t, dt, args)
+        else {
+          // substituting variables keeps the head, and the number of
+          // arguments, of `t`
+          val key = Type.substituteVar(t, sub).normalize
+          new DataKey(key, dt, Type.unapplyAll(key)._2)
+        }
       }
 
     /** One unfolding of the data type `key`, a `dataKey`, reading the data
@@ -301,37 +336,33 @@ object Inhabitedness {
       * `dataState` answers: every rule evaluates all of its parts.
       * `Solver.solveFrom` relies on that.
       */
-    private def expand(key: Type, dataState: DataStates): State = {
-      val (on, args) = Type.unapplyAll(key)
-      on match {
-        case tc @ Type.TyConst(_) =>
-          env.getType(tc) match {
-            case Some(dt)
-                if dt.typeParams.lengthCompare(args.length) == 0 &&
-                  dt.constructors.nonEmpty =>
-              val paramSub: Map[Type.Var, Type] =
-                dt.typeParams.iterator
-                  .zip(args.iterator)
-                  .map { case (v, arg) => (v: Type.Var) -> arg }
-                  .toMap
+    private def expand(key: DataKey, dataState: DataStates): State = {
+      val dt = key.dt
+      val args = key.args
+      if (
+        dt.typeParams.lengthCompare(args.length) == 0 &&
+        dt.constructors.nonEmpty
+      ) {
+        val paramSub: Map[Type.Var, Type] =
+          dt.typeParams.iterator
+            .zip(args.iterator)
+            .map { case (v, arg) => (v: Type.Var) -> arg }
+            .toMap
 
-              State.orStates(dt.constructors.map { cfn =>
-                // Evaluating the existentials with `varState ++ assignment`
-                // would capture an outer variable of the same name, so
-                // openAt renames them apart. Keys never name a variable
-                // that has a state, so no other names need avoiding.
-                val (exists, fields) = ConstructorFn.openAt(cfn, paramSub, args)
-                evaluateQuantifier(
-                  exists,
-                  vs => State.andStates(fields.map(checkType(_, vs, dataState))),
-                  isForAll = false,
-                  markerStates
-                )
-              })
-            case _ => Unknown
-          }
-        case _ => Unknown
-      }
+        State.orStates(dt.constructors.map { cfn =>
+          // Evaluating the existentials with `varState ++ assignment`
+          // would capture an outer variable of the same name, so
+          // openAt renames them apart. Keys never name a variable
+          // that has a state, so no other names need avoiding.
+          val (exists, fields) = ConstructorFn.openAt(cfn, paramSub, args)
+          evaluateQuantifier(
+            exists,
+            vs => State.andStates(fields.map(checkType(_, vs, dataState))),
+            isForAll = false,
+            markerStates
+          )
+        })
+      } else Unknown
     }
 
     // Whether `t` has at most `limit` nodes counted as a tree: a shared
@@ -366,15 +397,6 @@ object Inhabitedness {
           .filter(u => (u != c) && defined(u))
       }.toMap
     }
-
-    // The type constructor of a data-type key.
-    private def keyHead(key: Type): Option[Type.Const] =
-      Type.unapplyAll(key)._1 match {
-        case Type.TyConst(c) => Some(c)
-        // $COVERAGE-OFF$ a key is a defined type applied to arguments
-        case _               => None
-        // $COVERAGE-ON$
-      }
 
     // The type constructor at the head of `t`, as `Type.rootConst` finds it
     // under applications and quantifiers, with the number of arguments it is
@@ -424,27 +446,21 @@ object Inhabitedness {
       * only for components read under function arguments whose keys pass
       * such arguments.
       */
-    private def componentLevels(keys: List[Type]): Map[Type.Const, Int] = {
+    private def componentLevels(keys: List[DataKey]): Map[Type.Const, Int] = {
       val keyUses = mutable.HashMap.empty[Type.Const, Set[Type.Const]]
       keys.foreach { key =>
-        val (on, args) = Type.unapplyAll(key)
-        on match {
-          case Type.TyConst(head) =>
-            val applied = args.iterator.flatMap { arg =>
-              appliedHead(arg).flatMap { case (tc, argCount) =>
-                env.getType(tc) match {
-                  case Some(dt) if dt.typeParams.lengthCompare(argCount) > 0 =>
-                    Some(tc.tpe)
-                  case _ => None
-                }
-              }
+        val head: Type.Const = key.dt.toTypeConst
+        val applied = key.args.iterator.flatMap { arg =>
+          appliedHead(arg).flatMap { case (tc, argCount) =>
+            env.getType(tc) match {
+              case Some(dt) if dt.typeParams.lengthCompare(argCount) > 0 =>
+                Some(tc.tpe)
+              case _ => None
             }
-            if (applied.hasNext)
-              keyUses(head) = keyUses.getOrElse(head, Set.empty) ++ applied
-          // $COVERAGE-OFF$ a key is a defined type applied to arguments
-          case _ => ()
-          // $COVERAGE-ON$
+          }
         }
+        if (applied.hasNext)
+          keyUses(head) = keyUses.getOrElse(head, Set.empty) ++ applied
       }
 
       // A definition's mention of its own type is its recursion, so
@@ -461,7 +477,7 @@ object Inhabitedness {
       // the sorted graph: `Toposort` gives a use outside it a depth but no
       // layer. A type's depth depends only on the types it reaches.
       val reached = mutable.LinkedHashSet.empty[Type.Const]
-      val todo = mutable.ArrayBuffer.from(keys.flatMap(keyHead(_)))
+      val todo = mutable.ArrayBuffer.from(keys.map(k => k.dt.toTypeConst: Type.Const))
       while (todo.nonEmpty) {
         val c = todo.remove(todo.length - 1)
         if (reached.add(c)) (todo ++= uses(c)): Unit
@@ -525,15 +541,15 @@ object Inhabitedness {
       *
       * Keys reached after `MaxDataTypeKeys` are Unknown.
       *
-      * Keys are looked up by `Type`'s structural equality and hashing.
+      * Keys are looked up by their types' structural equality and hashing.
       * `Order[Type]` gives the same equality but compares large keys far
       * more slowly.
       */
     final class Solver extends DataStates {
-      private val solved = mutable.HashMap.empty[Type, State]
+      private val solved = mutable.HashMap.empty[DataKey, State]
       private var keysLeft = MaxDataTypeKeys
 
-      def stateOf(key: Type): State =
+      def stateOf(key: DataKey): State =
         solved.get(key) match {
           case Some(s) => s
           case None =>
@@ -549,12 +565,12 @@ object Inhabitedness {
       // contravariantly (a key can be in both). `discovered` is what `expand`
       // answered while finding them, which is exact when `succ` is empty.
       private final class Node(
-          val key: Type,
+          val key: DataKey,
           val index: Int,
           val stackPos: Int,
-          val succ: List[Type],
-          val co: Set[Type],
-          val contra: Set[Type],
+          val succ: List[DataKey],
+          val co: Set[DataKey],
+          val contra: Set[DataKey],
           val discovered: State
       ) {
         var lowLink: Int = index
@@ -569,25 +585,25 @@ object Inhabitedness {
         var parity: Int = -1
       }
 
-      private def solveFrom(root: Type): Unit = {
+      private def solveFrom(root: DataKey): Unit = {
         // One table holds everything about a key, so each step looks a key
         // up once: a lookup that hits compares the keys structurally.
-        val nodes = mutable.HashMap.empty[Type, Node]
+        val nodes = mutable.HashMap.empty[DataKey, Node]
         val stack = mutable.ArrayBuffer.empty[Node]
         // The nodes being visited, innermost last, each with the successors it
         // has not visited yet.
-        val frames = mutable.ArrayBuffer.empty[(Node, List[Type])]
+        val frames = mutable.ArrayBuffer.empty[(Node, List[DataKey])]
 
-        def enter(key: Type): Unit =
+        def enter(key: DataKey): Unit =
           if (keysLeft <= 0) solved(key) = Unknown
           else {
             keysLeft -= 1
-            val found = mutable.HashSet.empty[Type]
-            val succ = List.newBuilder[Type]
-            val co = mutable.HashSet.empty[Type]
-            val contra = mutable.HashSet.empty[Type]
+            val found = mutable.HashSet.empty[DataKey]
+            val succ = List.newBuilder[DataKey]
+            val co = mutable.HashSet.empty[DataKey]
+            val contra = mutable.HashSet.empty[DataKey]
             final class Reads(covariant: Boolean) extends DataStates {
-              def stateOf(k: Type): State = {
+              def stateOf(k: DataKey): State = {
                 if (found.add(k)) (succ += k): Unit
                 if (covariant) (co += k): Unit
                 else (contra += k): Unit
@@ -648,10 +664,10 @@ object Inhabitedness {
 
       private def solveComponent(
           component: NonEmptyList[Node],
-          nodes: mutable.HashMap[Type, Node]
+          nodes: mutable.HashMap[DataKey, Node]
       ): Unit = {
         component.toList.foreach(_.inComponent = true)
-        def member(k: Type): Option[Node] =
+        def member(k: DataKey): Option[Node] =
           nodes.get(k).filter(_.inComponent)
 
         if (component.tail.isEmpty && component.head.succ.isEmpty)
@@ -670,7 +686,7 @@ object Inhabitedness {
           // their answer. Tarjan's order finished every key the component
           // reads from outside it.
           val read: DataStates = new DataStates {
-            def stateOf(k: Type): State =
+            def stateOf(k: DataKey): State =
               nodes.get(k) match {
                 case Some(n) => n.state
                 case None    => solved.getOrElse(k, Unknown)
@@ -715,7 +731,7 @@ object Inhabitedness {
       // environment (see `Solver`), but checked here rather than assumed.
       private def parityConsistent(
           component: NonEmptyList[Node],
-          member: Type => Option[Node]
+          member: DataKey => Option[Node]
       ): Boolean = {
         // The component is strongly connected, so this reaches all of it.
         val start = component.head
@@ -724,7 +740,7 @@ object Inhabitedness {
         var consistent = true
         while (consistent && todo.nonEmpty) {
           val n = todo.remove(todo.length - 1)
-          def label(k: Type, flip: Int): Unit =
+          def label(k: DataKey, flip: Int): Unit =
             member(k).foreach { m =>
               val want = n.parity ^ flip
               if (m.parity < 0) {
@@ -775,19 +791,19 @@ object Inhabitedness {
       // unfolding (`Model.cov`).
       private def searchComponent(
           component: NonEmptyList[Node],
-          member: Type => Option[Node],
-          nodes: mutable.HashMap[Type, Node]
+          member: DataKey => Option[Node],
+          nodes: mutable.HashMap[DataKey, Node]
       ): Unit = {
         val typeLevels = componentLevels(component.toList.map(_.key))
-        val levels: Map[Type, Int] =
+        val levels: Map[DataKey, Int] =
           component.iterator
-            .flatMap(n => keyHead(n.key).flatMap(typeLevels.get).map(n.key -> _))
+            .flatMap(n => typeLevels.get(n.key.dt.toTypeConst).map(n.key -> _))
             .toMap
 
         var visitsLeft = MaxSearchVisits
 
         // `depth` counts the keys being searched, and bounds the stack
-        def search(key: Type, path: Set[Type], depth: Int): State = {
+        def search(key: DataKey, path: Set[DataKey], depth: Int): State = {
           val level = levels.getOrElse(key, 0)
           val assumed = path.filter(k => levels.getOrElse(k, 0) >= level)
           if (assumed(key)) Uninhabited
@@ -796,7 +812,7 @@ object Inhabitedness {
             visitsLeft -= 1
             val path1 = assumed + key
             val read: DataStates = new DataStates {
-              def stateOf(k: Type): State =
+              def stateOf(k: DataKey): State =
                 member(k) match {
                   case Some(_) => search(k, path1, depth + 1)
                   case None =>
@@ -856,12 +872,17 @@ object Inhabitedness {
         case Type.TyVar(_: Type.Var.Skolem) | Type.TyMeta(_) =>
           Unknown
         case _ =>
-          Type.unapplyAll(norm)._1 match {
+          val (on, args) = Type.unapplyAll(norm)
+          on match {
             case tc @ Type.TyConst(_) =>
               if (alwaysInhabited(tc.tpe.toDefined)) Inhabited
-              else if (env.getType(tc).isEmpty) Unknown
-              else if (!sizeAtMost(norm, MaxDataTypeKeySize)) Unknown
-              else dataState.stateOf(dataKey(norm, varState))
+              else
+                env.getType(tc) match {
+                  case None => Unknown
+                  case Some(dt) =>
+                    if (!sizeAtMost(norm, MaxDataTypeKeySize)) Unknown
+                    else dataState.stateOf(dataKey(norm, dt, args, varState))
+                }
             case _ => Unknown
           }
       }

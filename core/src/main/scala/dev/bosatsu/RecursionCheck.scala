@@ -171,7 +171,7 @@ object RecursionCheck {
 
   case class NoRecursiveCall(
       fnname: Bindable,
-      recurKind: Declaration.MatchKind,
+      recurKind: Declaration.MatchKind.Recursive,
       recurRegion: Region,
       likelyRenamedCall: Option[(Bindable, Int)]
   ) extends Lint {
@@ -186,8 +186,6 @@ object RecursionCheck {
           "Use `match` for non-recursive branching."
         case Declaration.MatchKind.Loop  =>
           "Use `match` if this code is not recursive."
-        case Declaration.MatchKind.Match =>
-          sys.error("unexpected non-recursive match kind in recursion lint")
       }
 
     def message =

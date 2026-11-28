@@ -109,7 +109,11 @@ sealed abstract class Declaration derives CanEqual {
         val parts = (Doc.text("if ") + checkBody(ifCases.head)) :: (ifCases.tail
           .map(Doc.text("elif ") + checkBody(_))) ::: tail
         Doc.intercalate(Doc.line, parts)
-      case Ternary(Var(Identifier.Constructor("True")), m @ Matches(_, _, Some(_)), falseCase) =>
+      case Ternary(
+            Var(Identifier.Constructor(PredefNames.True.asString)),
+            m @ Matches(_, _, Some(_)),
+            falseCase
+          ) =>
         m.toDoc + Doc.text(" else ") + falseCase.toDoc
       case Ternary(trueCase, cond, falseCase) =>
         Doc.intercalate(
@@ -546,6 +550,9 @@ object Declaration {
     case object Match extends MatchKind(false, "match")
     case object Recur extends MatchKind(true, "recur")
     case object Loop extends MatchKind(true, "loop")
+
+    // the kinds whose isRecursive is true
+    type Recursive = Recur.type | Loop.type
   }
 
   object ConditionalMatch {
@@ -1564,31 +1571,31 @@ object Declaration {
         Literal(l)(using r)
       }
 
+  // the modes of the NonBinding parser
   sealed abstract private class ParseMode(
-      val isDecl: Boolean,
       val isBranchArg: Boolean,
       val isComprehensionSource: Boolean,
       val allowGuardedMatchesElse: Boolean
   ) derives CanEqual
   private object ParseMode {
-    case object Decl extends ParseMode(true, false, false, true)
-    case object NB extends ParseMode(false, false, false, true)
-    case object NBNoGuardedMatchesElse extends ParseMode(false, false, false, false)
-    case object BranchArg extends ParseMode(false, true, false, true)
+    case object NB extends ParseMode(false, false, true)
+    case object NBNoGuardedMatchesElse extends ParseMode(false, false, false)
+    case object BranchArg extends ParseMode(true, false, true)
     case object BranchArgNoGuardedMatchesElse
-        extends ParseMode(false, true, false, false)
-    case object ComprehensionSource extends ParseMode(false, false, true, true)
+        extends ParseMode(true, false, false)
+    case object ComprehensionSource extends ParseMode(false, true, true)
 
     given cats.Eq[ParseMode] = cats.Eq.fromUniversalEquals
   }
   /*
-   * This is not fully type-safe but we do it for efficiency:
-   * we take a boolean to select if we allow Declaration
-   * or not. If false, we only parse NonBinding, if true
-   * we also parse Bind, Def, Comment
+   * The parsers are memoized by indentation, and the NonBinding parsers
+   * also by mode. A Declaration parser tries Bind, Def and Comment, then
+   * the NB parser of its indentation. The two caches refer to each other
+   * only inside P.defer or an Indy, so building one parser builds no
+   * other, except that a Declaration parser builds its NB parser.
    */
-  private val parserCache: ((ParseMode, String)) => P[Declaration] =
-    Memoize.memoizeDagHashedConcurrent[(ParseMode, String), P[Declaration]] {
+  private val nonBindingParserCache: ((ParseMode, String)) => P[NonBinding] =
+    Memoize.memoizeDagHashedConcurrent[(ParseMode, String), P[NonBinding]] {
       case ((pm, indent), rec) =>
         // TODO:
         // since we do a hard set of the mode in these, we lose the thread if we are inside a
@@ -1600,35 +1607,30 @@ object Declaration {
         // and make sure that we don't have block like expressions in certain places
 
         val recurseDecl: P[Declaration] = P.defer(
-          rec((ParseMode.Decl, indent))
+          declParserCache(indent)
         ) // needs to be inside a P for laziness
-        val recIndy: Indy[Declaration] = Indy(i => rec((ParseMode.Decl, i)))
+        val recIndy: Indy[Declaration] = Indy(i => declParserCache(i))
 
         // TODO: aren't NonBinding independent of indentation level>
         val recNonBind: P[NonBinding] =
-          P.defer(rec((ParseMode.NB, indent))).asInstanceOf[P[NonBinding]]
-        val recNBIndy: Indy[NonBinding] = Indy { i =>
-          rec((ParseMode.NB, i)).asInstanceOf[P[NonBinding]]
-        }
+          P.defer(rec((ParseMode.NB, indent)))
+        val recNBIndy: Indy[NonBinding] = Indy(i => rec((ParseMode.NB, i)))
 
         val recArg: P[NonBinding] = P.defer(
-          rec((ParseMode.BranchArg, indent)).asInstanceOf[P[NonBinding]]
+          rec((ParseMode.BranchArg, indent))
         )
-        val recArgIndy: Indy[NonBinding] = Indy { i =>
-          rec((ParseMode.BranchArg, i)).asInstanceOf[P[NonBinding]]
-        }
+        val recArgIndy: Indy[NonBinding] =
+          Indy(i => rec((ParseMode.BranchArg, i)))
         val recNBNoGuardedMatchesElse: P[NonBinding] =
           P.defer(
             rec((ParseMode.NBNoGuardedMatchesElse, indent))
-          ).asInstanceOf[P[NonBinding]]
+          )
         val recArgNoGuardedMatchesElse: P[NonBinding] = P.defer(
           rec((ParseMode.BranchArgNoGuardedMatchesElse, indent))
-            .asInstanceOf[P[NonBinding]]
         )
 
         val recComp: P[NonBinding] = P
           .defer(rec((ParseMode.ComprehensionSource, indent)))
-          .asInstanceOf[P[NonBinding]]
 
         val nestedBlock: P[Region => Declaration.NonBinding] = {
 
@@ -1665,9 +1667,9 @@ object Declaration {
 
         // since x -> y: t will parse like x -> (y: t)
         // if we are in a branch arg, we can't parse annotations on the body of the lambda
-        val lambBody =
+        val lambBody: Indy[Declaration] =
           if (pm.isBranchArg)
-            recArgIndy.asInstanceOf[Indy[Declaration]]
+            Indy(i => rec((ParseMode.BranchArg, i)))
           else recIndy
         val ternaryElseP =
           if (pm.isBranchArg) recArg else recNonBind
@@ -1874,7 +1876,7 @@ object Declaration {
             ((spaces *> keySpace("else")).backtrack *> ternaryElseP).?.map {
               case Some(falseCase) =>
                 val trueCase =
-                  Var(Identifier.Constructor("True"))(using m.region)
+                  Var(PredefNames.True)(using m.region)
                 Ternary(trueCase, m, falseCase)
               case None =>
                 m
@@ -1883,53 +1885,55 @@ object Declaration {
             P.pure(other)
         }
 
-        val finalNonBind: P[NonBinding] =
-          if (!pm.isComprehensionSource)
-            for {
-              nb <- postOperators(matched)
-              nb1 <- guardedMatchesElse(nb)
-              tern <- ternary.?
-            } yield tern.fold(nb1)(_(nb1))
-          else postOperators(matched)
+        if (!pm.isComprehensionSource)
+          for {
+            nb <- postOperators(matched)
+            nb1 <- guardedMatchesElse(nb)
+            tern <- ternary.?
+          } yield tern.fold(nb1)(_(nb1))
+        else postOperators(matched)
+    }
 
-        if (!pm.isDecl) finalNonBind
-        else {
-          val finalBind: P[Declaration] = P.defer(
-            P.oneOf(
-              // these have keywords which need to be parsed before var (def, match, if)
-              defP(recIndy)(indent) ::
-                // these are not ambiguous with patterns
-                commentP(recIndy)(indent) ::
-                /*
-                 * challenge is that not all Declarations are Patterns, and not
-                 * all Patterns are Declarations. So, bindings, which are: pattern = declaration
-                 * is a bit hard. This also makes cuts a bit dangerous, since this ambiguity
-                 * between pattern and declaration means if we use cuts too aggressively, we
-                 * will fail.
-                 *
-                 * If we parse a declaration first, if we see = we need to convert
-                 * to pattern. If we parse a pattern, but it was actually a declaration, we need
-                 * to convert there. This code tries to parse as a declaration first, then converts
-                 * it to pattern if we see an =
-                 */
-                patternBind(recNBIndy, recIndy)(indent) ::
-                Nil
-            )
+  private val declParserCache: String => P[Declaration] =
+    Memoize.memoizeDagHashedConcurrent[String, P[Declaration]] {
+      case (indent, rec) =>
+        val recIndy: Indy[Declaration] = Indy(rec)
+        val recNBIndy: Indy[NonBinding] =
+          Indy(i => nonBindingParserCache((ParseMode.NB, i)))
+
+        val finalBind: P[Declaration] = P.defer(
+          P.oneOf(
+            // these have keywords which need to be parsed before var (def, match, if)
+            defP(recIndy)(indent) ::
+              // these are not ambiguous with patterns
+              commentP(recIndy)(indent) ::
+              /*
+               * challenge is that not all Declarations are Patterns, and not
+               * all Patterns are Declarations. So, bindings, which are: pattern = declaration
+               * is a bit hard. This also makes cuts a bit dangerous, since this ambiguity
+               * between pattern and declaration means if we use cuts too aggressively, we
+               * will fail.
+               *
+               * If we parse a declaration first, if we see = we need to convert
+               * to pattern. If we parse a pattern, but it was actually a declaration, we need
+               * to convert there. This code tries to parse as a declaration first, then converts
+               * it to pattern if we see an =
+               */
+              patternBind(recNBIndy, recIndy)(indent) ::
+              Nil
           )
+        )
 
-          // we have to parse non-binds last
-          finalBind.orElse(finalNonBind)
-        }
+        // we have to parse non-binds last
+        finalBind.orElse(nonBindingParserCache((ParseMode.NB, indent)))
     }
 
   val parser: Indy[Declaration] =
-    Indy(i => parserCache((ParseMode.Decl, i)))
+    Indy(i => declParserCache(i))
   val nonBindingParser: Indy[NonBinding] =
-    Indy(i => parserCache((ParseMode.NB, i))).asInstanceOf[Indy[NonBinding]]
+    Indy(i => nonBindingParserCache((ParseMode.NB, i)))
   val nonBindingParserNoTern: Indy[NonBinding] =
-    Indy(i => parserCache((ParseMode.ComprehensionSource, i)))
-      .asInstanceOf[Indy[NonBinding]]
+    Indy(i => nonBindingParserCache((ParseMode.ComprehensionSource, i)))
   val nonBindingParserNoAnn: Indy[NonBinding] =
-    Indy(i => parserCache((ParseMode.BranchArg, i)))
-      .asInstanceOf[Indy[NonBinding]]
+    Indy(i => nonBindingParserCache((ParseMode.BranchArg, i)))
 }

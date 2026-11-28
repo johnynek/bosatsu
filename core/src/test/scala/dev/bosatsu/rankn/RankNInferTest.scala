@@ -7,7 +7,7 @@ import Expr._
 import Type.Var.Bound
 import Type.forAll
 
-import TestUtils.{checkEnvExpr, checkLast, testPackage}
+import TestUtils.{checkEnvExpr, checkLast, predefResolvedImport, testPackage}
 
 import Identifier.Constructor
 
@@ -1652,6 +1652,157 @@ main: Wrap[forall a. a -> a] = wrap(id)
       "Wrap[forall a. a -> a]"
     )
   }
+
+  test("argument checked against a nested forall result keeps a valid type") {
+    // checking an argument against `Int -> Int -> forall b. b -> b` gives it
+    // the weak-prenex type `forall b. Int -> Int -> b -> b`, which the
+    // validator has to accept as the same parameter type
+    parseProgram(
+      """#
+(id: forall a. a -> a) = x -> x
+(k: Int -> (Int -> (forall b. b -> b))) = _ -> _ -> id
+
+def ap3(h: Int -> (Int -> (forall b. b -> b))) -> String: h(1)(2)("x")
+
+main = ap3(k)
+""",
+      "String"
+    )
+
+    parseProgram(
+      """#
+def ap2(_: Int -> (Int -> (forall b. b -> b))) -> Int: 1
+
+main = ap2(_ -> _ -> x -> x)
+""",
+      "Int"
+    )
+
+    parseProgramIllTyped("""#
+(k: Int -> (Int -> (Int -> Int))) = _ -> _ -> x -> x
+
+def ap3(h: Int -> (Int -> (forall b. b -> b))) -> String: h(1)(2)("x")
+
+main = ap3(k)
+""")
+
+    parseProgramIllTyped("""#
+def ap2(_: Int -> (Int -> (forall b. b -> b))) -> Int: 1
+
+main = ap2(_ -> _ -> _ -> 1)
+""")
+  }
+
+  test("argument checked against an existential result keeps a valid type") {
+    // checking `_ -> [1]` against `Int -> exists b. List[b]` solves b to Int,
+    // so the lambda keeps `List[Int]` inside and an annotation hides the
+    // witness as `exists b. Int -> List[b]`, the parameter's weak-prenex form
+    parseProgram(
+      """#
+def ap(_: Int -> (exists b. List[b])) -> Int: 1
+
+main = ap(_ -> [1])
+""",
+      "Int"
+    )
+
+    parseProgram(
+      """#
+def ap(_: Int -> (Int -> (exists b. List[b]))) -> Int: 1
+
+main = ap(_ -> _ -> [1])
+""",
+      "Int"
+    )
+
+    parseProgram(
+      """#
+def ap(f: Int -> (exists b. (b, b -> Int))) -> Int:
+  match f(1):
+    case (x, g): g(x)
+
+main = ap(_ -> (1, x -> add(x, 1)))
+""",
+      "Int"
+    )
+
+    parseProgramIllTyped("""#
+def ap(_: Int -> (exists b. List[b])) -> Int: 1
+
+main = ap(_ -> 1)
+""")
+
+    parseProgramIllTyped("""#
+def ap(_: Int -> (Int -> (exists b. List[b]))) -> Int: 1
+
+main = ap(_ -> [1])
+""")
+
+    parseProgramIllTyped("""#
+def ap(_: Int -> (exists b. (b, b -> Int))) -> Int: 1
+
+main = ap(_ -> (1, (_: String) -> 0))
+""")
+  }
+
+  test("existential results validate with other kinds of witnesses") {
+    // one existential solved, one left free
+    parseProgram(
+      """#
+def ap(_: Int -> (exists a, b. (List[a], List[b]))) -> Int: 1
+
+main = ap(_ -> ([], [1]))
+""",
+      "Int"
+    )
+
+    // the lambda's own type, Int -> Int, does not mention the existential
+    parseProgram(
+      """#
+def ap(_: Int -> (exists b. b)) -> Int: 1
+
+main = ap(_ -> 1)
+""",
+      "Int"
+    )
+
+    // the witness is the argument's universally quantified type
+    parseProgram(
+      """#
+def ap(_: forall a. a -> (exists b. List[b])) -> Int: 1
+
+main = ap(x -> [x])
+""",
+      "Int"
+    )
+
+    // the witness is a type parameter of the enclosing def
+    parseProgram(
+      """#
+def ap[a](_: a, f: Int -> (exists b. (b, b -> a))) -> a:
+  match f(1):
+    case (y, g): g(y)
+
+def use[a](x: a) -> a: ap(x, _ -> (x, y -> y))
+""",
+      "forall a. a -> a"
+    )
+
+    // the match repacks the pattern's existential, so the lambda has the
+    // type `(exists a. Box[a]) -> exists b. b` without a witness
+    parseProgram(
+      """#
+struct Box(a)
+
+def ap(_: (exists a. Box[a]) -> (exists b. b)) -> Int: 1
+
+main = ap(e -> match e:
+  case Box(x): x)
+""",
+      "Int"
+    )
+  }
+
   test("ForAll as function arg") {
     parseProgram(
       """#
@@ -1707,6 +1858,87 @@ def add(x):
   Bar(b)
 """,
       "Foo -> Bar"
+    )
+  }
+
+  test("a lambda argument checked against a polytype is a type error") {
+    // A lambda argument has a meta type, which checking it against a
+    // skolemized annotation solves to a type with the skolems in it. The
+    // escape check has to run after the check to see that.
+    def assertOnlyTypeErrors(statements: String): Unit = {
+      val stmts = Parser.unsafeParse(Statement.parser, statements)
+      val errs =
+        Package.inferBody(testPackage, predefResolvedImport :: Nil, stmts) match {
+          case Ior.Left(errs)    => errs.toList
+          case Ior.Both(errs, _) => errs.toList
+          case Ior.Right(_)      => fail(s"expected a type error in: $statements")
+        }
+      val inferErrors = errs.flatMap {
+        case te: PackageError.TypeErrorIn =>
+          te.tpeErr match {
+            case combined: Infer.Error.Combine => combined.flatten.toList
+            case single: Infer.Error.Single    => single :: Nil
+          }
+        case other => fail(s"expected only inference errors, found: $other")
+      }
+      assert(inferErrors.nonEmpty, s"expected an inference error, found: $errs")
+      inferErrors.foreach {
+        case _: Infer.Error.TypeError => ()
+        case other                    =>
+          fail(s"expected only type errors, found: $other")
+      }
+    }
+
+    assertOnlyTypeErrors("""#
+main = x -> (x: forall a. a -> a)
+""")
+    // the skolem is under a type constructor
+    assertOnlyTypeErrors("""#
+main = x -> (x: forall a. List[a])
+""")
+    // the forall is in a function result, which skolemize also opens
+    assertOnlyTypeErrors("""#
+main = x -> (x: Int -> (forall a. a -> a))
+""")
+    // an annotated let checks its right hand side the same way
+    assertOnlyTypeErrors("""#
+def main(x):
+  (y: forall a. a -> a) = x
+  y(1)
+""")
+    // the skolem can escape through an outer lambda's argument too
+    assertOnlyTypeErrors("""#
+main = x -> _ -> (x: forall a. a -> a)
+""")
+    // an existential meta escapes the same way: x's meta is solved to a type
+    // that refers to it
+    assertOnlyTypeErrors("""#
+main = x -> (x: exists a. List[a])
+""")
+  }
+
+  test("annotations with quantifiers inside a lambda still type check") {
+    // the argument's type is closed, so nothing escapes
+    parseProgram(
+      """#
+def f(x: forall a. a -> a) -> Int: (x: forall a. a -> a)(1)
+""",
+      "(forall a. a -> a) -> Int"
+    )
+    parseProgram(
+      """#
+main = (x: Int) -> (x: exists a. a)
+""",
+      "Int -> (exists a. a)"
+    )
+    // only a local term is checked against the polytype
+    parseProgram(
+      """#
+def main(x):
+  (y: forall a. a -> a) = z -> z
+  y(x)
+""",
+      "forall a. a -> a"
     )
   }
 
@@ -2897,6 +3129,325 @@ def ignore_env_fixed[err, res](p: Prog[Env, err, res], default: res) -> forall e
 main = ignore_env_fixed
 """,
       "forall err, res. (Prog[Env, err, res], res) -> forall e. Prog[Env, e, res]"
+    )
+  }
+
+  test("subsumption against a function type whose result has a forall") {
+    // These expected types reach the function rule without being
+    // skolemized, so the function's result is a forall: first the widest
+    // branch type of an inferred match, then an annotation on an application.
+    parseProgram(
+      """#
+(id: forall a. a -> a) = x -> x
+(konst: Int -> (forall a. a -> a)) = _ -> id
+
+def pick(b: Bool, f: Int -> (forall a. a -> a), g: Int -> (forall b. b -> b)):
+  match b:
+    case True: f
+    case False: g
+
+main = pick(True, konst, konst)(1)("x")
+""",
+      "String"
+    )
+
+    parseProgram(
+      """#
+(id: forall a. a -> a) = x -> x
+(k: Int -> (Int -> (forall b. b -> b))) = _ -> _ -> id
+
+def ap(h: Int -> (Int -> (forall b. b -> b))) -> (Int -> (forall a. a -> a)):
+  h(1)
+
+main = ap(k)(1)("x")
+""",
+      "String"
+    )
+
+    // the results are not just renamings of each other: the expected
+    // result needs an instance of the actual one
+    parseProgram(
+      """#
+(const: forall a, b. a -> b -> a) = x -> _ -> x
+(k: Int -> (Int -> (forall a, b. a -> b -> a))) = _ -> _ -> const
+
+def ap(h: Int -> (Int -> (forall a, b. a -> b -> a))) -> (Int -> (forall c. c -> Int -> c)):
+  h(1)
+
+main = ap(k)(1)("x")(2)
+""",
+      "String"
+    )
+  }
+
+  // Infer the statements against Predef and check that they fail with
+  // inference type errors only, and no internal errors.
+  private def assertTypeErrorsOnly(statements: String): Unit = {
+    val stmts = Parser.unsafeParse(Statement.parser, statements)
+    val errs =
+      Package.inferBody(testPackage, predefResolvedImport :: Nil, stmts) match {
+        case Ior.Left(errs)    => errs.toList
+        case Ior.Both(errs, _) => errs.toList
+        case Ior.Right(_)      => fail("expected a type error")
+      }
+    val inferErrors = errs.flatMap {
+      case te: PackageError.TypeErrorIn =>
+        te.tpeErr match {
+          case combined: Infer.Error.Combine => combined.flatten.toList
+          case single: Infer.Error.Single    => single :: Nil
+        }
+      case other => fail(s"expected only inference errors, found: $other")
+    }
+    assert(inferErrors.nonEmpty, s"expected an inference error, found: $errs")
+    inferErrors.foreach {
+      case _: Infer.Error.TypeError => ()
+      case other                    =>
+        fail(s"expected only type errors, found: $other")
+    }
+  }
+
+  test("a function result with a forall that does not subsume is a type error") {
+    assertTypeErrorsOnly(
+      """#
+def bad(h: Int -> (Int -> (forall a. a -> a))) -> (Int -> (forall a. a -> Int)):
+  h(1)
+"""
+    )
+  }
+
+  test("subsumption against an alias of a forall type") {
+    // Poly is spelled as a Rho but expands to a ForAll. Checking a
+    // polymorphic value against it must skolemize the expansion before
+    // instantiating the value: an annotated binding, an annotation on an
+    // application, and a function result that checkApply does not skolemize.
+    // Each infers the type the alias stands for.
+    parseProgram(
+      """#
+type Poly = forall a. a -> a
+(id: forall a. a -> a) = x -> x
+(main: Poly) = id
+""",
+      "forall a. a -> a"
+    )
+
+    parseProgram(
+      """#
+type Poly = forall a. a -> a
+(id: forall a. a -> a) = x -> x
+(f: Int -> (forall a. a -> a)) = _ -> id
+main = (f(1): Poly)
+""",
+      "forall a. a -> a"
+    )
+
+    parseProgram(
+      """#
+type Const[b] = forall a. a -> b
+(f: Int -> (forall a. a -> Int)) = _ -> (_ -> 1)
+main = (f(1): Const[Int])
+""",
+      "forall a. a -> Int"
+    )
+
+    parseProgram(
+      """#
+type Poly = forall a. a -> a
+(id: forall a. a -> a) = x -> x
+(g: Int -> Int -> (forall a. a -> a)) = _ -> _ -> id
+main = (g(1): Int -> Poly)
+""",
+      "Int -> Poly"
+    )
+
+    // the alias is also on the left of a check here, when the match
+    // compares the types of its branches in both directions
+    parseProgram(
+      """#
+type Poly = forall a. a -> a
+(id: forall a. a -> a) = x -> x
+def pick(b: Bool, f: Poly, g: forall a. a -> a):
+  match b:
+    case True: f
+    case False: g
+main = pick(True, id, id)(1)
+""",
+      "Int"
+    )
+  }
+
+  test("an alias of a forall type that does not subsume is a type error") {
+    // the function's result is a Rho that is not polymorphic enough
+    assertTypeErrorsOnly(
+      """#
+type Poly = forall a. a -> a
+(f: Int -> (Int -> Int)) = _ -> (x -> x)
+main = (f(1): Poly)
+"""
+    )
+    // the function's result is a forall that does not subsume Poly
+    assertTypeErrorsOnly(
+      """#
+type Poly = forall a. a -> a
+(f: Int -> (forall a. a -> Int)) = _ -> (_ -> 1)
+main = (f(1): Poly)
+"""
+    )
+  }
+
+  test("values of an alias of a forall type are polymorphic") {
+    // An alias of a forall is skolemized and instantiated as its expansion,
+    // so a value declared with it is checked as polymorphic and is
+    // instantiated at each use.
+    parseProgram(
+      """#
+type Poly = forall a. a -> a
+(id: Poly) = x -> x
+main = (id(1), id("s"))
+""",
+      "(Int, String)"
+    )
+
+    parseProgram(
+      """#
+type Poly = forall a. a -> a
+def both(f: Poly) -> (Int, String): (f(1), f("s"))
+main = both(x -> x)
+""",
+      "(Int, String)"
+    )
+
+    parseProgram(
+      """#
+type Poly = forall a. a -> a
+struct Box(f: Poly)
+main = match Box(x -> x):
+  case Box(f): (f(1), f("s"))
+""",
+      "(Int, String)"
+    )
+
+    // in a contravariant position the alias is not skolemized, and the
+    // function's argument is instantiated where the body uses it
+    parseProgram(
+      """#
+type Poly = forall a. a -> a
+(id: forall a. a -> a) = x -> x
+def use(f: Poly -> Int) -> Int: f(id)
+main = use(p -> p(1))
+""",
+      "Int"
+    )
+
+    // an alias with parameters, and a forall over one
+    parseProgram(
+      """#
+type Twice[b] = forall a. a -> b -> b
+type K = forall b. Twice[b]
+(k: K) = _ -> y -> y
+main = k("s")(1)
+""",
+      "Int"
+    )
+  }
+
+  test("an alias of a forall type in a function result or type argument") {
+    // the forall floats out of the covariant result, as it does when
+    // written out, so the lambda is checked against Int -> a -> a
+    parseProgram(
+      """#
+type Poly = forall a. a -> a
+type Q = Int -> Poly
+(g: Q) = _ -> x -> x
+main = (g(1)(2), g(1)("s"))
+""",
+      "(Int, String)"
+    )
+
+    // applying the result of type Poly instantiates it
+    parseProgram(
+      """#
+type Poly = forall a. a -> a
+(id: forall a. a -> a) = x -> x
+(f: Int -> Poly) = _ -> id
+main = f(1)(2)
+""",
+      "Int"
+    )
+
+    // an alias in a covariant type argument also floats, and keeps its
+    // spelling in the type of the binding
+    parseProgram(
+      """#
+type Poly = forall a. a -> a
+(xs: List[Poly]) = [x -> x]
+main = xs
+""",
+      "List[Poly]"
+    )
+
+    // an alias of a function type with no forall is applied through its
+    // expansion
+    parseProgram(
+      """#
+type F = Int -> Int
+(f: F) = x -> x
+main = f(1)
+""",
+      "Int"
+    )
+  }
+
+  test("a meta is never solved to an alias of a forall type") {
+    // p is instantiated where it is used, as if it were declared with the
+    // forall its alias stands for, so the list's element type is a -> a,
+    // not Poly
+    parseProgram(
+      """#
+type Poly = forall a. a -> a
+(id: forall a. a -> a) = x -> x
+(p: Poly) = x -> x
+def pair(a: x, b: x) -> List[x]: [a, b]
+main = pair(p, id)
+""",
+      "forall a. List[a -> a]"
+    )
+
+    parseProgram(
+      """#
+type Poly = forall a. a -> a
+(p: Poly) = x -> x
+main = [p]
+""",
+      "forall a. List[a -> a]"
+    )
+  }
+
+  test("ill-typed uses of an alias of a forall type are type errors") {
+    assertTypeErrorsOnly(
+      """#
+type Poly = forall a. a -> a
+(id: Poly) = _ -> 1
+"""
+    )
+    assertTypeErrorsOnly(
+      """#
+type Poly = forall a. a -> a
+def app(f: Poly) -> Int: f(1)
+main = app(_ -> 1)
+"""
+    )
+    assertTypeErrorsOnly(
+      """#
+type Poly = forall a. a -> a
+def app(f: Poly) -> Int: f("s")
+"""
+    )
+    assertTypeErrorsOnly(
+      """#
+type Poly = forall a. a -> a
+type Q = Int -> Poly
+(g: Q) = x -> _ -> x
+"""
     )
   }
 }

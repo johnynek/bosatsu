@@ -87,30 +87,7 @@ object TypeValidator {
       }
     }
 
-    def loop(tpe: Type): Type = {
-      val t0 = normalizeAliasHead(tpe)
-      if (t0 ne tpe) loop(t0)
-      else
-        t0 match {
-          case t @ Type.ForAll(vars, in) =>
-            val in1 = loop(in)
-            if (in1 eq in) t
-            else Type.forAll(vars, in1)
-          case t @ Type.Exists(vars, in) =>
-            val in1 = loop(in)
-            if (in1 eq in) t
-            else Type.exists(vars, in1)
-          case t @ Type.TyApply(on, arg) =>
-            val on1 = loop(on)
-            val arg1 = loop(arg)
-            if ((on1 eq on) && (arg1 eq arg)) t
-            else Type.apply1(on1, arg1)
-          case other =>
-            other
-        }
-    }
-
-    loop
+    Type.rewriteDeep(normalizeAliasHead)
   }
 
   /** Directional type-connectivity check used by validation:
@@ -177,6 +154,45 @@ object TypeValidator {
           tpe
       }
 
+  /** The evidence target with each hidden existential replaced by its witness.
+    *
+    * This is None unless every hidden variable is an outer existential of the
+    * target. Other evidence does not say how to fill in the target: some
+    * inference paths hide existentials of argument types, and normalization
+    * renames binders without renaming the evidence's variables.
+    */
+  private def withHiddenWitnesses(
+      ev: TypedExpr.QuantifierEvidence
+  ): Option[Type] = {
+    val (foralls, exists, rho) = Type.splitQuantifiers(ev.targetAtSolve)
+    val existNames = exists.iterator.map(_._1).toSet
+    if (!ev.existsHidden.keysIterator.forall(existNames)) None
+    else {
+      val kept = foralls ::: exists.filterNot { case (b, _) =>
+        ev.existsHidden.contains(b)
+      }
+      val avoid =
+        Type.freeBoundTyVars(
+          ev.targetAtSolve :: ev.existsHidden.valuesIterator.map(_._2).toList
+        ).toSet
+      // rename the binders we keep so they don't capture a witness's variables
+      val (rename, kept1) =
+        NonEmptyList.fromList(kept) match {
+          case Some(nel) =>
+            val (sub, nel1) = Type.unshadow(nel, avoid)
+            (sub, nel1.toList)
+          case None =>
+            (Map.empty[Type.Var, Type.TyVar], Nil)
+        }
+      val witnesses: Map[Type.Var, Type] =
+        ev.existsHidden.iterator.map { case (b, (_, w)) => (b, w) }.toMap
+      // the kept and hidden binders are disjoint, so substitute both at once
+      val rho1 = Type.substituteVar(rho, rename ++ witnesses)
+      val (kept1Foralls, kept1Exists) = kept1.splitAt(foralls.length)
+      Some(Type.quantify(kept1Foralls, kept1Exists, rho1))
+    }
+  }
+
   private def canWidenInScopeAndSolve(
       from: Type,
       to: Type,
@@ -188,10 +204,19 @@ object TypeValidator {
     val from0 = normalizeType(Type.substituteVar(from, solvedFreeBounds))
     val to0 = normalizeType(Type.substituteVar(to, solvedFreeBounds))
 
-    if (from0.sameAs(to0)) Right((true, solvedFreeBounds))
+    // inference treats a type and its weak-prenex form, with universals and
+    // existentials floated over all-covariant paths, as the same type
+    def prenex(t: Type): Type =
+      normalizeType(Type.hoistQuantifiersCovariantDeep(t, kindOf))
+
+    if (from0.sameAs(to0) || prenex(from0).sameAs(prenex(to0)))
+      Right((true, solvedFreeBounds))
     else {
-      val from1 = normalizeType(Type.hoistForAllCovariant(from0, kindOf))
-      val to1 = normalizeType(Type.hoistForAllCovariant(to0, kindOf))
+      // to solve, float only universals: the solve below can choose the left
+      // side's outer existentials, so floating a nested left existential out
+      // would let it choose that witness too
+      val from1 = normalizeType(Type.hoistForAllCovariantDeep(from0, kindOf))
+      val to1 = normalizeType(Type.hoistForAllCovariantDeep(to0, kindOf))
       val unresolvedFrom =
         Type
           .freeBoundTyVars(from1 :: Nil)
@@ -254,32 +279,36 @@ object TypeValidator {
                   )
               }.toMap
 
-            val mergedOpt =
-              freshSolutions.foldLeft(Option(solvedFreeBounds)) {
-                case (None, _) => None
-                case (Some(acc), (b, tpe0)) =>
-                  val tpe = Type.substituteVar(tpe0, acc)
-                  acc.get(b) match {
-                    // This is not full unification: we require an already-solved
-                    // variable to be definitionally equal (`sameAs`) to any later
-                    // witness, rather than attempting another solve step.
-                    // That is stricter than necessary in principle, but current
-                    // tests and generated programs have not shown a false negative
-                    // here, and this preserves the "single consistent solve" rule.
-                    case Some(existing) if existing.sameAs(tpe) =>
-                      Some(acc)
-                    case Some(_) =>
-                      None
-                    case None =>
-                      Some(acc.updated(b, tpe))
-                  }
-              }
-
+            val mergedOpt = mergeSolutions(solvedFreeBounds, freshSolutions)
             Right((mergedOpt.nonEmpty, mergedOpt.getOrElse(solvedFreeBounds)))
         }
       }
     }
   }
+
+  private def mergeSolutions(
+      solved: SolvedFreeBounds,
+      fresh: Iterable[(Type.Var, Type)]
+  ): Option[SolvedFreeBounds] =
+    fresh.foldLeft(Option(solved)) {
+      case (None, _) => None
+      case (Some(acc), (b, tpe0)) =>
+        val tpe = Type.substituteVar(tpe0, acc)
+        acc.get(b) match {
+          // This is not full unification: we require an already-solved
+          // variable to be definitionally equal (`sameAs`) to any later
+          // witness, rather than attempting another solve step.
+          // That is stricter than necessary in principle, but current
+          // tests and generated programs have not shown a false negative
+          // here, and this preserves the "single consistent solve" rule.
+          case Some(existing) if existing.sameAs(tpe) =>
+            Some(acc)
+          case Some(_) =>
+            None
+          case None =>
+            Some(acc.updated(b, tpe))
+        }
+    }
 
   private def canWidenInScope(
       from: Type,
@@ -297,23 +326,140 @@ object TypeValidator {
       Map.empty
     ).map(_._1)
 
-  private def typeWidensToOrFailWithSolved(
-      from: Type,
-      to: Type,
+  /** Check that a value of type `actual` can be used where `expected` is
+    * expected, solving `typeParams` where `expected` mentions them. For an
+    * application argument, `actual` is the argument's type, `expected` the
+    * parameter's, and `typeParams` the applied function's type parameters.
+    *
+    * The actual type's universals can be instantiated and the expected type's
+    * outer existentials chosen. The expected type's universals, the actual
+    * type's existentials and the type variables in scope stay fixed. `solved`
+    * holds the type parameters solved so far, and the result adds the ones
+    * this check solves, so every argument has to agree.
+    */
+  private def typeFitsAndSolve(
+      actual: Type,
+      expected: Type,
       kindOf: Type => Option[Kind],
       normalizeType: Type => Type,
-      freeBoundKinds: Map[Type.Var.Bound, Kind],
-      solvedFreeBounds: SolvedFreeBounds,
+      inScopeKinds: Map[Type.Var.Bound, Kind],
+      typeParams: Map[Type.Var.Bound, Kind],
+      solved: SolvedFreeBounds
+  ): Either[List[Type.Var.Bound], (Boolean, SolvedFreeBounds)] = {
+    val actual0 = normalizeType(Type.substituteVar(actual, solved))
+    val expected0 = normalizeType(Type.substituteVar(expected, solved))
+    def prenex(t: Type): Type =
+      normalizeType(Type.hoistQuantifiersCovariantDeep(t, kindOf))
+
+    if (actual0.sameAs(expected0) || prenex(actual0).sameAs(prenex(expected0)))
+      Right((true, solved))
+    else {
+      // as in canWidenInScopeAndSolve, the solve floats only universals
+      val actual1 = normalizeType(Type.hoistForAllCovariantDeep(actual0, kindOf))
+      val expected1 = normalizeType(Type.hoistForAllCovariantDeep(expected0, kindOf))
+      val known = inScopeKinds ++ typeParams
+      val unresolved =
+        Type
+          .freeBoundTyVars(actual1 :: expected1 :: Nil)
+          .distinct
+          .filterNot(known.contains)
+      if (unresolved.nonEmpty) Left(unresolved)
+      else {
+        // rename the outer binders apart from each other and from everything
+        // else, so the solve can't mix them up
+        val taken: Set[Type.Var.Bound] =
+          known.keySet ++ Type.freeBoundTyVars(actual1 :: expected1 :: Nil)
+        val (actualForalls, actualExists, actualRho) = {
+          val (fas, exs, rho) = Type.splitQuantifiers(actual1)
+          NonEmptyList.fromList(fas ::: exs) match {
+            case None => (Nil, Nil, rho: Type)
+            case Some(nel) =>
+              val (sub, nel1) = Type.unshadow(nel, taken)
+              val (fas1, exs1) = nel1.toList.splitAt(fas.length)
+              (fas1, exs1, Type.substituteVar(rho, sub))
+          }
+        }
+        val actualBinders = (actualForalls ::: actualExists).iterator.map(_._1).toSet
+        val (expectedExists, expectedBody) = {
+          val (exs, body) = Type.liftExistentials(expected1)
+          NonEmptyList.fromList(exs) match {
+            case None => (Nil, body)
+            case Some(nel) =>
+              val (sub, nel1) = Type.unshadow(nel, taken ++ actualBinders)
+              (nel1.toList, Type.substituteVar(body, sub))
+          }
+        }
+        val expectedTypeParams =
+          Type
+            .freeBoundTyVars(expectedBody :: Nil)
+            .distinct
+            .flatMap(b => typeParams.get(b).map(b -> _))
+            .toMap
+        val vars = actualForalls.toMap
+        val toVars = expectedExists.toMap ++ expectedTypeParams
+        val rigidWitnesses =
+          rigidInstantiateWitnesses(
+            inScopeKinds ++ actualExists ++ typeParams,
+            vars,
+            toVars
+          )
+
+        Type
+          .instantiate(
+            vars = vars,
+            from = Type.substituteVar(actualRho, rigidWitnesses.subst),
+            toVars = toVars,
+            to = Type.substituteVar(expectedBody, rigidWitnesses.subst),
+            env = inScopeKinds
+          ) match {
+          case None =>
+            Right((false, solved))
+          case Some(inst) =>
+            val actualSolutions: Map[Type.Var, Type] =
+              inst.subs.iterator.map { case (b, (_, t)) => (b, t) }.toMap
+            val fresh =
+              expectedTypeParams.keysIterator.flatMap { b =>
+                inst.toSubs.get(b).map { case (_, t) =>
+                  (b: Type.Var) -> thawRigidWitnesses(
+                    Type.substituteVar(t, actualSolutions),
+                    rigidWitnesses.reverse
+                  )
+                }
+              }.toList
+            // a type parameter solved to one of the actual type's own binders
+            // would leave that binder out of scope
+            val escapes = fresh.exists { case (_, t) =>
+              Type.freeBoundTyVars(t :: Nil).exists(actualBinders)
+            }
+            if (escapes) Right((false, solved))
+            else {
+              val mergedOpt = mergeSolutions(solved, fresh)
+              Right((mergedOpt.nonEmpty, mergedOpt.getOrElse(solved)))
+            }
+        }
+      }
+    }
+  }
+
+  private def typeFitsOrFail(
+      actual: Type,
+      expected: Type,
+      kindOf: Type => Option[Kind],
+      normalizeType: Type => Type,
+      inScopeKinds: Map[Type.Var.Bound, Kind],
+      typeParams: Map[Type.Var.Bound, Kind],
+      solved: SolvedFreeBounds,
       path: TypeValidation.Path,
       onMismatch: => String
   ): TypeValidation[SolvedFreeBounds] =
-    canWidenInScopeAndSolve(
-      from,
-      to,
+    typeFitsAndSolve(
+      actual,
+      expected,
       kindOf,
       normalizeType,
-      freeBoundKinds,
-      solvedFreeBounds
+      inScopeKinds,
+      typeParams,
+      solved
     ) match {
       case Right((true, solved1)) =>
         Validated.validNec(solved1)
@@ -322,7 +468,7 @@ object TypeValidator {
       case Left(unbound) =>
         TypeValidation.fail(
           path,
-          s"$onMismatch; unresolved bound type vars (${unbound.iterator.map(_.name).mkString(", ")}) in widen check from ${from.show} to ${to.show}"
+          s"$onMismatch; unresolved bound type vars (${unbound.iterator.map(_.name).mkString(", ")}) checking ${actual.show} against ${expected.show}"
         )
     }
 
@@ -369,7 +515,7 @@ object TypeValidator {
           t
         case Type.TyConst(_) => t
       }
-    te.traverseType[cats.Id](checkType(_, Set.empty)): Unit
+    te.foreachType(t => checkType(t, Set.empty): Unit)
 
     def checkExpr(expr: TypedExpr[A]): Unit =
       expr match {
@@ -730,6 +876,23 @@ object TypeValidator {
               path,
               s"annotation evidence target mismatch: evidence=${ev.targetAtSolve.show}, annotation=${tpe.show}"
             )
+          case Some(ev) if ev.existsHidden.nonEmpty =>
+            // the annotation packs witnesses into existentials, so the term
+            // has to widen into the annotation with the witnesses filled in
+            withHiddenWitnesses(ev) match {
+              case Some(target) =>
+                typeWidensToOrFail(
+                  term.getType,
+                  target,
+                  kindOf,
+                  normalizeType,
+                  boundKinds,
+                  path,
+                  s"annotation hides witnesses the term does not have: term type ${term.getType.show}, annotation ${tpe.show} with witnesses filled in ${target.show}"
+                )
+              case None =>
+                typeValidationPass
+            }
           case _ =>
             typeValidationPass
         }
@@ -763,15 +926,18 @@ object TypeValidator {
           case Some(expected) =>
             if (isAppFnPath(path)) typeValidationPass
             else
-              typeWidensToOrFail(
-                tpe,
+              // the binding's type has to fit the type the reference has
+              typeFitsOrFail(
                 expected,
+                tpe,
                 kindOf,
                 normalizeType,
                 inScopeKinds,
+                Map.empty,
+                Map.empty,
                 path,
                 s"local type mismatch for ${name.sourceCodeRepr}: expected ${expected.show}, got ${tpe.show}"
-              )
+              ).void
           case None =>
             typeValidationFail(
               path,
@@ -782,15 +948,18 @@ object TypeValidator {
       case TypedExpr.Global(pack, name, tpe, _) =>
         globals.get((pack, name)).orElse(env.getValue(pack, name)) match {
           case Some(expected) =>
-            typeWidensToOrFail(
-              tpe,
+            // the global's type has to fit the type the reference has
+            typeFitsOrFail(
               expected,
+              tpe,
               kindOf,
               normalizeType,
               inScopeKinds,
+              Map.empty,
+              Map.empty,
               path,
               s"global type mismatch for ${pack.asString}::${name.sourceCodeRepr}: expected ${expected.show}, got ${tpe.show}"
-            )
+            ).void
           case None =>
             typeValidationFail(
               path,
@@ -806,7 +975,7 @@ object TypeValidator {
         // P1: We can decompose `fn` into expected arg/result types plus app-local
         //     quantifier kinds, with quantifier shadowing handled safely.
         // P2: For some instantiation S, each argument type satisfies
-        //       S(ti) <:< type(ai)
+        //       type(ai) <:< S(ti)
         //     and we thread S so repeated free vars are solved consistently.
         // P3: The application result type satisfies
         //       S(r) <:< appT
@@ -820,7 +989,10 @@ object TypeValidator {
         ): Either[String, (List[Type], Type, Map[Type.Var.Bound, Kind])] =
           if (remaining <= 0) Right((accRev.reverse, currentFnType, accKinds))
           else {
-            val (foralls0, exists0, rho0) = Type.splitQuantifiers(currentFnType)
+            // aliases are transparent, so the function type can be spelled
+            // as an alias of one, or of a forall of one: expand them first
+            val (foralls0, exists0, rho0) =
+              Type.splitQuantifiers(normalizeType(currentFnType))
             val avoid = accKinds.keySet ++ inScopeKinds.keySet
             val quantUnshadowed = Type
               .quantify(foralls0, exists0, rho0) match {
@@ -950,9 +1122,12 @@ object TypeValidator {
             val solveSubMap: Map[Type.Var, Type] =
               solvedOpt
                 .map { solved =>
+                  // a parameter the result leaves free maps to itself; leave
+                  // it out so the args can still solve it
                   val freeSubs: Map[Type.Var, Type] =
-                    solved.frees.iterator.map { case (v, (_, b)) =>
-                      (v: Type.Var) -> Type.TyVar(b)
+                    solved.frees.iterator.collect {
+                      case (v, (_, b)) if b =!= v =>
+                        (v: Type.Var) -> Type.TyVar(b)
                     }.toMap
                   val concreteSubs: Map[Type.Var, Type] =
                     solved.subs.iterator.map { case (v, (_, tpe)) =>
@@ -970,7 +1145,7 @@ object TypeValidator {
             val initialSolved: SolvedFreeBounds =
               solveSubMap
 
-            // here we check P2: each S(ti) <:< type(ai), threading S across args
+            // here we check P2: each type(ai) <:< S(ti), threading S across args
             val argSolvedChecks: TypeValidation[SolvedFreeBounds] =
               expectedArgTypes
                 .zip(gotArgs)
@@ -979,12 +1154,13 @@ object TypeValidator {
                   SolvedFreeBounds
                 ]) { case (acc, ((expected, got), idx)) =>
                   acc.andThen { solvedSoFar =>
-                    typeWidensToOrFailWithSolved(
-                      expected,
+                    typeFitsOrFail(
                       got.getType,
+                      expected,
                       kindOf,
                       normalizeType,
-                      appKinds,
+                      inScopeKinds,
+                      solveVars,
                       solvedSoFar,
                       path / "app" / s"arg[$idx]",
                       s"app arg type mismatch: expected ${expected.show}, got ${got.getType.show}"
@@ -993,13 +1169,8 @@ object TypeValidator {
                 }
 
             argSolvedChecks.andThen { solvedAfterArgs =>
-              val solvedResultSubMap: Map[Type.Var, Type] =
-                solvedAfterArgs.iterator.collect {
-                  case (b: Type.Var.Bound, tpe) if inScopeKinds.contains(b) =>
-                    (b: Type.Var) -> tpe
-                }.toMap
               val expectedResultSolved =
-                Type.substituteVar(expectedResult, solvedResultSubMap)
+                Type.substituteVar(expectedResult, solvedAfterArgs)
               if (expectedArgTypes.lengthCompare(gotArgs.length) == 0)
                 // here we check P3: S(r) <:< appT
                 typeWidensToOrFail(
@@ -1104,45 +1275,33 @@ object TypeValidator {
                     path,
                     s"recur arity mismatch: loop expects ${loopArgTypes.length} args, got ${args.length}"
                   )
+              // the loop has no type parameters, so the args solve nothing
               val argTypeChecks =
-                loopArgTypes
-                  .zip(args.toList)
-                  .zipWithIndex
-                  .foldLeft(Validated.validNec(Map.empty): TypeValidation[
-                    SolvedFreeBounds
-                  ]) { case (acc, ((expected, got), idx)) =>
-                    acc.andThen { solvedSoFar =>
-                      typeWidensToOrFailWithSolved(
-                        expected,
-                        got.getType,
-                        kindOf,
-                        normalizeType,
-                        inScopeKinds,
-                        solvedSoFar,
-                        path / "recur" / s"arg[$idx]",
-                        s"recur arg type mismatch: expected ${expected.show}, got ${got.getType.show}"
-                      )
-                    }
-                  }
-              val recurTypeCheck =
-                argTypeChecks.andThen { solvedAfterArgs =>
-                  val solvedResultSubMap: Map[Type.Var, Type] =
-                    solvedAfterArgs.iterator.collect {
-                      case (b: Type.Var.Bound, solved) if inScopeKinds.contains(b) =>
-                        (b: Type.Var) -> solved
-                    }.toMap
-                  val solvedLoopType = Type.substituteVar(loopType, solvedResultSubMap)
-                  typeWidensToOrFail(
-                    solvedLoopType,
-                    tpe,
-                    kindOf,
-                    normalizeType,
-                    inScopeKinds,
-                    path,
-                    s"recur result type mismatch: expected ${solvedLoopType.show}, got ${tpe.show}"
-                  )
+                loopArgTypes.zip(args.toList).zipWithIndex.map {
+                  case ((expected, got), idx) =>
+                    typeFitsOrFail(
+                      got.getType,
+                      expected,
+                      kindOf,
+                      normalizeType,
+                      inScopeKinds,
+                      Map.empty,
+                      Map.empty,
+                      path / "recur" / s"arg[$idx]",
+                      s"recur arg type mismatch: expected ${expected.show}, got ${got.getType.show}"
+                    ).void
                 }
-              (arityCheck :: recurTypeCheck :: Nil).sequence_
+              val recurTypeCheck =
+                typeWidensToOrFail(
+                  loopType,
+                  tpe,
+                  kindOf,
+                  normalizeType,
+                  inScopeKinds,
+                  path,
+                  s"recur result type mismatch: expected ${loopType.show}, got ${tpe.show}"
+                )
+              (arityCheck :: recurTypeCheck :: argTypeChecks).sequence_
           }
 
         (recurChecks :: argChecks).sequence_
@@ -1177,16 +1336,19 @@ object TypeValidator {
             branchPath
           )
 
+          // each branch's type has to fit the match's type
           val branchResultTypeCheck =
-            typeWidensToOrFail(
-              te.getType,
+            typeFitsOrFail(
               branch.expr.getType,
+              te.getType,
               kindOf,
               normalizeType,
               inScopeKinds,
+              Map.empty,
+              Map.empty,
               branchPath,
               s"branch result type mismatch: expected ${te.getType.show}, got ${branch.expr.getType.show}"
-            )
+            ).void
 
           branchLocals.andThen { localsFromPattern =>
             val outerScope = locals ++ localsFromPattern

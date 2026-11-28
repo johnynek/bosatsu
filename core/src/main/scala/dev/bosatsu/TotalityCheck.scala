@@ -88,7 +88,15 @@ case class TotalityCheck(inEnv: TypeEnv[Kind.Arg]) {
         if (cmp == 0) validUnit
         else
           Left(
-            NonEmptyList.of(ArityMismatch(nm, pat, inEnv, size, params.size))
+            NonEmptyList.of(
+              ArityMismatch(
+                nm,
+                pat,
+                inEnv,
+                expected = params.size,
+                found = size
+              )
+            )
           )
     }
 
@@ -516,10 +524,10 @@ case class TotalityCheck(inEnv: TypeEnv[Kind.Arg]) {
       args: List[Pattern[Cons, Type]]
   ): Option[Pattern.ListPat[Cons, Type]] =
     (n, args) match {
-      case ((PackageName.PredefName, Constructor("EmptyList")), Nil) =>
+      case ((PackageName.PredefName, PredefNames.EmptyList), Nil) =>
         Some(Pattern.ListPat(Nil))
       case (
-            (PackageName.PredefName, Constructor("NonEmptyList")),
+            (PackageName.PredefName, PredefNames.NonEmptyList),
             h :: t :: Nil
           ) =>
         val tailRes = t match {
@@ -635,14 +643,12 @@ case class TotalityCheck(inEnv: TypeEnv[Kind.Arg]) {
               }
             )(using
               new Relatable[List[Pattern[Cons, Type]]] {
+                // as getProd(a.size).relate(a, b) does when the sizes match
                 def relate(
                     a: List[Pattern[Cons, Type]],
                     b: List[Pattern[Cons, Type]]
-                ) = {
-                  val size = a.size
-                  if (size == b.size) getProd(size).relate(a, b)
-                  else Rel.Disjoint
-                }
+                ) =
+                  Rel.zipCombine(a, b)(self.relate)
               }
             )
 
@@ -728,11 +734,15 @@ case class TotalityCheck(inEnv: TypeEnv[Kind.Arg]) {
                         p2: Option[Pattern[Cons, Type]]
                     ): Rel.SuperOrSame = {
                       val unionParams = (unstruct(p1) ::: unstruct(p2)).distinct
-                      // pos <:> (p1 | p2) we can just element wise un
-
-                      unionProduct
-                        .relate(params :: Nil, unionParams)
-                        .asInstanceOf[Rel.SuperOrSame]
+                      // pos <:> (p1 | p2) we can just element wise un.
+                      // pos >= (p1 | p2), so they are the same exactly when
+                      // pos is a subset of the union.
+                      if (
+                        unionProduct
+                          .relate(params :: Nil, unionParams)
+                          .isSubtype
+                      ) Rel.Same
+                      else Rel.Super
                     }
 
                     Left(solve(_, _))
@@ -1062,11 +1072,8 @@ case class TotalityCheck(inEnv: TypeEnv[Kind.Arg]) {
                   Pattern.PositionalStruct(ln, lp),
                   Pattern.PositionalStruct(rn, rp)
                 ) =>
-              if ((ln == rn) && (lp.size == rp.size)) {
-                (lp.zip(rp).foldLeft(Rel.Same: Rel) { case (acc, (l, r)) =>
-                  acc.lazyCombine(loop(l, r))
-                })
-              } else Rel.Disjoint
+              if (ln == rn) Rel.zipCombine(lp, rp)(loop)
+              else Rel.Disjoint
             case (Pattern.PositionalStruct(_, _), _) =>
               if (isTop(b)) {
                 if (isTop(a)) Rel.Same

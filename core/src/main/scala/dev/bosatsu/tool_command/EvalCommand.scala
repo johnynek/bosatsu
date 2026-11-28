@@ -14,15 +14,15 @@ import dev.bosatsu.tool.{
   PackageResolver,
   PathGen
 }
-import dev.bosatsu.{PackageName, Par, PlatformIO, TypeName, rankn}
+import dev.bosatsu.{Par, PlatformIO, ReservedPackage, rankn}
 import org.typelevel.paiges.Doc
 
 object EvalCommand {
   private val progMainType: rankn.Type =
     rankn.Type.TyConst(
       rankn.Type.Const.Defined(
-        PackageName.parts("Bosatsu", "Prog"),
-        TypeName("Main")
+        ReservedPackage.Prog.name,
+        ReservedPackage.Prog.typeName("Main")
       )
     )
 

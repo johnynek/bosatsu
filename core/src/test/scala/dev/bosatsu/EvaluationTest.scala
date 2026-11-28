@@ -4815,4 +4815,135 @@ main = target(0, 3, -2, 5)
       VInt(-4)
     )
   }
+
+  test("a list search window over a known list does not fold to a constructor") {
+    // the second slot of the window reads the tail of a known list, which is
+    // a constructor application, not a cheap expression
+    evalBothPipelines(
+      """
+main = match [1, 2, 3]:
+  case [*_, 2, 3, *_]: 1
+  case _: 0
+""",
+      VInt(1)
+    )
+    evalBothPipelines(
+      """
+main = match [1, 2, 3]:
+  case [*_, 3, 2, *_]: 1
+  case _: 0
+""",
+      VInt(0)
+    )
+    // global inlining substitutes the small top-level list
+    evalBothPipelines(
+      """
+xs = [1, 2, 3]
+
+main = match xs:
+  case [*_, 2, 3, *_]: 1
+  case _: 0
+""",
+      VInt(1)
+    )
+  }
+
+  test("binders inside top-level union alternatives in a matrix match") {
+    evalBothPipelines(
+      """
+enum E: A, B, C
+
+def code(e: E) -> Int:
+  match e:
+    case A: 1
+    case B: 2
+    case C: 3
+
+def f(x: E, z: Option[E]) -> E:
+  match (x, z):
+    case ((A as y) | (B as y), None): y
+    case (C, Some((A as w) | (C as w))): w
+    case (q, _): q
+
+cases = [(A, None), (B, None), (C, Some(C)), (C, Some(A)), (C, Some(B)), (B, Some(A))]
+
+def step(acc: Int, pair: (E, Option[E])) -> Int:
+  (x, z) = pair
+  acc.mul(10).add(code(f(x, z)))
+
+main = cases.foldl_List(0, step)
+""",
+      VInt(123132)
+    )
+  }
+
+  test("binders inside union alternatives before a costly wildcard fallback") {
+    // A wildcard last branch whose right-hand side is heavy enough makes the
+    // matrix compiler count how many leaves the fallback would fill
+    // (matrixFallbackMultiplicity), a second pass over the rows that must
+    // also bind each union alternative's names.
+    evalBothPipelines(
+      """
+enum E: A, B, C
+
+def code(e: E) -> Int:
+  match e:
+    case A: 1
+    case B: 2
+    case C: 3
+
+def g(x: E, z: Option[E]) -> Int:
+  match (x, z):
+    case ((A as y) | (B as y), None): code(y)
+    case _: code(x).mul(10).add(code(x)).mul(10).add(code(x)).mul(10)
+
+cases = [(A, None), (B, None), (C, None), (A, Some(A))]
+
+def step(acc: Int, pair: (E, Option[E])) -> Int:
+  (x, z) = pair
+  acc.mul(10000).add(g(x, z))
+
+main = cases.foldl_List(0, step)
+""",
+      // 1, 2, 3330, 1110 in four-digit groups
+      VInt(BigInt("1000233301110"))
+    )
+  }
+
+  test("an annotation with an alias of a forall type evaluates") {
+    // (f(1): Poly) checks against the expansion of Poly, and q reads p
+    // back through the alias
+    evalBothPipelines(
+      """
+type Poly = forall a. a -> a
+
+(id: forall a. a -> a) = x -> x
+(f: Int -> (forall a. a -> a)) = _ -> id
+
+p = (f(1): Poly)
+(q: forall a. a -> a) = p
+
+main = (q("x"), q(2))
+""",
+      Tuple(Str("x"), VInt(2))
+    )
+  }
+
+  test("values of an alias of a forall type evaluate polymorphically") {
+    evalBothPipelines(
+      """
+type Poly = forall a. a -> a
+type Q = Int -> Poly
+
+(id: Poly) = x -> x
+def both(f: Poly) -> (Int, String): (f(1), f("s"))
+(q: Q) = _ -> id
+struct Box(f: Poly)
+
+main = match Box(q(0)):
+  case Box(f): (both(f), f(3), q(1)(4))
+""",
+      Tuple(Tuple(VInt(1), Str("s")), VInt(3), VInt(4))
+    )
+  }
 }

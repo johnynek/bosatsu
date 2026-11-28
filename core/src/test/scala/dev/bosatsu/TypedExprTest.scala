@@ -850,7 +850,7 @@ foo = _ -> 1
       val let1 = let("y", varTE("x", intTpe), varTE("y", intTpe))
       assertEquals(
         TypedExpr.substitute(Identifier.Name("x"), int(2), let1),
-        Some(let("y", int(2), varTE("y", intTpe)))
+        let("y", int(2), varTE("y", intTpe))
       )
     }
 
@@ -860,10 +860,8 @@ foo = _ -> 1
       assertEquals(
         TypedExpr
           .substitute(Identifier.Name("x"), varTE("y", intTpe), let1)
-          .map(_.reprString),
-        Some(
-          "(let y0 (var y Bosatsu/Predef::Int) (var y0 Bosatsu/Predef::Int))"
-        )
+          .reprString,
+        "(let y0 (var y Bosatsu/Predef::Int) (var y0 Bosatsu/Predef::Int))"
       )
     }
 
@@ -872,7 +870,7 @@ foo = _ -> 1
       val let1 = let("y", varTE("y", intTpe), varTE("y", intTpe))
       assertEquals(
         TypedExpr.substitute(Identifier.Name("y"), int(42), let1),
-        Some(let("y", int(42), varTE("y", intTpe)))
+        let("y", int(42), varTE("y", intTpe))
       )
     }
 
@@ -881,9 +879,184 @@ foo = _ -> 1
       val let1 = letrec("y", varTE("y", intTpe), varTE("y", intTpe))
       assertEquals(
         TypedExpr.substitute(Identifier.Name("y"), int(42), let1),
-        Some(let1)
+        let1
       )
     }
+  }
+
+  test("substituteNoLambda refuses any expression with a lambda") {
+    val x = Identifier.Name("x")
+    val noLambda = let("y", varTE("x", intTpe), varTE("y", intTpe))
+    assertEquals(
+      TypedExpr.substituteNoLambda(Map(x -> int(2)), noLambda),
+      Some(let("y", int(2), varTE("y", intTpe)))
+    )
+
+    // the lambda does not mention x, but is still refused
+    val withLambda =
+      let("y", varTE("x", intTpe), lam("z", intTpe, varTE("z", intTpe)))
+    assertEquals(TypedExpr.substituteNoLambda(Map(x -> int(2)), withLambda), None)
+    assertEquals(
+      TypedExpr.substituteAll(Map(x -> int(2)), withLambda),
+      let("y", int(2), lam("z", intTpe, varTE("z", intTpe)))
+    )
+
+    // a loop is refused too
+    val withLoop =
+      TypedExpr.Loop(
+        NonEmptyList.one((Identifier.Name("i"), varTE("x", intTpe))),
+        varTE("i", intTpe),
+        ()
+      )
+    assertEquals(TypedExpr.substituteNoLambda(Map(x -> int(2)), withLoop), None)
+  }
+
+  // Match(s, [Branch(_, MatchGuard(a, _, Some(g)), b)]) with the given tags
+  private def guardedMatch(
+      scrutinee: Int,
+      arg: Int,
+      inner: Int,
+      body: Int,
+      matchTag: Int
+  ): TypedExpr[Int] = {
+    def local(n: String, tag: Int): TypedExpr[Int] =
+      TypedExpr.Local(Identifier.Name(n), intTpe, tag)
+    val guard =
+      TypedExpr.MatchGuard(local("a", arg), Pattern.WildCard, Some(local("g", inner)))(
+        using Region.empty
+      )
+    val branch =
+      TypedExpr.Branch.fromGuardNode(Pattern.WildCard, Some(guard), local("b", body))(
+        using Region.empty
+      )
+    TypedExpr.MatchExpr(
+      Declaration.MatchKind.Match,
+      local("s", scrutinee),
+      NonEmptyList.one(branch),
+      matchTag
+    )
+  }
+
+  // Assert that traverse visits the tags of te in the expected order, and
+  // that map, foldLeft and foldRight call their functions on them in that
+  // order too. Traverse's laws need foldMap to agree with traverse.
+  private def assertVisitOrder(te: TypedExpr[Int], expected: List[Int]): Unit = {
+    type W[X] = Writer[List[Int], X]
+    val (traversed, traverseResult) = te.traverse[W, Int](t => Writer(List(t), t)).run
+    assertEquals(traverseResult, te)
+    assertEquals(traversed, expected, "traverse")
+
+    val mapCalls = List.newBuilder[Int]
+    val mapped = te.map { t =>
+      mapCalls.addOne(t): Unit
+      t
+    }
+    assertEquals(mapped, te)
+    assertEquals(mapCalls.result(), expected, "map")
+
+    val foldedLeft = te.foldLeft(List.empty[Int])((acc, t) => t :: acc).reverse
+    assertEquals(foldedLeft, expected, "foldLeft")
+
+    val foldedRight =
+      te.foldRight(Eval.now(List.empty[Int]))((t, rest) => rest.map(t :: _)).value
+    assertEquals(foldedRight, expected, "foldRight")
+  }
+
+  test("map, traverse and the folds visit a match guard's argument, inner guard and body in order") {
+    assertVisitOrder(guardedMatch(0, 1, 2, 3, 4), List(0, 1, 2, 3, 4))
+  }
+
+  test("map, traverse and the folds visit each branch's guard and body in order") {
+    def local(n: String, tag: Int): TypedExpr[Int] =
+      TypedExpr.Local(Identifier.Name(n), intTpe, tag)
+    def guarded(
+        guard: Option[TypedExpr.BranchGuard[Int]],
+        body: Int
+    ): TypedExpr.Branch[Int] =
+      TypedExpr.Branch.fromGuardNode(Pattern.WildCard, guard, local("b", body))(using
+        Region.empty
+      )
+    val branches = NonEmptyList.of(
+      guarded(
+        Some(TypedExpr.MatchGuard(local("a", 1), Pattern.WildCard, None)(using Region.empty)),
+        2
+      ),
+      guarded(Some(TypedExpr.BoolGuard(local("g", 3))), 4),
+      guarded(None, 5),
+      guarded(
+        Some(
+          TypedExpr.MatchGuard(local("a", 6), Pattern.WildCard, Some(local("g", 7)))(
+            using Region.empty
+          )
+        ),
+        8
+      )
+    )
+    val te =
+      TypedExpr.MatchExpr(Declaration.MatchKind.Match, local("s", 0), branches, 9)
+    assertVisitOrder(te, (0 to 9).toList)
+  }
+
+  test("size counts a match guard's argument, inner guard and body") {
+    // the scrutinee, the guard's argument, its inner guard and the body
+    assertEquals(guardedMatch(0, 1, 2, 3, 4).size, 4)
+  }
+
+  test("map keeps traverse's order where it hands a deep subtree to traverse") {
+    // more levels of single-branch matches than map recurses through directly
+    val depth = 600
+    var te = guardedMatch(0, 1, 2, 3, 4)
+    var level = 0
+    while (level < depth) {
+      val branch =
+        TypedExpr.Branch.fromGuardNode(Pattern.WildCard, None, te)(using Region.empty)
+      te = TypedExpr.MatchExpr(
+        Declaration.MatchKind.Match,
+        TypedExpr.Local(Identifier.Name(s"s$level"), intTpe, 100 + 2 * level),
+        NonEmptyList.one(branch),
+        101 + 2 * level
+      )
+      level = level + 1
+    }
+    // the outer scrutinees, outermost first, then the guarded match, then the
+    // outer match tags, innermost first
+    val expected =
+      (depth - 1 to 0 by -1).map(l => 100 + 2 * l).toList :::
+        List(0, 1, 2, 3, 4) :::
+        (0 until depth).map(l => 101 + 2 * l).toList
+    assertVisitOrder(te, expected)
+  }
+
+  test("traverseType visits a match guard's patterns and expressions in order") {
+    def tpe(n: String): Type =
+      Type.TyConst(Type.Const.Defined(TestUtils.testPackage, TypeName(Constructor(n))))
+    def local(n: String, t: String): TypedExpr[Unit] =
+      TypedExpr.Local(Identifier.Name(n), tpe(t), ())
+    val guard =
+      TypedExpr.MatchGuard(
+        local("a", "Arg"),
+        Pattern.Annotation(Pattern.WildCard, tpe("GuardPattern")),
+        Some(local("g", "Inner"))
+      )(using Region.empty)
+    val branch =
+      TypedExpr.Branch.fromGuardNode(
+        Pattern.Annotation(Pattern.WildCard, tpe("Pattern")),
+        Some(guard),
+        local("b", "Body")
+      )(using Region.empty)
+    val m = TypedExpr.MatchExpr(
+      Declaration.MatchKind.Match,
+      local("s", "Scrutinee"),
+      NonEmptyList.one(branch),
+      ()
+    )
+    type W[X] = Writer[List[Type], X]
+    val (seen, result) = m.traverseType[W](t => Writer(List(t), t)).run
+    assertEquals(result, m)
+    assertEquals(
+      seen,
+      List("Scrutinee", "Pattern", "GuardPattern", "Arg", "Inner", "Body").map(tpe)
+    )
   }
 
   lazy val genNonFree: Gen[TypedExpr[Unit]] =
@@ -897,14 +1070,8 @@ foo = _ -> 1
       TypedExpr.freeVars(te0 :: Nil) match {
         case Nil    => ()
         case b :: _ =>
-          TypedExpr.substitute(b, te1, te0) match {
-            case None =>
-              // te1 has no free variables, this shouldn't fail
-              assert(false)
-
-            case Some(te0sub) =>
-              assert(!TypedExpr.freeVarsSet(te0sub :: Nil)(b))
-          }
+          val te0sub = TypedExpr.substitute(b, te1, te0)
+          assert(!TypedExpr.freeVarsSet(te0sub :: Nil)(b))
       }
     }
   }
@@ -927,13 +1094,7 @@ foo = _ -> 1
     } yield (nf, te)
 
     forAll(pair, genNonFree) { case ((b, te0), te1) =>
-      TypedExpr.substitute(b, te1, te0) match {
-        case None =>
-          // te1 has no free variables, this shouldn't fail
-          assert(false)
-
-        case Some(te0sub) => assertEquals(te0sub, te0)
-      }
+      assertEquals(TypedExpr.substitute(b, te1, te0), te0)
     }
   }
 
@@ -970,19 +1131,11 @@ foo = _ -> 1
       )(using Region.empty)
       val expr = TypedExpr.Match(int(0), NonEmptyList.one(branch), ())
 
-      val outerSub = TypedExpr.substituteAll(
-        Map(outer -> { (_: TypedExpr.Local[Unit]) => int(11) }),
-        expr,
-        enterLambda = true
-      )
-      val innerSub = TypedExpr.substituteAll(
-        Map(inner -> { (_: TypedExpr.Local[Unit]) => int(17) }),
-        expr,
-        enterLambda = true
-      )
+      val outerSub = TypedExpr.substituteAll(Map(outer -> int(11)), expr)
+      val innerSub = TypedExpr.substituteAll(Map(inner -> int(17)), expr)
 
-      assertEquals(outerSub, Some(expr))
-      assertEquals(innerSub, Some(expr))
+      assertEquals(outerSub, expr)
+      assertEquals(innerSub, expr)
     }
   }
 
@@ -1010,11 +1163,7 @@ foo = _ -> 1
     )(using Region.empty)
     val expr = TypedExpr.Match(int(0), NonEmptyList.one(branch), ())
 
-    val substituted = TypedExpr.substituteAll(
-      Map(optName -> { (_: TypedExpr.Local[Unit]) => xLocal }),
-      expr,
-      enterLambda = true
-    ).get
+    val substituted = TypedExpr.substituteAll(Map(optName -> xLocal), expr)
 
     substituted match {
       case TypedExpr.Match(_, NonEmptyList(branch1, Nil), _) =>
@@ -1066,11 +1215,7 @@ foo = _ -> 1
     )(using Region.empty)
     val expr = TypedExpr.Match(int(0), NonEmptyList.one(branch), ())
 
-    val substituted = TypedExpr.substituteAll(
-      Map(yName -> { (_: TypedExpr.Local[Unit]) => pLocal }),
-      expr,
-      enterLambda = true
-    ).get
+    val substituted = TypedExpr.substituteAll(Map(yName -> pLocal), expr)
 
     substituted match {
       case TypedExpr.Match(_, NonEmptyList(branch1, Nil), _) =>
@@ -6165,12 +6310,30 @@ def make(y: Int):
         case TypedExpr.Match(expr, branches, tag) =>
           // all branches have the same type:
           val tbranch = branches.traverse { branch =>
+            // a MatchGuard's pattern, then its argument, then its inner guard
+            val guardF: F[Option[TypedExpr.BranchGuard[A]]] =
+              branch.guardNode.traverse {
+                case TypedExpr.BoolGuard(guard) =>
+                  traverse(guard)(fn).map(TypedExpr.BoolGuard(_))
+                case mg @ TypedExpr.MatchGuard(arg, pattern, inner) =>
+                  (
+                    pattern.traverseType(fn),
+                    traverse(arg)(fn),
+                    inner.traverse(traverse(_)(fn))
+                  ).mapN { (pattern1, arg1, inner1) =>
+                    TypedExpr.MatchGuard(arg1, pattern1, inner1)(using
+                      mg.patternRegion
+                    )
+                  }
+              }
             (
               branch.pattern.traverseType(fn),
-              branch.guard.traverse(traverse(_)(fn)),
+              guardF,
               traverse(branch.expr)(fn)
             ).mapN { (pattern, guard, expr1) =>
-              TypedExpr.Branch(pattern, guard, expr1)(using branch.patternRegion)
+              TypedExpr.Branch.fromGuardNode(pattern, guard, expr1)(using
+                branch.patternRegion
+              )
             }
           }
           (traverse(expr)(fn), tbranch).mapN(TypedExpr.Match(_, _, tag))
@@ -6178,6 +6341,27 @@ def make(y: Int):
   }
 
   private object RecursiveTraverseOracle {
+    // a branch's guard expressions in the order traverse visits them: a
+    // MatchGuard's argument, then its inner guard
+    private def guardExprs[T](branch: TypedExpr.Branch[T]): List[TypedExpr[T]] =
+      branch.guardNode match {
+        case None                                      => Nil
+        case Some(TypedExpr.BoolGuard(guard))          => guard :: Nil
+        case Some(TypedExpr.MatchGuard(arg, _, inner)) => arg :: inner.toList
+      }
+
+    private def traverseGuard[F[_]: Applicative, T, S](
+        guard: TypedExpr.BranchGuard[T]
+    )(fn: TypedExpr[T] => F[TypedExpr[S]]): F[TypedExpr.BranchGuard[S]] =
+      guard match {
+        case TypedExpr.BoolGuard(expr) =>
+          fn(expr).map(TypedExpr.BoolGuard(_))
+        case mg @ TypedExpr.MatchGuard(arg, pattern, inner) =>
+          (fn(arg), inner.traverse(fn)).mapN { (arg1, inner1) =>
+            TypedExpr.MatchGuard(arg1, pattern, inner1)(using mg.patternRegion)
+          }
+      }
+
     def traverse[F[_]: Applicative, T, S](
         typedExprT: TypedExpr[T]
     )(fn: T => F[S]): F[TypedExpr[S]] =
@@ -6225,10 +6409,12 @@ def make(y: Int):
         case TypedExpr.Match(expr, branches, tag) =>
           val tbranch = branches.traverse { branch =>
             (
-              branch.guard.traverse(guard => traverse(guard)(fn)),
+              branch.guardNode.traverse(guard =>
+                traverseGuard(guard)(expr => traverse(expr)(fn))
+              ),
               traverse(branch.expr)(fn)
             ).mapN { (guard, expr1) =>
-              TypedExpr.Branch(
+              TypedExpr.Branch.fromGuardNode(
                 branch.pattern,
                 guard,
                 expr1
@@ -6291,10 +6477,10 @@ def make(y: Int):
         case TypedExpr.Match(expr, branches, tag) =>
           val tbranch = branches.traverse { branch =>
             mon.map2(
-              branch.guard.traverse(loop(_)),
+              branch.guardNode.traverse(traverseGuard(_)(loop)),
               loop(branch.expr)
             ) { (guard, expr1) =>
-              TypedExpr.Branch(
+              TypedExpr.Branch.fromGuardNode(
                 branch.pattern,
                 guard,
                 expr1
@@ -6342,7 +6528,8 @@ def make(y: Int):
         case TypedExpr.Match(arg, branches, tag) =>
           val b1 = foldLeft(arg, b)(f)
           val b2 = branches.foldLeft(b1) { case (bnext, branch) =>
-            val bnext1 = branch.guard.fold(bnext)(foldLeft(_, bnext)(f))
+            val bnext1 =
+              guardExprs(branch).foldLeft(bnext)((b, guard) => foldLeft(guard, b)(f))
             foldLeft(branch.expr, bnext1)(f)
           }
           f(b2, tag)
@@ -6383,7 +6570,7 @@ def make(y: Int):
         val b1 = f(tag, lb)
         val b2 = branches.foldRight(b1) { case (branch, bnext) =>
           val bnext1 = foldRight(branch.expr, bnext)(f)
-          branch.guard.fold(bnext1)(foldRight(_, bnext1)(f))
+          guardExprs(branch).foldRight(bnext1)((guard, b) => foldRight(guard, b)(f))
         }
         foldRight(arg, b2)(f)
     }
@@ -6418,9 +6605,11 @@ def make(y: Int):
           TypedExpr.Match(
             map(arg)(fn),
             branches.map { branch =>
-              TypedExpr.Branch(
+              TypedExpr.Branch.fromGuardNode(
                 branch.pattern,
-                branch.guard.map(map(_)(fn)),
+                branch.guardNode.map(guard =>
+                  traverseGuard[Id, A, B](guard)(expr => map(expr)(fn))
+                ),
                 map(branch.expr)(fn)
               )(using branch.patternRegion)
             },
@@ -6472,6 +6661,56 @@ def make(y: Int):
     }
     cursor
   }
+
+  // ((base: Int): Int)...: deep nesting that map walks by recursion, not by
+  // one of its App or Let loops. (A deep lambda chain would not do: getType
+  // recurses through lambdas.)
+  private def deepAnnotationChain(depth: Int): TypedExpr[Int] = {
+    val intT = Type.IntType
+    var cursor: TypedExpr[Int] =
+      TypedExpr.Local(Identifier.Name("base"), intT, -1)
+    var idx = 0
+    while (idx < depth) {
+      cursor = TypedExpr.Annotation(cursor, intT, None)
+      idx = idx + 1
+    }
+    cursor
+  }
+
+  Platform.onJvm(
+    test("TypedExpr map is stack safe on deep annotation nesting") {
+      val depth = 12000
+      @volatile var result: Either[Throwable, (TypedExpr[Int], TypedExpr[Int])] =
+        Left(new IllegalStateException("did not run"))
+
+      val thread = new Thread(
+        null,
+        new Runnable {
+          def run(): Unit =
+            result =
+              try {
+                val expr = deepAnnotationChain(depth)
+                Right((expr.map(_ + 1), expr.traverse[Id, Int](_ + 1)))
+              } catch {
+                case t: Throwable => Left(t)
+              }
+        },
+        "typed-expr-map-small-stack",
+        96L * 1024L
+      )
+      thread.start()
+      thread.join()
+
+      result match {
+        case Right((mapped, traversed)) =>
+          assertEquals(mapped, traversed)
+          assertEquals(mapped.foldLeft(0)((count, _) => count + 1), 1)
+        case Left(err) =>
+          val trace = err.getStackTrace.iterator.take(40).mkString("\n")
+          fail(s"map failed on a deep annotation chain: $err\n$trace")
+      }
+    }
+  )
 
   test("TypedExpr traverse/map/folds match recursive oracle") {
     forAll(genTypedExprInt, Gen.choose(0, 1000)) { (te, seed) =>
@@ -6607,16 +6846,16 @@ def make(y: Int):
               assert(expr.allTypes(Type.IntType))
               assert(TypedExpr.eqTypedExpr(using Eq[Int]).eqv(expr, expr))
 
-              val subMap: Map[Bindable, TypedExpr.Local[Int] => TypedExpr[Int]] =
-                Map(Identifier.Name("missing") -> ((loc: TypedExpr.Local[Int]) => loc))
-              val subRes = TypedExpr.substituteAll(subMap, expr, enterLambda = true)
-              assert(subRes.nonEmpty)
+              val missing = Identifier.Name("missing")
+              val subRes = TypedExpr.substituteAll(Map(missing -> missing), expr)
+              assert(TypedExpr.eqTypedExpr(using Eq[Int]).eqv(subRes, expr))
 
               val tsub = TypedExpr.substituteTypeVar(
                 expr,
                 Map((Type.Var.Bound("a"): Type.Var) -> Type.IntType)
               )
               assertEquals(tsub.size, expr.size)
+              assertEquals(expr.map(_ + 1).size, expr.size)
 
               val quantified: TypedExpr[Int] =
                 TypedExpr.quantify[Id, Int](

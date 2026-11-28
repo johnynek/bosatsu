@@ -1,7 +1,7 @@
 package dev.bosatsu.rankn
 
 import cats.data.NonEmptyList
-import dev.bosatsu.{Identifier, Kind}
+import dev.bosatsu.{Identifier, Kind, PackageName, TypeName}
 import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
 
@@ -60,5 +60,35 @@ class InferEnvTest extends munit.ScalaCheckSuite {
         Type.freeTyVars(env.vars.values.toList).toSet
       )
     }
+  }
+
+  test("normalizeAliasesDeep expands an alias to a forall under a forall") {
+    val a = Type.Var.Bound("a")
+    val outer = Type.Var.Bound("outer")
+    val poly =
+      TypeAlias(
+        PackageName.parts("InferEnvTest"),
+        TypeName(Identifier.Constructor("Poly")),
+        Nil,
+        Type.ForAll(
+          NonEmptyList.one((a, Kind.Type)),
+          Type.Fun(Type.TyVar(a), Type.TyVar(a))
+        )
+      )
+    val env =
+      new Infer.Env(
+        RefSpace.constRef(0L),
+        Map.empty,
+        Map.empty,
+        Map.empty,
+        Map(poly.toTypeConst -> poly)
+      )
+
+    val outerVars = NonEmptyList.one((outer, Kind.Type))
+    // the alias is a Rho, but its expansion is not
+    val tpe = Type.ForAll(outerVars, poly.toTypeTyConst)
+    val expected = Type.forAll(outerVars, poly.rhs)
+
+    assertEquals(env.normalizeAliasesDeep(tpe), expected)
   }
 }

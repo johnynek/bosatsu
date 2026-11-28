@@ -266,6 +266,23 @@ object Expr {
           wholeGuardCheckExpr.fold(withGuard)(outerFn(withGuard, _))
       }
 
+    /** Like foldExpr, but fn sees the expressions in reverse: a MatchGuard's
+      * whole-guard check, then its inner guard, then its argument. Pushing
+      * them onto a stack this way leaves them to pop in foldExpr's order, the
+      * order traverseType visits them.
+      */
+    def foldExprReverse[T, A](guard: BranchGuard[T], init: A)(
+        fn: (A, Expr[T]) => A
+    ): A =
+      guard match {
+        case BoolGuard(expr) =>
+          fn(init, expr)
+        case MatchGuard(arg, _, guardOpt, wholeGuardCheckExpr) =>
+          val withCheck = wholeGuardCheckExpr.fold(init)(fn(init, _))
+          val withGuard = guardOpt.fold(withCheck)(fn(withCheck, _))
+          fn(withGuard, arg)
+      }
+
     def iterator[T](guard: BranchGuard[T]): Iterator[Expr[T]] =
       guard match {
         case BoolGuard(expr) =>
@@ -379,6 +396,13 @@ object Expr {
     def foldGuardExpr[A](init: A)(fn: (A, Expr[T]) => A): A =
       guardNode match {
         case Some(guard) => guard.foldExpr(init)(fn)
+        case None        => init
+      }
+
+    // foldGuardExpr in reverse, for pushing the guard expressions onto a stack
+    def foldGuardExprReverse[A](init: A)(fn: (A, Expr[T]) => A): A =
+      guardNode match {
+        case Some(guard) => BranchGuard.foldExprReverse(guard, init)(fn)
         case None        => init
       }
 
@@ -595,8 +619,8 @@ object Expr {
   /*
    * Allocate these once
    */
-  private val TrueCtor = Constructor("True")
-  private val FalseCtor = Constructor("False")
+  private val TrueCtor = PredefNames.True
+  private val FalseCtor = PredefNames.False
 
   private val TruePat: Pattern[(PackageName, Constructor), Type] =
     Pattern.PositionalStruct((PackageName.PredefName, TrueCtor), Nil)
@@ -835,8 +859,10 @@ object Expr {
             case Match(arg, branches, _) =>
               branches.toList.reverseIterator.foreach { branch =>
                 stack = ExprWork(branch.expr, bound) :: stack
-                branch.guardExprIterator.foreach { guard =>
-                  stack = ExprWork(guard, bound) :: stack
+                // traverseType visits a MatchGuard's argument, then its inner
+                // guard, then its whole-guard check, so the argument goes on top
+                stack = branch.foldGuardExprReverse(stack) { (st, guard) =>
+                  ExprWork(guard, bound) :: st
                 }
                 branch.guardPattern.foreach { pattern =>
                   stack = PatternWork(pattern, bound) :: stack

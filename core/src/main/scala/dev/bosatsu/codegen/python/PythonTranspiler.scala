@@ -70,10 +70,12 @@ case object PythonTranspiler extends Transpiler {
         val parsedExt =
           externals.map(Parser.unsafeParse(PythonGen.externalParser, _))
 
-        val extMap = listToUnique(parsedExt.flatten)(
-          { case (p, b, _, _) => (p, b) },
-          { case (_, _, m, f) => (m, f) },
+        val extMap = listToUnique(
+          parsedExt.flatten,
           "expected each package/name to map to just one file"
+        )(
+          { case (p, b, _, _) => (p, b) },
+          { case (_, _, m, f) => (m, f) }
         ).get
 
         val exts = extMap.keySet
@@ -98,11 +100,10 @@ case object PythonTranspiler extends Transpiler {
           // TODO, we don't check that these types even exist in the fully
           // universe, we should. If you have a typo in a type or package name
           // you just get silently ignored
-          val typeEvalMap = listToUnique(parsedEvals.flatten)(
-            t => t._1,
-            t => t._2,
+          val typeEvalMap = listToUnique(
+            parsedEvals.flatten,
             "expected each type to have to just one evaluator"
-          ).get
+          )(t => t._1, t => t._2).get
 
           val evalMap =
             ns.mainValues(typeEvalMap.contains(_))

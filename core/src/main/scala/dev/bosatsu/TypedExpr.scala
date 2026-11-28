@@ -85,8 +85,10 @@ sealed abstract class TypedExpr[+T] { self: Product =>
         args.foldMap(_.size)
       case Match(a, branches, _) =>
         a.size + branches.foldMap { branch =>
-          branch.foldGuardExpr(0) { case (_, guardExpr) => guardExpr.size } +
-            branch.expr.size
+          // a MatchGuard counts both its argument and its inner guard
+          branch.foldGuardExpr(branch.expr.size) { (acc, guardExpr) =>
+            acc + guardExpr.size
+          }
         }
     }
 
@@ -723,25 +725,25 @@ object TypedExpr {
   ) {
     import QuantifierEvidence.sortedMapTraverse
 
-    private def mapSolved(fn: Type => Type)(
+    private def mapSolved(
         solved: SortedMap[Type.Var.Bound, (Kind, Type)]
-    ): SortedMap[Type.Var.Bound, (Kind, Type)] =
+    )(fn: Type => Type): SortedMap[Type.Var.Bound, (Kind, Type)] =
       SortedMap.from(
         solved.iterator
           .map { case (b, (k, t)) => (b, (k, fn(t))) }
       )
 
-    private def traverseSolved[F[_]: Applicative](fn: Type => F[Type])(
+    private def traverseSolved[F[_]: Applicative](
         solved: SortedMap[Type.Var.Bound, (Kind, Type)]
-    ): F[SortedMap[Type.Var.Bound, (Kind, Type)]] =
+    )(fn: Type => F[Type]): F[SortedMap[Type.Var.Bound, (Kind, Type)]] =
       sortedMapTraverse.traverse(solved)(fn)
 
     def mapTypes(fn: Type => Type): QuantifierEvidence =
       copy(
         sourceAtSolve = fn(sourceAtSolve),
         targetAtSolve = fn(targetAtSolve),
-        forallSolved = mapSolved(fn)(forallSolved),
-        existsHidden = mapSolved(fn)(existsHidden)
+        forallSolved = mapSolved(forallSolved)(fn),
+        existsHidden = mapSolved(existsHidden)(fn)
       )
 
     def traverseTypes[F[_]: Applicative](
@@ -750,8 +752,8 @@ object TypedExpr {
       (
         fn(sourceAtSolve),
         fn(targetAtSolve),
-        traverseSolved(fn)(forallSolved),
-        traverseSolved(fn)(existsHidden)
+        traverseSolved(forallSolved)(fn),
+        traverseSolved(existsHidden)(fn)
       ).mapN(QuantifierEvidence(_, _, _, _))
   }
   object QuantifierEvidence {
@@ -838,14 +840,10 @@ object TypedExpr {
         val newArgs = alloc(args.head, args.tail, avoids)
         val resSub = args.iterator
           .map(_._1)
-          .zip(newArgs.iterator.map { case (n1, _) =>
-
-          { (loc: Local[T]) => Local(n1, loc.tpe, loc.tag) }
-          })
+          .zip(newArgs.iterator.map(_._1))
           .toMap
 
-        // calling .get is safe when enterLambda = true
-        val expr1 = substituteAll(resSub, expr, enterLambda = true).get
+        val expr1 = substituteAll(resSub, expr)
 
         AnnotatedLambda(newArgs, expr1, tag)
       }
@@ -890,12 +888,7 @@ object TypedExpr {
           .collectFirst { case n if !avoids(n) => n }
           .get
 
-        val resSub = Map(arg -> { (loc: Local[T]) =>
-          Local(arg1, loc.tpe, loc.tag)
-        })
-
-        // calling .get is safe when enterLambda = true
-        val in1 = substituteAll(resSub, in, enterLambda = true).get
+        val in1 = substituteAll(Map(arg -> arg1), in)
 
         copy(arg = arg1, in = in1)
       }
@@ -923,13 +916,9 @@ object TypedExpr {
           .collectFirst { case n if !avoids(n) => n }
           .get
 
-        val resSub = Map(arg -> { (loc: Local[T]) =>
-          Local(arg1, loc.tpe, loc.tag)
-        })
-
-        // calling .get is safe when enterLambda = true
-        val expr1 = substituteAll(resSub, expr, enterLambda = true).get
-        val in1 = substituteAll(resSub, in, enterLambda = true).get
+        val resSub = Map(arg -> arg1)
+        val expr1 = substituteAll(resSub, expr)
+        val in1 = substituteAll(resSub, in)
 
         copy(arg = arg1, expr = expr1, in = in1)
       }
@@ -984,12 +973,10 @@ object TypedExpr {
         val newArgs = alloc(args.head, args.tail, avoids)
         val resSub = args.iterator
           .map(_._1)
-          .zip(newArgs.iterator.map {
-            case (n1, _) => { (loc: Local[T]) => Local(n1, loc.tpe, loc.tag) }
-          })
+          .zip(newArgs.iterator.map(_._1))
           .toMap
 
-        val body1 = substituteAll(resSub, body, enterLambda = true).get
+        val body1 = substituteAll(resSub, body)
         Loop(newArgs, body1, tag)
       }
     }
@@ -1030,6 +1017,20 @@ object TypedExpr {
         case MatchGuard(arg, _, guardOpt) =>
           val withArg = outerFn(init, arg)
           guardOpt.fold(withArg)(innerFn(withArg, _))
+      }
+
+    /** Like foldExpr, but fn sees the expressions in reverse: a MatchGuard's
+      * inner guard before its argument. Pushing them onto a stack this way
+      * leaves them to pop in foldExpr's order, the order traverse visits them.
+      */
+    def foldExprReverse[T, A](guard: BranchGuard[T], init: A)(
+        fn: (A, TypedExpr[T]) => A
+    ): A =
+      guard match {
+        case BoolGuard(expr) =>
+          fn(init, expr)
+        case MatchGuard(arg, _, guardOpt) =>
+          fn(guardOpt.fold(init)(fn(init, _)), arg)
       }
 
     def iterator[T](guard: BranchGuard[T]): Iterator[TypedExpr[T]] =
@@ -1105,14 +1106,14 @@ object TypedExpr {
           val trueExpr =
             TypedExpr.Global(
               PackageName.PredefName,
-              Constructor("True"),
+              PredefNames.True,
               Type.BoolType,
               arg.tag
             )
           val falseExpr =
             TypedExpr.Global(
               PackageName.PredefName,
-              Constructor("False"),
+              PredefNames.False,
               Type.BoolType,
               arg.tag
             )
@@ -1142,38 +1143,51 @@ object TypedExpr {
     def guard: Option[TypedExpr[T]] =
       guardNode.map(BranchGuard.toExpr(_))
 
-    def foldGuardExpr[A](init: A)(fn: (A, TypedExpr[T]) => A): A =
+    // The guard helpers below are inline, with inline function arguments, so
+    // a branch without a guard allocates no closures.
+    inline def foldGuardExpr[A](init: A)(inline fn: (A, TypedExpr[T]) => A): A =
       guardNode match {
-        case Some(guard) => BranchGuard.foldExpr(guard, init)(fn)
         case None        => init
+        case Some(guard) => BranchGuard.foldExpr(guard, init)(fn)
       }
 
-    def foldGuardExprScoped[A](init: A)(
-        outerFn: (A, TypedExpr[T]) => A,
-        innerFn: (A, TypedExpr[T]) => A
+    // foldGuardExpr in reverse, for pushing the guard expressions onto a stack
+    inline def foldGuardExprReverse[A](init: A)(
+        inline fn: (A, TypedExpr[T]) => A
     ): A =
       guardNode match {
-        case Some(guard) => BranchGuard.foldScopedExpr(guard, init)(outerFn, innerFn)
         case None        => init
+        case Some(guard) => BranchGuard.foldExprReverse(guard, init)(fn)
       }
 
-    def mapGuardNodeExpr[T1 >: T](
-        fn: TypedExpr[T] => TypedExpr[T1]
+    inline def foldGuardExprScoped[A](init: A)(
+        inline outerFn: (A, TypedExpr[T]) => A,
+        inline innerFn: (A, TypedExpr[T]) => A
+    ): A =
+      guardNode match {
+        case None        => init
+        case Some(guard) => BranchGuard.foldScopedExpr(guard, init)(outerFn, innerFn)
+      }
+
+    inline def mapGuardNodeExpr[T1 >: T](
+        inline fn: TypedExpr[T] => TypedExpr[T1]
     ): Option[BranchGuard[T1]] =
       mapGuardNodeScoped(identity, fn, fn)
 
     def guardPattern: Option[Pattern[(PackageName, Constructor), Type]] =
       guardNode.collect { case MatchGuard(_, pattern, _) => pattern }
 
-    def mapGuardNodeScoped[T1 >: T](
-        patternFn: Pattern[(PackageName, Constructor), Type] => Pattern[
+    inline def mapGuardNodeScoped[T1 >: T](
+        inline patternFn: Pattern[(PackageName, Constructor), Type] => Pattern[
           (PackageName, Constructor),
           Type
         ],
-        outerFn: TypedExpr[T] => TypedExpr[T1],
-        innerFn: TypedExpr[T] => TypedExpr[T1]
+        inline outerFn: TypedExpr[T] => TypedExpr[T1],
+        inline innerFn: TypedExpr[T] => TypedExpr[T1]
     ): Option[BranchGuard[T1]] =
       guardNode match {
+        case None                       =>
+          None
         case Some(BoolGuard(guardExpr)) =>
           val guardExpr1 = outerFn(guardExpr)
           if (guardExpr1 eq guardExpr) guardNode
@@ -1198,13 +1212,11 @@ object TypedExpr {
             Some(
               MatchGuard(argExpr1, pattern1, guardExpr1)(using guard.patternRegion)
             )
-        case None                      =>
-          None
       }
 
-    def mapGuardNodeExprScoped[T1 >: T](
-        outerFn: TypedExpr[T] => TypedExpr[T1],
-        innerFn: TypedExpr[T] => TypedExpr[T1]
+    inline def mapGuardNodeExprScoped[T1 >: T](
+        inline outerFn: TypedExpr[T] => TypedExpr[T1],
+        inline innerFn: TypedExpr[T] => TypedExpr[T1]
     ): Option[BranchGuard[T1]] =
       mapGuardNodeScoped(identity, outerFn, innerFn)
 
@@ -1274,10 +1286,32 @@ object TypedExpr {
     )(using patternRegion: Region): Branch[T] =
       new Branch(pattern, guardNode, expr)
 
-    def unapply[T](
-        branch: Branch[T]
-    ): Some[(Pattern[(PackageName, Constructor), Type], Option[TypedExpr[T]], TypedExpr[T])] =
-      Some((branch.pattern, branch.guard, branch.expr))
+    // a zero allocation match result: pattern, guard expression and body
+    final class BranchMatch[+T](val branch: Branch[T]) extends AnyVal {
+      def isEmpty: false = false
+      def get: BranchMatch[T] = this
+      def _1: Pattern[(PackageName, Constructor), Type] = branch.pattern
+      def _2: Option[TypedExpr[T]] = branch.guard
+      def _3: TypedExpr[T] = branch.expr
+    }
+
+    def unapply[T](branch: Branch[T]): BranchMatch[T] = new BranchMatch(branch)
+
+    // a zero allocation match result: pattern and body
+    final class UnguardedMatch[+T](val branch: Branch[T]) extends AnyVal {
+      def isEmpty: Boolean = branch.guardNode.nonEmpty
+      def get: UnguardedMatch[T] = this
+      def _1: Pattern[(PackageName, Constructor), Type] = branch.pattern
+      def _2: TypedExpr[T] = branch.expr
+    }
+
+    /** A branch without a guard, as its pattern and body. Unlike Branch, this
+      * never builds the expression of a MatchGuard.
+      */
+    object Unguarded {
+      def unapply[T](branch: Branch[T]): UnguardedMatch[T] =
+        new UnguardedMatch(branch)
+    }
   }
   final case class MatchExpr[+T](
       matchKind: MatchKind = MatchKind.Match,
@@ -1303,10 +1337,16 @@ object TypedExpr {
     ): MatchExpr[T] =
       MatchExpr(matchKind, arg, branches, tag)
 
-    def unapply[T](
-        m: MatchExpr[T]
-    ): Some[(TypedExpr[T], NonEmptyList[Branch[T]], T)] =
-      Some((m.arg, m.branches, m.tag))
+    // a zero allocation match result: arg, branches and tag
+    final class MatchMatch[+T](val m: MatchExpr[T]) extends AnyVal {
+      def isEmpty: false = false
+      def get: MatchMatch[T] = this
+      def _1: TypedExpr[T] = m.arg
+      def _2: NonEmptyList[Branch[T]] = m.branches
+      def _3: T = m.tag
+    }
+
+    def unapply[T](m: MatchExpr[T]): MatchMatch[T] = new MatchMatch(m)
   }
 
   final case class App2Step[T](
@@ -1415,7 +1455,7 @@ object TypedExpr {
           coerce: Type.Rho,
           quantifierEvidence: Option[QuantifierEvidence]
       ): Rho[T] =
-        TypedExpr.Annotation(term, coerce, quantifierEvidence)
+        Rho.Annotation(term, coerce, quantifierEvidence)
 
       def App[T](
           fn: TypedExpr[T],
@@ -1423,87 +1463,138 @@ object TypedExpr {
           result: Type.Rho,
           tag: T
       ): Rho[T] =
-        // the type of App is result, which is a Rho
-        TypedExpr.App(fn, args, result, tag)
+        Rho.App(fn, args, result, tag)
     }
   }
 
-  /** A TypedExpr.Rho[A] is just a TypedExpr that is guaranteed to have
-    * getType.isInstance[Type.Rho]
+  export RhoImpl.{Rho, substCoerceRho, widenCoerceRho}
+
+  /** Rho is transparent only inside this object, so a Rho built anywhere else
+    * comes from one of these constructors.
     */
-  opaque type Rho[+A] <: TypedExpr[A] =
-    TypedExpr[A] // an expression with a Rho type (no top level forall)
+  object RhoImpl {
 
-  object Rho {
-    def substTyExpr[A](
-        keys: NonEmptyList[Type.Var],
-        vals: NonEmptyList[Type.Tau],
-        expr: Rho[A]
-    ): Rho[A] = {
-      // replaceing vars with Taus can't make break Rho-ness
-      val fn = Type.substTy(keys, vals)
-      expr.traverseType[cats.Id](fn)
-    }
+    /** A TypedExpr.Rho[A] is just a TypedExpr that is guaranteed to have
+      * getType.isInstance[Type.Rho]
+      */
+    opaque type Rho[+A] <: TypedExpr[A] =
+      TypedExpr[A] // an expression with a Rho type (no top level forall)
 
-    inline def exists[A](
-        nel: NonEmptyList[(Type.Var.Bound, Kind)],
-        rho: Rho[A]
-    ): Rho[A] =
-      // adding an existential wrapper on a Rho keeps it a rho
-      TypedExpr.quantVars(
-        forallList = Nil,
-        existList = nel.toList,
-        rho
-      )
+    // we can always consider CoerceRho as a Coerce. These widen a Rho to a
+    // TypedExpr inside F, which is only sound when F is covariant: through a
+    // contravariant F, a consumer that needs a Rho would accept any TypedExpr.
+    inline def widenCoerceRho(co: CoerceRho): Coerce = co
+    inline def substCoerceRho[F[+_]](fc: F[CoerceRho]): F[Coerce] = fc
 
-    def AnnotatedLambda[A](
-        args: NonEmptyList[(Bindable, Type)],
-        expr: TypedExpr[A],
-        tag: A
-    ): Rho[A] =
-      // Function types are always Rho types
-      TypedExpr.AnnotatedLambda(args, expr, tag)
-
-    def Let[A](
-        name: Bindable,
-        rhs: TypedExpr[A],
-        body: Rho[A],
-        recursive: RecursionKind,
-        tag: A
-    ): Rho[A] =
-      // if the body is Rho, this is a Let-rho
-      TypedExpr.Let(name, rhs, body, recursive, tag)
-
-    def Match[A](
-        matchKind: MatchKind = MatchKind.Match,
-        arg: TypedExpr[A],
-        branches: NonEmptyList[Branch[A]],
-        tag: A
-    ): Rho[A] =
-      // if all branches are Rho this is Rho
-      TypedExpr.Match(matchKind, arg, branches, tag)
-
-    // Throw illegal argument exception if this isn't true,
-    // should always be true by construction, but this runtime check is to detect compiler bugs
-    def assertRho[A](r: TypedExpr[A]): Rho[A] =
-      r.getType match {
-        case _: Type.Rho => r
-        case _           =>
-          throw new IllegalArgumentException(
-            s"type not Rho: ${r.reprString}"
-          )
+    object Rho {
+      def substTyExpr[A](
+          keys: NonEmptyList[Type.Var],
+          vals: NonEmptyList[Type.Tau],
+          expr: Rho[A]
+      ): Rho[A] = {
+        // replaceing vars with Taus can't make break Rho-ness
+        val fn = Type.substTy(keys, vals)
+        expr.traverseType[Id](fn)
       }
 
-    def zonkMeta[F[_]: Applicative, A](rho: Rho[A])(
-        fn: Type.Meta => F[Option[Type.Tau]]
-    ): F[Rho[A]] =
-      // zonking preserves Rho-ness
-      TypedExpr.zonkMeta(rho)(fn)
+      inline def exists[A](
+          nel: NonEmptyList[(Type.Var.Bound, Kind)],
+          rho: Rho[A]
+      ): Rho[A] =
+        // adding an existential wrapper on a Rho keeps it a rho
+        TypedExpr.quantVars(
+          forallList = Nil,
+          existList = nel.toList,
+          rho
+        )
 
-    implicit class RhoMethods[A](private val rho: Rho[A]) extends AnyVal {
-      def getRhoType: Type.Rho =
-        // due to us maintaining invariants in this file, this cast must succeed
-        rho.getType.asInstanceOf[Type.Rho]
+      def Annotation[A](
+          term: TypedExpr[A],
+          coerce: Type.Rho,
+          quantifierEvidence: Option[QuantifierEvidence]
+      ): Rho[A] =
+        // the type of Annotation is coerce, which is a Rho
+        TypedExpr.Annotation(term, coerce, quantifierEvidence)
+
+      def App[A](
+          fn: TypedExpr[A],
+          args: NonEmptyList[TypedExpr[A]],
+          result: Type.Rho,
+          tag: A
+      ): Rho[A] =
+        // the type of App is result, which is a Rho
+        TypedExpr.App(fn, args, result, tag)
+
+      def AnnotatedLambda[A](
+          args: NonEmptyList[(Bindable, Type)],
+          expr: TypedExpr[A],
+          tag: A
+      ): Rho[A] =
+        // Function types are always Rho types
+        TypedExpr.AnnotatedLambda(args, expr, tag)
+
+      def Let[A](
+          name: Bindable,
+          rhs: TypedExpr[A],
+          body: Rho[A],
+          recursive: RecursionKind,
+          tag: A
+      ): Rho[A] =
+        // if the body is Rho, this is a Let-rho
+        TypedExpr.Let(name, rhs, body, recursive, tag)
+
+      def letAllNonRec[A](
+          binds: NonEmptyList[(Bindable, TypedExpr[A])],
+          in: Rho[A],
+          tag: A
+      ): Rho[A] =
+        // lets have the type of their body
+        TypedExpr.letAllNonRec(binds, in, tag)
+
+      def letAllNonRecWithTags[A](
+          binds: List[(Bindable, TypedExpr[A], A)],
+          in: Rho[A]
+      ): Rho[A] =
+        // lets have the type of their body
+        TypedExpr.letAllNonRecWithTags(binds, in)
+
+      def Loop[A](
+          args: NonEmptyList[(Bindable, TypedExpr[A])],
+          body: Rho[A],
+          tag: A
+      ): Rho[A] =
+        // a Loop has the type of its body
+        TypedExpr.Loop(args, body, tag)
+
+      def Match[A](
+          matchKind: MatchKind,
+          arg: TypedExpr[A],
+          branches: NonEmptyList[Branch[A]],
+          tag: A
+      ): Rho[A] =
+        // if all branches are Rho this is Rho
+        TypedExpr.Match(matchKind, arg, branches, tag)
+
+      // For an expression whose type the caller found sameAs a Type.Rho.
+      // sameAs compares normalized types, so this is trusted, not checked.
+      private[TypedExpr] def trustSameAs[A](expr: TypedExpr[A]): Rho[A] = expr
+
+      // Throw illegal argument exception if this isn't true,
+      // should always be true by construction, but this runtime check is to detect compiler bugs
+      def assertRho[A](r: TypedExpr[A]): Rho[A] =
+        r.getType match {
+          case _: Type.Rho => r
+          case _           =>
+            throw new IllegalArgumentException(
+              s"type not Rho: ${r.reprString}"
+            )
+        }
+
+      def zonkMeta[F[_]: Applicative, A](rho: Rho[A])(
+          fn: Type.Meta => F[Option[Type.Tau]]
+      ): F[Rho[A]] =
+        // zonking preserves Rho-ness
+        TypedExpr.zonkMeta(rho)(fn)
     }
   }
 
@@ -1669,6 +1760,46 @@ object TypedExpr {
     loop(te, None)
   }
 
+  /** A branch guard whose expressions have been traversed into F. */
+  private enum GuardF[F[_], B] {
+    case NoGuard()
+    case Bool(exprF: F[TypedExpr[B]])
+    case Mtch(
+        argF: F[TypedExpr[B]],
+        pattern: Pattern[(PackageName, Constructor), Type],
+        innerF: Option[F[TypedExpr[B]]],
+        patternRegion: Region
+    )
+  }
+
+  private object GuardF {
+    // Rebuild the branch, keeping the guard pattern.
+    def branch[F[_]: Applicative, B](
+        pattern: Pattern[(PackageName, Constructor), Type],
+        patternRegion: Region,
+        guard: GuardF[F, B],
+        exprF: F[TypedExpr[B]]
+    ): F[Branch[B]] =
+      guard match {
+        case NoGuard() =>
+          exprF.map(Branch.fromGuardNode(pattern, None, _)(using patternRegion))
+        case Bool(guardF) =>
+          (guardF, exprF).mapN { (guardExpr, expr) =>
+            Branch.fromGuardNode(pattern, Some(BoolGuard(guardExpr)), expr)(using
+              patternRegion
+            )
+          }
+        case Mtch(argF, guardPattern, innerF, guardRegion) =>
+          (argF, innerF.sequence, exprF).mapN { (argExpr, inner, expr) =>
+            Branch.fromGuardNode(
+              pattern,
+              Some(MatchGuard(argExpr, guardPattern, inner)(using guardRegion)),
+              expr
+            )(using patternRegion)
+          }
+      }
+  }
+
   private trait StackTraverseHandler[F[_], A, B, C] {
     type BranchPattern = Pattern[(PackageName, Constructor), Type]
 
@@ -1743,8 +1874,7 @@ object TypedExpr {
         pattern: BranchPattern,
         patternRegion: Region,
         ctx: C,
-        originalGuardNode: Option[BranchGuard[A]],
-        guardF: Option[F[BranchGuard[B]]],
+        guard: GuardF[F, B],
         exprF: F[TypedExpr[B]]
     ): F[Branch[B]]
     def mtch(
@@ -1761,8 +1891,6 @@ object TypedExpr {
       rootCtx: C,
       handler: StackTraverseHandler[F, A, B, C]
   ): F[TypedExpr[B]] = {
-    type BranchPattern = Pattern[(PackageName, Constructor), Type]
-
     sealed trait Work
     case class Visit(expr: TypedExpr[A], ctx: C) extends Work
     case class RebuildGeneric(
@@ -1796,17 +1924,9 @@ object TypedExpr {
     ) extends Work
     case class RebuildRecur(result: Type, tag: A, argCount: Int, ctx: C)
         extends Work
-    sealed trait RebuildGuard
-    object RebuildGuard {
-      case object Bool extends RebuildGuard
-      final case class Match(
-          hasInnerGuard: Boolean,
-          guardRegion: Region
-      ) extends RebuildGuard
-    }
-
+    // the original branches give the patterns and the guard shapes
     case class RebuildMatch(
-        branches: NonEmptyList[(BranchPattern, Option[BranchGuard[A]], Option[RebuildGuard], Region)],
+        branches: NonEmptyList[Branch[A]],
         tag: A,
         matchKind: MatchKind,
         ctx: C
@@ -1886,31 +2006,13 @@ object TypedExpr {
             case Literal(lit, tpe, tag) =>
               pushBuilt(handler.literal(lit, tpe, tag, ctx))
             case m @ Match(arg, branches, tag) =>
-              work =
-                RebuildMatch(
-                  branches.map(b =>
-                    (
-                      b.pattern,
-                      b.guardNode,
-                      b.guardNode.map {
-                        case BoolGuard(_) =>
-                          RebuildGuard.Bool
-                        case guard @ MatchGuard(_, _, guardOpt) =>
-                          RebuildGuard.Match(guardOpt.nonEmpty, guard.patternRegion)
-                      },
-                      b.patternRegion
-                    )
-                  ),
-                  tag,
-                  m.matchKind,
-                  ctx
-                ) :: work
+              work = RebuildMatch(branches, tag, m.matchKind, ctx) :: work
               val revBranches = branches.toList.reverseIterator
               while (revBranches.hasNext) {
                 val branch = revBranches.next()
                 work = Visit(branch.expr, ctx) :: work
-                branch.guardExprIterator.toList.reverseIterator.foreach { guard =>
-                  work = Visit(guard, ctx) :: work
+                work = branch.foldGuardExprReverse(work) { (stack, guard) =>
+                  Visit(guard, ctx) :: stack
                 }
               }
               work = Visit(arg, ctx) :: work
@@ -1960,35 +2062,24 @@ object TypedExpr {
           val branchFsRev = List.newBuilder[F[Branch[B]]]
           val revBranches = branches.toList.reverseIterator
           while (revBranches.hasNext) {
-            val (pattern, originalGuardNode, guardKind, patternRegion) = revBranches.next()
+            val branch = revBranches.next()
             val exprF = popBuilt()
-            val guardF = guardKind match {
-              case Some(kind) =>
-                kind match {
-                  case _: RebuildGuard.Bool.type =>
-                    Some(popBuilt().map[BranchGuard[B]](BoolGuard(_)))
-                  case RebuildGuard.Match(hasInnerGuard, guardRegion) =>
-                    val innerGuardF =
-                      if (hasInnerGuard) Some(popBuilt()) else None
-                    val argF = popBuilt()
-                    Some(
-                      (argF, innerGuardF.sequence).mapN { (argExpr, guardExpr) =>
-                        originalGuardNode match {
-                          case Some(MatchGuard(_, pattern1, _)) =>
-                            MatchGuard(argExpr, pattern1, guardExpr)(using guardRegion)
-                          case other =>
-                            throw new IllegalStateException(
-                              s"expected MatchGuard when rebuilding guard, found: $other"
-                            )
-                        }
-                      }
-                    )
-                }
-              case None    =>
-                None
+            val guardF: GuardF[F, B] = branch.guardNode match {
+              case None               => GuardF.NoGuard()
+              case Some(BoolGuard(_)) => GuardF.Bool(popBuilt())
+              case Some(guard @ MatchGuard(_, pattern, innerGuard)) =>
+                val innerF = innerGuard.map(_ => popBuilt())
+                val argF = popBuilt()
+                GuardF.Mtch(argF, pattern, innerF, guard.patternRegion)
             }
             branchFsRev +=
-              handler.matchBranch(pattern, patternRegion, ctx, originalGuardNode, guardF, exprF)
+              handler.matchBranch(
+                branch.pattern,
+                branch.patternRegion,
+                ctx,
+                guardF,
+                exprF
+              )
           }
           val argF = popBuilt()
           val branchesF =
@@ -2134,6 +2225,12 @@ object TypedExpr {
 
       visitExpr(self, Set.empty)
     }
+
+    /** Visit the types traverseType visits, though not in the same order,
+      * without rebuilding the expression.
+      */
+    def foreachType(fn: Type => Unit): Unit =
+      foreachTraversedType(fn(_))
 
     def allTypes: SortedSet[Type] = {
       val acc = scala.collection.mutable.HashSet.empty[Type]
@@ -2428,43 +2525,23 @@ object TypedExpr {
               pattern: BranchPattern,
               patternRegion: Region,
               ctx: Set[Type.Var.Bound],
-              originalGuardNode: Option[BranchGuard[A]],
-              guardF: Option[F[BranchGuard[A]]],
+              guard: GuardF[F, A],
               exprF: F[TypedExpr[A]]
           ): F[Branch[A]] = {
             val patternF = pattern.traverseType(t => applyFn(t, ctx))
-            val guardNodeF =
-              originalGuardNode match {
-                case Some(original @ MatchGuard(_, guardPattern, _)) =>
-                  val rebuiltGuardF = guardF.getOrElse(
-                    throw new IllegalStateException(
-                      s"missing rebuilt MatchGuard for branch: $original"
-                    )
-                  )
+            val guardNodeF: F[Option[BranchGuard[A]]] =
+              guard match {
+                case GuardF.Mtch(argF, guardPattern, innerF, guardRegion) =>
                   (
                     guardPattern.traverseType(t => applyFn(t, ctx)),
-                    rebuiltGuardF
-                  ).mapN { (guardPattern1, guard) =>
-                    guard match {
-                      case MatchGuard(argExpr, _, guardExpr) =>
-                        Some(
-                          MatchGuard(argExpr, guardPattern1, guardExpr)(using
-                            original.patternRegion
-                          )
-                        )
-                      case other =>
-                        throw new IllegalStateException(
-                          s"expected rebuilt MatchGuard, found: $other"
-                        )
-                    }
+                    argF,
+                    innerF.sequence
+                  ).mapN { (guardPattern1, argExpr, inner) =>
+                    Some(MatchGuard(argExpr, guardPattern1, inner)(using guardRegion))
                   }
-                case Some(_: BoolGuard[A]) =>
-                  guardF.getOrElse(
-                    throw new IllegalStateException(
-                      "missing rebuilt BoolGuard for branch"
-                    )
-                  ).map(Some(_))
-                case None                  =>
+                case GuardF.Bool(guardF) =>
+                  guardF.map(guardExpr => Some(BoolGuard(guardExpr)))
+                case GuardF.NoGuard() =>
                   summon[Applicative[F]].pure(None)
               }
             (patternF, guardNodeF, exprF).mapN((pat, guard, expr) =>
@@ -2589,18 +2666,10 @@ object TypedExpr {
             pattern: BranchPattern,
             patternRegion: Region,
             ctx: Unit,
-            originalGuardNode: Option[BranchGuard[A]],
-            guardF: Option[F[BranchGuard[A]]],
+            guard: GuardF[F, A],
             exprF: F[TypedExpr[A]]
         ): F[Branch[A]] =
-          guardF match {
-            case Some(gf) =>
-              mon.map2(gf, exprF)((guard, expr) =>
-                Branch.fromGuardNode(pattern, Some(guard), expr)(using patternRegion)
-              )
-            case None     =>
-              exprF.map(expr => Branch(pattern, None, expr)(using patternRegion))
-          }
+          GuardF.branch(pattern, patternRegion, guard, exprF)
 
         def mtch(
             tag: A,
@@ -2919,6 +2988,13 @@ object TypedExpr {
     deepQuantify(env.values.toSet, rho)
   }
 
+  // How deep the direct Traverse[TypedExpr].map recurses before handing a
+  // subtree to the stack-safe traverse[Id]. Keep it small: each level is two
+  // frames, which are large before the JIT compiles them, and 512 levels
+  // overflowed a 96 KiB thread stack on Java 17. Past it, a deep subtree costs
+  // what map always did when it was traverse[Id].
+  private inline val MaxDirectMapDepth = 64
+
   implicit val traverseTypedExpr: Traverse[TypedExpr] =
     new Traverse[TypedExpr] {
       def traverse[F[_]: Applicative, T, S](
@@ -3024,18 +3100,10 @@ object TypedExpr {
               pattern: BranchPattern,
               patternRegion: Region,
               ctx: Unit,
-              originalGuardNode: Option[BranchGuard[T]],
-              guardF: Option[F[BranchGuard[S]]],
+              guard: GuardF[F, S],
               exprF: F[TypedExpr[S]]
           ): F[Branch[S]] =
-            guardF match {
-              case Some(gf) =>
-                (gf, exprF).mapN((guard, expr) =>
-                  Branch.fromGuardNode(pattern, Some(guard), expr)(using patternRegion)
-                )
-              case None     =>
-                exprF.map(expr => Branch(pattern, None, expr)(using patternRegion))
-            }
+            GuardF.branch(pattern, patternRegion, guard, exprF)
 
           def mtch(
               tag: T,
@@ -3111,8 +3179,10 @@ object TypedExpr {
                   while (revBranches.hasNext) {
                     val branch = revBranches.next()
                     work = Visit(branch.expr) :: work
-                    branch.guardExprIterator.foreach { guard =>
-                      work = Visit(guard) :: work
+                    // traverse visits a MatchGuard's argument before its
+                    // inner guard, so the argument goes on top
+                    work = branch.foldGuardExprReverse(work) { (stack, guard) =>
+                      Visit(guard) :: stack
                     }
                   }
                   work = Visit(arg) :: work
@@ -3146,16 +3216,111 @@ object TypedExpr {
         loop(reverseTags.reverse)
       }
 
-      override def map[A, B](te: TypedExpr[A])(fn: A => B): TypedExpr[B] =
-        traverse[Id, A, B](te)(fn)
+      // This calls fn on the tags in the order traverse does: children before
+      // their parent, left to right. It recurses directly, except along
+      // right-deep binary App chains, left-deep App chains (through the
+      // function) and non-recursive Let chains, which it walks in loops.
+      // Below MaxDirectMapDepth levels of other nesting, it hands the rest of
+      // the subtree to traverse[Id], which is stack safe and visits the tags
+      // in the same order, so map stays stack safe on any shape.
+      override def map[A, B](te: TypedExpr[A])(fn: A => B): TypedExpr[B] = {
+        def loop(te: TypedExpr[A], depth: Int): TypedExpr[B] =
+          if (depth >= MaxDirectMapDepth) traverse[Id, A, B](te)(fn)
+          else {
+            def down(child: TypedExpr[A]): TypedExpr[B] = loop(child, depth + 1)
+
+            te match {
+              case Generic(quant, in) =>
+                Generic(quant, down(in))
+              case Annotation(term, coerce, qev) =>
+                Annotation(down(term), coerce, qev)
+              case AnnotatedLambda(args, res, tag) =>
+                AnnotatedLambda(args, down(res), fn(tag))
+              case Local(name, tpe, tag) =>
+                Local(name, tpe, fn(tag))
+              case Global(pack, name, tpe, tag) =>
+                Global(pack, name, tpe, fn(tag))
+              case Literal(lit, tpe, tag) =>
+                Literal(lit, tpe, fn(tag))
+              case app @ App(_, _, _, _) =>
+                flattenApp2(app) match {
+                  case Some((steps, last)) =>
+                    // f0(x0, f1(x1, ... last))
+                    val stepList = steps.toList
+                    val fnArgs = stepList.map(step => (down(step.fn), down(step.arg)))
+                    var acc = down(last)
+                    val rev = stepList.reverseIterator.zip(fnArgs.reverseIterator)
+                    while (rev.hasNext) {
+                      val (step, (fn1, arg1)) = rev.next()
+                      acc = App(
+                        fn1,
+                        NonEmptyList(arg1, acc :: Nil),
+                        step.result,
+                        fn(step.tag)
+                      )
+                    }
+                    acc
+                  case None =>
+                    // f(x0)(x1)...: collect the Apps along the function,
+                    // innermost first
+                    var spine: List[App[? <: A]] = Nil
+                    var cursor: TypedExpr[A] = app
+                    var inSpine = true
+                    while (inSpine) {
+                      cursor match {
+                        case inner @ App(fnExpr, _, _, _) =>
+                          spine = inner :: spine
+                          cursor = fnExpr
+                        case _ =>
+                          inSpine = false
+                      }
+                    }
+                    var acc = down(cursor)
+                    val spineIter = spine.iterator
+                    while (spineIter.hasNext) {
+                      val inner = spineIter.next()
+                      acc = App(acc, inner.args.map(down), inner.result, fn(inner.tag))
+                    }
+                    acc
+                }
+              case let @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
+                val (lets, tail) = flattenLets(let)
+                val rhss = lets.map { case (_, rhs, _) => down(rhs) }
+                var acc = down(tail)
+                val rev = lets.reverseIterator.zip(rhss.reverseIterator)
+                while (rev.hasNext) {
+                  val ((name, _, tag), rhs1) = rev.next()
+                  acc = Let(name, rhs1, acc, RecursionKind.NonRecursive, fn(tag))
+                }
+                acc
+              case Let(arg, rhs, in, rec, tag) =>
+                Let(arg, down(rhs), down(in), rec, fn(tag))
+              case Loop(args, body, tag) =>
+                Loop(
+                  args.map { case (name, init) => (name, down(init)) },
+                  down(body),
+                  fn(tag)
+                )
+              case Recur(args, tpe, tag) =>
+                Recur(args.map(down), tpe, fn(tag))
+              case m @ Match(arg, branches, tag) =>
+                val arg1 = down(arg)
+                val branches1 = branches.map { branch =>
+                  val guard1 = branch.guardNode.map(BranchGuard.mapExpr(_)(down))
+                  Branch.fromGuardNode(branch.pattern, guard1, down(branch.expr))(using
+                    branch.patternRegion
+                  )
+                }
+                Match(m.matchKind, arg1, branches1, fn(tag))
+            }
+          }
+
+        loop(te, 0)
+      }
     }
 
   type Coerce = FunctionK[TypedExpr, TypedExpr]
-  type CoerceRho = FunctionK[TypedExpr, Rho]
-
-  // we can always consider CoerceRho as a Coerce
-  inline def widenCoerceRho(co: CoerceRho): Coerce = co
-  inline def substCoerceRho[F[_]](fc: F[CoerceRho]): F[Coerce] = fc
+  type CoerceRho = FunctionK[TypedExpr, RhoImpl.Rho]
 
   // We know initTpe <:< instTpe, we may be able to simply
   // fix some of the universally quantified variables
@@ -3164,7 +3329,7 @@ object TypedExpr {
       instTpe: Type.Rho,
       kinds: Type => Option[Kind],
       evidenceHint: Option[QuantifierEvidence]
-  ): TypedExpr[A] = {
+  ): TypedExpr.Rho[A] = {
     import Type._
 
     val avoidQuantifierNames: Set[Type.Var.Bound] =
@@ -3189,7 +3354,7 @@ object TypedExpr {
     def resultFromSubs(
         subs: Map[Type.Var, Type],
         evidence: Option[QuantifierEvidence]
-    ): TypedExpr[A] = {
+    ): TypedExpr.Rho[A] = {
       val freeVars = solveSet -- subs.keySet
       val subBody = substituteTypeVar(gen1.in, subs)
       val freeExists = exList.filter { case (t, _) =>
@@ -3221,8 +3386,7 @@ object TypedExpr {
               .getOrElse(subBody)
         }
 
-      if (res0.getType.sameAs(instTpe)) res0
-      else ann(res0, instTpe, evidence)
+      annRho(res0, instTpe, evidence)
     }
 
     def evidenceSubs(ev: QuantifierEvidence): Option[Map[Type.Var, Type]] =
@@ -3301,7 +3465,7 @@ object TypedExpr {
         // learn that ?338 == $k$303, but we don't seem to know that yet
 
         // just add an annotation:
-        ann(gen1, instTpe, evidenceHint)
+        annRho(gen1, instTpe, evidenceHint)
       case Some(resultExpr) => resultExpr
     }
   }
@@ -3414,7 +3578,9 @@ object TypedExpr {
         new FunctionK[TypedExpr, Rho] { self =>
           def apply[A](expr: TypedExpr[A]): Rho[A] =
             expr match {
-              case _ if expr.getType.sameAs(tpe) => expr
+              case _ if expr.getType.sameAs(tpe) =>
+                // trusted: expr's type is sameAs the Rho tpe
+                Rho.trustSameAs(expr)
               case Annotation(t, _, _)           =>
                 // coerceRho is a widen rewrite to a new target `tpe`.
                 // Existing annotation evidence (if present) justifies that
@@ -3431,7 +3597,7 @@ object TypedExpr {
                 // All of these are widened. The lambda seems like we should be able to do
                 // better, but the type isn't a Fun(Type, Type.Rho)... this is probably unreachable for
                 // the AnnotatedLambda
-                Annotation(expr, tpe, None)
+                Rho.Annotation(expr, tpe, None)
               case gen @ Generic(_, _) =>
                 pushGeneric(gen) match {
                   case Some(e1) => self(e1)
@@ -3447,7 +3613,7 @@ object TypedExpr {
                         (n, coerceRho(rho, kinds)(arg))
                       case ((n, _), arg) => (n, arg)
                     }
-                    letAllNonRec(binds, self(body), tag)
+                    Rho.letAllNonRec(binds, self(body), tag)
                   case _ =>
                     fn.getType match {
                       case Type.Fun(argTs, _) =>
@@ -3464,7 +3630,7 @@ object TypedExpr {
                           self,
                           kinds
                         )(fn)
-                        App(fn1, cArgs.map(_._1), tpe, tag)
+                        Rho.App(fn1, cArgs.map(_._1), tpe, tag)
                       case _ =>
                         // TODO, what should we do here?
                         // It is currently certainly wrong
@@ -3472,23 +3638,25 @@ object TypedExpr {
                         // but that implies something for fn and arg
                         // but we are ignoring that, which
                         // leaves them with potentially skolems or metavars
-                        ann(expr, tpe, None)
+                        annRho(expr, tpe, None)
                     }
                 }
               case let @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
                 val (lets, tail) = flattenLets(let)
-                letAllNonRecWithTags(lets, self(tail))
+                Rho.letAllNonRecWithTags(lets, self(tail))
               case Let(arg, argE, in, rec, tag) =>
-                Let(arg, argE, self(in), rec, tag)
+                Rho.Let(arg, argE, self(in), rec, tag)
               case Loop(args, body, tag) =>
-                Loop(args, self(body), tag)
+                Rho.Loop(args, self(body), tag)
               case Recur(_, _, _) =>
-                ann(expr, tpe, None)
+                annRho(expr, tpe, None)
               case m @ Match(arg, branches, tag) =>
                 // TODO: this may be wrong. e.g. we could leaving meta in the types
                 // embedded in patterns, this does not seem to happen since we would
                 // error if metas escape typechecking
-                Match(
+                //
+                // every branch body is coerced to a Rho by self
+                Rho.Match(
                   m.matchKind,
                   arg,
                   branches.map(branch =>
@@ -3524,9 +3692,14 @@ object TypedExpr {
   private def allVarsDup[A](ts: List[TypedExpr[A]]): List[Bindable] =
     ts.flatMap(_.allVarsDup)
 
-  /** Try to substitute ex for ident in the expression: in
+  /** What `substituteAll` puts in place of a name: a new name, keeping the
+    * type and tag of each `Local` it replaces, or a fixed expression.
+    */
+  type Substitution[A] = Bindable | TypedExpr[A]
+
+  /** Substitute ex for ident in the expression: in
     *
-    * This can fail if the free variables in ex are shadowed above ident in in.
+    * Binders in in that would capture a free variable of ex are renamed.
     *
     * this code is very similar to Declaration.substitute if bugs are found in
     * one, consult the other
@@ -3534,35 +3707,93 @@ object TypedExpr {
   def substitute[A](
       ident: Bindable,
       ex: TypedExpr[A],
-      in: TypedExpr[A],
-      enterLambda: Boolean = true
-  ): Option[TypedExpr[A]] =
-    substituteAll(Map(ident -> { (_: Local[A]) => ex }), in, enterLambda)
+      in: TypedExpr[A]
+  ): TypedExpr[A] =
+    substituteAll(Map(ident -> ex), in)
 
-  // Invariant, if enterLambda == true, we always return Some
-  def substituteAll[A](
-      table: Map[Bindable, Local[A] => TypedExpr[A]],
-      in: TypedExpr[A],
-      enterLambda: Boolean = true
-  ): Option[TypedExpr[A]] = {
-    def loop(
-        table: Map[Bindable, Local[A] => TypedExpr[A]],
-        in: TypedExpr[A]
-    ): Option[TypedExpr[A]] =
-      in match {
-        case local @ Local(i, _, _) =>
-          table.get(i) match {
-            case Some(te) => Some(te(local))
-            case None     => Some(in)
+  /** Like substituteAll, but None if in contains a lambda or a loop, so the
+    * substitution never moves a replacement under one.
+    */
+  def substituteNoLambda[A](
+      table: Map[Bindable, Substitution[A]],
+      in: TypedExpr[A]
+  ): Option[TypedExpr[A]] =
+    if (containsLambdaOrLoop(in)) None
+    else Some(substituteAll(table, in))
+
+  private def containsLambdaOrLoop[A](in: TypedExpr[A]): Boolean = {
+    var stack: List[TypedExpr[A]] = in :: Nil
+    var found = false
+    while (!found && stack.nonEmpty) {
+      val head = stack.head
+      stack = stack.tail
+      head match {
+        case AnnotatedLambda(_, _, _) | Loop(_, _, _) =>
+          found = true
+        case Local(_, _, _) | Global(_, _, _, _) | Literal(_, _, _) =>
+          ()
+        case Generic(_, expr) =>
+          stack = expr :: stack
+        case Annotation(term, _, _) =>
+          stack = term :: stack
+        case App(fn, args, _, _) =>
+          stack = fn :: args.toList ::: stack
+        case Let(_, expr, in, _, _) =>
+          stack = expr :: in :: stack
+        case Recur(args, _, _) =>
+          stack = args.toList ::: stack
+        case m: MatchExpr[A] =>
+          stack = m.arg :: stack
+          val branches = m.branches.iterator
+          while (branches.hasNext) {
+            val branch = branches.next()
+            stack = branch.expr :: branch.foldGuardExpr(stack)((st, g) => g :: st)
           }
-        case Global(_, _, _, _) | Literal(_, _, _) => Some(in)
-        case Generic(a, expr)                      =>
-          loop(table, expr).map(Generic(a, _))
-        case Annotation(t, tpe, qev) =>
-          loop(table, t).map(Annotation(_, tpe, qev))
-        case lam @ AnnotatedLambda(args, res, tag) =>
-          if (!enterLambda) None
-          else {
+      }
+    }
+    found
+  }
+
+  // The names free in the replacements of table, along with its keys.
+  private def substitutionFreeSet[A](
+      table: Map[Bindable, Substitution[A]]
+  ): Set[Bindable] =
+    table.foldLeft(table.keySet) { case (acc, (_, sub)) =>
+      sub match {
+        case name: Bindable   => acc + name
+        case te: TypedExpr[A] => acc ++ te.freeVarsDup
+      }
+    }
+
+  /** Replace each name in table throughout in.
+    *
+    * Binders in in that would capture a free name of a replacement are
+    * renamed first.
+    */
+  def substituteAll[A](
+      table: Map[Bindable, Substitution[A]],
+      in: TypedExpr[A]
+  ): TypedExpr[A] = {
+    def loop(
+        table: Map[Bindable, Substitution[A]],
+        in: TypedExpr[A]
+    ): TypedExpr[A] =
+      // with nothing left to replace, the result would equal in
+      if (table.isEmpty) in
+      else
+        in match {
+          case Local(i, tpe, tag) =>
+            table.get(i) match {
+              case Some(name: Bindable)   => Local(name, tpe, tag)
+              case Some(te: TypedExpr[A]) => te
+              case _                      => in
+            }
+          case Global(_, _, _, _) | Literal(_, _, _) => in
+          case Generic(a, expr)                      =>
+            Generic(a, loop(table, expr))
+          case Annotation(t, tpe, qev) =>
+            Annotation(loop(table, t), tpe, qev)
+          case lam @ AnnotatedLambda(args, _, _) =>
             // this is the same algorithm as python/Code.Expression.substitute
             //
             // the args here can shadow, so we have to remove any
@@ -3571,161 +3802,110 @@ object TypedExpr {
             val nonShadowed = table.filterNot { case (i, _) => argsSet(i) }
             // if subFrees is empty, unshadow is a no-op.
             // but that is efficiently handled by unshadow
-            val subFrees = nonShadowed.iterator
-              .map { case (n, v) =>
-                // TODO this isn't great but we just need to get the free vars from the function
-                // this assumes the replacement free variables is constant over the type
-                // which it should be otherwise we can make ill-typed TypedExpr
-                val dummyTpe = res.getType
-                freeVarsSet(v(Local(n, tpe = dummyTpe, tag)) :: Nil)
-              }
-              .foldLeft(nonShadowed.keySet)(_ | _)
+            val subFrees = substitutionFreeSet(nonShadowed)
 
             val AnnotatedLambda(args1, res1, tag1) = lam.unshadow(subFrees)
             // now we know that none of args1 shadow anything in subFrees
             // so we can just directly substitute nonShadowed on res1
             // put another way: unshadow make substitute "commute" with lambda.
-            val subRes =
-              substituteAll(nonShadowed, res1, enterLambda = true).get
-            Some(AnnotatedLambda(args1, subRes, tag1))
-          }
-        case app @ App(fn, args, tpe, tag) =>
-          flattenApp2(app) match {
-            case Some((steps, last)) =>
-              var acc: Option[TypedExpr[A]] = loop(table, last)
-              val rev = steps.toList.reverseIterator
-              while (acc.nonEmpty && rev.hasNext) {
-                val step = rev.next()
-                acc = (loop(table, step.fn), loop(table, step.arg), acc).mapN {
-                  (fn1, arg1, rhs1) =>
-                    App(fn1, NonEmptyList.of(arg1, rhs1), step.result, step.tag)
+            AnnotatedLambda(args1, loop(nonShadowed, res1), tag1)
+          case app @ App(fn, args, tpe, tag) =>
+            flattenApp2(app) match {
+              case Some((steps, last)) =>
+                var acc: TypedExpr[A] = loop(table, last)
+                val rev = steps.toList.reverseIterator
+                while (rev.hasNext) {
+                  val step = rev.next()
+                  acc = App(
+                    loop(table, step.fn),
+                    NonEmptyList.of(loop(table, step.arg), acc),
+                    step.result,
+                    step.tag
+                  )
                 }
-              }
-              acc
-            case None =>
-              (loop(table, fn), args.traverse(loop(table, _)))
-                .mapN(App(_, _, tpe, tag))
-          }
-        case let @ Let(arg, _, _, _, _) =>
-          if (let.recursive.isRecursive) {
-            // arg is in scope for argE and in
-            // the args here can shadow, so we have to remove any
-            // items from subMap that have the same Ident
-            val nonShadowed = table - arg
-            // if subFrees is empty, unshadow is a no-op.
-            // but that is efficiently handled by unshadow
-            val subFrees = nonShadowed.iterator
-              .map { case (n, v) =>
-                // TODO this isn't great but we just need to get the free vars from the function
-                // this assumes the replacement free variables is constant over the type
-                // which it should be otherwise we can make ill-typed TypedExpr
-                val dummyTpe = in.getType
-                freeVarsSet(v(Local(n, tpe = dummyTpe, let.tag)) :: Nil)
-              }
-              .foldLeft(nonShadowed.keySet)(_ | _)
+                acc
+              case None =>
+                App(loop(table, fn), args.map(loop(table, _)), tpe, tag)
+            }
+          case let @ Let(arg, _, _, _, _) =>
+            if (let.recursive.isRecursive) {
+              // arg is in scope for argE and in
+              // the args here can shadow, so we have to remove any
+              // items from subMap that have the same Ident
+              val nonShadowed = table - arg
+              // if subFrees is empty, unshadow is a no-op.
+              // but that is efficiently handled by unshadow
+              val subFrees = substitutionFreeSet(nonShadowed)
 
-            val Let(arg1, argE1, in1, rec1, tag1) = let.unshadowBoth(subFrees)
-            // now we know that none of args1 shadow anything in subFrees
-            // so we can just directly substitute nonShadowed on res1
-            // put another way: unshadow make substitute "commute" with lambda.
-            (
-              substituteAll(nonShadowed, argE1, enterLambda),
-              substituteAll(nonShadowed, in1, enterLambda)
-            )
-              .mapN(Let(arg1, _, _, rec1, tag1))
-          } else {
-            // the scopes are different the binding and the result
-            // the args here can shadow, so we have to remove any
-            // items from subMap that have the same Ident
-            val argsSet = Set(arg)
-            val nonShadowed = table.filterNot { case (i, _) => argsSet(i) }
-            // if subFrees is empty, unshadow is a no-op.
-            // but that is efficiently handled by unshadow
-            val subFrees = nonShadowed.iterator
-              .map { case (n, v) =>
-                // TODO this isn't great but we just need to get the free vars from the function
-                // this assumes the replacement free variables is constant over the type
-                // which it should be otherwise we can make ill-typed TypedExpr
-                val dummyTpe = in.getType
-                freeVarsSet(v(Local(n, tpe = dummyTpe, let.tag)) :: Nil)
-              }
-              .foldLeft(nonShadowed.keySet)(_ | _)
+              val Let(arg1, argE1, in1, rec1, tag1) = let.unshadowBoth(subFrees)
+              // now we know that none of args1 shadow anything in subFrees
+              // so we can just directly substitute nonShadowed on res1
+              // put another way: unshadow make substitute "commute" with lambda.
+              Let(
+                arg1,
+                loop(nonShadowed, argE1),
+                loop(nonShadowed, in1),
+                rec1,
+                tag1
+              )
+            } else {
+              // the scopes are different the binding and the result
+              // the args here can shadow, so we have to remove any
+              // items from subMap that have the same Ident
+              val nonShadowed = table - arg
+              // if subFrees is empty, unshadow is a no-op.
+              // but that is efficiently handled by unshadow
+              val subFrees = substitutionFreeSet(nonShadowed)
 
-            val Let(arg1, argE1, in1, rec1, tag1) = let.unshadowResult(subFrees)
-            // now we know that none of args1 shadow anything in subFrees
-            // so we can just directly substitute nonShadowed on res1
-            // put another way: unshadow make substitute "commute" with lambda.
-            (loop(table, argE1), loop(nonShadowed, in1))
-              .mapN(Let(arg1, _, _, rec1, tag1))
-          }
-        case lp @ Loop(args, body, _) =>
-          if (!enterLambda) None
-          else {
+              val Let(arg1, argE1, in1, rec1, tag1) =
+                let.unshadowResult(subFrees)
+              // now we know that none of args1 shadow anything in subFrees
+              // so we can just directly substitute nonShadowed on res1
+              // put another way: unshadow make substitute "commute" with lambda.
+              Let(arg1, loop(table, argE1), loop(nonShadowed, in1), rec1, tag1)
+            }
+          case lp @ Loop(args, _, _) =>
             val argsSet = args.iterator.map(_._1).toSet
             val nonShadowed = table.filterNot { case (i, _) => argsSet(i) }
-            val subFrees = nonShadowed.iterator
-              .map { case (n, v) =>
-                val dummyTpe = body.getType
-                freeVarsSet(v(Local(n, tpe = dummyTpe, lp.tag)) :: Nil)
-              }
-              .foldLeft(nonShadowed.keySet)(_ | _)
+            val subFrees = substitutionFreeSet(nonShadowed)
 
             val Loop(args1, body1, tag1) = lp.unshadowBody(subFrees)
-            val subBody =
-              substituteAll(nonShadowed, body1, enterLambda = true).get
-            args1
-              .traverse { case (n, expr) =>
-                loop(table, expr).map((n, _))
-              }
-              .map(Loop(_, subBody, tag1))
-          }
-        case Recur(args, tpe, tag) =>
-          args.traverse(loop(table, _)).map(Recur(_, tpe, tag))
-        case m @ Match(arg, branches, tag) =>
-          def substitutionFreeSet(
-              table0: Map[Bindable, Local[A] => TypedExpr[A]],
-              dummyTpe: Type
-          ): Set[Bindable] =
-            table0.iterator
-              .map { case (n, v) =>
-                freeVarsSet(v(Local(n, tpe = dummyTpe, tag)) :: Nil)
-              }
-              .foldLeft(table0.keySet)(_ | _)
-
-          // Maintain the order we encounter things:
-          val arg1 = loop(table, arg)
-          val b1 = branches.traverse { in =>
-            val outerShadowed = in.pattern.names.toSet
-            val bodyShadowed = in.allBindings.toSet
-            val outerTable =
-              if (outerShadowed.isEmpty) table
-              else table.filterNot { case (i, _) => outerShadowed(i) }
-            val bodyTable =
-              if (bodyShadowed == outerShadowed) outerTable
-              else table.filterNot { case (i, _) => bodyShadowed(i) }
-            val dummyTpe = in.expr.getType
-            val branch1 =
-              unshadowBranch[A](
-                substitutionFreeSet(outerTable, dummyTpe),
-                substitutionFreeSet(bodyTable, dummyTpe),
-                in
-              )
-            // `branch1` no longer captures any active substitutions in either
-            // the outer guard scope or the combined guard/body scope.
-            (
-              branch1.traverseGuardNodeExprScoped(
-                loop(outerTable, _),
-                loop(bodyTable, _)
-              ),
-              loop(bodyTable, branch1.expr)
-            ).mapN { (guard, expr) =>
-              branch1.copyNode(branch1.pattern, guard, expr)(using
-                branch1.patternRegion
-              )
+            Loop(
+              args1.map { case (n, expr) => (n, loop(table, expr)) },
+              loop(nonShadowed, body1),
+              tag1
+            )
+          case Recur(args, tpe, tag) =>
+            Recur(args.map(loop(table, _)), tpe, tag)
+          case m @ Match(arg, branches, tag) =>
+            val b1 = branches.map { in =>
+              val outerShadowed = in.pattern.names.toSet
+              val bodyShadowed = in.allBindings.toSet
+              val outerTable =
+                if (outerShadowed.isEmpty) table
+                else table.filterNot { case (i, _) => outerShadowed(i) }
+              val bodyTable =
+                if (bodyShadowed == outerShadowed) outerTable
+                else table.filterNot { case (i, _) => bodyShadowed(i) }
+              val branch1 =
+                unshadowBranch[A](
+                  substitutionFreeSet(outerTable),
+                  substitutionFreeSet(bodyTable),
+                  in
+                )
+              // `branch1` no longer captures any active substitutions in either
+              // the outer guard scope or the combined guard/body scope.
+              branch1.copyNode(
+                branch1.pattern,
+                branch1.mapGuardNodeExprScoped(
+                  loop(outerTable, _),
+                  loop(bodyTable, _)
+                ),
+                loop(bodyTable, branch1.expr)
+              )(using branch1.patternRegion)
             }
-          }
-          (arg1, b1).mapN(Match(m.matchKind, _, _, tag))
-      }
+            Match(m.matchKind, loop(table, arg), b1, tag)
+        }
 
     loop(table, in)
   }
@@ -3742,20 +3922,14 @@ object TypedExpr {
       branch: Branch[A],
       renames: Map[Bindable, Bindable]
   ): Branch[A] = {
-    val outerSub: Map[Bindable, Local[A] => TypedExpr[A]] =
-      renames.iterator.map { case (oldName, newName) =>
-        oldName -> { (loc: Local[A]) =>
-          (Local(newName, loc.tpe, loc.tag): TypedExpr[A])
-        }
-      }.toMap
     val guardNames = branch.guardBindings.toSet
-    val innerSub =
-      if (guardNames.isEmpty) outerSub
-      else outerSub.filterNot { case (n, _) => guardNames(n) }
-    val body1 = substituteAll(innerSub, branch.expr, enterLambda = true).get
+    val innerRenames =
+      if (guardNames.isEmpty) renames
+      else renames.filterNot { case (n, _) => guardNames(n) }
+    val body1 = substituteAll(innerRenames, branch.expr)
     val guard1 = branch.mapGuardNodeExprScoped(
-      substituteAll(outerSub, _, enterLambda = true).get,
-      substituteAll(innerSub, _, enterLambda = true).get
+      substituteAll(renames, _),
+      substituteAll(innerRenames, _)
     )
     branch.copyNode(branch.pattern.substitute(renames), guard1, body1)(using
       branch.patternRegion
@@ -3838,17 +4012,11 @@ object TypedExpr {
                     branch0.pattern.names.toSet |
                     freeVarsSet(branch0.expr :: branch0.guardExprIterator.toList)
                 val newArgs = alloc(args, avoids, clashes)
-                val resSub = args.iterator
-                  .zip(newArgs.iterator.map { n1 => (loc: Local[A]) =>
-                    Local(n1, loc.tpe, loc.tag)
-                  })
-                  .toMap
+                val resSub = args.iterator.zip(newArgs.iterator).toMap
 
-                val body1 = substituteAll(resSub, branch0.expr, enterLambda = true).get
-                val guardOpt1 =
-                  guardOpt.map(substituteAll(resSub, _, enterLambda = true).get)
-                val pattern1 =
-                  pattern.substitute(args.iterator.zip(newArgs.iterator).toMap)
+                val body1 = substituteAll(resSub, branch0.expr)
+                val guardOpt1 = guardOpt.map(substituteAll(resSub, _))
+                val pattern1 = pattern.substitute(resSub)
                 val guard1 =
                   MatchGuard(argExpr, pattern1, guardOpt1)(using guard.patternRegion)
 
@@ -4074,6 +4242,15 @@ object TypedExpr {
     if (te.getType.sameAs(tpe)) te
     else Annotation(te, tpe, quantifierEvidence)
 
+  private def annRho[A](
+      te: TypedExpr[A],
+      tpe: Type.Rho,
+      quantifierEvidence: Option[QuantifierEvidence]
+  ): Rho[A] =
+    // trusted: te's type is sameAs the Rho tpe
+    if (te.getType.sameAs(tpe)) Rho.trustSameAs(te)
+    else Rho.Annotation(te, tpe, quantifierEvidence)
+
   /** TODO this seems pretty expensive to blindly apply: we are deoptimizing the
     * nodes pretty heavily
     */
@@ -4105,7 +4282,9 @@ object TypedExpr {
 
       def apply[A](expr: TypedExpr[A]): Rho[A] =
         expr match {
-          case _ if expr.getType.sameAs(fntpe) => expr
+          case _ if expr.getType.sameAs(fntpe) =>
+            // trusted: expr's type is sameAs the function type fntpe
+            Rho.trustSameAs(expr)
           case Annotation(t, _, _)             =>
             // Same rationale as coerceRho: this pass computes a new target
             // (`fntpe`), so any existing annotation/evidence is for a prior
@@ -4121,7 +4300,7 @@ object TypedExpr {
               .foldRight(res) { case ((name, arg), res) =>
                 replaceVarType(res, name, arg)
               }
-            AnnotatedLambda(args1, cores(res1), tag)
+            Rho.AnnotatedLambda(args1, cores(res1), tag)
           case gen @ Generic(_, _) =>
             pushGeneric(gen) match {
               case Some(e1) => self(e1)
@@ -4129,21 +4308,23 @@ object TypedExpr {
                 instantiateTo(gen, fntpe, kinds, None)
             }
           case Local(_, _, _) | Global(_, _, _, _) | Literal(_, _, _) =>
-            ann(expr, fntpe, None)
+            annRho(expr, fntpe, None)
           case let @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
             val (lets, tail) = flattenLets(let)
-            letAllNonRecWithTags(lets, self(tail))
+            Rho.letAllNonRecWithTags(lets, self(tail))
           case Let(arg, argE, in, rec, tag) =>
-            Let(arg, argE, self(in), rec, tag)
+            Rho.Let(arg, argE, self(in), rec, tag)
           case Loop(args, body, tag) =>
-            Loop(args, self(body), tag)
+            Rho.Loop(args, self(body), tag)
           case Recur(_, _, _) =>
-            ann(expr, fntpe, None)
+            annRho(expr, fntpe, None)
           case m @ Match(arg, branches, tag) =>
             // TODO: this may be wrong. e.g. we could leaving meta in the types
             // embedded in patterns, this does not seem to happen since we would
             // error if metas escape typechecking
-            Match(
+            //
+            // every branch body is coerced to a Rho by self
+            Rho.Match(
               m.matchKind,
               arg,
               branches.map(branch =>
@@ -4159,7 +4340,7 @@ object TypedExpr {
               case ((n, rho: Type.Rho), arg) => (n, coerceRho(rho, kinds)(arg))
               case ((n, _), arg)             => (n, arg)
             }
-            letAllNonRec(arg1, self(body), tag)
+            Rho.letAllNonRec(arg1, self(body), tag)
           case App(_, _, _, _) =>
             /*
              * We avoid all vars (free and bound) in expr to reduce the risk of
@@ -4174,7 +4355,7 @@ object TypedExpr {
             val aArgs = lamArgs.map { case (n, t) => Local(n, t, expr.tag) }
             // name -> (expr((name: arg)): result)
             val result1 = cores(App(expr, aArgs, result, expr.tag))
-            AnnotatedLambda(lamArgs, result1, expr.tag)
+            Rho.AnnotatedLambda(lamArgs, result1, expr.tag)
         }
     }
 

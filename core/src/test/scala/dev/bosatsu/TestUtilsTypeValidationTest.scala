@@ -3,6 +3,7 @@ package dev.bosatsu
 import cats.data.NonEmptyList
 import dev.bosatsu.rankn.{Type, TypeAlias, TypeEnv}
 import Identifier.Constructor
+import scala.collection.immutable.SortedMap
 
 class TestUtilsTypeValidationTest extends munit.FunSuite {
   private val tag = ()
@@ -99,6 +100,331 @@ class TestUtilsTypeValidationTest extends munit.FunSuite {
       Map(fn -> fnType, arg -> aType)
     val res = TestUtils.validateTypes(te, names, TypeEnv.empty)
     assert(res.isValid, renderErrors(res))
+  }
+
+  // `ap: (Int -> Int -> forall b. b -> b) -> String` applied to `k: argType`
+  private def validateNestedForallResultArg(argType: Type) = {
+    val b = Type.Var.Bound("b")
+    val bType = Type.TyVar(b)
+    val paramType = Type.Fun(
+      NonEmptyList.one(Type.IntType),
+      Type.Fun(
+        NonEmptyList.one(Type.IntType),
+        Type.forAll(
+          List(b -> Kind.Type),
+          Type.Fun(NonEmptyList.one(bType), bType)
+        )
+      )
+    )
+    val fnType = Type.Fun(NonEmptyList.one(paramType), Type.StrType)
+    val fn = TypedExpr.Local(Identifier.Name("ap"), fnType, tag)
+    val arg = TypedExpr.Local(Identifier.Name("k"), argType, tag)
+    val te = TypedExpr.App(fn, NonEmptyList.one(arg), Type.StrType, tag)
+
+    val names: Map[TypedExpr.Name[Unit], Type] =
+      Map(fn -> fnType, arg -> argType)
+    TestUtils.validateTypes(te, names, TypeEnv.empty)
+  }
+
+  test("validateTypes accepts a weak-prenex arg for a nested forall result") {
+    val a = Type.Var.Bound("a")
+    val aType = Type.TyVar(a)
+    val argType = Type.forAll(
+      List(a -> Kind.Type),
+      Type.Fun(
+        NonEmptyList.one(Type.IntType),
+        Type.Fun(
+          NonEmptyList.one(Type.IntType),
+          Type.Fun(NonEmptyList.one(aType), aType)
+        )
+      )
+    )
+    val res = validateNestedForallResultArg(argType)
+    assert(res.isValid, renderErrors(res))
+  }
+
+  test("validateTypes rejects a less polymorphic arg for a nested forall result") {
+    val a = Type.Var.Bound("a")
+    val aType = Type.TyVar(a)
+    val argType = Type.forAll(
+      List(a -> Kind.Type),
+      Type.Fun(
+        NonEmptyList.one(Type.IntType),
+        Type.Fun(
+          NonEmptyList.one(Type.IntType),
+          Type.Fun(NonEmptyList.one(aType), Type.IntType)
+        )
+      )
+    )
+    val res = validateNestedForallResultArg(argType)
+    val err = renderErrors(res)
+    assert(res.isInvalid, s"expected invalid but got valid: $err")
+    assert(err.contains("app arg type mismatch"), err)
+  }
+
+  // `ap: paramType -> String` applied to `k: argType`
+  private def validateArg(paramType: Type, argType: Type) = {
+    val fnType = Type.Fun(NonEmptyList.one(paramType), Type.StrType)
+    val fn = TypedExpr.Local(Identifier.Name("ap"), fnType, tag)
+    val arg = TypedExpr.Local(Identifier.Name("k"), argType, tag)
+    val te = TypedExpr.App(fn, NonEmptyList.one(arg), Type.StrType, tag)
+
+    val names: Map[TypedExpr.Name[Unit], Type] =
+      Map(fn -> fnType, arg -> argType)
+    TestUtils.validateTypes(te, names, TypeEnv.empty)
+  }
+
+  private def intToIntTo(res: Type): Type =
+    Type.Fun(
+      NonEmptyList.one(Type.IntType),
+      Type.Fun(NonEmptyList.one(Type.IntType), res)
+    )
+
+  test("validateTypes accepts a weak-prenex arg for a nested exists result") {
+    val a = Type.Var.Bound("a")
+    val b = Type.Var.Bound("b")
+    // Int -> Int -> exists b. List[b]
+    val paramType = intToIntTo(
+      Type.exists(
+        List(b -> Kind.Type),
+        Type.apply1(Type.ListType, Type.TyVar(b))
+      )
+    )
+    // exists a. Int -> Int -> List[a]
+    val argType = Type.exists(
+      List(a -> Kind.Type),
+      intToIntTo(Type.apply1(Type.ListType, Type.TyVar(a)))
+    )
+    val res = validateArg(paramType, argType)
+    assert(res.isValid, renderErrors(res))
+  }
+
+  test("validateTypes does not choose a nested existential in an arg") {
+    val a = Type.Var.Bound("a")
+    // Int -> Int -> List[Int]
+    val paramType = intToIntTo(Type.apply1(Type.ListType, Type.IntType))
+    // Int -> Int -> exists a. List[a]
+    val argType = intToIntTo(
+      Type.exists(
+        List(a -> Kind.Type),
+        Type.apply1(Type.ListType, Type.TyVar(a))
+      )
+    )
+    val res = validateArg(paramType, argType)
+    val err = renderErrors(res)
+    assert(res.isInvalid, s"expected invalid but got valid: $err")
+    assert(err.contains("app arg type mismatch"), err)
+  }
+
+  private given Ordering[Type.Var.Bound] =
+    Type.Var.Bound.orderBound.toOrdering
+
+  private def fn1(arg: Type, res: Type): Type =
+    Type.Fun(NonEmptyList.one(arg), res)
+
+  test("validateTypes rejects a monomorphic arg where a polymorphic one is expected") {
+    val a = Type.Var.Bound("a")
+    val aType = Type.TyVar(a)
+    // forall a. a -> a
+    val paramType = Type.forAll(List(a -> Kind.Type), fn1(aType, aType))
+    val res = validateArg(paramType, fn1(Type.IntType, Type.IntType))
+    val err = renderErrors(res)
+    assert(res.isInvalid, s"expected invalid but got valid: $err")
+    assert(err.contains("app arg type mismatch"), err)
+  }
+
+  test("validateTypes rejects a monomorphic arg for a nested forall result") {
+    val res = validateNestedForallResultArg(
+      intToIntTo(fn1(Type.IntType, Type.IntType))
+    )
+    val err = renderErrors(res)
+    assert(res.isInvalid, s"expected invalid but got valid: $err")
+    assert(err.contains("app arg type mismatch"), err)
+  }
+
+  test("validateTypes accepts a polymorphic arg where a monomorphic one is expected") {
+    val a = Type.Var.Bound("a")
+    val aType = Type.TyVar(a)
+    val argType = Type.forAll(List(a -> Kind.Type), fn1(aType, aType))
+    val res = validateArg(fn1(Type.IntType, Type.IntType), argType)
+    assert(res.isValid, renderErrors(res))
+  }
+
+  test("validateTypes accepts an arg whose type the param's existential hides") {
+    val a = Type.Var.Bound("a")
+    val listInt = Type.apply1(Type.ListType, Type.IntType)
+    val existsList =
+      Type.exists(
+        List(a -> Kind.Type),
+        Type.apply1(Type.ListType, Type.TyVar(a))
+      )
+    val res = validateArg(existsList, listInt)
+    assert(res.isValid, renderErrors(res))
+
+    // but an existential arg can't be passed where its witness is expected
+    val back = validateArg(listInt, existsList)
+    val err = renderErrors(back)
+    assert(back.isInvalid, s"expected invalid but got valid: $err")
+    assert(err.contains("app arg type mismatch"), err)
+  }
+
+  // `f: forall t. (t, t) -> String` applied to `x: arg0Type` and `y: arg1Type`
+  private def validateTwoArgGenericApp(arg0Type: Type, arg1Type: Type) = {
+    val t = Type.Var.Bound("t")
+    val tType = Type.TyVar(t)
+    val fnType = Type.forAll(
+      List(t -> Kind.Type),
+      Type.Fun(NonEmptyList.of(tType, tType), Type.StrType)
+    )
+    val fn = TypedExpr.Local(Identifier.Name("f"), fnType, tag)
+    val arg0 = TypedExpr.Local(Identifier.Name("x"), arg0Type, tag)
+    val arg1 = TypedExpr.Local(Identifier.Name("y"), arg1Type, tag)
+    val te = TypedExpr.App(fn, NonEmptyList.of(arg0, arg1), Type.StrType, tag)
+    val names: Map[TypedExpr.Name[Unit], Type] =
+      Map(fn -> fnType, arg0 -> arg0Type, arg1 -> arg1Type)
+    TestUtils.validateTypes(te, names, TypeEnv.empty)
+  }
+
+  test("validateTypes solves a function's type parameter from its args") {
+    val ok = validateTwoArgGenericApp(Type.IntType, Type.IntType)
+    assert(ok.isValid, renderErrors(ok))
+
+    val bad = validateTwoArgGenericApp(Type.IntType, Type.StrType)
+    val err = renderErrors(bad)
+    assert(bad.isInvalid, s"expected invalid but got valid: $err")
+    assert(err.contains("app arg type mismatch"), err)
+  }
+
+  private val polyIdType: Type = {
+    val a = Type.Var.Bound("a")
+    Type.forAll(List(a -> Kind.Type), fn1(Type.TyVar(a), Type.TyVar(a)))
+  }
+  private val intToInt: Type = fn1(Type.IntType, Type.IntType)
+
+  // a reference with type `refType` to a local bound with type `boundType`
+  private def validateLocalRef(boundType: Type, refType: Type) = {
+    val name = Identifier.Name("f")
+    val names: Map[TypedExpr.Name[Unit], Type] =
+      Map(TypedExpr.Local(name, boundType, tag) -> boundType)
+    TestUtils.validateTypes(TypedExpr.Local(name, refType, tag), names, TypeEnv.empty)
+  }
+
+  test("validateTypes checks a local's binding type fits its reference") {
+    val ok = validateLocalRef(boundType = polyIdType, refType = intToInt)
+    assert(ok.isValid, renderErrors(ok))
+
+    val bad = validateLocalRef(boundType = intToInt, refType = polyIdType)
+    val err = renderErrors(bad)
+    assert(bad.isInvalid, s"expected invalid but got valid: $err")
+    assert(err.contains("local type mismatch"), err)
+  }
+
+  // a reference with type `refType` to a global defined with type `defType`
+  private def validateGlobalRef(defType: Type, refType: Type) = {
+    val pack = PackageName.parts("TypeValidatorTest")
+    val name = Identifier.Name("f")
+    val names: Map[TypedExpr.Name[Unit], Type] =
+      Map(TypedExpr.Global(pack, name, defType, tag) -> defType)
+    TestUtils.validateTypes(
+      TypedExpr.Global(pack, name, refType, tag),
+      names,
+      TypeEnv.empty
+    )
+  }
+
+  test("validateTypes checks a global's type fits its reference") {
+    val ok = validateGlobalRef(defType = polyIdType, refType = intToInt)
+    assert(ok.isValid, renderErrors(ok))
+
+    val bad = validateGlobalRef(defType = intToInt, refType = polyIdType)
+    val err = renderErrors(bad)
+    assert(bad.isInvalid, s"expected invalid but got valid: $err")
+    assert(err.contains("global type mismatch"), err)
+  }
+
+  // a match whose branches return locals of `branch0Type` and `branch1Type`,
+  // so the match has type `branch0Type`
+  private def validateTwoBranchMatch(branch0Type: Type, branch1Type: Type) = {
+    val scrutinee = TypedExpr.Local(Identifier.Name("x"), Type.IntType, tag)
+    val body0 = TypedExpr.Local(Identifier.Name("p"), branch0Type, tag)
+    val body1 = TypedExpr.Local(Identifier.Name("q"), branch1Type, tag)
+    val te = TypedExpr.Match(
+      scrutinee,
+      NonEmptyList.of(
+        TypedExpr.Branch(Pattern.WildCard, None, body0)(using Region.empty),
+        TypedExpr.Branch(Pattern.WildCard, None, body1)(using Region.empty)
+      ),
+      tag
+    )
+    val names: Map[TypedExpr.Name[Unit], Type] =
+      Map(
+        scrutinee -> Type.IntType,
+        body0 -> branch0Type,
+        body1 -> branch1Type
+      )
+    TestUtils.validateTypes(te, names, TypeEnv.empty)
+  }
+
+  test("validateTypes checks each branch's type fits the match's type") {
+    val ok = validateTwoBranchMatch(intToInt, polyIdType)
+    assert(ok.isValid, renderErrors(ok))
+
+    val bad = validateTwoBranchMatch(polyIdType, intToInt)
+    val err = renderErrors(bad)
+    assert(bad.isInvalid, s"expected invalid but got valid: $err")
+    assert(err.contains("branch result type mismatch"), err)
+  }
+
+  test("validateTypes rejects a monomorphic recur arg for a polymorphic loop arg") {
+    val a = Type.Var.Bound("a")
+    val aType = Type.TyVar(a)
+    val polyId = Type.forAll(List(a -> Kind.Type), fn1(aType, aType))
+    val intToInt = fn1(Type.IntType, Type.IntType)
+    val seed = TypedExpr.Local(Identifier.Name("seed"), polyId, tag)
+    val step = TypedExpr.Local(Identifier.Name("step"), intToInt, tag)
+    val loop = TypedExpr.Loop(
+      NonEmptyList.one((Identifier.Name("f"), seed)),
+      TypedExpr.Recur(NonEmptyList.one(step), Type.IntType, tag),
+      tag
+    )
+    val names: Map[TypedExpr.Name[Unit], Type] =
+      Map(seed -> polyId, step -> intToInt)
+    val res = TestUtils.validateTypes(loop, names, TypeEnv.empty)
+    val err = renderErrors(res)
+    assert(res.isInvalid, s"expected invalid but got valid: $err")
+    assert(err.contains("recur arg type mismatch"), err)
+  }
+
+  // `xs: List[Int]` annotated as `exists b. List[b]`, hiding `witness` for b
+  private def validateIntListPack(witness: Type) = {
+    val b = Type.Var.Bound("b")
+    val listInt = Type.apply1(Type.ListType, Type.IntType)
+    val coerce = Type.exists(
+      List(b -> Kind.Type),
+      Type.apply1(Type.ListType, Type.TyVar(b))
+    )
+    val term = TypedExpr.Local(Identifier.Name("xs"), listInt, tag)
+    val evidence = TypedExpr.QuantifierEvidence(
+      sourceAtSolve = listInt,
+      targetAtSolve = coerce,
+      forallSolved = SortedMap.empty,
+      existsHidden = SortedMap(b -> (Kind.Type, witness))
+    )
+    val te = TypedExpr.Annotation(term, coerce, Some(evidence))
+    val names: Map[TypedExpr.Name[Unit], Type] = Map(term -> listInt)
+    TestUtils.validateTypes(te, names, TypeEnv.empty)
+  }
+
+  test("validateTypes accepts an annotation hiding the term's witness") {
+    val res = validateIntListPack(Type.IntType)
+    assert(res.isValid, renderErrors(res))
+  }
+
+  test("validateTypes rejects an annotation hiding another witness") {
+    val res = validateIntListPack(Type.StrType)
+    val err = renderErrors(res)
+    assert(res.isInvalid, s"expected invalid but got valid: $err")
+    assert(err.contains("annotation hides witnesses"), err)
   }
 
   test("validateTypes accepts alias-expanded nested foralls without crashing") {

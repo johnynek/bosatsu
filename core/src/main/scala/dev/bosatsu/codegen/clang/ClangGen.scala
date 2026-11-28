@@ -305,16 +305,14 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
         }
 
       def equalsChar(expr: Code.Expression, codePoint: Int): Code.Expression =
-        Code.Ident("bsts_char_code_point_from_value")(expr) =:= Code.IntLiteral(
-          codePoint
-        )
+        RuntimeIdent("bsts_char_code_point_from_value")(expr) =:=
+          Code.IntLiteral(codePoint)
 
       def lessThanOrEqualChar(
           expr: Code.Expression,
           codePoint: Int
       ): Code.Expression =
-        Code
-          .Ident("bsts_char_code_point_from_value")(expr)
+        RuntimeIdent("bsts_char_code_point_from_value")(expr)
           .bin(Code.BinOp.LtEq, Code.IntLiteral(codePoint))
 
       def pv(e: Code.ValueLike): T[Code.ValueLike] = monadImpl.pure(e)
@@ -451,7 +449,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
         cmp.bin(compareRelBinOp(rel), Code.IntLiteral.Zero)
 
       def charCodePoint(expr: Code.Expression): Code.Expression =
-        Code.Ident("bsts_char_code_point_from_value")(expr)
+        RuntimeIdent("bsts_char_code_point_from_value")(expr)
 
       def compareIntExpr(
           left: Code.Expression,
@@ -462,7 +460,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
           case Matchless.CompareRel.Eq | Matchless.CompareRel.Ne =>
             Code.ValueLike
               .applyArgs(
-                Code.Ident("bsts_integer_equals"),
+                RuntimeIdent("bsts_integer_equals"),
                 NonEmptyList(left, right :: Nil)
               )(newLocalName)
               .map {
@@ -475,7 +473,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
           case _ =>
             Code.ValueLike
               .applyArgs(
-                Code.Ident("bsts_integer_cmp"),
+                RuntimeIdent("bsts_integer_cmp"),
                 NonEmptyList(left, right :: Nil)
               )(newLocalName)
               .flatMap(_.onExpr(cmp => pv(compareCmpResult(cmp, rel)))(newLocalName))
@@ -487,7 +485,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
       ): T[Code.ValueLike] =
         Code.ValueLike
           .applyArgs(
-            Code.Ident("bsts_integer_cmp_zero"),
+            RuntimeIdent("bsts_integer_cmp_zero"),
             NonEmptyList.one(left)
           )(newLocalName)
           .flatMap(_.onExpr(cmp => pv(compareCmpResult(cmp, rel)))(newLocalName))
@@ -497,8 +495,8 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
           rel: Matchless.CompareRel,
           right: Code.Expression
       ): T[Code.ValueLike] = {
-        val lhs = Code.Ident("bsts_int64_to_int64")(left)
-        val rhs = Code.Ident("bsts_int64_to_int64")(right)
+        val lhs = RuntimeIdent("bsts_int64_to_int64")(left)
+        val rhs = RuntimeIdent("bsts_int64_to_int64")(right)
         pv(lhs.bin(compareRelBinOp(rel), rhs))
       }
 
@@ -511,7 +509,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
           case Matchless.CompareRel.Eq | Matchless.CompareRel.Ne =>
             Code.ValueLike
               .applyArgs(
-                Code.Ident("bsts_float64_equals"),
+                RuntimeIdent("bsts_float64_equals"),
                 NonEmptyList(left, right :: Nil)
               )(newLocalName)
               .map {
@@ -524,7 +522,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
           case _ =>
             Code.ValueLike
               .applyArgs(
-                Code.Ident("bsts_float64_cmp_total"),
+                RuntimeIdent("bsts_float64_cmp_total"),
                 NonEmptyList(left, right :: Nil)
               )(newLocalName)
               .flatMap(_.onExpr(cmp => pv(compareCmpResult(cmp, rel)))(newLocalName))
@@ -546,7 +544,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                         case Matchless.CompareRel.Eq | Matchless.CompareRel.Ne =>
                           Code.ValueLike
                             .applyArgs(
-                              Code.Ident("bsts_string_equals"),
+                              RuntimeIdent("bsts_string_equals"),
                               NonEmptyList(e, litStr :: Nil)
                             )(newLocalName)
                             .map {
@@ -559,7 +557,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                         case _ =>
                           Code.ValueLike
                             .applyArgs(
-                              Code.Ident("bsts_string_cmp"),
+                              RuntimeIdent("bsts_string_cmp"),
                               NonEmptyList(e, litStr :: Nil)
                             )(newLocalName)
                             .flatMap(
@@ -587,7 +585,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
               lv.onExpr { leftExpr =>
                 rv.onExpr {
                   case Code.Apply(
-                        Code.Ident("bsts_integer_from_int"),
+                        Code.Ident(ClangGen.integerFromInt.name),
                         Code.IntLiteral(0) :: Nil
                       ) =>
                     compareIntZeroExpr(leftExpr, rel)
@@ -610,8 +608,8 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
             }
           case EqualsNat(expr, nat) =>
             val fn = nat match {
-              case DataRepr.ZeroNat => Code.Ident("BSTS_NAT_IS_0")
-              case DataRepr.SuccNat => Code.Ident("BSTS_NAT_GT_0")
+              case DataRepr.ZeroNat => RuntimeIdent("BSTS_NAT_IS_0")
+              case DataRepr.SuccNat => RuntimeIdent("BSTS_NAT_GT_0")
             }
             innerToValue(expr).flatMap { vl =>
               vl.onExpr(expr => pv(fn(expr)))(newLocalName)
@@ -775,14 +773,14 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
           case c @ Lit.Chr(_) =>
             // encoded as integers in pure values
             pv(
-              Code.Ident("bsts_char_from_code_point")(
+              RuntimeIdent("bsts_char_from_code_point")(
                 Code.IntLiteral(c.toCodePoint)
               )
             )
           case Lit.Integer(toBigInteger) =>
             try {
               val iv = toBigInteger.intValueExact()
-              pv(Code.Ident("bsts_integer_from_int")(Code.IntLiteral(iv)))
+              pv(RuntimeIdent("bsts_integer_from_int")(Code.IntLiteral(iv)))
             } catch {
               case _: ArithmeticException =>
                 try {
@@ -791,7 +789,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                     if (lv == Long.MinValue) Code.Ident("INT64_MIN")
                     else Code.IntLiteral(BigInt(lv))
                   pv(
-                    Code.Ident("bsts_integer_from_int64")(
+                    RuntimeIdent("bsts_integer_from_int64")(
                       int64Const
                     )
                   )
@@ -816,7 +814,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                         ident,
                         Right(lits)
                       ) +:
-                        Code.Ident("bsts_integer_from_words_copy")(
+                        RuntimeIdent("bsts_integer_from_words_copy")(
                           if (isPos) Code.TrueLit else Code.FalseLit,
                           Code.IntLiteral(lits.length),
                           ident
@@ -829,7 +827,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
           case f: Lit.Float64 =>
             val rawBits = BigInt(java.lang.Long.toUnsignedString(f.toRawLongBits))
             pv(
-              Code.Ident("bsts_float64_from_bits")(
+              RuntimeIdent("bsts_float64_from_bits")(
                 Code.Ident("UINT64_C")(Code.IntLiteral(rawBits))
               )
             )
@@ -839,19 +837,19 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
         val int64Const =
           if (value == Long.MinValue) Code.Ident("INT64_MIN")
           else Code.IntLiteral(BigInt(value))
-        Code.Ident("bsts_int64_from_int64")(int64Const)
+        RuntimeIdent("bsts_int64_from_int64")(int64Const)
       }
 
       def int64SomeLiteral(value: Long): T[Code.ValueLike] =
         pv(
-          Code.Ident("alloc_enum1")(
+          RuntimeIdent("alloc_enum1")(
             Code.IntLiteral(1),
             int64LiteralExpr(value)
           )
         )
 
       def int64NoneLiteral: T[Code.ValueLike] =
-        pv(Code.Ident("alloc_enum0")(Code.IntLiteral(0)))
+        pv(RuntimeIdent("alloc_enum0")(Code.IntLiteral(0)))
 
       // Lowering folds literal calls it can see; Matchless optimizations such
       // as global inlining can expose more. Folding by name relies on the
@@ -956,7 +954,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
           case App(SuccNat, args) =>
             innerToValue(args.head).flatMap { arg =>
               Code.ValueLike.applyArgs(
-                Code.Ident("BSTS_NAT_SUCC"),
+                RuntimeIdent("BSTS_NAT_SUCC"),
                 NonEmptyList.one(arg)
               )(newLocalName)
             }
@@ -1002,7 +1000,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                     pv(boxFn(nm, arity))
                   } else {
                     // recover the pointer to this closure from the slots argument
-                    pv(Code.Ident("bsts_closure_from_slots")(slotsArgName))
+                    pv(RuntimeIdent("bsts_closure_from_slots")(slotsArgName))
                   }
                 case None =>
                   getBinding(arg).widen
@@ -1096,7 +1094,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
             // call get_enum_index(v, index)
             innerToValue(arg).flatMap { v =>
               v.onExpr(e =>
-                pv(Code.Ident("get_enum_index")(e, Code.IntLiteral(index)))
+                pv(RuntimeIdent("get_enum_index")(e, Code.IntLiteral(index)))
               )(newLocalName)
             }
           case GetStructElement(arg, index, size) =>
@@ -1107,14 +1105,16 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
               // call get_struct_index(v, index)
               innerToValue(arg).flatMap { v =>
                 v.onExpr { e =>
-                  pv(Code.Ident("get_struct_index")(e, Code.IntLiteral(index)))
+                  pv(
+                    RuntimeIdent("get_struct_index")(e, Code.IntLiteral(index))
+                  )
                 }(newLocalName)
               }
             }
           case makeEnum @ MakeEnum(variant, arity, _) =>
             // this is a closure over variant, we rewrite this
             if (arity == 0)
-              pv(Code.Ident("alloc_enum0")(Code.IntLiteral(variant)))
+              pv(RuntimeIdent("alloc_enum0")(Code.IntLiteral(variant)))
             else {
               val named =
                 // safe because arity > 0
@@ -1138,14 +1138,14 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
             }
           case MakeStruct(arity) =>
             pv {
-              if (arity == 0) Code.Ident("bsts_unit_value")()
+              if (arity == 0) RuntimeIdent("bsts_unit_value")()
               else {
                 val allocStructFn = s"alloc_struct$arity"
                 boxFn(Code.Ident(allocStructFn), arity)
               }
             }
           case ZeroNat =>
-            pv(Code.Ident("BSTS_NAT_0"))
+            pv(RuntimeIdent("BSTS_NAT_0"))
           case SuccNat =>
             val arg = Identifier.Name("nat")
             // This relies on optimizing App(SuccNat, _) otherwise
@@ -1162,7 +1162,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
           case PrevNat(of) =>
             innerToValue(of).flatMap { argVL =>
               Code.ValueLike.applyArgs(
-                Code.Ident("BSTS_NAT_PREV"),
+                RuntimeIdent("BSTS_NAT_PREV"),
                 NonEmptyList.one(argVL)
               )(newLocalName)
             }
@@ -1289,7 +1289,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
               Some(Code.block(Code.returnValue(vl)))
             )
           )
-          res = Code.Ident("read_or_build")(value.addr, consFn)
+          res = RuntimeIdent("read_or_build")(value.addr, consFn)
           _ <- appendStatement(
             Code.DeclareFn(
               Code.Attr.Static :: Nil,
@@ -1695,7 +1695,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                     Code.TypeIdent.Named("const BSTS_String"),
                     ident,
                     Some(
-                      Code.Ident("BSTS_STATIC_STRING_INIT")(
+                      RuntimeIdent("BSTS_STATIC_STRING_INIT")(
                         Code.IntLiteral(bytes.length),
                         dataExpr
                       )
@@ -1722,7 +1722,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                       }
                     } yield ident
                 }
-              } yield Code.Ident("BSTS_VALUE_FROM_PTR")(ident.addr)
+              } yield RuntimeIdent("BSTS_VALUE_FROM_PTR")(ident.addr)
             } else {
               val lits =
                 bytes.iterator.map { byte =>
@@ -1730,7 +1730,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                 }.toList
               newLocalName("str").map { ident =>
                 Code.DeclareArray(Code.TypeIdent.Char, ident, Right(lits)) +:
-                  Code.Ident("bsts_string_from_utf8_bytes_copy")(
+                  RuntimeIdent("bsts_string_from_utf8_bytes_copy")(
                     Code.IntLiteral(lits.length),
                     ident
                   )
@@ -1773,8 +1773,8 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
               )
               val mainBody = Code.Statements(
                 Code.Ident("GC_init")().stmt,
-                Code.Ident("init_statics")().stmt,
-                Code.Ident("atexit")(Code.Ident("free_statics")).stmt,
+                RuntimeIdent("init_statics")().stmt,
+                Code.Ident("atexit")(RuntimeIdent("free_statics")).stmt,
                 Code.DeclareVar(
                   Nil,
                   Code.TypeIdent.BValue,
@@ -1806,9 +1806,9 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                 globalIdent(ns.rootKey, p, entry.bindable).map { i =>
                   val runFn = entry match {
                     case Package.TestEntry.PlainTest(_, _, _) =>
-                      Code.Ident("bsts_test_run")
+                      RuntimeIdent("bsts_test_run")
                     case Package.TestEntry.ProgTest(_, _, _)  =>
-                      Code.Ident("bsts_test_run_prog")
+                      RuntimeIdent("bsts_test_run_prog")
                   }
                   (Code.StrLiteral(p.asString), i, runFn)
                 }
@@ -1830,8 +1830,8 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                  */
                 val results = Code.Ident("results")
                 val quiet = Code.Ident("quiet")
-                val quietFn = Code.Ident("bsts_test_argv_has_quiet")
-                val summaryFn = Code.Ident("bsts_test_result_print_summary")
+                val quietFn = RuntimeIdent("bsts_test_argv_has_quiet")
+                val summaryFn = RuntimeIdent("bsts_test_result_print_summary")
                 val testCount = packVals.length
                 val allTests = packVals.mapWithIndex {
                   case ((n, tv, runFn), idx) =>
@@ -1839,8 +1839,8 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                 }
                 val header = Code.Statements(
                   Code.Ident("GC_init")().stmt,
-                  Code.Ident("init_statics")().stmt,
-                  Code.Ident("atexit")(Code.Ident("free_statics")).stmt,
+                  RuntimeIdent("init_statics")().stmt,
+                  Code.Ident("atexit")(RuntimeIdent("free_statics")).stmt,
                   Code.DeclareVar(
                     Nil,
                     Code.TypeIdent.Bool,
@@ -1893,6 +1893,9 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
 }
 
 object ClangGen {
+  private val integerFromInt: Code.Ident =
+    RuntimeIdent("bsts_integer_from_int")
+
   sealed abstract class Error {
     def display: Doc =
       this match {

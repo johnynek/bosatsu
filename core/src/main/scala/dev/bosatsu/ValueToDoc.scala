@@ -16,18 +16,18 @@ import JsonEncodingError.IllTyped
 case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
   private val arrayTypeConst: Type.Const.Defined =
     Type.Const.Defined(
-      PackageName.parts("Bosatsu", "Collection", "Array"),
-      TypeName("Array")
+      ReservedPackage.Array.name,
+      ReservedPackage.Array.typeName("Array")
     )
   private val bytesTypeConst: Type.Const.Defined =
     Type.Const.Defined(
-      PackageName.parts("Bosatsu", "IO", "Bytes"),
-      TypeName("Bytes")
+      ReservedPackage.IoBytes.name,
+      ReservedPackage.IoBytes.typeName("Bytes")
     )
   private val progTypeConst: Type.Const.Defined =
     Type.Const.Defined(
-      PackageName.parts("Bosatsu", "Prog"),
-      TypeName("Prog")
+      ReservedPackage.Prog.name,
+      ReservedPackage.Prog.typeName("Prog")
     )
 
   /** Convert a typechecked value to a Document representation
