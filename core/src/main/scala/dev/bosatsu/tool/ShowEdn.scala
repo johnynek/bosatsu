@@ -276,7 +276,7 @@ object ShowEdn {
             str(id.toString)
           )
         )
-      case Type.TyMeta(Type.Meta(kind, id, existential, _)) =>
+      case Type.TyMeta(Type.Meta(kind, id, existential, _, _)) =>
         EList(
           List(
             sym("meta"),
@@ -349,7 +349,13 @@ object ShowEdn {
               .leftMap(_ => s"invalid meta id: $idStr")
               .map { id =>
                 Type.TyMeta(
-                  Type.Meta(kind, id, ex, RefSpace.constRef(Option.empty))
+                  Type.Meta(
+                    kind,
+                    id,
+                    ex,
+                    level = 0,
+                    RefSpace.constRef(Option.empty)
+                  )
                 )
               }
         }

@@ -103,7 +103,7 @@ object TypeRefConverter {
           case sk: Type.Var.Skolem =>
             onSkolem(sk)
         }
-      case TyMeta(Type.Meta(_, id, _, _)) =>
+      case TyMeta(Type.Meta(_, id, _, _, _)) =>
         onMeta(id)
     }
   }

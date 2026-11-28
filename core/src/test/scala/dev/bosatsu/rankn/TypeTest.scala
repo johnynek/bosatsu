@@ -330,7 +330,7 @@ class TypeTest extends munit.ScalaCheckSuite {
       id <- Gen.chooseNum(0L, 10000L)
       kind <- NTypeGen.genKind
       ex <- Gen.oneOf(true, false)
-    } yield Type.TyMeta(Type.Meta(kind, id, ex, RefSpace.constRef(Option.empty)))
+    } yield Type.TyMeta(Type.Meta(kind, id, ex, level = 0, RefSpace.constRef(Option.empty)))
 
   private def genLeafWithMeta: Gen[Type.Leaf] =
     Gen.frequency(
@@ -927,6 +927,7 @@ class TypeTest extends munit.ScalaCheckSuite {
         Kind.Type,
         100001L,
         existential = false,
+        level = 0,
         RefSpace.constRef(Option.empty)
       )
     val skolem = Type.Var.Skolem("sk", Kind.Type, existential = false, 100002L)
@@ -1832,6 +1833,7 @@ class TypeTest extends munit.ScalaCheckSuite {
         Kind.Type,
         99992L,
         existential = false,
+        level = 0,
         RefSpace.constRef(Option.empty)
       )
     val targetMeta =

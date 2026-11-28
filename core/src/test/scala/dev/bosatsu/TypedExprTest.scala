@@ -7016,8 +7016,8 @@ def make(y: Int):
 
   test("TypedExpr.zonkMeta zonks quantifier evidence types") {
     val k = Kind.Type
-    val m1 = Type.Meta(k, 1001L, existential = false, RefSpace.constRef(None))
-    val m2 = Type.Meta(k, 1002L, existential = true, RefSpace.constRef(None))
+    val m1 = Type.Meta(k, 1001L, existential = false, level = 0, RefSpace.constRef(None))
+    val m2 = Type.Meta(k, 1002L, existential = true, level = 0, RefSpace.constRef(None))
     val a = Type.Var.Bound("a")
     val e = Type.Var.Bound("e")
     val qev = TypedExpr.QuantifierEvidence(
@@ -7058,7 +7058,7 @@ def make(y: Int):
   }
 
   test("TypedExpr.zonkMeta zonks MatchGuard guard-pattern annotation types") {
-    val meta = Type.Meta(Kind.Type, 3001L, existential = false, RefSpace.constRef(None))
+    val meta = Type.Meta(Kind.Type, 3001L, existential = false, level = 0, RefSpace.constRef(None))
     val guardPattern: Pattern[(PackageName, Constructor), Type] =
       Pattern.Annotation(Pattern.WildCard, Type.TyMeta(meta))
     val branch = TypedExpr.Branch.fromGuardNode(
@@ -7100,7 +7100,7 @@ def make(y: Int):
   }
 
   test("TypedExpr.quantify quantifies MatchGuard guard-pattern annotation metas") {
-    val meta = Type.Meta(Kind.Type, 3002L, existential = false, RefSpace.constRef(None))
+    val meta = Type.Meta(Kind.Type, 3002L, existential = false, level = 0, RefSpace.constRef(None))
     val guardPattern: Pattern[(PackageName, Constructor), Type] =
       Pattern.Annotation(Pattern.WildCard, Type.TyMeta(meta))
     val branch = TypedExpr.Branch.fromGuardNode(
@@ -7157,7 +7157,7 @@ def make(y: Int):
 
   test("TypedExpr.quantify does not add nested generics for MatchGuard-bound local meta types") {
     val xName = Identifier.Name("x")
-    val meta = Type.Meta(Kind.Type, 3003L, existential = false, RefSpace.constRef(None))
+    val meta = Type.Meta(Kind.Type, 3003L, existential = false, level = 0, RefSpace.constRef(None))
     val guardPattern: Pattern[(PackageName, Constructor), Type] =
       Pattern.Annotation(Pattern.Var(xName), Type.TyMeta(meta))
     val body =
@@ -7222,8 +7222,8 @@ def make(y: Int):
   test("TypedExpr.quantify handles metas and skolems inside quantifier evidence") {
     type S[A] = State[Map[Type.Meta, Type.Tau], A]
     val k = Kind.Type
-    val mForall = Type.Meta(k, 2001L, existential = false, RefSpace.constRef(None))
-    val mExists = Type.Meta(k, 2002L, existential = true, RefSpace.constRef(None))
+    val mForall = Type.Meta(k, 2001L, existential = false, level = 0, RefSpace.constRef(None))
+    val mExists = Type.Meta(k, 2002L, existential = true, level = 0, RefSpace.constRef(None))
     val exSkolem = Type.Var.Skolem("ex", k, existential = true, id = 99L)
     val qev = TypedExpr.QuantifierEvidence(
       sourceAtSolve = Type.TyMeta(mForall),
