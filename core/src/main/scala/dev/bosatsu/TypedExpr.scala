@@ -3247,7 +3247,9 @@ object TypedExpr {
                       }
                     }
                     var acc = down(cursor)
-                    spine.foreach { inner =>
+                    val spineIter = spine.iterator
+                    while (spineIter.hasNext) {
+                      val inner = spineIter.next()
                       acc = App(acc, inner.args.map(down), inner.result, fn(inner.tag))
                     }
                     acc
