@@ -4909,4 +4909,23 @@ main = cases.foldl_List(0, step)
       VInt(BigInt("1000233301110"))
     )
   }
+
+  test("an annotation with an alias of a forall type evaluates") {
+    // (f(1): Poly) checks against the expansion of Poly, and q reads p
+    // back through the alias
+    evalBothPipelines(
+      """
+type Poly = forall a. a -> a
+
+(id: forall a. a -> a) = x -> x
+(f: Int -> (forall a. a -> a)) = _ -> id
+
+p = (f(1): Poly)
+(q: forall a. a -> a) = p
+
+main = (q("x"), q(2))
+""",
+      Tuple(Str("x"), VInt(2))
+    )
+  }
 }

@@ -3180,14 +3180,10 @@ main = ap(k)(1)("x")(2)
     )
   }
 
-  test("a function result with a forall that does not subsume is a type error") {
-    val stmts = Parser.unsafeParse(
-      Statement.parser,
-      """#
-def bad(h: Int -> (Int -> (forall a. a -> a))) -> (Int -> (forall a. a -> Int)):
-  h(1)
-"""
-    )
+  // Infer the statements against Predef and check that they fail with
+  // inference type errors only, and no internal errors.
+  private def assertTypeErrorsOnly(statements: String): Unit = {
+    val stmts = Parser.unsafeParse(Statement.parser, statements)
     val errs =
       Package.inferBody(testPackage, predefResolvedImport :: Nil, stmts) match {
         case Ior.Left(errs)    => errs.toList
@@ -3208,5 +3204,82 @@ def bad(h: Int -> (Int -> (forall a. a -> a))) -> (Int -> (forall a. a -> Int)):
       case other                    =>
         fail(s"expected only type errors, found: $other")
     }
+  }
+
+  test("a function result with a forall that does not subsume is a type error") {
+    assertTypeErrorsOnly(
+      """#
+def bad(h: Int -> (Int -> (forall a. a -> a))) -> (Int -> (forall a. a -> Int)):
+  h(1)
+"""
+    )
+  }
+
+  test("subsumption against an alias of a forall type") {
+    // Poly is spelled as a Rho but expands to a ForAll. Checking a
+    // polymorphic value against it must skolemize the expansion before
+    // instantiating the value: first an annotated binding, then an
+    // annotation on an application, which checkApply does not skolemize.
+    parseProgram(
+      """#
+type Poly = forall a. a -> a
+(id: forall a. a -> a) = x -> x
+(main: Poly) = id
+""",
+      "Poly"
+    )
+
+    parseProgram(
+      """#
+type Poly = forall a. a -> a
+(id: forall a. a -> a) = x -> x
+(f: Int -> (forall a. a -> a)) = _ -> id
+main = (f(1): Poly)
+""",
+      "Poly"
+    )
+
+    parseProgram(
+      """#
+type Const[b] = forall a. a -> b
+(f: Int -> (forall a. a -> Int)) = _ -> (_ -> 1)
+main = (f(1): Const[Int])
+""",
+      "Const[Int]"
+    )
+
+    // the alias is also on the left of a check here, when the match
+    // compares the types of its branches in both directions
+    parseProgram(
+      """#
+type Poly = forall a. a -> a
+(id: forall a. a -> a) = x -> x
+def pick(b: Bool, f: Poly, g: forall a. a -> a):
+  match b:
+    case True: f
+    case False: g
+main = pick(True, id, id)(1)
+""",
+      "Int"
+    )
+  }
+
+  test("an alias of a forall type that does not subsume is a type error") {
+    // the function's result is a Rho that is not polymorphic enough
+    assertTypeErrorsOnly(
+      """#
+type Poly = forall a. a -> a
+(f: Int -> (Int -> Int)) = _ -> (x -> x)
+main = (f(1): Poly)
+"""
+    )
+    // the function's result is a forall that does not subsume Poly
+    assertTypeErrorsOnly(
+      """#
+type Poly = forall a. a -> a
+(f: Int -> (forall a. a -> Int)) = _ -> (_ -> 1)
+main = (f(1): Poly)
+"""
+    )
   }
 }
