@@ -184,7 +184,7 @@ private[bosatsu] object LibraryInspectionFixtures {
     unusedTransitivePublic = List(common, legacy)
   )
 
-  private lazy val libraries: List[Built] = List(
+  private val parserLibraries: List[Built] = List(
     common,
     legacy,
     publicChild,
@@ -196,6 +196,145 @@ private[bosatsu] object LibraryInspectionFixtures {
     parser
   )
 
+  val parserFixtureCount: Int = parserLibraries.size
+
+  private lazy val equalApiV1 = build(
+    "equal_api",
+    version1,
+    """package Equal/Api
+      |export Token()
+      |struct Token(value: Int)
+      |private_value = 1
+      |""".stripMargin
+  )
+
+  private lazy val equalApiV2 = build(
+    "equal_api",
+    version2,
+    """package Equal/Api
+      |export Token()
+      |struct Token(value: Int)
+      |private_value = 2
+      |""".stripMargin
+  )
+
+  private lazy val equalLeft = build(
+    "equal_left",
+    version1,
+    """package Equal/Left
+      |from Equal/Api import Token
+      |export token
+      |exposes Equal/Api
+      |token = Token(1)
+      |""".stripMargin,
+    public = List(equalApiV1)
+  )
+
+  private lazy val equalRightV1 = build(
+    "equal_right",
+    version1,
+    """package Equal/Right
+      |from Equal/Api import Token
+      |export token
+      |exposes Equal/Api
+      |token = Token(2)
+      |""".stripMargin,
+    public = List(equalApiV1)
+  )
+
+  private lazy val equalRightV2 = build(
+    "equal_right",
+    version2,
+    """package Equal/Right
+      |from Equal/Api import Token
+      |export token
+      |exposes Equal/Api
+      |token = Token(2)
+      |""".stripMargin,
+    public = List(equalApiV2)
+  )
+
+  private lazy val namedApiV1 = build(
+    "named_api",
+    version1,
+    """package Names/One
+      |export One()
+      |struct One(value: Int)
+      |""".stripMargin
+  )
+
+  private lazy val namedApiV2 = build(
+    "named_api",
+    version2,
+    """package Names/Two
+      |export Two()
+      |struct Two(value: Int)
+      |""".stripMargin
+  )
+
+  private lazy val namedLeft = build(
+    "named_left",
+    version1,
+    """package Names/Left
+      |from Names/One import One
+      |export value
+      |exposes Names/One
+      |value = One(1)
+      |""".stripMargin,
+    public = List(namedApiV1)
+  )
+
+  private lazy val namedRight = build(
+    "named_right",
+    version1,
+    """package Names/Right
+      |from Names/Two import Two
+      |export value
+      |exposes Names/Two
+      |value = Two(2)
+      |""".stripMargin,
+    public = List(namedApiV2)
+  )
+
+  private lazy val incompatibleCore = build(
+    "bosatsu",
+    version2,
+    """package Incompatible/Core
+      |export foreign_value
+      |foreign_value = 1
+      |""".stripMargin
+  )
+
+  private lazy val privateCoreConflict = build(
+    "private_core_conflict",
+    version1,
+    """package Core/Conflict
+      |export value
+      |value = 1
+      |""".stripMargin,
+    privateDeps = List(incompatibleCore)
+  )
+
+  private val scopedLibraries: List[Built] = List(
+    equalApiV1,
+    equalApiV2,
+    equalLeft,
+    equalRightV1,
+    equalRightV2,
+    namedApiV1,
+    namedApiV2,
+    namedLeft,
+    namedRight
+  )
+
+  private val coreConflictLibraries: List[Built] = List(
+    incompatibleCore,
+    privateCoreConflict
+  )
+
+  private lazy val libraries: List[Built] =
+    parserLibraries ::: scopedLibraries ::: coreConflictLibraries
+
   private def pinJson(library: Built): String =
     s"""{"name":"${library.name.name}","version":"${library.version.render}","path":"${library.path}","hashes":["blake3:${library.blake3}","sha256:${library.sha256}"]}"""
 
@@ -204,7 +343,7 @@ private[bosatsu] object LibraryInspectionFixtures {
       |""".stripMargin
 
   lazy val generatedFiles: List[File] = {
-    val children = libraries.filterNot(_.name.name == parser.name.name)
+    val parserChildren = parserLibraries.filterNot(_.name.name == parser.name.name)
     libraries.map(library => File(library.path, library.bytes)) ::: List(
       File(
         "test_workspace/inspect_library/parser-root.json",
@@ -212,7 +351,15 @@ private[bosatsu] object LibraryInspectionFixtures {
       ),
       File(
         "test_workspace/inspect_library/parser-context.json",
-        contextJson(children).getBytes(StandardCharsets.UTF_8)
+        contextJson(parserChildren).getBytes(StandardCharsets.UTF_8)
+      ),
+      File(
+        "test_workspace/inspect_library/scoped-context.json",
+        contextJson(scopedLibraries).getBytes(StandardCharsets.UTF_8)
+      ),
+      File(
+        "test_workspace/inspect_library/private-core-context.json",
+        contextJson(coreConflictLibraries).getBytes(StandardCharsets.UTF_8)
       )
     )
   }

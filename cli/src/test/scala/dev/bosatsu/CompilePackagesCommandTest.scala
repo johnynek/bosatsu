@@ -2,9 +2,12 @@ package dev.bosatsu
 
 import _root_.bosatsu.{TypedAst => proto}
 import cats.effect.IO
+import cats.syntax.all._
 import dev.bosatsu.Identifier.{Constructor, Name}
-import dev.bosatsu.rankn.{Type, TypeAlias}
-import java.nio.file.{Files, Path}
+import dev.bosatsu.hashing.Algo
+import dev.bosatsu.rankn.{DefinedType, Type, TypeAlias}
+import dev.bosatsu.tool.{CliException, LibraryInspection, PackageBindings, ToolchainManifest}
+import java.nio.file.{Files, Path, Paths}
 
 class CompilePackagesCommandTest extends FileCommandFixtures {
   private def compile(
@@ -23,6 +26,120 @@ class CompilePackagesCommandTest extends FileCommandFixtures {
 
   private def bytes(root: Path, name: String): List[Byte] =
     Files.readAllBytes(root.resolve(name)).toList
+
+  private def scope(kind: String, packageName: String): Json = Json.JObject(List(
+    "kind" -> Json.JString(kind),
+    "package" -> Json.JString(packageName)
+  ))
+
+  private def libraryScope(name: String, version: String): Json = Json.JObject(List(
+    "kind" -> Json.JString("library"),
+    "identity" -> Json.JObject(List(
+      "name" -> Json.JString(name), "version" -> Json.JString(version)
+    ))
+  ))
+
+  private def localSignatureScope(packageName: PackageName): Json = Json.JObject(List(
+    "kind" -> Json.JString("local-signature"),
+    "package" -> Json.JString(packageName.asString)
+  ))
+
+  private def emptyToolchain: String = {
+    val digest = Algo.hashBytes[Algo.Sha256](Array.emptyByteArray).hex
+    Json.JObject(List(
+      "schema_version" -> Json.JNumberStr("1"),
+      "compiler" -> Json.JObject(List(
+        "uri" -> Json.JString("unused"), "sha256" -> Json.JString(digest)
+      )),
+      "core" -> Json.JObject(List(
+        "library_name" -> Json.JString("bosatsu"),
+        "version" -> Json.JString("1.2.3"),
+        "uri" -> Json.JString("unused"),
+        "sha256" -> Json.JString(digest)
+      )),
+      "c_runtime" -> Json.JObject(List(
+        "uri" -> Json.JString("unused"), "sha256" -> Json.JString(digest)
+      )),
+      "core_sources" -> Json.JNull
+    )).render
+  }
+
+  private def emptyDependencyContext: String = Json.JObject(List(
+    "schema_version" -> Json.JNumberStr("1"),
+    "libraries" -> Json.JArray(Vector.empty)
+  )).render
+
+  private def writeLocalScopeInputs(root: Path): IO[Unit] = {
+    val client = PackageName.parts("Client")
+    val provider = PackageName.parts("Provider")
+    val dependencies = Json.JArray(Vector(Json.JObject(List(
+      "from" -> scope("member", client.asString),
+      "package" -> Json.JString(provider.asString),
+      "to" -> scope("member", provider.asString)
+    ))))
+    val bindings = Json.JArray(Vector(Json.JObject(List(
+      "referrer" -> scope("member", client.asString),
+      "package" -> Json.JString(provider.asString),
+      "provider" -> scope("member", provider.asString)
+    ))))
+    val scopeMap = Json.JObject(List(
+      "schema_version" -> Json.JNumberStr("1"),
+      "members" -> Json.JArray(Vector(Json.JString(client.asString), Json.JString(provider.asString))),
+      "dependencies" -> dependencies,
+      "imports" -> Json.JArray(Vector.empty),
+      "bindings" -> bindings
+    )).render
+    val publicIndex = Json.JObject(List(
+      "schema_version" -> Json.JNumberStr("1"),
+      "packages" -> Json.JArray(Vector.empty)
+    )).render
+    write(root, "scope.json", scopeMap) *>
+      write(root, "scope-index.json", publicIndex) *>
+      write(root, "dependencies.json", emptyDependencyContext) *>
+      write(root, "toolchain.json", emptyToolchain)
+  }
+
+  private def scopedArgs(out: String): List[String] =
+    List(
+      "compile-packages", "--src", "Client.bosatsu", "--src", "Provider.bosatsu",
+      "--packages-out", s"$out.pkg", "--sig-out", s"$out.sig",
+      "--scope-map", "scope.json", "--dependency-context", "dependencies.json",
+      "--toolchain-manifest", "toolchain.json"
+    )
+
+  private def hashes(bytes: Array[Byte]): List[String] = List(
+    s"blake3:${Algo.hashBytes[Algo.Blake3](bytes).hex}",
+    s"sha256:${Algo.hashBytes[Algo.Sha256](bytes).hex}"
+  )
+
+  private def inspectSharedLibrary(
+      root: Path,
+      runner: FileCommandRunner
+  ): IO[List[String]] = inspectSharedLibraryVersion(root, runner, "1.0.0", "shared")
+
+  private def inspectSharedLibraryVersion(
+      root: Path,
+      runner: FileCommandRunner,
+      version: String,
+      prefix: String
+  ): IO[List[String]] = {
+    val fixture = Paths.get(s"test_workspace/inspect_library/shared-v$version.bosatsu_lib")
+    for {
+      bytes <- IO.blocking(Files.readAllBytes(fixture))
+      _ <- IO.blocking(Files.write(root.resolve(s"$prefix.lib"), bytes))
+      _ <- write(root, "inspect-context.json", emptyDependencyContext)
+      signature = root.resolve(s"$prefix.sig").toString
+      index = root.resolve(s"$prefix-index.json").toString
+      args = List(
+        "inspect-library", "--input", root.resolve(s"$prefix.lib").toString,
+        "--expected-name", "shared", "--expected-version", version,
+        "--dependency-context", "inspect-context.json",
+        "--sig-out", signature, "--exposures-out", index
+      ) ::: hashes(bytes).flatMap(hash => List("--expected-hash", hash))
+      inspected <- runner.run(root, args)
+      _ = success(inspected)
+    } yield hashes(bytes)
+  }
 
   test("batch outputs contain only the member packages and preserve private test discovery") {
     withRunner { (root, runner) =>
@@ -72,6 +189,500 @@ class CompilePackagesCommandTest extends FileCommandFixtures {
         publicEdit <- compile(runner, root, "group", List("Base", "Local"), Nil)
         _ = success(publicEdit)
         _ = assertNotEquals(bytes(root, "group.sig"), originalSig)
+      } yield ()
+    }
+  }
+
+  test("unscoped compilation rejects outputs that alias each other or an input") {
+    withRunner { (root, runner) =>
+      for {
+        _ <- write(root, "Base.bosatsu", "package Base\nexport answer\nanswer = 42\n")
+        _ <- write(root, "group.sig", "previous signature")
+        sameOutputs <- runner.run(root, List(
+          "compile-packages", "--src", "Base.bosatsu",
+          "--packages-out", "group.sig", "--sig-out", "group.sig"
+        ))
+        _ = failure(sameOutputs)
+        _ = assert(sameOutputs.stderr.contains("multiple outputs refer to the same file"), sameOutputs.stderr)
+        overwritesSource <- runner.run(root, List(
+          "compile-packages", "--src", "Base.bosatsu",
+          "--packages-out", "Base.bosatsu", "--sig-out", "group.sig"
+        ))
+        _ = failure(overwritesSource)
+        _ = assert(overwritesSource.stderr.contains("refers to runtime input"), overwritesSource.stderr)
+        preservedSource <- read(root, "Base.bosatsu")
+        _ = assertEquals(preservedSource, "package Base\nexport answer\nanswer = 42\n")
+        preservedSig <- read(root, "group.sig")
+        _ = assertEquals(preservedSig, "previous signature")
+      } yield ()
+    }
+  }
+
+  test("scoped compilation publishes source-owner bindings and an explicit empty member context") {
+    withRunner { (root, runner) =>
+      val client = "package Client\nfrom Provider import value\nexport main\nmain = value\n"
+      val provider = "package Provider\nexport value\nvalue = 42\n"
+      for {
+        _ <- write(root, "Client.bosatsu", client)
+        _ <- write(root, "Provider.bosatsu", provider)
+        _ <- writeLocalScopeInputs(root)
+        result <- runner.run(root, scopedArgs("scoped"))
+        _ = success(result)
+        bundle <- IOPlatformIO.read[proto.Packages](root.resolve("scoped.pkg"))
+        metadata = bundle.buildRequirements.get
+        _ = assertEquals(metadata.scopedVersion, 1)
+        _ = assertEquals(metadata.interfaces, Seq.empty)
+        _ = assertEquals(metadata.members.map(_.memberName), Seq("Client", "Provider"))
+        parsed <- IO.fromTry(PackageSignatures.parseBuildRequirements(metadata))
+        _ = parsed match {
+          case PackageSignatures.ParsedBuildRequirements.Scoped(members) =>
+            val clientRequirements = members.find(_.member == PackageName.parts("Client")).get
+            assertEquals(clientRequirements.bindings.map(_.owner.scope),
+              List(PackageBindings.Scope.Member(PackageName.parts("Provider"))))
+            assertEquals(clientRequirements.interfaces, Nil)
+            val providerRequirements = members.find(_.member == PackageName.parts("Provider")).get
+            assertEquals(providerRequirements.bindings, Nil)
+          case other => fail(s"expected scoped requirements, found $other")
+        }
+        partial <- runner.run(root, scopedArgs("partial").take(10) ::: List("scope.json"))
+        _ = failure(partial)
+        _ = assert(partial.stderr.contains("requires --scope-map"), partial.stderr)
+        _ <- write(root, "Extra.bosatsu", "package Extra\nexport value\nvalue = 1\n")
+        extra <- compile(runner, root, "extra", List("Extra"), Nil)
+        _ = success(extra)
+        unused <- runner.run(root, scopedArgs("unused") :::
+          List("--direct-interface", "extra.sig", "--error-unused-interfaces"))
+        _ = failure(unused)
+        _ = assert(unused.stderr.contains("unused direct interfaces: extra.sig"), unused.stderr)
+        _ <- IO.blocking(Files.createDirectory(root.resolve("recover.sig")))
+        _ <- write(root, "recover.pkg", "previous implementation")
+        failedPublish <- runner.run(root, scopedArgs("recover"))
+        _ = failure(failedPublish)
+        previous <- read(root, "recover.pkg")
+        _ = assertEquals(previous, "previous implementation")
+      } yield ()
+    }
+  }
+
+  test("scoped compilation authenticates imported bytes before replacing outputs") {
+    withRunner { (root, runner) =>
+      val digest = "0" * 64
+      val identity = Json.JObject(List(
+        "name" -> Json.JString("pinned"), "version" -> Json.JString("1.0.0")
+      ))
+      val publicIndex = Json.JObject(List(
+        "schema_version" -> Json.JNumberStr("1"), "packages" -> Json.JArray(Vector.empty)
+      )).render
+      val imports = Json.JArray(Vector(Json.JObject(List(
+        "identity" -> identity,
+        "signature_path" -> Json.JString("pinned.sig"),
+        "exposures_path" -> Json.JString("pinned-index.json")
+      ))))
+      val scopeMap = Json.JObject(List(
+        "schema_version" -> Json.JNumberStr("1"),
+        "members" -> Json.JArray(Vector(Json.JString("Client"))),
+        "dependencies" -> Json.JArray(Vector.empty),
+        "imports" -> imports,
+        "bindings" -> Json.JArray(Vector.empty)
+      )).render
+      val dependencyContext = Json.JObject(List(
+        "schema_version" -> Json.JNumberStr("1"),
+        "libraries" -> Json.JArray(Vector(Json.JObject(List(
+          "name" -> Json.JString("pinned"),
+          "version" -> Json.JString("1.0.0"),
+          "path" -> Json.JString("pinned.lib"),
+          "hashes" -> Json.JArray(Vector(Json.JString(s"blake3:$digest")))
+        ))))
+      )).render
+      for {
+        _ <- write(root, "Client.bosatsu", "package Client\nexport main\nmain = 1\n")
+        _ <- write(root, "scope.json", scopeMap)
+        _ <- write(root, "pinned-index.json", publicIndex)
+        _ <- write(root, "dependencies.json", dependencyContext)
+        _ <- write(root, "toolchain.json", emptyToolchain)
+        _ <- write(root, "pinned.lib", "not a pinned library")
+        _ <- IOPlatformIO.writeInterfaceBundle(proto.Interfaces(), root.resolve("pinned.sig"))
+        _ <- write(root, "protected.pkg", "previous implementation")
+        _ <- write(root, "protected.sig", "previous signature")
+        args = List(
+          "compile-packages", "--src", "Client.bosatsu", "--direct-interface", "pinned.sig",
+          "--packages-out", "protected.pkg", "--sig-out", "protected.sig",
+          "--scope-map", "scope.json", "--dependency-context", "dependencies.json",
+          "--toolchain-manifest", "toolchain.json"
+        )
+        failed <- runner.run(root, args)
+        _ = failure(failed)
+        _ = assert(failed.stderr.contains("blake3 pin mismatch"), failed.stderr)
+        previousImpl <- read(root, "protected.pkg")
+        previousSig <- read(root, "protected.sig")
+        _ = assertEquals(previousImpl, "previous implementation")
+        _ = assertEquals(previousSig, "previous signature")
+      } yield ()
+    }
+  }
+
+  test("scoped compilation selects an authenticated imported owner and records its interface digest") {
+    withRunner { (root, runner) =>
+      val library = "shared"
+      val version = "1.0.0"
+      val identity = Json.JObject(List(
+        "name" -> Json.JString(library), "version" -> Json.JString(version)
+      ))
+      val member = PackageName.parts("Client")
+      val packageName = PackageName.parts("Shared/Api")
+      for {
+        hashes <- inspectSharedLibrary(root, runner)
+        _ <- write(root, "Client.bosatsu",
+          "package Client\nfrom Shared/Api import pick\nexport main\nmain = pick(1)\n")
+        dependency = Json.JObject(List(
+          "from" -> scope("member", member.asString),
+          "package" -> Json.JString(packageName.asString),
+          "to" -> libraryScope(library, version)
+        ))
+        binding = Json.JObject(List(
+          "referrer" -> scope("member", member.asString),
+          "package" -> Json.JString(packageName.asString),
+          "provider" -> libraryScope(library, version),
+          "interface_path" -> Json.JString("shared.sig")
+        ))
+        scopeMap = Json.JObject(List(
+          "schema_version" -> Json.JNumberStr("1"),
+          "members" -> Json.JArray(Vector(Json.JString(member.asString))),
+          "dependencies" -> Json.JArray(Vector(dependency)),
+          "imports" -> Json.JArray(Vector(Json.JObject(List(
+            "identity" -> identity,
+            "signature_path" -> Json.JString("shared.sig"),
+            "exposures_path" -> Json.JString("shared-index.json")
+          )))),
+          "bindings" -> Json.JArray(Vector(binding))
+        )).render
+        libraryRecord = Json.JObject(List(
+          "name" -> Json.JString(library),
+          "version" -> Json.JString(version),
+          "path" -> Json.JString("shared.lib"),
+          "hashes" -> Json.JArray(hashes.map(Json.JString(_)).toVector)
+        ))
+        dependencyContext = Json.JObject(List(
+          "schema_version" -> Json.JNumberStr("1"),
+          "libraries" -> Json.JArray(Vector(libraryRecord))
+        )).render
+        _ <- write(root, "scope.json", scopeMap)
+        _ <- write(root, "dependencies.json", dependencyContext)
+        _ <- write(root, "toolchain.json", emptyToolchain)
+        result <- runner.run(root, List(
+          "compile-packages", "--src", "Client.bosatsu", "--direct-interface", "shared.sig",
+          "--error-unused-interfaces", "--packages-out", "scoped.pkg", "--sig-out", "scoped.sig",
+          "--scope-map", "scope.json", "--dependency-context", "dependencies.json",
+          "--toolchain-manifest", "toolchain.json"
+        ))
+        _ = success(result)
+        bundle <- IOPlatformIO.read[proto.Packages](root.resolve("scoped.pkg"))
+        metadata = bundle.buildRequirements.get
+        parsed <- IO.fromTry(PackageSignatures.parseBuildRequirements(metadata))
+        sharedInterfaces <- IOPlatformIO.readInterfaces(List(root.resolve("shared.sig")))
+        expected <- IO.fromTry(PackageSignatures.requirement(
+          sharedInterfaces.find(_.name == packageName).get
+        ))
+        _ = parsed match {
+          case PackageSignatures.ParsedBuildRequirements.Scoped(List(requirement)) =>
+            assertEquals(requirement.member, member)
+            assertEquals(requirement.bindings.map(_.packageName), List(packageName))
+            requirement.bindings.head.owner.scope match {
+              case PackageBindings.Scope.Library((name, selectedVersion)) =>
+                assertEquals(name.name, library)
+                assertEquals(selectedVersion.render, version)
+              case other => fail(s"expected library owner, found $other")
+            }
+            assertEquals(requirement.interfaces, List(
+              PackageSignatures.InterfaceDigest(packageName, expected.interfaceBlake3)
+            ))
+          case other => fail(s"expected one scoped member, found $other")
+        }
+      } yield ()
+    }
+  }
+
+  test("scoped command bundles decode same-named providers in their recorded member contexts") {
+    withRunner { (root, runner) =>
+      val api = PackageName.parts("Shared/Api")
+      val one = PackageName.parts("Client/One")
+      val two = PackageName.parts("Client/Two")
+      val versionOne = "1.0.0"
+      val versionTwo = "2.0.0"
+      def dependency(from: PackageName, version: String): Json = Json.JObject(List(
+        "from" -> scope("member", from.asString),
+        "package" -> Json.JString(api.asString),
+        "to" -> libraryScope("shared", version)
+      ))
+      def binding(from: PackageName, version: String, signature: String): Json = Json.JObject(List(
+        "referrer" -> scope("member", from.asString),
+        "package" -> Json.JString(api.asString),
+        "provider" -> libraryScope("shared", version),
+        "interface_path" -> Json.JString(signature)
+      ))
+      def imported(version: String, signature: String, index: String): Json = Json.JObject(List(
+        "identity" -> Json.JObject(List(
+          "name" -> Json.JString("shared"), "version" -> Json.JString(version)
+        )),
+        "signature_path" -> Json.JString(signature),
+        "exposures_path" -> Json.JString(index)
+      ))
+      for {
+        hashesOne <- inspectSharedLibraryVersion(root, runner, versionOne, "shared-v1")
+        hashesTwo <- inspectSharedLibraryVersion(root, runner, versionTwo, "shared-v2")
+        signatureOne = root.resolve("shared-v1.sig").toString
+        signatureTwo = root.resolve("shared-v2.sig").toString
+        indexOne = root.resolve("shared-v1-index.json").toString
+        indexTwo = root.resolve("shared-v2-index.json").toString
+        artifactOne = root.resolve("shared-v1.lib").toString
+        artifactTwo = root.resolve("shared-v2.lib").toString
+        scopeJson = Json.JObject(List(
+          "schema_version" -> Json.JNumberStr("1"),
+          "members" -> Json.JArray(Vector(Json.JString(one.asString), Json.JString(two.asString))),
+          "dependencies" -> Json.JArray(Vector(
+            dependency(one, versionOne), dependency(two, versionTwo)
+          )),
+          "imports" -> Json.JArray(Vector(
+            imported(versionOne, signatureOne, indexOne), imported(versionTwo, signatureTwo, indexTwo)
+          )),
+          "bindings" -> Json.JArray(Vector(
+            binding(one, versionOne, signatureOne), binding(two, versionTwo, signatureTwo)
+          ))
+        )).render
+        dependencyContext = Json.JObject(List(
+          "schema_version" -> Json.JNumberStr("1"),
+          "libraries" -> Json.JArray(Vector(
+            Json.JObject(List(
+              "name" -> Json.JString("shared"), "version" -> Json.JString(versionOne),
+              "path" -> Json.JString(artifactOne),
+              "hashes" -> Json.JArray(hashesOne.map(Json.JString(_)).toVector)
+            )),
+            Json.JObject(List(
+              "name" -> Json.JString("shared"), "version" -> Json.JString(versionTwo),
+              "path" -> Json.JString(artifactTwo),
+              "hashes" -> Json.JArray(hashesTwo.map(Json.JString(_)).toVector)
+            ))
+          ))
+        )).render
+        _ <- write(root, "scope.json", scopeJson)
+        _ <- write(root, "dependencies.json", dependencyContext)
+        _ <- write(root, "toolchain.json", emptyToolchain)
+        _ <- write(root, "Client-One.bosatsu",
+          "package Client/One\nfrom Shared/Api import pick\nexport main\nmain = pick(1)\n")
+        _ <- write(root, "Client-Two.bosatsu",
+          "package Client/Two\nfrom Shared/Api import pick\nexport main\nmain = pick(True)\n")
+        args = List(
+          "compile-packages", "--src", "Client-One.bosatsu", "--src", "Client-Two.bosatsu",
+          "--direct-interface", signatureOne, "--direct-interface", signatureTwo,
+          "--scope-map", "scope.json", "--dependency-context", "dependencies.json",
+          "--toolchain-manifest", "toolchain.json", "--packages-out", "scoped.pkg",
+          "--sig-out", "scoped.sig"
+        )
+        compiled <- runner.run(root, args)
+        _ = success(compiled)
+        scopeMap <- PackageBindings.read(
+          IOPlatformIO,
+          root.resolve("scope.json"),
+          List(root.resolve("shared-v1.sig"), root.resolve("shared-v2.sig"))
+        )
+        context <- LibraryInspection.readDependencyContext(IOPlatformIO, root.resolve("dependencies.json"))
+        toolchain <- ToolchainManifest.read(IOPlatformIO, root.resolve("toolchain.json"))
+        importedInputs <- LibraryInspection.loadImportedInputs(
+          IOPlatformIO, scopeMap, context, toolchain
+        )(using IOPlatformIO.canPromiseF)
+        sourceDependencies = List(
+          PackageBindings.ScopeDependency(
+            PackageBindings.Scope.Member(one), api,
+            PackageBindings.Scope.Library(dev.bosatsu.library.Name("shared") ->
+              dev.bosatsu.library.Version.parser.parseAll(versionOne).toOption.get)
+          ),
+          PackageBindings.ScopeDependency(
+            PackageBindings.Scope.Member(two), api,
+            PackageBindings.Scope.Library(dev.bosatsu.library.Name("shared") ->
+              dev.bosatsu.library.Version.parser.parseAll(versionTwo).toOption.get)
+          )
+        )
+        checked <- IO.fromEither(PackageBindings.validateAgainstInspection(
+          scopeMap, importedInputs.publicIndex, sourceDependencies,
+      memberExposures = Map.empty,
+      localInterfaces = Nil
+        ).leftMap(CliException.Basic(_)))
+        ownerInterfaces = importedInputs.signatureBundles.toList.flatMap {
+          case (identity, signatureBundle) =>
+            ProtoConverter.interfacesFromProto(signatureBundle).get.map { iface =>
+              PackageBindings.PackageOwner(PackageBindings.Scope.Library(identity), iface.name) -> iface
+            }
+        }.toMap
+        decoded <- IOPlatformIO.readPackagesScoped(root.resolve("scoped.pkg"), checked, ownerInterfaces)
+        _ = assertEquals(decoded.map(_.pack.name), List(one, two))
+        _ = assert(decoded.forall(_.context.size == 1))
+      } yield ()
+    }
+  }
+
+  test("scoped compilation carries external local signatures and exposure owners through decoding") {
+    withRunner { (root, runner) =>
+      val client = PackageName.parts("Local/Client")
+      val facade = PackageName.parts("Local/Facade")
+      val types = PackageName.parts("Local/Types")
+      val tokenName = TypeName(Constructor("Token"))
+      val token = DefinedType(types, tokenName, Nil, Nil)
+      val typesIface: Package.Interface = Package(types, Nil, List(
+        ExportedName.TypeName(tokenName.ident, Referant.DefinedT(token))
+      ), ())
+      val facadeIface: Package.Interface = Package(facade, Nil, List(
+        ExportedName.Binding(
+          Name("token"), Referant.Value(Type.const(types, tokenName))
+        )
+      ), ())
+      val clientScope = scope("member", client.asString)
+      val facadeScope = localSignatureScope(facade)
+      val typesScope = localSignatureScope(types)
+      val scopeMap = Json.JObject(List(
+        "schema_version" -> Json.JNumberStr("1"),
+        "members" -> Json.JArray(Vector(Json.JString(client.asString))),
+        "dependencies" -> Json.JArray(Vector(
+          Json.JObject(List(
+            "from" -> clientScope,
+            "package" -> Json.JString(facade.asString),
+            "to" -> facadeScope
+          )),
+          Json.JObject(List(
+            "from" -> clientScope,
+            "package" -> Json.JString(types.asString),
+            "to" -> typesScope
+          ))
+        )),
+        "imports" -> Json.JArray(Vector.empty),
+        "bindings" -> Json.JArray(Vector(
+          Json.JObject(List(
+            "referrer" -> clientScope,
+            "package" -> Json.JString(facade.asString),
+            "provider" -> facadeScope,
+            "interface_path" -> Json.JString("facade.sig")
+          )),
+          Json.JObject(List(
+            "referrer" -> facadeScope,
+            "package" -> Json.JString(types.asString),
+            "provider" -> typesScope,
+            "interface_path" -> Json.JString("types.sig")
+          )),
+          Json.JObject(List(
+            "referrer" -> clientScope,
+            "package" -> Json.JString(types.asString),
+            "provider" -> typesScope,
+            "interface_path" -> Json.JString("types.sig")
+          ))
+        ))
+      )).render
+
+      for {
+        _ <- write(root, "Client.bosatsu",
+          "package Local/Client\nfrom Local/Facade import token\nexport value\nexposes Local/Types\nvalue = token\n")
+        facadeBundle <- IO.fromTry(PackageSignatures.encode(List(facadeIface)))
+        typesBundle <- IO.fromTry(PackageSignatures.encode(List(typesIface)))
+        _ <- IOPlatformIO.writeInterfaceBundle(facadeBundle, root.resolve("facade.sig"))
+        _ <- IOPlatformIO.writeInterfaceBundle(typesBundle, root.resolve("types.sig"))
+        _ <- write(root, "scope.json", scopeMap)
+        _ <- write(root, "dependencies.json", emptyDependencyContext)
+        _ <- write(root, "toolchain.json", emptyToolchain)
+        args = List(
+          "compile-packages", "--src", "Client.bosatsu",
+          "--direct-interface", "facade.sig", "--direct-interface", "types.sig",
+          "--scope-map", "scope.json", "--dependency-context", "dependencies.json",
+          "--toolchain-manifest", "toolchain.json", "--error-unused-interfaces",
+          "--packages-out", "scoped.pkg", "--sig-out", "scoped.sig"
+        )
+        compiled <- runner.run(root, args)
+        _ = success(compiled)
+        bundle <- IOPlatformIO.read[proto.Packages](root.resolve("scoped.pkg"))
+        requirements <- IO.fromTry(PackageSignatures.parseBuildRequirements(bundle.buildRequirements.get))
+        _ = requirements match {
+          case PackageSignatures.ParsedBuildRequirements.Scoped(List(member)) =>
+            assertEquals(member.member, client)
+            assertEquals(member.bindings.map(_.referrer), List(
+              PackageBindings.Scope.Member(client), PackageBindings.Scope.Member(client),
+              PackageBindings.Scope.Local(facade)
+            ))
+            assertEquals(member.bindings.map(_.owner.scope), List(
+              PackageBindings.Scope.Local(facade), PackageBindings.Scope.Local(types),
+              PackageBindings.Scope.Local(types)
+            ))
+            assertEquals(member.interfaces.map(_.packageName), List(facade, types).sorted)
+          case other => fail(s"expected external local requirements, found $other")
+        }
+        storedTypesBundle <- IOPlatformIO.readInterfaceBundle(root.resolve("types.sig"))
+        checkedMap <- PackageBindings.read(
+          IOPlatformIO,
+          root.resolve("scope.json"),
+          List(Paths.get("facade.sig"), Paths.get("types.sig"))
+        )
+        localBundles = List(
+          PackageSignatures.Input(Paths.get("facade.sig"), None) -> facadeBundle,
+          PackageSignatures.Input(Paths.get("types.sig"), None) -> storedTypesBundle
+        )
+        localRoots <- IO.fromTry(PackageSignatures.localInterfaces(localBundles)(using IOPlatformIO.showPath))
+        checked <- IO.fromEither(PackageBindings.validateAgainstInspection(
+          checkedMap,
+          PackageBindings.indexFromPackages(Nil, identities = Nil),
+          List(PackageBindings.ScopeDependency(
+            PackageBindings.Scope.Member(client), facade, PackageBindings.Scope.Local(facade)
+          ), PackageBindings.ScopeDependency(
+            PackageBindings.Scope.Member(client), types, PackageBindings.Scope.Local(types)
+          )),
+          Map(client -> Some(List(types))),
+          localRoots
+        ).leftMap(CliException.Basic(_)))
+        decodedInterfaces <- IOPlatformIO.readInterfaces(List(
+          root.resolve("facade.sig"), root.resolve("types.sig")
+        ))
+        ownerInterfaces = decodedInterfaces.map(iface =>
+          PackageBindings.PackageOwner(PackageBindings.Scope.Local(iface.name), iface.name) -> iface
+        ).toMap
+        decoded <- IOPlatformIO.readPackagesScoped(root.resolve("scoped.pkg"), checked, ownerInterfaces)
+        _ = assertEquals(decoded.map(_.pack.name), List(client))
+        _ = assertEquals(decoded.head.context.map(_.owner.scope), List(
+          PackageBindings.Scope.Local(facade), PackageBindings.Scope.Local(types),
+          PackageBindings.Scope.Local(types)
+        ))
+        missingContext = ProtoConverter.packagesFromProtoScoped(
+          bundle, checked, ownerInterfaces - PackageBindings.PackageOwner(
+            PackageBindings.Scope.Local(types), types
+          )
+        )
+        _ = assert(missingContext.failed.get.getMessage.contains("missing interface context"))
+        changedTokenAlias = TypeAlias(types, tokenName, Nil, Type.IntType)
+        changedTypesIface = (Package(types, Nil, List(
+          ExportedName.TypeName(tokenName.ident, Referant.TypeAliasT(changedTokenAlias))
+        ), ()): Package.Interface)
+        switchedSignature = ProtoConverter.packagesFromProtoScoped(
+          bundle,
+          checked,
+          ownerInterfaces.updated(
+            PackageBindings.PackageOwner(PackageBindings.Scope.Local(types), types),
+            changedTypesIface
+          )
+        )
+        _ = assert(switchedSignature.failed.get.getMessage.contains("stale public interface"))
+        originalRequirements = bundle.buildRequirements.get
+        exposedBindingOmitted = originalRequirements.copy(members =
+          originalRequirements.members.map { member =>
+            if (member.memberName == client.asString)
+              member.copy(
+                bindings = member.bindings.filterNot(_.packageName == types.asString),
+                interfaces = member.interfaces.filterNot(_.packageName == types.asString)
+              )
+            else member
+          }
+        )
+        incomplete = ProtoConverter.packagesFromProtoScoped(
+          bundle.copy(buildRequirements = Some(exposedBindingOmitted)), checked, ownerInterfaces
+        )
+        _ = assert(incomplete.failed.get.getMessage.contains("missing selected exposure binding"))
+        _ <- IOPlatformIO.writeInterfaceBundle(proto.Interfaces(Nil), root.resolve("unused.sig"))
+        unused <- runner.run(root, args ::: List("--direct-interface", "unused.sig"))
+        _ = failure(unused)
+        _ = assert(unused.stderr.contains("unused direct interfaces: unused.sig"), unused.stderr)
       } yield ()
     }
   }

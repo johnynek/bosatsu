@@ -1,11 +1,16 @@
 package dev.bosatsu
 
 import _root_.bosatsu.{TypedAst => proto}
-import cats.Show
+import cats.{Eq, Show}
 import cats.syntax.all._
 import dev.bosatsu.hashing.Algo
+import dev.bosatsu.graph.Toposort
+import dev.bosatsu.library.{Name, Version}
 import dev.bosatsu.rankn.{Type, TypeEnv}
-import dev.bosatsu.tool.CliException
+import dev.bosatsu.tool.{CliException, CompilerApi, PackageBindings}
+import dev.bosatsu.tool.PackageBindings.{CheckedBinding, CheckedScopeMap, PackageOwner, Scope}
+import scala.annotation.unused
+import scala.collection.immutable.SortedMap
 import scala.collection.mutable
 import scala.util.{Failure, Success, Try}
 
@@ -13,6 +18,9 @@ import scala.util.{Failure, Success, Try}
   * bundles keep their full-fidelity codec.
   */
 object PackageSignatures {
+  @unused private given canEqualBuildScopeValue
+      : CanEqual[proto.BuildScope.Value, proto.BuildScope.Value] =
+    CanEqual.derived
   private val exportOrder = Ordering.by[ExportedName[Referant[Kind.Arg]], (Identifier, String)](
     e => (e.name, e.nameKind)
   )
@@ -58,10 +66,282 @@ object PackageSignatures {
   def encode(interfaces: List[Package.Interface]): Try[proto.Interfaces] =
     interfaces.sortBy(_.name).traverse(encodeRoot).map(proto.Interfaces(_))
 
-  private[bosatsu] def requirement(iface: Package.Interface): Try[proto.InterfaceRequirement] =
+  private def interfaceDigest(iface: Package.Interface): Try[InterfaceDigest] =
     encodeRoot(iface).map { entry =>
-      proto.InterfaceRequirement(iface.name.asString, Algo.hashBytes[Algo.Blake3](entry.toByteArray).hex)
+      InterfaceDigest(iface.name, Algo.hashBytes[Algo.Blake3](entry.toByteArray).hex)
     }
+
+  private[bosatsu] def requirement(iface: Package.Interface): Try[proto.InterfaceRequirement] =
+    interfaceDigest(iface).map(digest =>
+      proto.InterfaceRequirement(digest.packageName.asString, digest.blake3)
+    )
+
+  private[bosatsu] final case class InterfaceDigest(
+      packageName: PackageName,
+      blake3: String
+  )
+
+  /** `referrer` needs `packageName`, which `ownerScope` provides. */
+  private[bosatsu] final case class RequirementBinding(
+      referrer: Scope,
+      packageName: PackageName,
+      ownerScope: Scope
+  ) {
+    def owner: PackageOwner = PackageOwner(ownerScope, packageName)
+  }
+
+  private[bosatsu] final case class MemberRequirements(
+      member: PackageName,
+      bindings: List[RequirementBinding],
+      interfaces: List[InterfaceDigest]
+  )
+
+  private[bosatsu] sealed trait ParsedBuildRequirements
+  private[bosatsu] object ParsedBuildRequirements {
+    final case class Legacy(interfaces: List[InterfaceDigest]) extends ParsedBuildRequirements
+    final case class Scoped(members: List[MemberRequirements]) extends ParsedBuildRequirements
+  }
+
+  private def scopeToProto(scope: Scope): proto.BuildScope = proto.BuildScope(scope match {
+    case Scope.Member(name) => proto.BuildScope.Value.Member(name.asString)
+    case Scope.Local(name) => proto.BuildScope.Value.LocalSignature(name.asString)
+    case Scope.Library((name, version)) =>
+      proto.BuildScope.Value.Library(proto.LibIdentity(name.name, Some(version.toProto)))
+    case Scope.Predef => proto.BuildScope.Value.Predef(proto.PredefScope())
+  })
+
+  /** The one encoder for scoped requirements. A binding's owner provides the
+    * binding's package, so the wire record stores that package name once.
+    */
+  private[bosatsu] def scopedRequirementsToProto(
+      members: List[MemberRequirements]
+  ): proto.BuildRequirements =
+    proto.BuildRequirements(
+      scopedVersion = 1,
+      members = members.map { member =>
+        proto.MemberBuildRequirements(
+          memberName = member.member.asString,
+          bindings = member.bindings.map { binding =>
+            proto.ScopedBindingRequirement(
+              referrer = Some(scopeToProto(binding.referrer)),
+              packageName = binding.packageName.asString,
+              owner = Some(scopeToProto(binding.ownerScope))
+            )
+          },
+          interfaces = member.interfaces.map(digest =>
+            proto.InterfaceRequirement(digest.packageName.asString, digest.blake3)
+          )
+        )
+      }
+    )
+
+  /** Serialize the exact checked owners retained by scoped compilation. */
+  private[bosatsu] def buildRequirements[Path](
+      group: CompilerApi.CompiledGroup[Path]
+  ): Try[proto.BuildRequirements] = group.context match {
+    case CompilerApi.CompilationContext.Legacy(dependencies) =>
+      dependencies.traverse(requirement).map(proto.BuildRequirements(_))
+    case CompilerApi.CompilationContext.Scoped(members) =>
+      members.toList.sortBy(_._1).traverse { case (member, compiled) =>
+        val bindings = compiled.bindings.sortBy(_.key)(using PackageBindings.bindingKeyOrdering)
+        val externalOwners = bindings.iterator.filter { binding =>
+          binding.owner.scope match {
+            case Scope.Library(_) | Scope.Local(_) => true
+            case _ => false
+          }
+        }.map(_.owner).toList
+        val ownersByName = externalOwners.foldM(
+          SortedMap.empty[PackageName, PackageOwner]
+        ) { (owners, owner) =>
+          owners.get(owner.packageName) match {
+            case Some(existing) if !PackageBindings.samePackageOwner(existing, owner) =>
+              Failure(CliException.Basic(
+                s"conflicting serialized owners for ${owner.packageName.asString} in ${member.asString}"
+              ))
+            case _ => Success(owners.updated(owner.packageName, owner))
+          }
+        }
+        val dependencies = compiled.publicDependencies.iterator.map(iface => iface.name -> iface).toMap
+        val interfaceRecords = ownersByName.flatMap(_.valuesIterator.toList.traverse { owner =>
+          dependencies.get(owner.packageName).fold[Try[InterfaceDigest]](
+            Failure(CliException.Basic(
+              s"missing selected public interface ${owner.packageName.asString} for ${member.asString}"
+            ))
+          )(interfaceDigest)
+        })
+        interfaceRecords.map { interfaces =>
+          // A checked binding's owner always provides the binding's package.
+          val records = bindings.map { binding =>
+            RequirementBinding(binding.key.referrer, binding.key.requiredPackage, binding.owner.scope)
+          }
+          MemberRequirements(member, records, interfaces)
+        }
+      }.map(scopedRequirementsToProto)
+  }
+
+  /** Decode legacy and scoped metadata without erasing the format distinction. */
+  private[bosatsu] def parseBuildRequirements(
+      requirements: proto.BuildRequirements
+  ): Try[ParsedBuildRequirements] = Try {
+    def parsePackage(raw: String, what: String): PackageName =
+      PackageName.parse(raw).getOrElse(throw CliException.Basic(s"invalid $what '$raw'"))
+
+    def parseDigest(raw: proto.InterfaceRequirement): InterfaceDigest = {
+      val name = parsePackage(raw.packageName, "interface requirement package")
+      if (name.isPredef)
+        throw CliException.Basic("Predef cannot have an interface requirement")
+      if (Algo.parseHashHex(Algo.blake3Algo).parseAll(raw.interfaceBlake3).isLeft)
+        throw CliException.Basic(s"invalid BLAKE3 interface requirement for $name")
+      InterfaceDigest(name, raw.interfaceBlake3)
+    }
+
+    def parseDigests(records: Seq[proto.InterfaceRequirement]): List[InterfaceDigest] = {
+      val parsed = records.toList.map(parseDigest)
+      val names = parsed.map(_.packageName).sorted
+      if (names.zip(names.drop(1)).exists { case (left, right) => left == right })
+        throw CliException.Basic("duplicate interface requirement")
+      parsed.sortBy(_.packageName)
+    }
+
+    def parseScope(raw: proto.BuildScope): Scope = raw.value match {
+      case proto.BuildScope.Value.Member(name) =>
+        Scope.Member(parsePackage(name, "scope member"))
+      case proto.BuildScope.Value.LocalSignature(name) =>
+        Scope.Local(parsePackage(name, "scope local signature"))
+      case proto.BuildScope.Value.Library(identity) =>
+        if (identity.name.isEmpty)
+          throw CliException.Basic("missing library name in build requirements")
+        val version = identity.version.flatMap(Version.fromProtoChecked).getOrElse(
+          throw CliException.Basic("invalid library version in build requirements")
+        )
+        Scope.Library(Name(identity.name) -> version)
+      case proto.BuildScope.Value.Predef(_) => Scope.Predef
+      case proto.BuildScope.Value.Empty =>
+        throw CliException.Basic("missing requirement scope")
+    }
+
+    requirements.scopedVersion match {
+      case 0 =>
+        if (requirements.members.nonEmpty)
+          throw CliException.Basic("legacy build requirements cannot contain member records")
+        ParsedBuildRequirements.Legacy(parseDigests(requirements.interfaces))
+      case 1 =>
+        if (requirements.interfaces.nonEmpty)
+          throw CliException.Basic("scoped build requirements cannot contain legacy interfaces")
+        val members = requirements.members.toList.map { record =>
+          val member = parsePackage(record.memberName, "requirement member")
+          val bindings = record.bindings.toList.map { raw =>
+            val referrer = parseScope(raw.referrer.getOrElse(
+              throw CliException.Basic("missing binding referrer scope")
+            ))
+            referrer match {
+              case Scope.Predef =>
+                throw CliException.Basic("Predef cannot be a binding referrer")
+              case _ => ()
+            }
+            val packageName = parsePackage(raw.packageName, "binding package")
+            val ownerScope = parseScope(raw.owner.getOrElse(
+              throw CliException.Basic("missing binding owner scope")
+            ))
+            RequirementBinding(referrer, packageName, ownerScope)
+          }
+          val bindingKeys = bindings.map(binding =>
+            PackageBindings.BindingKey(binding.referrer, binding.packageName)
+          ).sorted(using PackageBindings.bindingKeyOrdering)
+          if (bindingKeys.zip(bindingKeys.drop(1)).exists { case (left, right) =>
+                PackageBindings.bindingKeyOrdering.compare(left, right) == 0
+              })
+            throw CliException.Basic(s"duplicate binding record for ${member.asString}")
+
+          val ownerByPackage = bindings.foldLeft(
+            SortedMap.empty[PackageName, PackageOwner]
+          ) { (owners, binding) =>
+            owners.get(binding.packageName) match {
+              case Some(existing) if !PackageBindings.samePackageOwner(existing, binding.owner) =>
+                throw CliException.Basic(
+                  s"contradictory owners for ${binding.packageName.asString} in ${member.asString}"
+                )
+              case _ => owners.updated(binding.packageName, binding.owner)
+            }
+          }
+          val interfaces = parseDigests(record.interfaces)
+          val externalNames = ownerByPackage.valuesIterator.collect {
+            case PackageOwner(Scope.Library(_) | Scope.Local(_), packageName) => packageName
+          }.toList.distinct.sorted
+          val interfaceNames = interfaces.map(_.packageName)
+          if (externalNames != interfaceNames)
+            throw CliException.Basic(
+              s"interface requirements do not match selected library owners for ${member.asString}"
+            )
+          bindings.foreach { binding =>
+            binding.owner.scope match {
+              case Scope.Member(owner) if owner != binding.owner.packageName =>
+                throw CliException.Basic("source binding owner and package disagree")
+              case Scope.Local(owner) if owner != binding.owner.packageName =>
+                throw CliException.Basic("local signature binding owner and package disagree")
+              case Scope.Predef if !binding.owner.packageName.isPredef =>
+                throw CliException.Basic("Predef binding owner must be Bosatsu/Predef")
+              case _ => ()
+            }
+          }
+          // A record is one member's resolved closure. Every binding must be
+          // reachable from the member through owners selected by earlier
+          // bindings, and at most one release of each library may be visible.
+          @annotation.tailrec
+          def unreached(
+              scopes: List[Scope],
+              pending: List[RequirementBinding]
+          ): List[RequirementBinding] = {
+            val (next, rest) = pending.partition { binding =>
+              scopes.exists(scope => Eq[Scope].eqv(scope, binding.referrer))
+            }
+            if (next.isEmpty) rest
+            else unreached(next.map(_.owner.scope), rest)
+          }
+          unreached(List(Scope.Member(member)), bindings).headOption.foreach { binding =>
+            throw CliException.Basic(
+              show"unjustified binding referrer ${binding.referrer} in ${member.asString}"
+            )
+          }
+          ownerByPackage.valuesIterator.map(_.scope).toList
+            .collect { case Scope.Library(identity) => identity }
+            .groupBy(_._1).foreach { case (libraryName, identities) =>
+              if (identities.exists(!PackageBindings.sameLibraryIdentity(_, identities.head)))
+                throw CliException.Basic(
+                  s"conflicting visible releases for ${libraryName.name} in ${member.asString}"
+                )
+            }
+          MemberRequirements(member, bindings.sortBy(binding =>
+            PackageBindings.BindingKey(binding.referrer, binding.packageName)
+          )(using PackageBindings.bindingKeyOrdering), interfaces)
+        }.sortBy(_.member)
+        val memberNames = members.map(_.member)
+        if (memberNames.zip(memberNames.drop(1)).exists { case (left, right) => left == right })
+          throw CliException.Basic("duplicate member requirement record")
+        val memberSet = memberNames.toSet
+        members.iterator.flatMap(_.bindings).foreach { binding =>
+          binding.referrer match {
+            case Scope.Member(name) if !memberSet(name) =>
+              throw CliException.Basic(s"unknown binding referrer member ${name.asString}")
+            case _ => ()
+          }
+          binding.owner.scope match {
+            case Scope.Member(name) if !memberSet(name) =>
+              throw CliException.Basic(s"unknown binding owner member ${name.asString}")
+            case Scope.Local(name) if memberSet(name) =>
+              throw CliException.Basic(s"local signature owner ${name.asString} conflicts with bundle member")
+            case Scope.Library(_) if memberSet(binding.owner.packageName) =>
+              throw CliException.Basic(
+                s"library owner of ${binding.owner.packageName.asString} conflicts with bundle member"
+              )
+            case _ => ()
+          }
+        }
+        ParsedBuildRequirements.Scoped(members)
+      case version =>
+        throw CliException.Basic(s"unsupported scoped build requirements version $version")
+    }
+  }
 
   private[bosatsu] def viewOf(
       entry: proto.Interface,
@@ -185,7 +465,7 @@ object PackageSignatures {
     def display(using Show[P]): String = label.fold(path.show)(l => show"$path ($l)")
   }
 
-  private final class Root(val name: PackageName, val file: String, wire: proto.Interface) {
+  private[bosatsu] final class Root(val name: PackageName, val file: String, wire: proto.Interface) {
     // Unselected siblings are indexed by name only, including legacy entries.
     private lazy val entry = symbolicReferences(wire)
 
@@ -207,6 +487,8 @@ object PackageSignatures {
       }
 
     def dependencies: List[String] = inspection._1
+
+    def selectedEntry: proto.Interface = entry
 
     def bind(providers: Providers): PublicInterface = {
       val raw = inspection._2.getOrElse {
@@ -267,6 +549,34 @@ object PackageSignatures {
     }
   }
 
+  /** Index package roots from directly declared non-library signatures for
+    * the shared caller-relative binding validator.
+    */
+  private[bosatsu] def localInterfaces[P: Show](
+      bundles: List[(Input[P], proto.Interfaces)]
+  ): Try[List[PackageBindings.LocalInterface[P]]] = Try {
+    bundles.flatMap { case (input, bundle) =>
+      val display = input.display
+      bundle.interfaces.toList.map { entry =>
+        val name = entry.strings.lift(entry.packageName - 1).flatMap(PackageName.parse)
+          .getOrElse(throw CliException.Basic(s"invalid root package name in $display"))
+        if (name.isPredef)
+          throw CliException.Basic("Predef cannot be provided by a local signature")
+        val root = Root(name, display, entry)
+        val exposures = root.dependencies.map { raw =>
+          PackageName.parse(raw).getOrElse(
+            throw CliException.Basic(s"invalid exposed package '$raw' in ${name.asString}")
+          )
+        }
+        PackageBindings.LocalInterface(
+          name,
+          PackageBindings.InterfaceSource(input.path, input.label),
+          exposures
+        )
+      }
+    }
+  }
+
   /** Within a stage, materialize external interfaces in dependency order, then
     * compile the sources together. Only an external interface referring back
     * to a source requires a stage boundary. Its actual owner must finish first.
@@ -291,6 +601,232 @@ object PackageSignatures {
       if (extra.isEmpty) Success(())
       else Failure(CliException.Basic(s"unused direct interfaces: ${extra.mkString(", ")}"))
     }
+  }
+
+  private[bosatsu] final case class SourceRequirements(
+      member: PackageName,
+      imports: List[PackageName],
+      exposes: List[PackageName]
+  )
+
+  private[bosatsu] final case class SelectedInterface[P](
+      owner: PackageOwner,
+      input: Input[P],
+      entry: proto.Interface,
+      root: Root
+  )
+
+  /** The checked external interfaces visible while inferring one source.
+    * Source dependencies stay identified by member name so the compiler can
+    * obtain their public API from its existing source DAG.
+    */
+  private[bosatsu] final case class MemberSelection[P](
+      member: PackageName,
+      interfaces: List[SelectedInterface[P]],
+      sourceDependencies: List[PackageName],
+      bindings: List[CheckedBinding[P]]
+  )
+
+  private[bosatsu] final case class ScopedResolution[P](
+      members: Map[PackageName, MemberSelection[P]]
+  ) {
+    def checkUsed(declared: List[Input[P]])(using Show[P], Ordering[P]): Try[Unit] = {
+      val used = members.valuesIterator.flatMap(_.interfaces.iterator.map(_.input.path)).toList
+      val extra = declared.filterNot(input => used.exists(path => summon[Ordering[P]].compare(path, input.path) == 0))
+        .map(_.display).sorted
+      if (extra.isEmpty) Success(())
+      else Failure(CliException.Basic(s"unused direct interfaces: ${extra.mkString(", ")}"))
+    }
+
+    /** Bind only one member's checked interfaces, after its source providers
+      * have been inferred. This preserves the existing Root decoder and its
+      * kind/layout checks while allowing a foreign API to refer back to a
+      * source member.
+      */
+    def bindMember(
+        member: PackageName,
+        sourceInterfaces: List[Package.Interface],
+        builtinPredef: Boolean
+    ): Try[List[Package.Interface]] = Try {
+      val selected = members.getOrElse(member,
+        throw CliException.Basic(s"missing scoped selection for ${member.asString}"))
+      val roots = selected.interfaces.map(_.root)
+      val rootsByName = roots.iterator.map(root => root.name -> root).toMap
+      val rootNames = rootsByName.keys.toList.sorted
+      def dependencies(root: Root): List[PackageName] = root.dependencies.map { raw =>
+        PackageName.parse(raw).getOrElse(
+          throw CliException.Basic(s"invalid package '$raw' in ${root.name.asString}"))
+      }.filter(rootsByName.contains)
+      val sorted = Toposort.sort(rootNames)(name => dependencies(rootsByName(name)))
+      val layers = sorted.toSuccess.getOrElse {
+        throw CliException.Basic(
+          s"cyclic interface dependencies: ${sorted.loopNodes.map(_.asString).mkString(", ")}"
+        )
+      }
+      val initial = sourceInterfaces.foldLeft(
+        if (builtinPredef) implicitProviders else Map.empty[PackageName, PublicInterface]
+      ) { (available, iface) =>
+        available.updated(iface.name, new PublicInterface(canonical(iface)))
+      }
+      val bound = layers.iterator.flatMap(_.toList).foldLeft(initial) { (available, name) =>
+        available.updated(name, rootsByName(name).bind(available))
+      }
+      selected.interfaces.map(iface => bound(iface.owner.packageName).iface)
+    }
+  }
+
+  /** Resolve each source's imports and exposed API requirements using the
+    * already checked caller-relative bindings. Only selected roots are
+    * decoded; an unselected sibling in the same physical bundle is inert.
+    */
+  private[bosatsu] def planScoped[P: Show: Ordering](
+      bundles: List[(Input[P], proto.Interfaces)],
+      sources: List[SourceRequirements],
+      checked: CheckedScopeMap[P],
+      builtinPredef: Boolean
+  ): Try[ScopedResolution[P]] = Try {
+    val sourceNames = sources.iterator.map(_.member).toSet
+    if (sources.size != sourceNames.size)
+      throw CliException.Basic("duplicate source member in scoped interface selection")
+    if (sourceNames != checked.scopeMap.members.toSet)
+      throw CliException.Basic("scope-map members do not match source members")
+
+    val roots = bundles.flatMap { case (input, bundle) =>
+      val display = input.display
+      bundle.interfaces.toList.map { entry =>
+        val name = entry.strings.lift(entry.packageName - 1).flatMap(PackageName.parse)
+          .getOrElse(throw CliException.Basic(s"invalid root package name in $display"))
+        (input, Root(name, display, entry))
+      }
+    }
+    val rootOrdering = Ordering.Tuple2(using summon[Ordering[P]], summon[Ordering[PackageName]])
+    val rootsByPathAndName = roots.foldLeft(
+      SortedMap.empty[(P, PackageName), List[(Input[P], Root)]](using rootOrdering)
+    ) { case (index, pair @ (input, root)) =>
+      val key = (input.path, root.name)
+      index.updated(key, index.getOrElse(key, Nil) :+ pair)
+    }
+    val sourceByName = sources.iterator.map(source => source.member -> source).toMap
+    val requirements = sources.map { source =>
+      source.member -> (source.imports ::: source.exposes).distinct
+    }
+    val sourceExposures = sources.iterator.map { source =>
+      source.member -> Some(source.exposes)
+    }.toMap
+    val closures = PackageBindings.resolveMemberClosures(
+      requirements,
+      checked,
+      sourceExposures,
+      builtinPredef,
+      localPackages = sourceNames,
+      // A source's `exposes` header names packages directly, so compilation
+      // treats each one as a root that needs its own member binding (see
+      // `requirements`). Decoding instead passes the decoded API's exposures
+      // here, because an encoded package has no header to bind.
+      requiredExposures = Map.empty
+    ).fold(message => throw CliException.Basic(message), identity)
+
+    val members = sources.map { source =>
+      val closure = closures(source.member)
+      val selected = mutable.Map.empty[PackageName, SelectedInterface[P]]
+      val sourceDependencies = mutable.Set.empty[PackageName]
+
+      closure.bindings.valuesIterator.foreach { binding =>
+        binding.owner.scope match {
+          case Scope.Member(provider) =>
+            if (!sourceByName.contains(provider))
+              throw CliException.Basic(s"unknown source member ${provider.asString}")
+            sourceDependencies += provider
+          case Scope.Local(provider) =>
+            val packageName = binding.key.requiredPackage
+            val interfaceSource = binding.interface.getOrElse(
+              throw CliException.Basic(s"missing interface path for ${packageName.asString}")
+            )
+            val candidates = rootsByPathAndName.getOrElse(
+              (interfaceSource.path, packageName), Nil
+            )
+            val (input, root) = candidates match {
+              case one :: Nil => one
+              case Nil => throw CliException.Basic(
+                s"unknown local signature ${packageName.asString}, missing interface: " +
+                  binding.witnessPath.map(_.show).mkString(" -> ")
+              )
+              case many => throw CliException.Basic(
+                s"ambiguous local signature ${packageName.asString} in " +
+                  many.map(_._1.display).sorted.mkString(", ")
+              )
+            }
+            val owner = PackageOwner(Scope.Local(provider), packageName)
+            selected.get(packageName) match {
+              case Some(existing) if !PackageBindings.samePackageOwner(existing.owner, owner) ||
+                    summon[Ordering[P]].compare(existing.input.path, input.path) != 0 =>
+                throw CliException.Basic(
+                  s"conflicting local signature owners for ${packageName.asString}: " +
+                    s"${existing.input.display} and ${input.display}"
+                )
+              case _ =>
+                selected.update(packageName, SelectedInterface(
+                  owner, input, root.selectedEntry, root
+                ))
+            }
+          case Scope.Predef => ()
+          case Scope.Library(identity) =>
+            val packageName = binding.key.requiredPackage
+            val interfaceSource = binding.interface.getOrElse(
+              throw CliException.Basic(s"missing interface path for ${packageName.asString}")
+            )
+            val candidates = rootsByPathAndName.getOrElse(
+              (interfaceSource.path, packageName), Nil
+            )
+            val (input, root) = candidates match {
+              case one :: Nil => one
+              case Nil => throw CliException.Basic(
+                s"unknown package ${packageName.asString}, missing interface: " +
+                  binding.witnessPath.map(_.show).mkString(" -> ")
+              )
+              case many => throw CliException.Basic(
+                s"ambiguous interface ${packageName.asString} in " +
+                  many.map(_._1.display).sorted.mkString(", ")
+              )
+            }
+            val owner = PackageOwner(Scope.Library(identity), packageName)
+            val publicPackage = checked.publicIndex.packages.getOrElse(owner,
+              throw CliException.Basic(s"missing inspected public package ${packageName.asString}"))
+            val declaredExposures = root.dependencies.distinct.sorted
+            // Inspection retains the implicit Predef provider so its
+            // ownership is authenticated, while serialized signature
+            // dependencies deliberately omit compiler-provided Predef.
+            val indexedExposures = publicPackage.exposures.keysIterator
+              .filterNot(_.isPredef).map(_.asString).toList.sorted
+            if (declaredExposures != indexedExposures)
+              throw CliException.Basic(
+                s"signature exposure index disagrees for ${packageName.asString} in ${input.display}"
+              )
+            selected.get(packageName) match {
+              case Some(existing) if !PackageBindings.samePackageOwner(existing.owner, owner) ||
+                    summon[Ordering[P]].compare(existing.input.path, input.path) != 0 =>
+                throw CliException.Basic(
+                  s"conflicting visible owners for ${packageName.asString}: " +
+                    s"${existing.owner.scope.show}:${packageName.asString} via " +
+                    s"${closure.routes(PackageOwner(existing.owner.scope, packageName)).map(_.show).mkString(" -> ")} and " +
+                    s"${owner.scope.show}:${packageName.asString} via " +
+                    binding.witnessPath.map(_.show).mkString(" -> ")
+                )
+              case _ =>
+                selected.update(packageName, SelectedInterface(
+                  owner, input, root.selectedEntry, root
+                ))
+            }
+        }
+      }
+      source.member -> MemberSelection(
+        source.member,
+        selected.values.toList.sortBy(_.owner.packageName),
+        sourceDependencies.toList.sorted,
+        closure.bindings.valuesIterator.toList
+      )
+    }.toMap
+    ScopedResolution(members)
   }
 
   private[bosatsu] def plan[P: Show](

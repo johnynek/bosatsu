@@ -1,6 +1,7 @@
 package dev.bosatsu.library
 
 import _root_.bosatsu.{TypedAst => proto}
+import cats.data.NonEmptyList
 import cats.syntax.all._
 import dev.bosatsu.{Bytes, PlatformIO}
 import dev.bosatsu.hashing.{Algo, HashValue}
@@ -11,6 +12,10 @@ import scala.collection.immutable.SortedMap
 import scala.collection.mutable
 
 private[bosatsu] type LibraryIdentity = (Name, Version)
+
+/** The one ordering for exact library identities: name, then version. */
+private[bosatsu] val libraryIdentityOrdering: Ordering[LibraryIdentity] =
+  Ordering.Tuple2(using summon[Ordering[Name]], summon[Ordering[Version]])
 
 private[bosatsu] enum LibraryDependencyVisibility derives CanEqual {
   case Public, Private, UnusedTransitivePublic
@@ -189,6 +194,7 @@ private[bosatsu] final case class VerifiedLibraryEdge[Path](
 
 private[bosatsu] final class VerifiedLibraryGraph[Path] private (
     val rootIdentity: LibraryIdentity,
+    val rootIdentities: List[LibraryIdentity],
     private val nodeMap: SortedMap[
       LibraryIdentity,
       VerifiedLibraryGraph.Node[Path]
@@ -202,6 +208,11 @@ private[bosatsu] final class VerifiedLibraryGraph[Path] private (
 
   def snapshot(identity: LibraryIdentity): Option[VerifiedLibrarySnapshot[Path]] =
     nodeMap.get(identity).map(_.primary)
+
+  private[bosatsu] def witnessPath(
+      identity: LibraryIdentity
+  ): Option[List[LibraryIdentity]] =
+    nodeMap.get(identity).map(_.witness)
 
   def dependencyEdges(
       identity: LibraryIdentity
@@ -219,8 +230,7 @@ private[bosatsu] object VerifiedLibraryGraph {
   private type Context[Path] = LibraryInspection.DependencyContext[Path]
   private type Declared[Path] = LibraryInspection.DeclaredLibraryFile[Path]
 
-  private given Ordering[Identity] =
-    Ordering.Tuple2(using summon[Ordering[Name]], summon[Ordering[Version]])
+  private given Ordering[Identity] = libraryIdentityOrdering
 
   private final case class Node[Path](
       primary: VerifiedLibrarySnapshot[Path],
@@ -391,10 +401,31 @@ private[bosatsu] object VerifiedLibraryGraph {
       platform: PlatformIO[F, Path],
       root: VerifiedLibrarySnapshot[Path],
       context: Context[Path]
+  ): F[VerifiedLibraryGraph[Path]] =
+    verifyRoots(platform, NonEmptyList.one(root), context)
+
+  /** Verify several requested roots as one graph operation. Shared roots,
+    * aliases, and diamonds use the same authenticated snapshot table.
+    */
+  def verifyRoots[F[_], Path](
+      platform: PlatformIO[F, Path],
+      roots: NonEmptyList[VerifiedLibrarySnapshot[Path]],
+      context: Context[Path]
   ): F[VerifiedLibraryGraph[Path]] = {
     import platform.{moduleIOMonad, pathOrdering, showPath}
     val F = moduleIOMonad
-    val rootIdentity = (root.name, root.version)
+
+    val orderedRoots = roots.toList.foldLeft(
+      SortedMap.empty[Identity, List[VerifiedLibrarySnapshot[Path]]]
+    ) { (all, snapshot) =>
+      val identity = (snapshot.name, snapshot.version)
+      val snapshots = all.getOrElse(identity, Nil)
+      all.updated(identity, (snapshots :+ snapshot).sortBy(_.path)(using pathOrdering))
+    }
+    val rootIdentities = orderedRoots.keysIterator.toList
+    val rootIdentity = rootIdentities.head
+
+    def pathText(path: Path): String = showPath.show(path)
 
     val declarations = context.libraries.foldLeft(
       SortedMap.empty[Identity, List[Declared[Path]]]
@@ -403,12 +434,10 @@ private[bosatsu] object VerifiedLibraryGraph {
       all.updated(identity, declaration :: all.getOrElse(identity, Nil))
     }
 
-    def pathText(path: Path): String = showPath.show(path)
-
     // Keep the authenticated byte snapshot for each selected path for the
     // whole graph operation. A caller cannot make one file get read again by
     // declaring it under another identity later in the traversal.
-    var snapshotsByPath = SortedMap(root.path -> root)
+    var snapshotsByPath = SortedMap.empty[Path, VerifiedLibrarySnapshot[Path]](using pathOrdering)
 
     def verifyPath(
         path: Path,
@@ -439,10 +468,36 @@ private[bosatsu] object VerifiedLibraryGraph {
             }
       }
 
+    def registerRootSnapshot(
+        identity: Identity,
+        snapshot: VerifiedLibrarySnapshot[Path]
+    ): F[Unit] = F.catchNonFatal {
+      snapshotsByPath.get(snapshot.path) match {
+        case None => snapshotsByPath = snapshotsByPath.updated(snapshot.path, snapshot)
+        case Some(existing)
+            if summon[Ordering[Identity]].equiv(
+              (existing.name, existing.version), identity
+            ) && existing.hasSameBytes(snapshot) => ()
+        case Some(existing) => throw CliException.Basic(
+          s"conflicting roots use ${pathText(snapshot.path)} for " +
+            s"${identityText(identity)} and " +
+            s"${identityText((existing.name, existing.version))}"
+        )
+      }
+    }
+
     def loadAliases(
         identity: Identity,
         witness: List[Identity],
-        knownRoot: Option[VerifiedLibrarySnapshot[Path]]
+        knownRoots: List[VerifiedLibrarySnapshot[Path]]
+    ): F[Node[Path]] =
+      knownRoots.traverse_(registerRootSnapshot(identity, _)) *>
+        loadDeclaredAliases(identity, witness, knownRoots)
+
+    def loadDeclaredAliases(
+        identity: Identity,
+        witness: List[Identity],
+        knownRoots: List[VerifiedLibrarySnapshot[Path]]
     ): F[Node[Path]] = {
       val files = declarations.getOrElse(identity, Nil)
       val byPath = files.foldLeft(SortedMap.empty[Path, List[Declared[Path]]]) {
@@ -457,8 +512,7 @@ private[bosatsu] object VerifiedLibraryGraph {
         val snapshotF = verifyPath(path, identity, pins, witness)
         snapshotF.map(path -> _)
       }.flatMap { loaded =>
-        val rootSnapshot = knownRoot.toList
-        val snapshots = (rootSnapshot ::: loaded.map(_._2)).foldLeft(
+        val snapshots = (knownRoots ::: loaded.map(_._2)).foldLeft(
           SortedMap.empty[Path, VerifiedLibrarySnapshot[Path]]
         )((all, snapshot) => all.updated(snapshot.path, snapshot)).values.toList
         snapshots.headOption match {
@@ -517,12 +571,15 @@ private[bosatsu] object VerifiedLibraryGraph {
       )
     }
 
-    val rootWitness = List(rootIdentity)
-    loadAliases(rootIdentity, rootWitness, Some(root)).flatMap { rootNode =>
+    orderedRoots.toList.traverse { case (identity, snapshots) =>
+      loadAliases(identity, List(identity), snapshots)
+        .map(identity -> _)
+    }.flatMap { loadedRoots =>
+      val initialNodes = SortedMap.from(loadedRoots)
       F.tailRecM(
         BuildState(
-          List(rootIdentity),
-          SortedMap(rootIdentity -> rootNode),
+          rootIdentities,
+          initialNodes,
           Nil
         )
       ) { state =>
@@ -558,6 +615,7 @@ private[bosatsu] object VerifiedLibraryGraph {
                   Right(
                     new VerifiedLibraryGraph(
                       rootIdentity,
+                      rootIdentities,
                       state.nodes,
                       graphEdges,
                       order
@@ -578,11 +636,11 @@ private[bosatsu] object VerifiedLibraryGraph {
                   case Some(existing) => F.pure(existing -> false)
                   case None =>
                     val targetWitness = node.witness :+ descriptor.target
-                    val rootAlias =
-                      if (summon[Ordering[Identity]].equiv(descriptor.target, rootIdentity))
-                        Some(root)
-                      else None
-                    loadAliases(descriptor.target, targetWitness, rootAlias)
+                    val knownRoots = orderedRoots.getOrElse(
+                      descriptor.target,
+                      List.empty[VerifiedLibrarySnapshot[Path]]
+                    )
+                    loadAliases(descriptor.target, targetWitness, knownRoots)
                       .map(_ -> true)
                 }
                 targetF.flatMap { case (targetNode, isNew) =>

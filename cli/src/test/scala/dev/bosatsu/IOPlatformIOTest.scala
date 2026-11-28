@@ -1,5 +1,6 @@
 package dev.bosatsu
 
+import _root_.bosatsu.{TypedAst => proto}
 import cats.{Eq, Hash}
 import cats.collections.HashMap
 import cats.effect.{IO, Resource}
@@ -131,6 +132,54 @@ class IOPlatformIOTest extends munit.ScalaCheckSuite {
           _ = assertEquals(psort, packList)
         } yield ()
       }
+    }
+  }
+
+  test("whole package readers retain and validate scoped bundle requirements") {
+    val local = proto.Packages(
+      packages = List(proto.Package(strings = List("Demo"), packageName = 1)),
+      buildRequirements = Some(proto.BuildRequirements(
+        scopedVersion = 1,
+        members = List(proto.MemberBuildRequirements(memberName = "Demo"))
+      ))
+    )
+    val imported = proto.Packages(
+      packages = List(proto.Package(
+        strings = List("Client", "External"),
+        packageName = 1,
+        imports = List(proto.Imports(packageName = 2))
+      )),
+      buildRequirements = Some(proto.BuildRequirements(
+        scopedVersion = 1,
+        members = List(proto.MemberBuildRequirements(
+          memberName = "Client",
+          bindings = List(proto.ScopedBindingRequirement(
+            referrer = Some(proto.BuildScope(proto.BuildScope.Value.Member("Client"))),
+            packageName = "External",
+            owner = Some(proto.BuildScope(
+              proto.BuildScope.Value.Library(proto.LibIdentity("shared", Some(proto.Version(major = 1))))
+            ))
+          )),
+          interfaces = List(proto.InterfaceRequirement("External", "0" * 64))
+        ))
+      ))
+    )
+
+    testWithTempFile { path =>
+      for {
+        _ <- IOPlatformIO.writePackageBundle(local, path)
+        localPackages <- IOPlatformIO.readPackages(List(path))
+        _ = assertEquals(localPackages.map(_.name.asString), List("Demo"))
+        _ <- IOPlatformIO.writePackageBundle(imported, path)
+        rejected <- IOPlatformIO.readPackages(List(path)).attempt
+        msg = rejected.swap.toOption.getOrElse(fail("accepted an imported scoped bundle")).getMessage
+        _ = assert(msg.contains("unavailable imported provider context"), msg)
+        malformed <- IOPlatformIO.writePackageBundle(
+          local.copy(buildRequirements = Some(proto.BuildRequirements(scopedVersion = 2))), path
+        ) *> IOPlatformIO.readPackages(List(path)).attempt
+        malformedMsg = malformed.swap.toOption.getOrElse(fail("accepted an unsupported requirement version")).getMessage
+        _ = assert(malformedMsg.contains("unsupported scoped build requirements version 2"), malformedMsg)
+      } yield ()
     }
   }
 

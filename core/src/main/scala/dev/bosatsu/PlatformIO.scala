@@ -14,6 +14,7 @@ import cats.data.Validated.Invalid
 import cats.data.Validated.Valid
 import dev.bosatsu.graph.CanPromise
 import dev.bosatsu.hashing.{Algo, Hashed, HashValue}
+import dev.bosatsu.tool.PackageBindings
 
 trait PlatformIO[F[_], Path] {
   implicit def moduleIOMonad: MonadError[F, Throwable]
@@ -72,6 +73,19 @@ trait PlatformIO[F[_], Path] {
     readBytes(path).flatMap(bytes =>
       canPromiseF.compute(proto.Packages.parseFrom(bytes.unsafeReadOnlyView))
     )
+
+  /** Read a whole scoped compile bundle when the caller has authenticated the
+    * exact providers it names. Keeping this boundary on the bundle prevents a
+    * reader from dropping requirements before scoped decoding.
+    */
+  private[bosatsu] final def readPackagesScoped(
+      path: Path,
+      checked: PackageBindings.CheckedScopeMap[Path],
+      ownerInterfaces: Map[PackageBindings.PackageOwner, Package.Interface]
+  ): F[List[ProtoConverter.ScopedDecodedMember[Path]]] =
+    readPackageBundle(path).flatMap { bundle =>
+      moduleIOMonad.fromTry(ProtoConverter.packagesFromProtoScoped(bundle, checked, ownerInterfaces))
+    }
 
   def writePackageBundle(bundle: proto.Packages, path: Path): F[Unit] =
     writeBytes(path, Bytes.fromMessage(bundle))

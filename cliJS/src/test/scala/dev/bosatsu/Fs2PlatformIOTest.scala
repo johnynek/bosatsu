@@ -36,6 +36,51 @@ private object DocumentChmod extends js.Function2[String, Int, js.Promise[Unit]]
 }
 
 class Fs2PlatformIOTest extends FunSuite {
+  test("Scala.js package readers keep scoped requirements at the bundle boundary") {
+    val local = proto.Packages(
+      packages = List(proto.Package(strings = List("Demo"), packageName = 1)),
+      buildRequirements = Some(proto.BuildRequirements(
+        scopedVersion = 1,
+        members = List(proto.MemberBuildRequirements(memberName = "Demo"))
+      ))
+    )
+    val imported = proto.Packages(
+      packages = List(proto.Package(
+        strings = List("Client", "External"),
+        packageName = 1,
+        imports = List(proto.Imports(packageName = 2))
+      )),
+      buildRequirements = Some(proto.BuildRequirements(
+        scopedVersion = 1,
+        members = List(proto.MemberBuildRequirements(
+          memberName = "Client",
+          bindings = List(proto.ScopedBindingRequirement(
+            referrer = Some(proto.BuildScope(proto.BuildScope.Value.Member("Client"))),
+            packageName = "External",
+            owner = Some(proto.BuildScope(
+              proto.BuildScope.Value.Library(proto.LibIdentity("shared", Some(proto.Version(major = 1))))
+            ))
+          )),
+          interfaces = List(proto.InterfaceRequirement("External", "0" * 64))
+        ))
+      ))
+    )
+
+    val fs = Files.forIO
+    fs.tempDirectory.use { dir =>
+      val path = dir / "packages.bundle"
+      for {
+        _ <- Fs2PlatformIO.writePackageBundle(local, path)
+        packages <- Fs2PlatformIO.readPackages(List(path))
+        _ = assertEquals(packages.map(_.name.asString), List("Demo"))
+        _ <- Fs2PlatformIO.writePackageBundle(imported, path)
+        rejected <- Fs2PlatformIO.readPackages(List(path)).attempt
+        msg = rejected.swap.toOption.getOrElse(fail("accepted an imported scoped bundle")).getMessage
+        _ = assert(msg.contains("unavailable imported provider context"), msg)
+      } yield ()
+    }.unsafeToFuture()
+  }
+
   test("deps rewrites changed output while retaining document permissions and inode") {
     val fs = Files.forIO
     val module = new MainModule(Fs2PlatformIO)

@@ -22,18 +22,20 @@ import scala.collection.immutable.SortedMap
 import scala.util.{Failure, Success, Try}
 
 object CompileCache {
-  // (package, source hash, dependency interfaces, compile options, phase id).
-  // The compiler identity is not here: it is fixed for a cache instance.
+  // (package, source hash, dependency interfaces, compile options, phase id,
+  // selected-binding fingerprint). The compiler identity is not here: it is
+  // fixed for a cache instance.
   type GenerateKeyInput =
     (
         PackageName,
         HashValue[Algo.Blake3],
         SortedMap[PackageName, Package.Interface],
         CompileOptions,
-        String
+        String,
+        Option[HashValue[Algo.Blake3]]
     )
 
-  private val schemaVersion = 5
+  private val schemaVersion = 6
   private val sentinelRegion = Region(0, 0)
   private val utf8 = StandardCharsets.UTF_8
   private val blake3 = Algo.blake3Algo
@@ -85,6 +87,7 @@ object CompileCache {
       key.compileOptions.enabledTypedPasses
         .map(_.cliName)
         .mkString(",")
+    val bindingFingerprint = key.bindingFingerprint.fold("legacy")(_.toIdent(using blake3))
     val payload =
       s"""schema:${key.schemaVersion}
          |package:${key.packageName.asString}
@@ -95,6 +98,7 @@ object CompileCache {
          |source:${key.sourceHash.toIdent(using blake3)}
          |deps:
          |$deps
+         |bindings:$bindingFingerprint
          |""".stripMargin
     hashUtf8(payload)
   }
@@ -413,7 +417,8 @@ object CompileCache {
         sourceHash,
         depInterfaces,
         compileOptions,
-        phaseIdentity
+        phaseIdentity,
+        bindingFingerprint
       ) = input
 
       val depHashesBuilder =
@@ -440,6 +445,7 @@ object CompileCache {
               sourceHash = sourceHash,
               depInterfaceHashes = depHashesBuilder.result(),
               depInterfaces = depInterfaces,
+              bindingFingerprint = bindingFingerprint,
               schemaVersion = schemaVersion
             )
           )

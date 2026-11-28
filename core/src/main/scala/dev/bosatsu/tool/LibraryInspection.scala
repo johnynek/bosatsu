@@ -1,17 +1,26 @@
 package dev.bosatsu.tool
 
 import _root_.bosatsu.{TypedAst => proto}
+import cats.data.NonEmptyList
 import cats.syntax.all._
-import dev.bosatsu.{Json, Kind, PackageName, PackageSignatures, PlatformIO}
+import dev.bosatsu.{Bytes, Json, Kind, PackageName, PackageSignatures, PlatformIO}
+import dev.bosatsu.graph.CanPromise
 import dev.bosatsu.hashing.Algo
 import dev.bosatsu.library.{
   DecodedLibrary,
+  DecodedLibraryWithDeps,
   LibraryDependencyVisibility,
   LibraryIdentity,
   Name,
   VerifiedLibraryGraph,
   VerifiedLibrarySnapshot,
-  Version
+  Version,
+  libraryIdentityOrdering
+}
+import dev.bosatsu.tool.PackageBindings.{
+  PublicIndex,
+  PublicPackage,
+  PublicProvider
 }
 import scala.collection.immutable.SortedMap
 import scala.util.Try
@@ -30,6 +39,16 @@ private[bosatsu] object LibraryInspection {
 
   final case class DependencyContext[Path](libraries: List[DeclaredLibraryFile[Path]])
 
+  /** Authenticated imported inputs shared by graph validation and compilation.
+    * Signature bundles are the exact parsed bytes checked against the
+    * authenticated public projections, keyed by their declared library.
+    */
+  final case class ImportedInputs[Path](
+      graph: Option[VerifiedLibraryGraph[Path]],
+      publicIndex: PublicIndex,
+      signatureBundles: SortedMap[LibraryIdentity, proto.Interfaces]
+  )
+
   private final case class RawLibraryFile(
       name: Name,
       version: Version,
@@ -39,12 +58,8 @@ private[bosatsu] object LibraryInspection {
 
   private final case class RawDependencyContext(libraries: List[RawLibraryFile])
 
-  private type Result[A] = BuildManifest.Result[A]
 
-  private given Ordering[LibraryIdentity] = Ordering.Tuple2(using
-    summon[Ordering[Name]],
-    summon[Ordering[Version]]
-  )
+  private given Ordering[LibraryIdentity] = libraryIdentityOrdering
 
   private final case class DescriptorEntry(
       visibility: LibraryDependencyVisibility,
@@ -220,16 +235,16 @@ private[bosatsu] object LibraryInspection {
     loop(List(referring -> List(referring)), Set.empty, SortedMap.empty).toList
   }
 
-  /** Compute typed exposure ownership in each decoded scope. Public and
+  /** Compute typed public package ownership in each decoded scope. Public and
     * legacy unused-transitive-public edges are followed; private implementation
     * edges remain present only in the implementation projection.
     */
-  def exposureProjection[Path](
+  def publicIndex[Path](
       graph: VerifiedLibraryGraph[Path],
       decoded: SortedMap[LibraryIdentity, DecodedLibrary[Algo.Blake3]],
       pathText: Path => String
-  ): Either[String, Json] = {
-    def oneLibrary(identity: LibraryIdentity): Either[String, List[Json]] =
+  ): Either[String, PublicIndex] = {
+    def oneLibrary(identity: LibraryIdentity): Either[String, List[PublicPackage]] =
       decoded.get(identity).toRight(
         s"missing decoded library ${identity._1.name} ${identity._2.render}"
       ).flatMap { library =>
@@ -240,14 +255,7 @@ private[bosatsu] object LibraryInspection {
             .sorted
           exposed.traverse { packageName =>
             if (packageName == PackageName.PredefName) {
-              Right(Json.JObject(List(
-                "package" -> Json.JString(packageName.asString),
-                "provider" -> Json.JObject(List(
-                  "kind" -> Json.JString("compiler"),
-                  "name" -> Json.JString("Predef")
-                )),
-                "witness_path" -> Json.JArray(Vector.empty)
-              )))
+              Right(packageName -> PublicProvider.CompilerPredef)
             } else {
               val providers = providerPaths(graph, decoded, identity, packageName)
               val sourcePath = graph.snapshot(identity).fold(identity._1.name) { snapshot =>
@@ -258,11 +266,8 @@ private[bosatsu] object LibraryInspection {
                   s"missing provider for exposed package ${packageName.asString} " +
                     s"from ${identity._1.name} ${identity._2.render} at $sourcePath"
                 )
-                case (provider, witness) :: Nil => Right(Json.JObject(List(
-                  "package" -> Json.JString(packageName.asString),
-                  "provider" -> identityJson(provider),
-                  "witness_path" -> identitiesJson(witness)
-                )))
+                case (provider, witness) :: Nil =>
+                  Right(packageName -> PublicProvider.Library(provider, witness))
                 case many =>
                   val details = many.map { case (provider, witness) =>
                     val path = witness.map(id => s"${id._1.name} ${id._2.render}").mkString(" -> ")
@@ -275,23 +280,29 @@ private[bosatsu] object LibraryInspection {
               }
             }
           }.map { edges =>
-            Json.JObject(List(
-              "library" -> identityJson(identity),
-              "package" -> Json.JString(iface.name.asString),
-              "owner" -> identityJson(identity),
-              "exposes" -> Json.JArray(edges.toVector)
-            ))
+            PublicPackage(
+              identity,
+              iface.name,
+              SortedMap.from(edges)(using summon[Ordering[PackageName]])
+            )
           }
         }
       }
 
     graph.identities.traverse(oneLibrary).map { entries =>
-      Json.JObject(List(
-        "schema_version" -> Json.JNumberStr("1"),
-        "packages" -> Json.JArray(entries.flatten.toVector)
-      ))
+      PackageBindings.indexFromPackages(entries.flatten, graph.identities)
     }
   }
+
+  /** Preserve the established version-1 exposure projection while exposing
+    * its typed records to scoped binding validation.
+    */
+  def exposureProjection[Path](
+      graph: VerifiedLibraryGraph[Path],
+      decoded: SortedMap[LibraryIdentity, DecodedLibrary[Algo.Blake3]],
+      pathText: Path => String
+  ): Either[String, Json] =
+    publicIndex(graph, decoded, pathText).map(_.toJson)
 
   /** List package membership independently from both public signatures and
     * full artifact references.
@@ -356,12 +367,6 @@ private[bosatsu] object LibraryInspection {
     ))
   }
 
-  private val libraryNameReader: Json.Reader[Name] = new Json.Reader[Name] {
-    val describe = "nonempty library name"
-    def read(path: Json.Path, value: Json): Result[Name] =
-      BuildManifest.nonEmpty.read(path, value).map(Name(_))
-  }
-
   private val rawLibraryFileReader: Json.Reader[RawLibraryFile] =
     BuildManifest.obj("declared library file") { from =>
       for {
@@ -370,7 +375,7 @@ private[bosatsu] object LibraryInspection {
           "declared library file",
           Set("name", "version", "path", "hashes")
         )
-        name <- from.field[Name]("name")(using libraryNameReader)
+        name <- from.field[Name]("name")(using BuildManifest.libraryName)
         version <- from.field[Version]("version")
         path <- from.field[String]("path")(using BuildManifest.nonEmpty)
         hashes <- from.field[List[String]]("hashes")(
@@ -418,6 +423,97 @@ private[bosatsu] object LibraryInspection {
           }
         )
       }.map(DependencyContext(_))
+    }
+  }
+
+  /** Authenticate all imported scopes and retain the signature bundles that
+    * were checked against their authenticated projections. Consumers must use
+    * these parsed bundles rather than reopening the signature paths after
+    * verification.
+    */
+  def loadImportedInputs[F[_], Path](
+      platform: PlatformIO[F, Path],
+      scopeMap: PackageBindings.ScopeMap[Path],
+      dependencyContext: DependencyContext[Path],
+      toolchain: ToolchainManifest
+  )(using CanPromise[F]): F[ImportedInputs[Path]] = {
+    import platform.{moduleIOMonad, showPath}
+
+    val importedIdentities = scopeMap.imports.keysIterator.toList
+    val roots = importedIdentities.traverse { identity =>
+      val declared = dependencyContext.libraries.filter(library =>
+        summon[Ordering[LibraryIdentity]].equiv((library.name, library.version), identity)
+      )
+      if (declared.isEmpty)
+        moduleIOMonad.raiseError[List[VerifiedLibrarySnapshot[Path]]](
+          CliException.Basic(
+            s"missing declared library artifact for ${identity._1.name} ${identity._2.render}"
+          )
+        )
+      else
+        declared.traverse { library =>
+          VerifiedLibrarySnapshot.verify(
+            platform,
+            library.path,
+            library.name,
+            library.version,
+            library.hashes
+          )
+        }
+    }.map(_.flatten)
+
+    roots.flatMap {
+      case Nil =>
+        val empty = PackageBindings.indexFromPackages(Nil, Nil)
+        moduleIOMonad.pure(ImportedInputs(
+          None,
+          empty,
+          SortedMap.empty[LibraryIdentity, proto.Interfaces]
+        ))
+      case first :: rest =>
+        val nonEmptyRoots = NonEmptyList(first, rest)
+        for {
+          graph <- VerifiedLibraryGraph.verifyRoots(platform, nonEmptyRoots, dependencyContext)
+          (_, decoded) <- DecodedLibraryWithDeps.decodeVerifiedGraphWithLibraries(graph)
+          publicIndex <- moduleIOMonad.fromEither(
+            LibraryInspection.publicIndex(graph, decoded, platform.pathToString)
+              .leftMap(CliException.Basic(_))
+          )
+          _ <- moduleIOMonad.fromEither(
+            ToolchainManifest.validateCoreReferences(graph, toolchain.core)
+              .leftMap(CliException.Basic(_))
+          )
+          signatureBundles <- scopeMap.imports.valuesIterator.toList.traverse { imported =>
+            decoded.get(imported.identity) match {
+              case None =>
+                moduleIOMonad.raiseError[(LibraryIdentity, proto.Interfaces)](CliException.Basic(
+                  s"imported scope ${imported.identity._1.name} ${imported.identity._2.render} " +
+                    "is absent from the authenticated graph"
+                ))
+              case Some(library) =>
+                moduleIOMonad.fromTry(LibraryInspection.signatureProjection(library)).flatMap { expected =>
+                  platform.readBytes(imported.signature.path).adaptError { case error =>
+                    CliException.Basic(
+                      show"cannot read imported interface ${imported.signature.path}: ${error.getMessage}"
+                    )
+                  }.flatMap { bytes =>
+                    moduleIOMonad.fromTry(Try(proto.Interfaces.parseFrom(bytes.unsafeReadOnlyView))).flatMap { actual =>
+                      if (Bytes.fromMessage(actual).sameBytes(Bytes.fromMessage(expected)))
+                        moduleIOMonad.pure(imported.identity -> actual)
+                      else moduleIOMonad.raiseError(CliException.Basic(
+                        show"imported interface ${imported.signature.path} does not match " +
+                          s"${imported.identity._1.name} ${imported.identity._2.render}"
+                      ))
+                    }
+                  }
+                }
+            }
+          }
+        } yield ImportedInputs(
+          Some(graph),
+          publicIndex,
+          SortedMap.from(signatureBundles)
+        )
     }
   }
 }

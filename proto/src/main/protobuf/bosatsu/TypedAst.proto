@@ -418,9 +418,13 @@ message Packages {
 }
 
 message BuildRequirements {
-  // One entry per selected external package, including exposure-only owners,
-  // in package-name order. Paths, labels and implementation bytes are excluded.
+  // Legacy package-wide requirements. Scoped writers leave this empty and
+  // record requirements in members instead.
   repeated InterfaceRequirement interfaces = 1;
+  // Zero identifies the historical package-wide format. Version 1 identifies
+  // caller-relative requirements, including when every member has no imports.
+  int32 scopedVersion = 2;
+  repeated MemberBuildRequirements members = 3;
 }
 
 message InterfaceRequirement {
@@ -428,6 +432,41 @@ message InterfaceRequirement {
   // Lowercase hex BLAKE3 of this package's canonical public Interface proto.
   string interfaceBlake3 = 2;
 }
+
+message MemberBuildRequirements {
+  string memberName = 1;
+  repeated ScopedBindingRequirement bindings = 2;
+  // One entry per selected imported package, including exposure-only owners.
+  repeated InterfaceRequirement interfaces = 3;
+}
+
+// The referrer needs packageName, and owner provides that same package.
+message ScopedBindingRequirement {
+  BuildScope referrer = 1;
+  string packageName = 2;
+  BuildScope owner = 3;
+}
+
+// A scope that refers to or owns a package in scoped requirements.
+message BuildScope {
+  oneof value {
+    // A source package compiled into this bundle.
+    string member = 1;
+    // A separately compiled local package signature.
+    string localSignature = 2;
+    // An imported library at its exact semantic version.
+    LibIdentity library = 3;
+    // The compiler's built-in Predef.
+    PredefScope predef = 4;
+  }
+}
+
+message LibIdentity {
+  string name = 1;
+  Version version = 2;
+}
+
+message PredefScope { }
 
 // Message representing a Version using Semantic Versioning
 message Version {

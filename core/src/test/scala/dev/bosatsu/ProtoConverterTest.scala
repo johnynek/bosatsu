@@ -2,15 +2,18 @@ package dev.bosatsu
 
 import _root_.bosatsu.{TypedAst => proto}
 import cats.Eq
-import cats.data.NonEmptyList
+import cats.data.{Ior, NonEmptyList}
 import dev.bosatsu.IorMethods.IorExtension
-import dev.bosatsu.rankn.{ConstructorFn, ConstructorParam, DefinedType, Type}
+import dev.bosatsu.rankn.{ConstructorFn, ConstructorParam, DefinedType, Type, TypeAlias}
+import dev.bosatsu.library.{LibraryIdentity, Name as LibraryName, Version}
+import dev.bosatsu.tool.PackageBindings
 import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
+import scala.collection.immutable.{SortedMap, SortedSet}
 import scala.util.{Failure, Success, Try}
 import cats.implicits._
 
-import Identifier.Constructor
+import Identifier.{Constructor, Name}
 
 class ProtoConverterTest extends munit.ScalaCheckSuite with ParTest {
   private given Eq[Package.Interface] =
@@ -859,6 +862,279 @@ main = dep_value
         assert(successWithDeps.get._2.nonEmpty)
       }
     )
+  }
+
+  private def compilePackageWithInterfaces(
+      source: String,
+      interfaces: List[Package.Interface]
+  ): Package.Compiled = {
+    val parsed = Parser.unsafeParse(Package.parser, source)
+    val result = Par.noParallelism {
+      PackageMap.typeCheckParsed(
+        NonEmptyList.one((("scoped", LocationMap(source)), parsed)),
+        interfaces,
+        "<predef>",
+        CompileOptions.Default
+      )
+    }
+    val compiled = result match {
+      case Ior.Left(errors) => fail(errors.toList.mkString("typecheck failed: ", ", ", ""))
+      case Ior.Right(packages) => packages
+      case Ior.Both(_, packages) => packages
+    }
+    compiled.toMap(parsed.name)
+  }
+
+  private def checkedScopedBindings(
+      members: List[PackageSignatures.MemberRequirements],
+      publicPackages: List[PackageBindings.PublicPackage]
+  ): PackageBindings.CheckedScopeMap[String] = {
+    import PackageBindings.BindingKey
+    val memberNames = members.map(_.member)
+    val checkedBindings = SortedMap.from(
+      members.flatMap(_.bindings).map { binding =>
+        val key = BindingKey(binding.referrer, binding.packageName)
+        key -> PackageBindings.CheckedBinding[String](
+          key,
+          binding.owner,
+          None,
+          List(binding.referrer, binding.owner.scope)
+        )
+      }
+    )(using PackageBindings.bindingKeyOrdering)
+    val index = PackageBindings.indexFromPackages(publicPackages, identities = Nil)
+    val identitiesOrdering = Ordering.Tuple2(using LibraryName.orderingName, Version.versionOrdering)
+    val scopeMap = PackageBindings.ScopeMap(
+      members = SortedSet.from(memberNames),
+      dependencies = Nil,
+      imports = SortedMap.empty[LibraryIdentity, PackageBindings.ImportedScope[String]](
+        using identitiesOrdering
+      ),
+      publicIndex = index,
+      directInterfaces = SortedSet.empty[String],
+      bindings = SortedMap.empty[BindingKey, PackageBindings.BindingRequest[String]](
+        using PackageBindings.bindingKeyOrdering
+      )
+    )
+    PackageBindings.CheckedScopeMap(scopeMap, index, checkedBindings, localInterfaces = Nil)
+  }
+
+  test("scoped bundle decoding keeps incompatible same-named providers per member") {
+    import PackageBindings.{BindingKey, PackageOwner, Scope}
+
+    val libraryOne = LibraryName("shared") -> Version.parser.parseAll("1.0.0").toOption.get
+    val libraryTwo = LibraryName("shared") -> Version.parser.parseAll("2.0.0").toOption.get
+    val ownerOne = PackageOwner(Scope.Library(libraryOne), PackageName.parts("Shared/Api"))
+    val ownerTwo = PackageOwner(Scope.Library(libraryTwo), PackageName.parts("Shared/Api"))
+    val apiOne = Package.interfaceOf(compilePackageWithInterfaces(
+      "package Shared/Api\nexport pick\ndef pick(value: Int) -> Int: value\n",
+      Nil
+    ))
+    val apiTwo = Package.interfaceOf(compilePackageWithInterfaces(
+      "package Shared/Api\nexport pick\ndef pick(value: Bool) -> Bool: value\n",
+      Nil
+    ))
+    val oneName = PackageName.parts("Decoder/One")
+    val twoName = PackageName.parts("Decoder/Two")
+    val apiName = PackageName.parts("Shared/Api")
+    val one = compilePackageWithInterfaces(
+      "package Decoder/One\nfrom Shared/Api import pick\nexport main\nmain = pick(1)\n",
+      List(apiOne)
+    )
+    val two = compilePackageWithInterfaces(
+      "package Decoder/Two\nfrom Shared/Api import pick\nexport main\nmain = pick(True)\n",
+      List(apiTwo)
+    )
+    def makeMemberRequirements(member: PackageName, owner: PackageOwner, iface: Package.Interface) = {
+      val encoded = PackageSignatures.requirement(iface).get
+      PackageSignatures.MemberRequirements(
+        member,
+        List(PackageSignatures.RequirementBinding(
+          Scope.Member(member), apiName, owner.scope
+        )),
+        List(PackageSignatures.InterfaceDigest(apiName, encoded.interfaceBlake3))
+      )
+    }
+    val memberRequirements = List(
+      makeMemberRequirements(oneName, ownerOne, apiOne),
+      makeMemberRequirements(twoName, ownerTwo, apiTwo)
+    )
+    val buildRequirements = PackageSignatures.scopedRequirementsToProto(memberRequirements)
+    val bundle = proto.Packages(
+      packages = List(ProtoConverter.packageToProto(one).get, ProtoConverter.packageToProto(two).get),
+      buildRequirements = Some(buildRequirements)
+    )
+    val checked = checkedScopedBindings(memberRequirements, List(
+      PackageBindings.PublicPackage(libraryOne, apiName, SortedMap.empty),
+      PackageBindings.PublicPackage(libraryTwo, apiName, SortedMap.empty)
+    ))
+    val supplied = Map(ownerOne -> apiOne, ownerTwo -> apiTwo)
+
+    val decoded = ProtoConverter.packagesFromProtoScoped(bundle, checked, supplied).get
+    assertEquals(decoded.map(_.pack.name), List(oneName, twoName))
+    assert(decoded.forall(_.context.size == 1))
+    val missingContext = ProtoConverter.packagesFromProtoScoped(
+      bundle, checked, Map(ownerOne -> apiOne)
+    )
+    assert(missingContext.failed.get.getMessage.contains("missing interface context"))
+    def importedPick(member: PackageName): Type =
+      decoded.find(_.pack.name == member).get.pack.imports
+        .find(_.pack.name == apiName).get.pack.exports
+        .find(_.name == Name("pick")).get.tag match {
+          case Referant.Value(tpe) => tpe
+          case other => fail(s"expected pick value type, found $other")
+        }
+    assertEquals(importedPick(oneName), apiOne.exports.find(_.name == Name("pick")).get.tag match {
+      case Referant.Value(tpe) => tpe
+      case other => fail(s"expected provider value type, found $other")
+    })
+    assertEquals(importedPick(twoName), apiTwo.exports.find(_.name == Name("pick")).get.tag match {
+      case Referant.Value(tpe) => tpe
+      case other => fail(s"expected provider value type, found $other")
+    })
+
+    val firstBinding = BindingKey(Scope.Member(oneName), apiName)
+    val switched = checked.copy(bindings = checked.bindings.updated(
+      firstBinding,
+      checked.bindings(firstBinding).copy(owner = ownerTwo)
+    ))
+    val equalSignatureContexts = supplied.updated(ownerTwo, apiOne)
+    val rebound = ProtoConverter.packagesFromProtoScoped(bundle, switched, equalSignatureContexts)
+    assert(rebound.failed.get.getMessage.contains("provider changed"))
+
+    val stale = buildRequirements.copy(members = buildRequirements.members.map { record =>
+      if (record.memberName == oneName.asString)
+        record.copy(interfaces = record.interfaces.map(_.copy(interfaceBlake3 = "0" * 64)))
+      else record
+    })
+    assert(ProtoConverter.packagesFromProtoScoped(
+      bundle.copy(buildRequirements = Some(stale)), checked, supplied
+    ).failed.get.getMessage.contains("stale public interface"))
+
+    val missingRecord = buildRequirements.copy(members = buildRequirements.members.filterNot(
+      _.memberName == twoName.asString
+    ))
+    assert(ProtoConverter.packagesFromProtoScoped(
+      bundle.copy(buildRequirements = Some(missingRecord)), checked, supplied
+    ).failed.get.getMessage.contains("members do not match"))
+  }
+
+  test("scoped decoding keeps source owners and rejects omitted exposure contexts") {
+    import PackageBindings.{BindingKey, PackageOwner, Scope}
+
+
+    val providerName = PackageName.parts("Source/Provider")
+    val clientName = PackageName.parts("Source/Client")
+    val provider = compilePackageWithInterfaces(
+      "package Source/Provider\nexport value\nvalue = 1\n", Nil
+    )
+    val providerIface = Package.interfaceOf(provider)
+    val otherProviderIface = Package.interfaceOf(compilePackageWithInterfaces(
+      "package Source/Provider\nexport value\nvalue = True\n", Nil
+    ))
+    val client = compilePackageWithInterfaces(
+      "package Source/Client\nfrom Source/Provider import value\nexport main\nmain = value\n",
+      List(providerIface)
+    )
+    val sourceOwner = PackageOwner(Scope.Member(providerName), providerName)
+    val sourceRequirements = List(
+      PackageSignatures.MemberRequirements(providerName, Nil, Nil),
+      PackageSignatures.MemberRequirements(
+        clientName,
+        List(PackageSignatures.RequirementBinding(
+          Scope.Member(clientName), providerName, sourceOwner.scope
+        )),
+        Nil
+      )
+    )
+    val sourceChecked = checkedScopedBindings(sourceRequirements, publicPackages = Nil)
+    val libraryIdentity = LibraryName("private") -> Version.parser.parseAll("1.0.0").toOption.get
+    val lookalikeOwner = PackageOwner(Scope.Library(libraryIdentity), providerName)
+    val sourceBundle = proto.Packages(
+      packages = List(ProtoConverter.packageToProto(client).get, ProtoConverter.packageToProto(provider).get),
+      buildRequirements = Some(PackageSignatures.scopedRequirementsToProto(sourceRequirements))
+    )
+    val sourceDecoded = ProtoConverter.packagesFromProtoScoped(
+      sourceBundle,
+      sourceChecked,
+      Map(lookalikeOwner -> otherProviderIface)
+    ).get
+    val decodedClient = sourceDecoded.find(_.pack.name == clientName).get.pack
+    val decodedSourceValue = decodedClient.imports.find(_.pack.name == providerName).get.pack.exports
+      .find(_.name == Name("value")).get.tag match {
+        case Referant.Value(tpe) => tpe
+        case other => fail(s"expected source value type, found $other")
+      }
+    val expectedSourceValue = providerIface.exports.find(_.name == Name("value")).get.tag match {
+      case Referant.Value(tpe) => tpe
+      case other => fail(s"expected provider value type, found $other")
+    }
+    assertEquals(decodedSourceValue, expectedSourceValue)
+    val clientSourceKey = BindingKey(Scope.Member(clientName), providerName)
+    val switchedSourceOwner = sourceChecked.copy(bindings = sourceChecked.bindings.updated(
+      clientSourceKey,
+      sourceChecked.bindings(clientSourceKey).copy(owner = lookalikeOwner)
+    ))
+    assert(ProtoConverter.packagesFromProtoScoped(sourceBundle, switchedSourceOwner,
+      Map(lookalikeOwner -> otherProviderIface)).failed.get.getMessage.contains("provider changed"))
+
+    val leafName = PackageName.parts("Exposure/Leaf")
+    val facadeName = PackageName.parts("Exposure/Facade")
+    val exposureClientName = PackageName.parts("Exposure/Client")
+    val payload = TypeName(Constructor("Payload"))
+    val leafAlias = TypeAlias(leafName, payload, Nil, Type.IntType)
+    val leafIface: Package.Interface = Package(leafName, Nil, List(
+      ExportedName.TypeName(payload.ident, Referant.TypeAliasT(leafAlias))
+    ), ())
+    val facadeIface: Package.Interface = Package(facadeName, Nil, List(
+      ExportedName.Binding(Name("value"), Referant.Value(Type.const(leafName, payload)))
+    ), ())
+    assertEquals(facadeIface.exposedDepPackages, List(leafName))
+    val exposureClient = compilePackageWithInterfaces(
+      "package Exposure/Client\nfrom Exposure/Facade import value\nexport main\nmain = value\n",
+      List(facadeIface, leafIface)
+    )
+    val facadeOwner = PackageOwner(Scope.Library(libraryIdentity), facadeName)
+    val leafOwner = PackageOwner(Scope.Library(libraryIdentity), leafName)
+    val fullRequirements = PackageSignatures.MemberRequirements(
+      exposureClientName,
+      List(
+        PackageSignatures.RequirementBinding(Scope.Member(exposureClientName), facadeName, facadeOwner.scope),
+        PackageSignatures.RequirementBinding(Scope.Library(libraryIdentity), leafName, leafOwner.scope)
+      ),
+      List(
+        PackageSignatures.InterfaceDigest(facadeName,
+          PackageSignatures.requirement(facadeIface).get.interfaceBlake3),
+        PackageSignatures.InterfaceDigest(leafName,
+          PackageSignatures.requirement(leafIface).get.interfaceBlake3)
+      )
+    )
+    val exposureChecked = checkedScopedBindings(List(fullRequirements), List(
+      PackageBindings.PublicPackage(libraryIdentity, facadeName, SortedMap(
+        leafName -> PackageBindings.PublicProvider.Library(libraryIdentity, List(libraryIdentity))
+      )),
+      PackageBindings.PublicPackage(libraryIdentity, leafName, SortedMap.empty)
+    ))
+    val exposureProviders = Map(facadeOwner -> facadeIface, leafOwner -> leafIface)
+    val exposureBundle = proto.Packages(
+      List(ProtoConverter.packageToProto(exposureClient).get),
+      Some(PackageSignatures.scopedRequirementsToProto(List(fullRequirements)))
+    )
+    val decodedExposure = ProtoConverter.packagesFromProtoScoped(
+      exposureBundle, exposureChecked, exposureProviders
+    )
+    assert(decodedExposure.isSuccess, decodedExposure.failed.toOption.map(_.getMessage).getOrElse(""))
+
+    val omittedLeaf = fullRequirements.copy(
+      bindings = fullRequirements.bindings.filterNot(_.packageName == leafName),
+      interfaces = fullRequirements.interfaces.filterNot(_.packageName == leafName)
+    )
+    val omittedBundle = exposureBundle.copy(
+      buildRequirements = Some(PackageSignatures.scopedRequirementsToProto(List(omittedLeaf)))
+    )
+    assert(ProtoConverter.packagesFromProtoScoped(
+      omittedBundle, exposureChecked, exposureProviders
+    ).isFailure)
   }
 
   private def interfaceWithConstructorDefault(

@@ -1,10 +1,12 @@
 package dev.bosatsu.library
 
 import _root_.bosatsu.{TypedAst => proto}
-import cats.data.Chain
-import dev.bosatsu.{Bytes, MemoryMain, PackageName}
+import cats.data.{Chain, NonEmptyList}
+import cats.syntax.all._
+import dev.bosatsu.{Bytes, MemoryMain, PackageName, PlatformIO}
 import dev.bosatsu.hashing.Algo
-import dev.bosatsu.tool.LibraryInspection
+import dev.bosatsu.tool.{LibraryInspection, ToolchainManifest}
+import scala.collection.mutable
 import org.scalacheck.{Gen, Prop}
 
 class VerifiedLibraryGraphTest extends munit.ScalaCheckSuite {
@@ -17,6 +19,62 @@ class VerifiedLibraryGraphTest extends munit.ScalaCheckSuite {
 
   private val fixtures = LibraryInspectionFixtures.parsedLibraries
   private val rootFixture = fixtures.find(_._2.name == "parser").get
+
+  private def countingPlatform(reads: mutable.Map[String, Int]) =
+    new PlatformIO[MemoryMain.StateF[ErrorOr], Path] {
+      type FileKey = platform.FileKey
+      export platform.{
+        buildInfo,
+        moduleIOMonad,
+        parallelF,
+        canPromiseF,
+        pathArg,
+        pathOrdering,
+        withEC,
+        pathToString,
+        readUtf8,
+        readPackages,
+        readLibrary,
+        fetchHash,
+        fsDataType,
+        pendingOutputPath,
+        withTempDirectoryIn,
+        resolve,
+        relativize,
+        parent,
+        unfoldDir,
+        hasExtension,
+        writeDoc,
+        writeDocAtomic,
+        writeStdout,
+        writeError,
+        readStdinBytes,
+        writeStdoutBytes,
+        system,
+        systemStdout,
+        env,
+        hostOs,
+        hostArch,
+        gitShaHead,
+        println,
+        errorln,
+        writeInterfaces,
+        writeFileSetAtomic,
+        writeBytes,
+        writeLibrary,
+        writePackages,
+        withTempPrefix
+      }
+
+      override def fileKeyHash = platform.fileKeyHash
+      override def existingFileKey(path: Path) = platform.existingFileKey(path)
+
+      override def readBytes(path: Path): MemoryMain.StateF[ErrorOr][Bytes] = {
+        val key = platform.pathToString(path)
+        reads.update(key, reads.getOrElse(key, 0) + 1)
+        platform.readBytes(path)
+      }
+    }
 
   private def path(raw: String): Path =
     Chain.fromSeq(raw.split("/", -1).toIndexedSeq)
@@ -102,7 +160,7 @@ class VerifiedLibraryGraphTest extends munit.ScalaCheckSuite {
 
   test("authenticates all visibility edges and decodes each private version in its own scope") {
     val result = verify().toOption.get
-    assertEquals(result.identities.size, fixtures.size)
+    assertEquals(result.identities.size, LibraryInspectionFixtures.parserFixtureCount)
     assertEquals(result.edges.size, 11)
     assertEquals(
       result.edges.map(_.visibility).distinct.sortBy(_.rank),
@@ -128,6 +186,99 @@ class VerifiedLibraryGraphTest extends munit.ScalaCheckSuite {
     assert(right.deps.contains((Name("shared"), Version(2, 0, 0))))
     assert(!right.deps.contains((Name("shared"), Version(1, 0, 0))))
     assert(!decoded.deps.contains((Name("common"), Version(1, 0, 0))))
+  }
+
+  test("several roots share one verified diamond and snapshot each path once") {
+    val roots = fixtures.filter(fixture =>
+      fixture._2.name == "public_child" || fixture._2.name == "private_child"
+    )
+    val rootPaths = roots.map(_._1).toSet
+    val reads = mutable.Map.empty[String, Int]
+    val counted = countingPlatform(reads)
+    val verified = roots.traverse { case (file, library, _, hashes) =>
+      VerifiedLibrarySnapshot.verify(
+        counted,
+        path(file),
+        Name(library.name),
+        Library.getVersion(library).get,
+        hashes
+      )
+    }.flatMap { snapshots =>
+      VerifiedLibraryGraph.verifyRoots(
+        counted,
+        NonEmptyList.fromList(snapshots).get,
+        context(fixtures.filterNot(fixture => rootPaths(fixture._1)))
+      )
+    }.runA(state())
+
+    val graph = verified.toOption.get
+    val expectedRoots = roots.map { case (_, library, _, _) =>
+      (Name(library.name), Library.getVersion(library).get)
+    }.sorted(using summon[Ordering[LibraryIdentity]])
+    assert(graph.rootIdentities.length == expectedRoots.length &&
+      graph.rootIdentities.zip(expectedRoots).forall { case (actual, expected) =>
+        summon[Ordering[LibraryIdentity]].compare(actual, expected) == 0
+      })
+    val common = (Name("common"), Version(1, 0, 0))
+    assert(graph.identities.count(identity => summon[Ordering[LibraryIdentity]].equiv(identity, common)) == 1)
+    assert(graph.dependencyEdges(common).isEmpty)
+    assert(graph.edges.count(edge => summon[Ordering[LibraryIdentity]].equiv(edge.targetIdentity, common)) == 2)
+    assertEquals(reads.values.toList.sorted, List(1, 1, 1, 1))
+
+    val reordered = roots.reverse.traverse { case (file, library, _, hashes) =>
+      VerifiedLibrarySnapshot.verify(
+        platform,
+        path(file),
+        Name(library.name),
+        Library.getVersion(library).get,
+        hashes
+      )
+    }.flatMap { snapshots =>
+      VerifiedLibraryGraph.verifyRoots(
+        platform,
+        NonEmptyList.fromList(snapshots).get,
+        context(fixtures.filterNot(fixture => rootPaths(fixture._1)))
+      )
+    }.runA(state()).toOption.get
+    def edgeRoutes(value: VerifiedLibraryGraph[Path]): List[String] =
+      value.edges.map { edge =>
+        val from = s"${edge.referringIdentity._1.name} ${edge.referringIdentity._2.render}"
+        val to = s"${edge.targetIdentity._1.name} ${edge.targetIdentity._2.render}"
+        val route = edge.witnessPath.map(identity =>
+          s"${identity._1.name} ${identity._2.render}"
+        ).mkString(" -> ")
+        s"$from -${edge.visibility.rank}-> $to via $route"
+      }
+    assertEquals(edgeRoutes(reordered), edgeRoutes(graph))
+  }
+
+  test("selected core identity and full digest are checked on private routes") {
+    val left = fixtures.find(_._2.name == "left").get
+    val shared = fixtures.find(fixture =>
+      fixture._2.name == "shared" && Library.getVersion(fixture._2).contains(Version(1, 0, 0))
+    ).get
+    val graph = verify(root = left, libraries = fixtures.filterNot(_._1 == left._1)).toOption.get
+    val selected = ToolchainManifest.Core(
+      Name("shared"),
+      Version(1, 0, 0),
+      "fixture",
+      Algo.hashBytes[Algo.Sha256](shared._3)
+    )
+
+    assertEquals(ToolchainManifest.validateCoreReferences(graph, selected), Right(()))
+    val wrongVersion = ToolchainManifest.validateCoreReferences(
+      graph,
+      selected.copy(version = Version(2, 0, 0))
+    ).swap.toOption.get
+    assert(wrongVersion.contains("identity mismatch"), wrongVersion)
+    assert(wrongVersion.contains("left 1.0.0 -> shared 1.0.0"), wrongVersion)
+
+    val wrongDigest = ToolchainManifest.validateCoreReferences(
+      graph,
+      selected.copy(sha256 = Algo.hashBytes[Algo.Sha256](shared._3 ++ Array(1.toByte)))
+    ).swap.toOption.get
+    assert(wrongDigest.contains("SHA-256 mismatch"), wrongDigest)
+    assert(wrongDigest.contains("left 1.0.0 -> shared 1.0.0"), wrongDigest)
   }
 
   test("colliding prerelease spellings keep private graph scopes and package bindings") {

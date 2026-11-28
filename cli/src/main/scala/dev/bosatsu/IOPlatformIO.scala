@@ -316,10 +316,7 @@ class IOPlatformIO(val buildInfo: CompilerBuildInfo)
       packagePaths.traverse(read[proto.Packages](_))
     ).flatMapN { (ifs, packs) =>
       IO.fromTry(
-        ProtoConverter.packagesFromProto(
-          ifs.flatMap(_.interfaces),
-          packs.flatMap(_.packages)
-        )
+        ProtoConverter.packagesFromProtoBundles(packs, ifs.flatMap(_.interfaces))
       )
     }
 

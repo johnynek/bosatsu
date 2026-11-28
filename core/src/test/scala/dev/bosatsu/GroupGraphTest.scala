@@ -2,14 +2,18 @@ package dev.bosatsu
 
 import dev.bosatsu.tool.GroupGraph
 import dev.bosatsu.tool.GroupGraph.{Edge, Member, Node, Scope}
+import dev.bosatsu.tool.PackageBindings
+import dev.bosatsu.tool.PackageBindings.{PackageOwner, PublicPackage, PublicProvider}
+import dev.bosatsu.library.{LibraryIdentity, Name, Version}
 import scala.collection.mutable
+import scala.collection.immutable.{SortedMap, SortedSet}
 import scala.util.{Success, Try}
 
 class GroupGraphTest extends munit.FunSuite {
   private def label(group: String): String = s"//src:$group"
   private def file(group: String): String = s"out/$group.node"
   private def member(name: String): Member =
-    Member(s"src/$name.bosatsu", PackageName.parts(name))
+    Member(s"src/$name.bosatsu", PackageName.parts(name), None)
 
   private def group(name: String, deps: String*): Node[String] =
     Node(label(name), List(member(name)), deps.toList.map(d => Edge(label(d), file(d))))
@@ -66,8 +70,8 @@ class GroupGraphTest extends munit.FunSuite {
 
   test("a transitive source collision reports both complete paths and the member claims") {
     val shared = "external/repo/Shared.bosatsu"
-    val a = group("A").copy(members = List(Member(shared, PackageName.parts("One"))))
-    val b = group("B").copy(members = List(Member(shared, PackageName.parts("Two"))))
+    val a = group("A").copy(members = List(Member(shared, PackageName.parts("One"), None)))
+    val b = group("B").copy(members = List(Member(shared, PackageName.parts("Two"), None)))
     val graph = nodes(group("App", "Left", "Right"), group("Left", "A"), group("Right", "B"), a, b)
     val local = validate("App", graph, Set(file("Left"), file("Right")), Scope.Local)
     local.success()
@@ -80,8 +84,8 @@ class GroupGraphTest extends munit.FunSuite {
   test("the direct dependencies and root all participate in the local package namespace") {
     val app = group("App", "Left", "Right")
     val duplicate = PackageName.parts("Internal", "Helpers")
-    val left = group("Left").copy(members = List(Member("a/internal.bosatsu", duplicate)))
-    val right = group("Right").copy(members = List(Member("b/internal.bosatsu", duplicate)))
+    val left = group("Left").copy(members = List(Member("a/internal.bosatsu", duplicate, None)))
+    val right = group("Right").copy(members = List(Member("b/internal.bosatsu", duplicate, None)))
     val graph = nodes(app, left, right)
     val run = validate("App", graph, graph.keySet, Scope.Local)
     assert(run.error.contains("duplicate package Internal/Helpers"), run.error)
@@ -89,7 +93,7 @@ class GroupGraphTest extends munit.FunSuite {
     assert(run.error.contains("//src:App -> //src:Right (b/internal.bosatsu"), run.error)
 
     val conflictWithRoot = nodes(app, group("Left").copy(members =
-      List(Member("other/app.bosatsu", PackageName.parts("App")))), group("Right"))
+      List(Member("other/app.bosatsu", PackageName.parts("App"), None))), group("Right"))
     val rootRun = validate("App", conflictWithRoot, conflictWithRoot.keySet, Scope.Local)
     assert(rootRun.error.contains("//src:App (src/App.bosatsu"), rootRun.error)
     assert(rootRun.error.contains("//src:App -> //src:Left (other/app.bosatsu"), rootRun.error)
@@ -99,12 +103,12 @@ class GroupGraphTest extends munit.FunSuite {
     val app = group("App").copy(members = List(member("Inner"), member("Inner")))
     val graph = nodes(app)
     assert(validate("App", graph, Set.empty, Scope.Local).error.contains("duplicate source"))
-    val different = app.copy(members = List(member("Inner"), Member("second.bosatsu", PackageName.parts("Inner"))))
+    val different = app.copy(members = List(member("Inner"), Member("second.bosatsu", PackageName.parts("Inner"), None)))
     assert(validate("App", nodes(different), Set.empty, Scope.Transitive).error.contains("duplicate package Inner"))
   }
 
   test("implicit Predef cannot be a loose implementation") {
-    val app = group("App").copy(members = List(Member("predef.bosatsu", PackageName.PredefName)))
+    val app = group("App").copy(members = List(Member("predef.bosatsu", PackageName.PredefName, None)))
     val run = validate("App", nodes(app), Set.empty, Scope.Local)
     assert(run.error.contains("//src:App claims implicit Bosatsu/Predef in predef.bosatsu"), run.error)
   }
@@ -175,5 +179,163 @@ class GroupGraphTest extends munit.FunSuite {
       assertEquals(full.reads.size, size)
       assertEquals(full.reads.distinct.size, size)
     }
+  }
+
+  test("shared member closure resolution retains exposure routes and permits disjoint releases") {
+    def identity(name: String, version: String): LibraryIdentity =
+      Name(name) -> Version.parser.parseAll(version).toOption.get
+
+    def packageName(name: String): PackageName = PackageName.parse(name).get
+
+    val left = identity("left", "1.0.0")
+    val right = identity("right", "1.0.0")
+    val sharedV1 = identity("shared", "1.0.0")
+    val sharedV2 = identity("shared", "2.0.0")
+    val sharedPackage = packageName("Shared/Api")
+    val leftPackage = PublicPackage(
+      left,
+      packageName("Left"),
+      SortedMap.from(List(
+        sharedPackage -> PublicProvider.Library(sharedV1, List(left, sharedV1))
+      ))(using summon[Ordering[PackageName]])
+    )
+    val rightPackage = PublicPackage(
+      right,
+      packageName("Right"),
+      SortedMap.from(List(
+        sharedPackage -> PublicProvider.Library(sharedV2, List(right, sharedV2))
+      ))(using summon[Ordering[PackageName]])
+    )
+
+    val publicIndex = PackageBindings.indexFromPackages(
+      List(
+        leftPackage,
+        rightPackage,
+        PublicPackage(sharedV1, sharedPackage, SortedMap.empty(using summon[Ordering[PackageName]])),
+        PublicPackage(sharedV2, sharedPackage, SortedMap.empty(using summon[Ordering[PackageName]]))
+      ),
+      List(left, right, sharedV1, sharedV2)
+    )
+    val app = packageName("App")
+    val appScope = PackageBindings.Scope.Member(app)
+    val leftScope = PackageBindings.Scope.Library(left)
+    val rightScope = PackageBindings.Scope.Library(right)
+    val leftName = packageName("Left")
+    val rightName = packageName("Right")
+    val first = packageName("First")
+    val second = packageName("Second")
+    val sharedScopeOne = PackageBindings.Scope.Library(sharedV1)
+    val sharedScopeTwo = PackageBindings.Scope.Library(sharedV2)
+    val emptyImports = SortedMap.empty[
+      LibraryIdentity,
+      PackageBindings.ImportedScope[String]
+    ](using Ordering.Tuple2(using Name.orderingName, Version.versionOrdering))
+    val emptyRequests = SortedMap.empty[
+      PackageBindings.BindingKey,
+      PackageBindings.BindingRequest[String]
+    ](using PackageBindings.bindingKeyOrdering)
+    val scopeMap = PackageBindings.ScopeMap(
+      SortedSet.from(List(app, first, second)),
+      Nil,
+      emptyImports,
+      publicIndex,
+      SortedSet.empty[String],
+      emptyRequests
+    )
+    def checkedBinding(
+        referrer: PackageBindings.Scope,
+        packageName: PackageName,
+        provider: PackageBindings.Scope,
+        witness: List[PackageBindings.Scope]
+    ): (PackageBindings.BindingKey, PackageBindings.CheckedBinding[String]) = {
+      val key = PackageBindings.BindingKey(referrer, packageName)
+      key -> PackageBindings.CheckedBinding(
+        key, PackageOwner(provider, packageName), None, witness
+      )
+    }
+    val checkedBindings = List(
+      checkedBinding(appScope, leftName, leftScope, List(appScope, leftScope)),
+      checkedBinding(appScope, rightName, rightScope, List(appScope, rightScope)),
+      checkedBinding(PackageBindings.Scope.Member(first), leftName, leftScope,
+        List(PackageBindings.Scope.Member(first), leftScope)),
+      checkedBinding(PackageBindings.Scope.Member(second), rightName, rightScope,
+        List(PackageBindings.Scope.Member(second), rightScope)),
+      checkedBinding(leftScope, sharedPackage, sharedScopeOne, List(leftScope, sharedScopeOne)),
+      checkedBinding(rightScope, sharedPackage, sharedScopeTwo, List(rightScope, sharedScopeTwo))
+    )
+    val checked = PackageBindings.CheckedScopeMap(
+      scopeMap,
+      publicIndex,
+      SortedMap.from(checkedBindings)(using PackageBindings.bindingKeyOrdering),
+      localInterfaces = Nil
+    )
+
+    val conflict = PackageBindings.resolveMemberClosures(
+      List(app -> List(leftName, rightName)), checked, Map.empty, builtinPredef = true,
+      localPackages = Set.empty,
+      requiredExposures = Map.empty
+    ).left.toOption.get
+    assert(conflict.contains("two releases of library shared"), conflict)
+    assert(conflict.contains("library left@1.0.0 -> library shared@1.0.0"), conflict)
+    assert(conflict.contains("library right@1.0.0 -> library shared@2.0.0"), conflict)
+
+    val disjoint = PackageBindings.resolveMemberClosures(
+      List(
+        first -> List(leftName),
+        second -> List(rightName)
+      ),
+      checked,
+      Map.empty,
+      builtinPredef = true,
+      localPackages = Set.empty,
+      requiredExposures = Map.empty
+    )
+    assert(disjoint.isRight, disjoint.left.toOption.getOrElse(""))
+
+    val wrapper = packageName("Wrapper")
+    val facade = packageName("Facade")
+    val apiOne = packageName("Names/One")
+    val apiTwo = packageName("Names/Two")
+    val facadeLibrary = identity("facade", "1.0.0")
+    val facadeScope = PackageBindings.Scope.Library(facadeLibrary)
+    val sourceIndex = PackageBindings.indexFromPackages(List(
+      PublicPackage(
+        facadeLibrary,
+        facade,
+        SortedMap.from(List(
+          apiTwo -> PublicProvider.Library(sharedV2, List(facadeLibrary, sharedV2))
+        ))(using summon[Ordering[PackageName]])
+      ),
+      PublicPackage(sharedV1, apiOne, SortedMap.empty(using summon[Ordering[PackageName]])),
+      PublicPackage(sharedV2, apiTwo, SortedMap.empty(using summon[Ordering[PackageName]]))
+    ), identities = Nil)
+    val wrapperScope = PackageBindings.Scope.Member(wrapper)
+    val sourceBindings = List(
+      checkedBinding(appScope, wrapper, wrapperScope, List(appScope, wrapperScope)),
+      checkedBinding(appScope, facade, facadeScope, List(appScope, facadeScope)),
+      checkedBinding(wrapperScope, apiOne, sharedScopeOne, List(wrapperScope, sharedScopeOne)),
+      checkedBinding(facadeScope, apiTwo, sharedScopeTwo, List(facadeScope, sharedScopeTwo))
+    )
+    val sourceScopeMap = scopeMap.copy(
+      members = SortedSet.from(List(app, wrapper)),
+      publicIndex = sourceIndex
+    )
+    val sourceChecked = PackageBindings.CheckedScopeMap(
+      sourceScopeMap,
+      sourceIndex,
+      SortedMap.from(sourceBindings)(using PackageBindings.bindingKeyOrdering),
+      localInterfaces = Nil
+    )
+    val sourceConflict = PackageBindings.resolveMemberClosures(
+      List(app -> List(wrapper, facade)),
+      sourceChecked,
+      Map(app -> Some(Nil), wrapper -> Some(List(apiOne))),
+      builtinPredef = true,
+      localPackages = Set.empty,
+      requiredExposures = Map.empty
+    ).left.toOption.get
+    assert(sourceConflict.contains("conflicting visible releases for shared"), sourceConflict)
+    assert(sourceConflict.contains("member App -> member Wrapper -> library shared@1.0.0"), sourceConflict)
+    assert(sourceConflict.contains("member App -> library facade@1.0.0 -> library shared@2.0.0"), sourceConflict)
   }
 }

@@ -43,7 +43,6 @@ private[bosatsu] object LocalRuntime {
   ): Try[LocalRuntime[P]] = Try {
     given Ordering[P] = Order[P].toOrdering
     val owners = mutable.Map.empty[PackageName, P]
-    val encoded = List.newBuilder[proto.Package]
     val members = SortedMap.from(bundles.toList.map { case (file, bundle) =>
       val names = bundle.packages.iterator.map { pack =>
         val raw = ProtoConverter.pname(pack)
@@ -54,18 +53,25 @@ private[bosatsu] object LocalRuntime {
         owners.put(name, file).foreach { previous =>
           throw CliException.Basic(show"duplicate implementation of $name in $previous and $file")
         }
-        encoded += pack
         name
       }.toList.sorted
       file -> NonEmptyList.fromList(names).getOrElse(
         throw CliException.Basic(show"empty implementation bundle $file"))
     })
 
-    // Decode jointly so imports can bind to actual declarations across bundle
-    // boundaries. The codec uses the compiler's implicit Predef interface.
-    val (_, decoded) = ProtoConverter.packagesFromProto(Nil, encoded.result()).recover { case err =>
-      throw CliException.Basic(s"invalid local implementation graph: ${err.getMessage}")
-    }.get
+    // Inspect each bundle's whole-bundle requirements before package
+    // extraction, naming the bundle in any rejection. Then decode jointly so
+    // imports can bind to actual declarations across bundle boundaries. The
+    // codec uses the compiler's implicit Predef interface.
+    bundles.toList.foreach { case (file, bundle) =>
+      ProtoConverter.validateStandalonePackageBundles(bundle :: Nil).recover { case err =>
+        throw CliException.Basic(show"invalid implementation bundle $file: ${err.getMessage}")
+      }.get
+    }
+    val (_, decoded) =
+      ProtoConverter.packagesFromProto(Nil, bundles.toList.flatMap(_._2.packages)).recover { case err =>
+        throw CliException.Basic(s"invalid local implementation graph: ${err.getMessage}")
+      }.get
     val packages = PackageMap.fromIterable(PackageMap.predefCompiled :: decoded)
     checkImports(packages)
     checkRequirements(bundles, members, packages)
@@ -137,28 +143,56 @@ private[bosatsu] object LocalRuntime {
           if (owners.nonEmpty)
             throw CliException.Basic(show"recompile legacy bundle $file to verify external types from ${owners.map(_.asString).mkString(", ")}")
         case Some(requirements) =>
-          val recorded = mutable.Set.empty[PackageName]
-          val needed = mutable.Set.empty[PackageName]
-          imports.foreach(imp => needed += imp.pack.name)
-          requirements.interfaces.foreach { req =>
-            val pn = PackageName.parse(req.packageName).getOrElse(
-              throw CliException.Basic(show"invalid interface requirement '${req.packageName}' in $file"))
-            if (pn.isPredef || local(pn) || !recorded.add(pn))
-              throw CliException.Basic(show"unexpected or repeated interface requirement $pn in $file")
-            val (digest, exposed) = verified.getOrElseUpdate(pn, {
-              val pack = packages.toMap.getOrElse(pn,
-                throw CliException.Basic(show"missing implementation of $pn required by $file"))
-              val iface = Package.interfaceOf(pack)
-              (PackageSignatures.requirement(iface).get.interfaceBlake3, iface.exposedDepPackages)
-            })
-            if (digest != req.interfaceBlake3)
-              throw CliException.Basic(show"stale interface for $pn in $file: expected ${req.interfaceBlake3}, found $digest")
-            needed ++= exposed
+          PackageSignatures.parseBuildRequirements(requirements).recover { case err =>
+            throw CliException.Basic(show"${err.getMessage} in $file")
+          }.get match {
+            case PackageSignatures.ParsedBuildRequirements.Legacy(records) =>
+              checkInterfaceRequirements(
+                file,
+                local,
+                imports.map(_.pack.name).toList,
+                records,
+                packages,
+                verified
+              )
+            case PackageSignatures.ParsedBuildRequirements.Scoped(_) =>
+              // validateStandalonePackageBundles has already rejected library
+              // and local signature owners, and required a same-bundle member
+              // binding for every import. A scoped bundle loaded here is
+              // therefore self-contained and has no interface requirements.
+              ()
           }
-          val missing = needed.iterator.filterNot(n => n.isPredef || local(n) || recorded(n)).toList.sorted
-          if (missing.nonEmpty)
-            throw CliException.Basic(show"missing interface requirements in $file: ${missing.map(_.asString).mkString(", ")}")
       }
     }
+  }
+
+  private def checkInterfaceRequirements[P: Show](
+      file: P,
+      local: Set[PackageName],
+      imports: List[PackageName],
+      requirements: List[PackageSignatures.InterfaceDigest],
+      packages: PackageMap.Compiled,
+      verified: mutable.Map[PackageName, (String, List[PackageName])]
+  ): Unit = {
+    val recorded = mutable.Set.empty[PackageName]
+    val needed = mutable.Set.empty[PackageName]
+    needed ++= imports
+    requirements.foreach { req =>
+      val pn = req.packageName
+      if (pn.isPredef || local(pn) || !recorded.add(pn))
+        throw CliException.Basic(show"unexpected or repeated interface requirement $pn in $file")
+      val (digest, exposed) = verified.getOrElseUpdate(pn, {
+        val pack = packages.toMap.getOrElse(pn,
+          throw CliException.Basic(show"missing implementation of $pn required by $file"))
+        val iface = Package.interfaceOf(pack)
+        (PackageSignatures.requirement(iface).get.interfaceBlake3, iface.exposedDepPackages)
+      })
+      if (digest != req.blake3)
+        throw CliException.Basic(show"stale interface for $pn in $file: expected ${req.blake3}, found $digest")
+      needed ++= exposed
+    }
+    val missing = needed.iterator.filterNot(n => n.isPredef || local(n) || recorded(n)).toList.sorted
+    if (missing.nonEmpty)
+      throw CliException.Basic(show"missing interface requirements in $file: ${missing.map(_.asString).mkString(", ")}")
   }
 }

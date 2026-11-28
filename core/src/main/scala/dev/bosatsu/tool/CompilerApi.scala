@@ -1,6 +1,7 @@
 package dev.bosatsu.tool
 
 import _root_.bosatsu.{TypedAst => proto}
+import cats.Show
 import cats.data.{Ior, NonEmptyList, Validated, ValidatedNel}
 import dev.bosatsu.cache.{CompileCache, InferCache, InferPhases}
 import dev.bosatsu.{
@@ -29,6 +30,7 @@ import dev.bosatsu.{
 import dev.bosatsu.LocationMap.Colorize
 import dev.bosatsu.rankn.Infer
 import org.typelevel.paiges.Doc
+import scala.util.Try
 
 import cats.syntax.all._
 
@@ -112,6 +114,7 @@ object CompilerApi {
 
   private final case class TypeCheckDiagnostics[Path](
       packages: Option[PackageMap.Compiled],
+      scopedDependencies: Map[PackageName, List[Package.Interface]],
       sourcePaths: NonEmptyList[(Path, PackageName)],
       sourceMap: PackageMap.SourceMap,
       orderedDiagnostics: List[PackageError],
@@ -609,7 +612,8 @@ object CompilerApi {
       compileOptions: CompileOptions,
       lintMode: LintMode,
       replaySuccessfulLint: Boolean,
-      compileCacheDirOpt: Option[Path]
+      compileCacheDirOpt: Option[Path],
+      scopedInference: Option[PackageMap.ScopedInference[IO]]
   )(implicit
       ec: Par.EC
   ): IO[TypeCheckDiagnostics[Path]] = {
@@ -628,15 +632,18 @@ object CompilerApi {
         case Some(cacheDir) => CompileCache.filesystem(cacheDir, platformIO)
         case None => InferCache.noop[IO, CompileCache.GenerateKeyInput, Package.Compiled]
       }
+    val checkedF = scopedInference match {
+      case Some(scoped) =>
+        PackageMap.typeCheckSourcesScoped[IO, String](
+          sources, scoped, "predef", compileOptions, cache, phasesForLintMode(lintMode)
+        ).map(_.map(result => (result.compiled, result.publicDependencies)))
+      case None =>
+        PackageMap.typeCheckSources[IO, String](
+          sources, ifs, "predef", compileOptions, cache, phasesForLintMode(lintMode)
+        ).map(_.map(packs => (packs, Map.empty[PackageName, List[Package.Interface]])))
+    }
     for {
-      checked <- PackageMap.typeCheckSources[IO, String](
-        sources,
-        ifs,
-        "predef",
-        compileOptions,
-        cache,
-        phasesForLintMode(lintMode)
-      )
+      checked <- checkedF
       _ <- cache.statsSnapshot.traverse_(platformIO.println)
       sourceMap = PackageMap.buildSourceMapFromSources(sources)
       pathToName = sourceFiles.map(source => (source.path, source.packageName))
@@ -647,10 +654,13 @@ object CompilerApi {
         lintMode == LintMode.Warn &&
           compileOptions.mode == CompileOptions.Mode.TypeCheckOnly &&
           effectiveSources.usesInternalPredefSource
-      (compileDiagnostics, compiled) = checked match {
-        case Ior.Left(errs)      => (errs.toList, None)
-        case Ior.Right(packs)    => (Nil, Some(packs))
-        case Ior.Both(errs, pm)  => (errs.toList, Some(pm))
+      (compileDiagnostics, compiled, scopedDependencies) = checked match {
+        case Ior.Left(errs) =>
+          (errs.toList, None, Map.empty[PackageName, List[Package.Interface]])
+        case Ior.Right((packs, dependencies)) =>
+          (Nil, Some(packs), dependencies)
+        case Ior.Both(errs, (packs, dependencies)) =>
+          (errs.toList, Some(packs), dependencies)
       }
       partitionedDiagnostics = partitionDiagnostics(compileDiagnostics)
       hardDiagnostics0 = partitionedDiagnostics.errors
@@ -683,6 +693,7 @@ object CompilerApi {
         else lintDiagnostics
     } yield TypeCheckDiagnostics(
       packages = compiled,
+      scopedDependencies = scopedDependencies,
       sourcePaths = pathToName,
       sourceMap = sourceMap,
       orderedDiagnostics = orderedDiagnostics,
@@ -758,10 +769,116 @@ object CompilerApi {
     )
   }
 
-  private[bosatsu] final case class CompiledGroup(
-      members: List[Package.Compiled],
-      dependencies: List[Package.Interface]
+  private[bosatsu] final case class ScopedCompiledMember[Path](
+      bindings: List[PackageBindings.CheckedBinding[Path]],
+      publicDependencies: List[Package.Interface]
   )
+
+  /** How a compiled group's external requirements are recorded. Legacy
+    * groups name package-wide dependency interfaces; scoped groups keep each
+    * member's checked bindings and public dependencies.
+    */
+  private[bosatsu] sealed trait CompilationContext[Path]
+  private[bosatsu] object CompilationContext {
+    final case class Legacy[Path](dependencies: List[Package.Interface])
+        extends CompilationContext[Path]
+    final case class Scoped[Path](
+        members: Map[PackageName, ScopedCompiledMember[Path]]
+    ) extends CompilationContext[Path]
+  }
+
+  private[bosatsu] final case class CompiledGroup[Path](
+      members: List[Package.Compiled],
+      context: CompilationContext[Path]
+  )
+
+  private[bosatsu] final case class ScopedCompilationPlan[Path](
+      checked: PackageBindings.CheckedScopeMap[Path],
+      selection: PackageSignatures.ScopedResolution[Path],
+      signatureInputs: List[(PackageSignatures.Input[Path], proto.Interfaces)],
+      builtinPredef: Boolean
+  )
+
+  /** Derive the local dependency edges from parsed source headers, then compare
+    * them with the caller's scope map and the authenticated imported index.
+    * Imported signatures come only from LibraryInspection's checked snapshots;
+    * `directBundles` contains the remaining caller-declared interface files.
+    */
+  private[bosatsu] def prepareScopedCompilation[F[_], Path: Show: Ordering](
+      sourceFiles: NonEmptyList[PackageResolver.SourceFile[F, Path]],
+      scopeMap: PackageBindings.ScopeMap[Path],
+      imported: LibraryInspection.ImportedInputs[Path],
+      directBundles: List[(PackageSignatures.Input[Path], proto.Interfaces)],
+      builtinPredef: Boolean
+  ): Try[ScopedCompilationPlan[Path]] = {
+    import PackageBindings.{BindingKey, Scope, ScopeDependency}
+
+    val sources = sourceFiles.toList.map { source =>
+      PackageSignatures.SourceRequirements(
+        source.packageName,
+        source.imports.map(_.pack),
+        source.exposes.flatten
+      )
+    }
+    val sourceDependencies = sources.flatMap { source =>
+      val referrer = Scope.Member(source.member)
+      (source.imports ::: source.exposes).distinct.flatMap { required =>
+        scopeMap.bindings.get(BindingKey(referrer, required)).map { binding =>
+          ScopeDependency(referrer, required, binding.provider)
+        }
+      }
+    }
+
+    val authenticatedBundles = scopeMap.imports.toList.traverse { case (identity, scope) =>
+      imported.signatureBundles.get(identity).toRight(CliException.Basic(
+        s"missing authenticated signature bundle for ${identity._1.name} ${identity._2.render}"
+      )).map { bundle =>
+        PackageSignatures.Input(scope.signature.path, scope.signature.label) -> bundle
+      }
+    }
+
+    val localInterfaces = PackageSignatures.localInterfaces(directBundles)
+
+    val signatureInputs = authenticatedBundles.flatMap { libraryBundles =>
+      val all = directBundles ::: libraryBundles
+      val order = summon[Ordering[Path]]
+      val loadedPaths = all.iterator.map(_._1.path).toList.sorted(using order)
+      val declaredPaths = scopeMap.directInterfaces.toList
+      val hasDuplicates = loadedPaths.zip(loadedPaths.drop(1)).exists { case (left, right) =>
+        order.compare(left, right) == 0
+      }
+      val samePaths = !hasDuplicates && loadedPaths.length == declaredPaths.length &&
+        loadedPaths.zip(declaredPaths).forall { case (left, right) =>
+          order.compare(left, right) == 0
+        }
+      Either.cond(
+        samePaths,
+        all,
+        CliException.Basic("loaded interface files do not match scope-map direct interfaces")
+      )
+    }
+
+    for {
+      allBundles <- signatureInputs.toTry
+      localSignatureRoots <- localInterfaces
+      checked <- PackageBindings
+        .validateAgainstInspection(
+          scopeMap,
+          imported.publicIndex,
+          sourceDependencies,
+          sources.iterator.map(source => source.member -> Some(source.exposes)).toMap,
+          localSignatureRoots
+        )
+        .leftMap(CliException.Basic(_))
+        .toTry
+      selection <- PackageSignatures.planScoped(
+        allBundles,
+        sources,
+        checked,
+        builtinPredef
+      )
+    } yield ScopedCompilationPlan(checked, selection, allBundles, builtinPredef)
+  }
 
   // A local owner may have to be compiled before a foreign re-export can be
   // decoded. Read each source and signature once across all stages.
@@ -775,7 +892,7 @@ object CompilerApi {
       color: Colorize,
       options: CompileOptions,
       cache: Option[Path]
-  )(using Par.EC): F[CompiledGroup] = {
+  )(using Par.EC): F[CompiledGroup[Path]] = {
     import platform.{moduleIOMonad, showPath}
     // The planner indexes requirements by package name. A duplicate must be
     // reported before one source's imports could replace the other's.
@@ -825,7 +942,99 @@ object CompilerApi {
           } yield (next, compiled ::: members)
       }
     } yield CompiledGroup(result._2.sortBy(_.name),
-      resolution.origins.keys.toList.sorted.map(name => result._1(name).iface))
+      CompilationContext.Legacy[Path](
+        resolution.origins.keys.toList.sorted.map(name => result._1(name).iface)
+      ))
+  }
+
+  /** Compile all members in one memoized source-DAG traversal while resolving
+    * each member's imports against its checked owners. Imported roots are
+    * bound only after their source providers have produced public interfaces.
+    */
+  private[bosatsu] def compileScopedWithSignatures[F[_], Path: Show: Ordering](
+      platform: PlatformIO[F, Path],
+      sources: NonEmptyList[PackageResolver.SourceFile[F, Path]],
+      plan: ScopedCompilationPlan[Path],
+      errorUnusedInterfaces: Boolean,
+      color: Colorize,
+      options: CompileOptions,
+      cache: Option[Path]
+  )(using Par.EC): F[CompiledGroup[Path]] = {
+    import platform.moduleIOMonad
+
+    def scopedImports: Try[Map[PackageName, Map[
+      PackageName,
+      Either[Package.Interface, PackageName]
+    ]]] = Try {
+      plan.selection.members.iterator.map { case (member, selected) =>
+        val external = selected.interfaces.map { iface =>
+          val stub: Package.Interface = Package(iface.owner.packageName, Nil, Nil, ())
+          iface.owner.packageName -> Left(stub)
+        }
+        val local = selected.sourceDependencies.map(name => name -> Right(name))
+        val entries = external ::: local
+        val duplicates = entries.groupBy(_._1).collect {
+          case (name, values) if values.size > 1 => name
+        }
+        if (duplicates.nonEmpty)
+          throw CliException.Basic(
+            s"inconsistent scoped owner bindings for ${member.asString}: " +
+              duplicates.toList.sorted.map(_.asString).mkString(", ")
+          )
+        member -> entries.toMap
+      }.toMap
+    }
+
+    val sourceBindings = plan.selection.members.iterator.map { case (member, selected) =>
+      member -> selected.sourceDependencies
+    }.toMap
+    val bindingFingerprints = plan.selection.members.iterator.map { case (member, selected) =>
+      member -> PackageBindings.selectedBindingFingerprint(selected.bindings)
+    }.toMap
+
+    for {
+      _ <- moduleIOMonad.whenA(errorUnusedInterfaces)(
+        platform.canPromiseF.compute(
+          plan.selection.checkUsed(plan.signatureInputs.map(_._1))
+        ).flatMap(moduleIOMonad.fromTry)
+      )
+      selectedImports <- platform.canPromiseF.compute(scopedImports).flatMap(moduleIOMonad.fromTry)
+      context = PackageMap.ScopedInference(
+        selectedImports,
+        sourceBindings,
+        bindingFingerprints,
+        (member, sourceInterfaces) =>
+          // The implicit Predef source is added after the checked member list
+          // and has no scope-map roots of its own.
+          if (member == PackageName.PredefName && !plan.selection.members.contains(member))
+            moduleIOMonad.pure(Nil)
+          else
+            platform.canPromiseF.compute(
+              plan.selection.bindMember(member, sourceInterfaces, plan.builtinPredef)
+            ).flatMap(moduleIOMonad.fromTry),
+        plan.builtinPredef
+      )
+      checked <- typeCheckLoadedScoped(
+        platform,
+        sources,
+        color,
+        options,
+        cache,
+        context
+      )
+      (compiled, _, scopedDependencies) = checked
+      compiledByName = compiled.toMap
+      compiledMembers = sources.toList.flatMap(source => compiledByName.get(source.packageName))
+      members = plan.selection.members.map { case (member, selected) =>
+        member -> ScopedCompiledMember(
+          selected.bindings,
+          scopedDependencies.getOrElse(member, Nil)
+        )
+      }
+    } yield CompiledGroup(
+      compiledMembers.sortBy(_.name),
+      CompilationContext.Scoped(members)
+    )
   }
 
   private[bosatsu] def typeCheckLoaded[IO[_], Path](
@@ -836,6 +1045,41 @@ object CompilerApi {
       compileOptions: CompileOptions,
       compileCacheDirOpt: Option[Path]
   )(implicit ec: Par.EC): IO[(PackageMap.Compiled, NonEmptyList[(Path, PackageName)])] = {
+    val checked = typeCheckLoadedWithScoped(
+      platformIO, sources, ifs, errColor, compileOptions, compileCacheDirOpt, None
+    )
+    platformIO.moduleIOMonad.map(checked) { case (compiled, paths, _) => (compiled, paths) }
+  }
+
+  private[bosatsu] def typeCheckLoadedScoped[IO[_], Path](
+      platformIO: PlatformIO[IO, Path],
+      sources: NonEmptyList[PackageResolver.SourceFile[IO, Path]],
+      errColor: Colorize,
+      compileOptions: CompileOptions,
+      compileCacheDirOpt: Option[Path],
+      scoped: PackageMap.ScopedInference[IO]
+  )(implicit ec: Par.EC): IO[(
+      PackageMap.Compiled,
+      NonEmptyList[(Path, PackageName)],
+      Map[PackageName, List[Package.Interface]]
+  )] =
+    typeCheckLoadedWithScoped(
+      platformIO, sources, Nil, errColor, compileOptions, compileCacheDirOpt, Some(scoped)
+    )
+
+  private def typeCheckLoadedWithScoped[IO[_], Path](
+      platformIO: PlatformIO[IO, Path],
+      sources: NonEmptyList[PackageResolver.SourceFile[IO, Path]],
+      ifs: List[Package.Interface],
+      errColor: Colorize,
+      compileOptions: CompileOptions,
+      compileCacheDirOpt: Option[Path],
+      scoped: Option[PackageMap.ScopedInference[IO]]
+  )(implicit ec: Par.EC): IO[(
+      PackageMap.Compiled,
+      NonEmptyList[(Path, PackageName)],
+      Map[PackageName, List[Package.Interface]]
+  )] = {
     import platformIO.moduleIOMonad
 
     for {
@@ -847,12 +1091,13 @@ object CompilerApi {
         compileOptions,
         LintMode.Strict,
         replaySuccessfulLint = false,
-        compileCacheDirOpt
+        compileCacheDirOpt,
+        scoped
       )
       result <-
         diagnostics.packages match {
           case Some(packs) if diagnostics.orderedDiagnostics.isEmpty =>
-            moduleIOMonad.pure((packs, diagnostics.sourcePaths))
+            moduleIOMonad.pure((packs, diagnostics.sourcePaths, diagnostics.scopedDependencies))
           case _ =>
             moduleIOMonad.raiseError(
               PackageErrors(
@@ -951,7 +1196,8 @@ object CompilerApi {
         compileOptions,
         lintMode,
         replaySuccessfulLint = true,
-        compileCacheDirOpt
+        compileCacheDirOpt,
+        scopedInference = None
       )
       result <- lintMode match {
         case LintMode.Strict =>

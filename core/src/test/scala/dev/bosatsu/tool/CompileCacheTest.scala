@@ -2,6 +2,7 @@ package dev.bosatsu.tool
 
 import cats.data.{Chain, NonEmptyList}
 import dev.bosatsu.cache.{CompileCache, FsKey}
+import dev.bosatsu.hashing.{Algo, HashValue}
 import dev.bosatsu.{
   CompileOptions,
   HasRegion,
@@ -15,6 +16,7 @@ import dev.bosatsu.{
   Region,
   TypedExpr
 }
+import dev.bosatsu.library.{Name, Version}
 import munit.FunSuite
 import scala.collection.immutable.SortedMap
 
@@ -70,6 +72,13 @@ class CompileCacheTest extends FunSuite {
       pack: Package.Parsed,
       deps: SortedMap[PackageName, Package.Interface],
       compileOptions: CompileOptions
+  ): FsKey = compileKeyWithFingerprint(pack, deps, compileOptions, None)
+
+  private def compileKeyWithFingerprint(
+      pack: Package.Parsed,
+      deps: SortedMap[PackageName, Package.Interface],
+      compileOptions: CompileOptions,
+      bindingFingerprint: Option[HashValue[Algo.Blake3]]
   ): FsKey =
     runF(
       cache.generateKey(
@@ -78,11 +87,32 @@ class CompileCacheTest extends FunSuite {
           CompileCache.sourceExprHash(pack),
           deps,
           compileOptions,
-          "phase-id"
+          "phase-id",
+          bindingFingerprint
         )
       ),
       state = MemoryMain.State.empty
     )._2
+
+  private def version(text: String): Version =
+    Version.parser.parseAll(text).toOption.get
+
+  private def checkedBinding(
+      referrer: PackageBindings.Scope,
+      requiredPackage: PackageName,
+      owner: PackageBindings.Scope,
+      path: String,
+      label: Option[String],
+      witnessPath: List[PackageBindings.Scope]
+  ): PackageBindings.CheckedBinding[String] = {
+    val key = PackageBindings.BindingKey(referrer, requiredPackage)
+    PackageBindings.CheckedBinding(
+      key,
+      PackageBindings.PackageOwner(owner, requiredPackage),
+      Some(PackageBindings.InterfaceSource(path, label)),
+      witnessPath
+    )
+  }
 
   private def keyPathFor(key: FsKey): Chain[String] = {
     val keyHex = CompileCache.keyHashHex(key)
@@ -160,6 +190,77 @@ class CompileCacheTest extends FunSuite {
     assertEquals(
       CompileCache.sourceExprHash(packA),
       CompileCache.sourceExprHash(packB)
+    )
+  }
+
+  test("selected binding fingerprint is canonical and excludes provenance") {
+    val app = PackageBindings.Scope.Member(PackageName.parse("Cache/App").get)
+    val otherApp = PackageBindings.Scope.Member(PackageName.parse("Cache/OtherApp").get)
+    val api = PackageBindings.Scope.Library(Name("api") -> version("1.0.0"))
+    val bridge = PackageBindings.Scope.Library(Name("bridge") -> version("1.0.0"))
+    val types = PackageBindings.Scope.Library(Name("types") -> version("2.0.0"))
+    val otherTypes = PackageBindings.Scope.Library(Name("types") -> version("3.0.0"))
+    val apiPackage = PackageName.parse("Cache/Api").get
+    val typesPackage = PackageName.parse("Cache/Types").get
+    val unrelatedPackage = PackageName.parse("Cache/Private").get
+
+    val appBinding = checkedBinding(
+      app, apiPackage, api, "api-v1.sig", Some("api"), List(app, api)
+    )
+    val exposureBinding = checkedBinding(
+      api, typesPackage, types, "types-v2.sig", Some("types"), List(api, types)
+    )
+    val sameAppBinding = checkedBinding(
+      app, apiPackage, api, "elsewhere/api.sig", None, List(app, bridge, api)
+    )
+    val sameExposureBinding = checkedBinding(
+      api,
+      typesPackage,
+      types,
+      "elsewhere/types.sig",
+      Some("renamed"),
+      List(api, bridge, types)
+    )
+    val unselectedOne = checkedBinding(
+      api, unrelatedPackage, types, "private-v2.sig", None, List(api, types)
+    )
+    val unselectedTwo = checkedBinding(
+      api, unrelatedPackage, otherTypes, "private-v3.sig", None, List(api, otherTypes)
+    )
+
+    val original = PackageBindings.selectedBindingFingerprint(List(appBinding, exposureBinding))
+    val reorderedAndRelabeled = PackageBindings.selectedBindingFingerprint(
+      List(sameExposureBinding, sameAppBinding)
+    )
+    assertEquals(original, reorderedAndRelabeled)
+    assertEquals(
+      PackageBindings.selectedBindingFingerprint(
+        List(appBinding, exposureBinding, unselectedOne).take(2)
+      ),
+      PackageBindings.selectedBindingFingerprint(
+        List(appBinding, exposureBinding, unselectedTwo).take(2)
+      )
+    )
+    assertNotEquals(
+      original,
+      PackageBindings.selectedBindingFingerprint(List(
+        appBinding,
+        checkedBinding(api, typesPackage, otherTypes, "types-v3.sig", None, List(api, otherTypes))
+      ))
+    )
+    assertNotEquals(
+      original,
+      PackageBindings.selectedBindingFingerprint(List(
+        checkedBinding(
+          otherApp,
+          apiPackage,
+          api,
+          "api-v1.sig",
+          Some("api"),
+          List(otherApp, api)
+        ),
+        exposureBinding
+      ))
     )
   }
 
@@ -303,7 +404,8 @@ class CompileCacheTest extends FunSuite {
             CompileCache.sourceExprHash(consumer),
             SortedMap(depIface.name -> depIface),
             CompileOptions.Default,
-            "phase-id"
+            "phase-id",
+            None
           )
         ),
         state = MemoryMain.State.empty
@@ -404,6 +506,70 @@ class CompileCacheTest extends FunSuite {
       warmHit.map(pack => HasRegion.region(mainExpr(pack))),
       Some(HasRegion.region(mainExpr(appCompiled)))
     )
+  }
+
+  test("selected provider fingerprints distinguish equal signatures in the filesystem cache") {
+    val depSource =
+      """package Cache/Dep
+        |export dep
+        |dep = 1
+        |""".stripMargin
+    val appSource =
+      """package Cache/App
+        |from Cache/Dep import dep
+        |main = dep.add(1)
+        |""".stripMargin
+
+    val depIface = Package.interfaceOf(
+      compilePackage(depSource, depIfaces = Nil, compileOptions = CompileOptions.Default)
+    )
+    val appParsed = parsePackage(appSource)
+    val appCompiled = compilePackage(
+      appSource,
+      depIfaces = depIface :: Nil,
+      compileOptions = CompileOptions.Default
+    )
+    val member = PackageBindings.Scope.Member(appParsed.name)
+    val providerOne = PackageBindings.Scope.Library(Name("provider") -> version("1.0.0"))
+    val providerTwo = PackageBindings.Scope.Library(Name("provider") -> version("2.0.0"))
+    val bindingOne = checkedBinding(
+      member,
+      depIface.name,
+      providerOne,
+      "provider-one.sig",
+      Some("provider one"),
+      List(member, providerOne)
+    )
+    val bindingTwo = checkedBinding(
+      member,
+      depIface.name,
+      providerTwo,
+      "provider-two.sig",
+      Some("provider two"),
+      List(member, providerTwo)
+    )
+    val fingerprintOne = PackageBindings.selectedBindingFingerprint(List(bindingOne))
+    val fingerprintTwo = PackageBindings.selectedBindingFingerprint(List(bindingTwo))
+    val depInterfaces = SortedMap(depIface.name -> depIface)
+    val keyOne = compileKeyWithFingerprint(
+      appParsed, depInterfaces, CompileOptions.Default, Some(fingerprintOne)
+    )
+    val sameContextKey = compileKeyWithFingerprint(
+      appParsed, depInterfaces, CompileOptions.Default, Some(fingerprintOne)
+    )
+    val keyTwo = compileKeyWithFingerprint(
+      appParsed, depInterfaces, CompileOptions.Default, Some(fingerprintTwo)
+    )
+
+    assertEquals(keyOne.depInterfaceHashes, keyTwo.depInterfaceHashes)
+    assertEquals(CompileCache.keyHashHex(keyOne), CompileCache.keyHashHex(sameContextKey))
+    assertNotEquals(CompileCache.keyHashHex(keyOne), CompileCache.keyHashHex(keyTwo))
+
+    val (stateWithCache, _) = runF(cache.put(keyOne, appCompiled), MemoryMain.State.empty)
+    val (_, sameContextHit) = runF(cache.get(sameContextKey), stateWithCache)
+    val (_, changedProviderMiss) = runF(cache.get(keyTwo), stateWithCache)
+    assertEquals(sameContextHit, Some(appCompiled))
+    assertEquals(changedProviderMiss, None)
   }
 
   test("warm hits preserve branch pattern regions") {

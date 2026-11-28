@@ -88,6 +88,16 @@ class EmitCCommandTest extends FileCommandFixtures {
     )).render)
   }
 
+  private def replaceBundleRequirements(
+      root: Path,
+      requirements: proto.BuildRequirements
+  ): IO[Unit] = IO.blocking {
+    val path = root.resolve("suite.pkg")
+    val bundle = proto.Packages.parseFrom(Files.readAllBytes(path))
+    Files.write(path, bundle.copy(buildRequirements = Some(requirements)).toByteArray)
+    ()
+  }
+
   private def emit(
       runner: FileCommandRunner, root: Path, selected: String, output: String, headers: String*
   ): IO[FileCommandRunner.Result] =
@@ -144,6 +154,46 @@ class EmitCCommandTest extends FileCommandFixtures {
         changed <- read(root, "out/helper.c")
         _ = assert(changed.contains("dependency assertion"), changed)
         _ = assert(!changed.contains("root assertion") && !changed.contains("\"Demo/Other\""), changed)
+      } yield ()
+    }
+  }
+
+  test("emit-c preserves output and recovers when whole-bundle requirements are malformed") {
+    withRunner { (root, runner) =>
+      val localRequirements = proto.BuildRequirements(
+        scopedVersion = 1,
+        members = List(
+          proto.MemberBuildRequirements(memberName = "Demo/Helper"),
+          proto.MemberBuildRequirements(
+            memberName = "Demo/Suite",
+            bindings = List(proto.ScopedBindingRequirement(
+              referrer = Some(proto.BuildScope(proto.BuildScope.Value.Member("Demo/Suite"))),
+              packageName = "Demo/Helper",
+              owner = Some(proto.BuildScope(proto.BuildScope.Value.Member("Demo/Helper")))
+            ))
+          )
+        )
+      )
+      val malformedRequirements = proto.BuildRequirements(scopedVersion = 2)
+      for {
+        _ <- compile(runner, root, "suite", List(
+          "Helper.bosatsu" -> helper,
+          "Suite.bosatsu" -> suite
+        ), Nil)
+        _ <- manifest(root, List("suite.pkg"), Nil)
+        _ <- write(root, "output.c", "previous output")
+        _ <- replaceBundleRequirements(root, malformedRequirements)
+        rejected <- emit(runner, root, "suite.pkg", "output.c")
+        _ = failure(rejected)
+        _ = assert(rejected.stderr.contains("unsupported scoped build requirements version 2"), rejected.stderr)
+        preserved <- read(root, "output.c")
+        _ = assertEquals(preserved, "previous output")
+        _ <- replaceBundleRequirements(root, localRequirements)
+        retried <- emit(runner, root, "suite.pkg", "output.c")
+        _ = success(retried)
+        output <- read(root, "output.c")
+        _ = assert(output.contains("root assertion"), output)
+        _ = assertNotEquals(output, "previous output")
       } yield ()
     }
   }
@@ -779,7 +829,7 @@ class EmitCCommandTest extends FileCommandFixtures {
         req = reqs.interfaces.head
         variants = List(
           Nil -> "missing interface requirements",
-          List(req, req) -> "repeated interface requirement",
+          List(req, req) -> "duplicate interface requirement",
           List(req.withInterfaceBlake3("0" * 64)) -> "stale interface",
           List(req.withPackageName("Unknown")) -> "missing implementation"
         )

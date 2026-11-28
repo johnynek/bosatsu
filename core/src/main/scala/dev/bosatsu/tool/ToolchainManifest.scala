@@ -5,7 +5,7 @@ import cats.data.NonEmptyList
 import cats.syntax.all._
 import dev.bosatsu.{Bytes, Json, PackageName, PlatformIO}
 import dev.bosatsu.hashing.{Algo, HashValue}
-import dev.bosatsu.library.{Library, Name, Version}
+import dev.bosatsu.library.{Library, LibraryIdentity, Name, VerifiedLibraryGraph, Version}
 import scala.util.Try
 
 /** The selected detached manifest must be authenticated by its caller, along
@@ -40,12 +40,6 @@ private[bosatsu] object ToolchainManifest {
   private val sha256Reader: Json.Reader[HashValue[Algo.Sha256]] =
     Json.Reader.fromParser("SHA-256 hash", Algo.parseHashHex(Algo.sha256Algo))
 
-  private val libraryNameReader: Json.Reader[Name] = new Json.Reader[Name] {
-    val describe = "nonempty library name"
-    def read(path: Json.Path, value: Json): Result[Name] =
-      BuildManifest.nonEmpty.read(path, value).map(Name(_))
-  }
-
   private given Json.Reader[Artifact] = BuildManifest.obj("toolchain artifact") { from =>
     for {
       _ <- BuildManifest.onlyFields(from, "toolchain artifact", Set("uri", "sha256"))
@@ -57,7 +51,7 @@ private[bosatsu] object ToolchainManifest {
   private given Json.Reader[Core] = BuildManifest.obj("toolchain core") { from =>
     for {
       _ <- BuildManifest.onlyFields(from, "toolchain core", Set("library_name", "version", "uri", "sha256"))
-      libraryName <- from.field[Name]("library_name")(using libraryNameReader)
+      libraryName <- from.field[Name]("library_name")(using BuildManifest.libraryName)
       version <- from.field[Version]("version")
       uri <- from.field[String]("uri")(using BuildManifest.nonEmpty)
       sha256 <- from.field[HashValue[Algo.Sha256]]("sha256")(using sha256Reader)
@@ -160,6 +154,43 @@ private[bosatsu] object ToolchainManifest {
       left.patch == right.patch &&
       left.preRelease.map(_.asString) == right.preRelease.map(_.asString) &&
       left.build.map(_.asString) == right.build.map(_.asString)
+
+  /** Check every reachable reference to the selected core, including private
+    * and legacy edges. Artifact bytes and descriptor pins have already been
+    * authenticated by VerifiedLibraryGraph; this check binds those bytes to
+    * the caller-selected toolchain manifest.
+    */
+  def validateCoreReferences[Path](
+      graph: VerifiedLibraryGraph[Path],
+      selectedCore: Core
+  ): Either[String, Unit] = {
+    def identityText(identity: LibraryIdentity): String =
+      s"${identity._1.name} ${identity._2.render}"
+
+    def routeText(identity: LibraryIdentity): String =
+      graph.witnessPath(identity).getOrElse(List(identity)).map(identityText).mkString(" -> ")
+
+    graph.identities.filter(identity =>
+      summon[Ordering[Name]].equiv(identity._1, selectedCore.libraryName)
+    ).traverse_ { identity =>
+      graph.snapshot(identity).toRight(
+        s"missing authenticated snapshot for core reference ${identityText(identity)}"
+      ).flatMap { snapshot =>
+        val route = routeText(identity)
+        if (!sameVersionIdentity(identity._2, selectedCore.version))
+          Left(
+            s"toolchain core identity mismatch: expected ${selectedCore.libraryName.name} " +
+              s"${selectedCore.version.render}, found ${identityText(identity)} via $route"
+          )
+        else if (snapshot.sha256.hex != selectedCore.sha256.hex)
+          Left(
+            s"toolchain core SHA-256 mismatch for ${identityText(identity)}: expected " +
+              s"${selectedCore.sha256.hex}, found ${snapshot.sha256.hex} via $route"
+          )
+        else Right(())
+      }
+    }
+  }
 
   private def verifyCore[F[_], P](
       platform: PlatformIO[F, P],

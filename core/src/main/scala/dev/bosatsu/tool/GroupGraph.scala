@@ -4,17 +4,24 @@ import cats.MonadThrow
 import cats.syntax.all._
 import dev.bosatsu.{PackageName, PlatformIO}
 import dev.bosatsu.Json
+import dev.bosatsu.tool.PackageBindings.{ScopeMap, Scope as BindingScope}
 import scala.collection.mutable
 
-/** A structural manifest describes a local group in the loose implementation
-  * scope. Imported libraries have their own versioned scopes and will need a
-  * distinct node kind. Treating their private contents as loose groups would
-  * reject legal compositions.
+/** Structural manifests describe local groups in the loose implementation
+  * scope. Imported libraries stay in their verified versioned scopes;
+  * treating their private contents as loose groups would reject legal
+  * compositions.
   */
 private[bosatsu] object GroupGraph {
-  final case class Member(source: String, packageName: PackageName)
+  final case class Member(
+      source: String,
+      packageName: PackageName,
+      exposes: Option[List[PackageName]]
+  )
   final case class Edge[P](label: String, manifest: P)
   final case class Node[P](label: String, members: List[Member], deps: List[Edge[P]])
+
+  final case class LocalGroup[P](file: P, node: Node[P])
 
   enum View derives CanEqual {
     case Topology, DirectMembers
@@ -27,14 +34,25 @@ private[bosatsu] object GroupGraph {
   }
 
   private given Json.Reader[Member] = BuildManifest.obj("group member") { from =>
-    (from.field[String]("source")(using BuildManifest.nonEmpty),
-      from.field[PackageName]("package")).mapN(Member(_, _))
+    for {
+      _ <- BuildManifest.onlyFields(from, "group member", Set("source", "package", "exposes"))
+      source <- from.field[String]("source")(using BuildManifest.nonEmpty)
+      packageName <- from.field[PackageName]("package")
+      exposes <- from.optional[List[PackageName]]("exposes")(
+        using Json.Reader.listReader(using summon[Json.Reader[PackageName]])
+      )
+    } yield Member(source, packageName, exposes)
   }
 
   private given Json.Reader[Edge[String]] = BuildManifest.obj("group dependency") { from =>
-    (from.field[String]("label")(using BuildManifest.nonEmpty),
-      from.field[String]("manifest")(using BuildManifest.nonEmpty)).mapN(Edge(_, _))
+    for {
+      _ <- BuildManifest.onlyFields(from, "group dependency", Set("label", "manifest"))
+      label <- from.field[String]("label")(using BuildManifest.nonEmpty)
+      manifest <- from.field[String]("manifest")(using BuildManifest.nonEmpty)
+    } yield Edge(label, manifest)
   }
+
+  private val nodeFields: Set[String] = Set("schema_version", "kind", "label", "members")
 
   private def nodeReader(view: View): Json.Reader[Node[String]] =
     BuildManifest.obj("group node") { from =>
@@ -43,6 +61,12 @@ private[bosatsu] object GroupGraph {
         kind <- from.field[String]("kind")
         _ <- Either.cond(kind == "group" || (view == View.DirectMembers && kind == "group-members"), (),
           (s"unsupported graph node kind '$kind' for $view", from.j, from.path.key("kind")))
+        // A group-members summary deliberately has no dependency edges.
+        _ <- BuildManifest.onlyFields(
+          from,
+          "group node",
+          if (kind == "group") nodeFields + "deps" else nodeFields
+        )
         label <- from.field[String]("label")(using BuildManifest.nonEmpty)
         members <- from.field[List[Member]]("members")
         _ <- Either.cond(members.nonEmpty, (),
@@ -82,12 +106,12 @@ private[bosatsu] object GroupGraph {
     * A local action opens the root and its immediate dependencies. A full
     * action opens each reachable manifest once even if many paths lead to it.
     */
-  def validate[F[_], P](
+  private def validateLocalGraph[F[_], P](
       root: P,
       declared: Set[P],
       scope: Scope,
       showFile: P => String
-  )(read: (P, View) => F[Node[P]])(using F: MonadThrow[F]): F[Unit] =
+  )(read: (P, View) => F[Node[P]])(using F: MonadThrow[F]): F[List[LocalGroup[P]]] =
     read(root, View.Topology).flatMap { rootNode =>
       // All mutable state belongs to this execution of the effect. Routes
       // share tails: only render the two full paths when reporting a conflict.
@@ -97,6 +121,7 @@ private[bosatsu] object GroupGraph {
       val active = mutable.Set.empty[P]
       val sources = mutable.Map.empty[String, Claim]
       val packages = mutable.Map.empty[PackageName, Claim]
+      val localGroups = mutable.ListBuffer.empty[LocalGroup[P]]
 
       def enter(file: P, node: Node[P], parents: Route, rest: List[Work[P]]): List[Work[P]] = {
         val route = node.label :: parents
@@ -108,6 +133,7 @@ private[bosatsu] object GroupGraph {
         }
         labels.update(node.label, (file, route))
         files.update(file, node.label)
+        localGroups += LocalGroup(file, node)
         node.members.foreach { member =>
           if (member.packageName.isPredef)
             throw CliException.Basic(s"${display(route)} claims implicit Bosatsu/Predef in ${member.source}")
@@ -135,9 +161,9 @@ private[bosatsu] object GroupGraph {
         )
 
       F.catchNonFatal(enter(root, rootNode, Nil, Nil)).flatMap { initial =>
-        F.tailRecM[List[Work[P]], Unit](initial) {
+        F.tailRecM[List[Work[P]], List[LocalGroup[P]]](initial) {
           case Nil =>
-            if (allowed.size == files.size) F.pure(Right(()))
+            if (allowed.size == files.size) F.pure(Right(localGroups.toList))
             else {
               val extra = allowed.iterator.filterNot(files.contains).map(showFile).toList.sorted
               F.raiseError(CliException.Basic(s"unreachable node manifests: ${extra.mkString(", ")}"))
@@ -167,4 +193,90 @@ private[bosatsu] object GroupGraph {
         }
       }
     }
+
+  /** Check a local graph without exposing its collected topology to legacy
+    * callers. Membership-only checks retain their existing bounded reads.
+    */
+  def validate[F[_], P](
+      root: P,
+      declared: Set[P],
+      scope: Scope,
+      showFile: P => String
+  )(read: (P, View) => F[Node[P]])(using F: MonadThrow[F]): F[Unit] =
+    validateLocalGraph(root, declared, scope, showFile)(read).void
+
+  private def validateMemberClosures[P](
+      localGroups: List[LocalGroup[P]],
+      checked: PackageBindings.CheckedScopeMap[P],
+      memberExposures: Map[PackageName, Option[List[PackageName]]]
+  ): Either[String, Unit] = {
+    // Declared dependencies are the roots: graph validation has no source
+    // headers, and the binding list cannot be evidence of its own completeness.
+    val requiredByMember = checked.scopeMap.dependencies.foldLeft(
+      Map.empty[PackageName, List[PackageName]]
+    ) { (acc, dependency) =>
+      dependency.from match {
+        case BindingScope.Member(member) =>
+          acc.updated(member, dependency.packageName :: acc.getOrElse(member, Nil))
+        case _ => acc
+      }
+    }
+    val requirements = checked.scopeMap.members.toList.map { member =>
+      member -> requiredByMember.getOrElse(member, Nil).reverse
+    }
+    val localPackages = localGroups.iterator.flatMap(
+      _.node.members.iterator.map(_.packageName)
+    ).toSet
+    PackageBindings.resolveMemberClosures(
+      requirements,
+      checked,
+      memberExposures,
+      builtinPredef = true,
+      localPackages = localPackages,
+      // Header exposures are declared dependencies here, so there are no
+      // separate exposure roots.
+      requiredExposures = Map.empty
+    ).void
+  }
+
+  /** Validate a local topology together with the authenticated imported
+    * public index selected for its members. Imported implementation edges are
+    * authenticated by LibraryInspection but do not become type-visible
+    * without a public exposure.
+    */
+  def validateMixed[F[_], P](
+      root: P,
+      declared: Set[P],
+      scope: Scope,
+      scopeMap: ScopeMap[P],
+      inspectedIndex: PackageBindings.PublicIndex,
+      showFile: P => String,
+      localInterfaces: List[PackageBindings.LocalInterface[P]]
+  )(read: (P, View) => F[Node[P]])(using F: MonadThrow[F]): F[Unit] = {
+    validateLocalGraph(root, declared, scope, showFile)(read).flatMap { localGroups =>
+      val rootMembers = localGroups.headOption.toList.flatMap(_.node.members.map(_.packageName))
+        .sorted(using summon[Ordering[PackageName]])
+      val declaredMembers = scopeMap.members.toList
+      val memberMatch = rootMembers.lengthCompare(declaredMembers.length) == 0 &&
+        rootMembers.zip(declaredMembers).forall { case (left, right) =>
+          summon[Ordering[PackageName]].compare(left, right) == 0
+        }
+      if (!memberMatch)
+        F.raiseError(CliException.Basic(
+          "scope-map members do not match the root group membership"
+        ))
+      else
+        val memberExposures = localGroups.iterator.flatMap(_.node.members.iterator).map { member =>
+          member.packageName -> member.exposes
+        }.toMap
+        F.fromEither(
+          PackageBindings.validateDeclaredBindingsAgainstInspection(
+            scopeMap, inspectedIndex, memberExposures, localInterfaces
+          ).leftMap(CliException.Basic(_))
+        ).flatMap { checked =>
+          F.fromEither(validateMemberClosures(localGroups, checked, memberExposures)
+            .leftMap(CliException.Basic(_)))
+        }
+    }
+  }
 }
