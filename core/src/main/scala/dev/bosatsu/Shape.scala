@@ -585,7 +585,7 @@ object Shape {
                     )
                 }
             }
-          case rankn.Type.TyMeta(rankn.Type.Meta(k, _, _, _)) =>
+          case rankn.Type.TyMeta(rankn.Type.Meta(k, _, _, _, _)) =>
             RefSpace.pure(Validated.valid(shapeOf(k)))
         }
 

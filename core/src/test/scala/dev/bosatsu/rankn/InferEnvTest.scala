@@ -9,7 +9,7 @@ class InferEnvTest extends munit.ScalaCheckSuite {
 
   private def metaType(id: Long): Type.TyMeta =
     Type.TyMeta(
-      Type.Meta(Kind.Type, id, existential = id % 2 == 0, RefSpace.constRef(None))
+      Type.Meta(Kind.Type, id, existential = id % 2 == 0, level = 0, RefSpace.constRef(None))
     )
 
   // Closed and open types: generated types (some with free variables), metas

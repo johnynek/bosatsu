@@ -2675,9 +2675,9 @@ def get(TreeList(trees): TreeList[a], idx: Int) -> Option[a]:
 """)) { case kie: PackageError.TypeErrorIn =>
       val message = kie.message(Map.empty, Colorize.None)
       assert(message.contains("type error: expected type Int but found type"), message)
-      assert(message.contains("type a[b]"), message)
+      assert(message.contains("type List[Tree[a]]"), message)
       assert(message.contains("[227, 250)"), message)
-      assert(message.contains("where unknown type"), message)
+      assert(message.contains("where a is an unknown type."), message)
       assert(!"\\?[0-9]+".r.findFirstIn(message).isDefined, message)
       ()
     }

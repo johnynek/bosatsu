@@ -165,7 +165,11 @@ object Infer {
       val openVars: Map[Name, Type],
       val typeCons: Map[(PackageName, Constructor), Cons],
       val variances: Map[Type.Const.Defined, Kind],
-      val aliases: Map[Type.Const.Defined, TypeAlias[Kind.Arg]]
+      val aliases: Map[Type.Const.Defined, TypeAlias[Kind.Arg]],
+      /** The level new metas get: the number of existential scopes (see
+        * Type.Meta) around this point of inference.
+        */
+      val level: Int
   ) {
 
     def this(
@@ -181,11 +185,12 @@ object Infer {
         vars.filter { case (_, t) => Env.isOpen(t) },
         typeCons,
         variances,
-        aliases
+        aliases,
+        level = 0
       )
 
     override def toString() =
-      s"Env($uniq, $vars, $typeCons, $variances, $aliases)"
+      s"Env($uniq, $vars, $typeCons, $variances, $aliases, $level)"
 
     def addVars(vt: NonEmptyList[(Name, Type)]): Env = {
       // later bindings shadow earlier ones, in vt and in vars
@@ -198,9 +203,14 @@ object Infer {
         open,
         typeCons,
         variances,
-        aliases
+        aliases,
+        level
       )
     }
+
+    /** This environment inside a new existential scope. */
+    def deeper: Env =
+      new Env(uniq, vars, openVars, typeCons, variances, aliases, level + 1)
 
     @annotation.tailrec
     final def normalizeAliasHead(t: Type): Type =
@@ -711,6 +721,15 @@ object Infer {
       def run(env: Env) = in.run(env.addVars(vt))
     }
 
+    /** Run in inside a new existential scope, so the metas it makes are at the
+      * next level.
+      */
+    case class Deeper[A](in: Infer[A]) extends Infer[A] {
+      def run(env: Env) = in.run(env.deeper)
+    }
+
+    val currentLevel: Infer[Int] = GetEnv.map(_.level)
+
     case class Lift[A](res: RefSpace[Either[Error, A]]) extends Infer[A] {
       def run(env: Env) = res
     }
@@ -790,10 +809,15 @@ object Infer {
       *
       * The paper we base the type inference on doesn't have a type system as
       * complex as bosatsu, so we have to generalize it.
+      *
+      * The existential metas are made at existsLevel, the level of the scope
+      * that binds them, and a caller that gets any has to use them inside
+      * that scope (Deeper).
       */
     private def skolemize(
         t: Type,
-        region: Region
+        region: Region,
+        existsLevel: Int
     ): Infer[(List[Type.Var.Skolem], List[Type.TyMeta], Type.Rho)] = {
 
       // Rule PRPOLY, which we only apply on completely covariant paths
@@ -807,7 +831,9 @@ object Infer {
           sks1 <- univ.traverse { case (b, k) =>
             newSkolemTyVar(b, k, existential = false)
           }
-          ms <- exists.traverse { case (_, k) => newExistential(k) }
+          ms <- exists.traverse { case (_, k) =>
+            newMetaAt(k, existential = true, existsLevel)
+          }
           sksT = sks1.map(Type.TyVar(_))
           // we only substitute leaves, so ty1 is still Leaf | TyApply
           ty1 = Type.substituteLeafApplyVar(
@@ -865,26 +891,6 @@ object Infer {
 
     def getFreeTyVars(ts: List[Type]): Infer[Set[Type.Var]] =
       ts.traverse(zonkType).map(Type.freeTyVars(_).toSet)
-
-    def getExistentialMetas(ts: List[Type]): Infer[Set[Type.Meta]] = {
-      val pureEmpty = pure(SortedSet.empty[Type.Meta])
-
-      def existentialsOf(tm: Type.Meta): Infer[Set[Type.Meta]] = {
-        val parents = readMeta(tm).flatMap {
-          case Some(Type.TyMeta(m2)) => existentialsOf(m2)
-          case _                     => pureEmpty
-        }
-
-        if (tm.existential) parents.map(_ + tm)
-        else parents
-      }
-
-      for {
-        zonked <- ts.traverse(zonkType)
-        metas = Type.metaTvs(zonked)
-        metaSet <- metas.toList.traverse(existentialsOf)
-      } yield metaSet.foldLeft(Set.empty[Type.Meta])(_ | _)
-    }
 
     val zonk: Type.Meta => Infer[Option[Type.Tau]] =
       Type.zonk[Infer](SortedSet.empty, readMeta, writeMeta)
@@ -1175,22 +1181,32 @@ object Infer {
             ) match {
               case Some(inf) => inf
               case None      =>
-                // Exists on the right: choose a witness via fresh existential metas.
-                vars
-                  .traverse { case (_, k) => newExistential(k) }
-                  .flatMap { metas =>
-                    val env = vars.iterator
-                      .map(_._1)
-                      .zip(metas.iterator)
-                      .toMap[Type.Var, Type.Rho]
-                    val in1 = Type.substituteRhoVar(in, env)
-                    for {
-                      coerce <- subsCheckRho2(rho1, in1, left, right, direction)
-                      ks <- checkedKinds
-                    } yield TypedExpr
-                      .widenCoerceRho(coerce)
-                      .andThen(TypedExpr.coerceRho(typeExists, ks))
-                  }
+                // Exists on the right: choose a witness via fresh existential
+                // metas, in a scope of their own so unifying them with a meta
+                // from outside solves them rather than the outside meta.
+                Deeper(
+                  vars
+                    .traverse { case (_, k) => newExistential(k) }
+                    .flatMap { metas =>
+                      val env = vars.iterator
+                        .map(_._1)
+                        .zip(metas.iterator)
+                        .toMap[Type.Var, Type.Rho]
+                      val in1 = Type.substituteRhoVar(in, env)
+                      for {
+                        coerce <- subsCheckRho2(
+                          rho1,
+                          in1,
+                          left,
+                          right,
+                          direction
+                        )
+                        ks <- checkedKinds
+                      } yield TypedExpr
+                        .widenCoerceRho(coerce)
+                        .andThen(TypedExpr.coerceRho(typeExists, ks))
+                    }
+                )
             }
           case (rho1, Type.Fun(a2, r2)) =>
             // Rule FUN
@@ -1355,7 +1371,44 @@ object Infer {
           } yield (leftT, rightT)
       }
 
-    // invariant the flexible type variable ty1 is not bound
+    /** Resolve the metas in a type that is to be the solution of a meta at
+      * level. This is zonk, except that a meta from a scope deeper than level
+      * can't stay: the solution must not refer to it. An unsolved one is
+      * solved to a fresh ordinary meta at level, which lowers it out of its
+      * scope, so an existential meta gets the outer meta as its witness. A
+      * solved one is replaced by its solution, which zonk does not look past
+      * for an existential meta.
+      *
+      * A meta at level or shallower is only zonked: its solution can't refer
+      * to anything deeper than it.
+      */
+    private def zonkToLevel(
+        level: Int
+    ): Type.Meta => Infer[Option[Type.Tau]] = {
+      lazy val fn: Type.Meta => Infer[Option[Type.Tau]] = { m =>
+        if (m.level <= level) zonk(m)
+        else
+          readMeta(m).flatMap {
+            case None =>
+              newMetaAt(m.kind, existential = false, level).flatMap { fresh =>
+                val tau = Type.Tau(fresh)
+                writeMeta(m, tau).as(Some(tau))
+              }
+            case Some(sol) =>
+              Type.Tau.zonkMeta(sol)(fn).map(Some(_))
+          }
+      }
+      fn
+    }
+
+    /** Solve the unbound meta ty1 to ty2.
+      *
+      * A meta's solution never refers to a meta from a deeper scope (see
+      * Type.Meta), so an outer meta never refers to the existential metas
+      * that a scope binds and checking can't let them escape. So between two
+      * metas the deeper one points at the other one, and a type ty1 is
+      * solved to has its deeper metas lowered to ty1's level first.
+      */
     def unifyUnboundVar(
         ty1: Type.TyMeta,
         ty2: Type.Tau,
@@ -1375,23 +1428,36 @@ object Infer {
                 case Some(ty2) =>
                   val tau1 = Type.Tau(ty1)
                   // we know that m2 is set, but m is not because ty1 is unbound
-                  if (m.existential == m2.existential) {
+                  //
+                  // When one of them is existential, the ordinary one points
+                  // at it, so terms of the ordinary one's type are seen to
+                  // have the existential. But an ordinary meta from outside
+                  // the existential's scope must not refer to it, so then the
+                  // two are only unified.
+                  val ordinaryInScope =
+                    if (m.existential) m2.level >= m.level
+                    else m.level >= m2.level
+                  if ((m.existential == m2.existential) || !ordinaryInScope) {
                     // we unify here because ty2 could possibly be ty1
                     unifyTau(tau1, ty2, left, right, direction)
                   } else if (m.existential) {
                     // m2.existential == false
-                    // we need to point m2 at m
-                    writeMeta(m, ty2) *> writeMeta(m2, tau1)
+                    // m takes m2's solution, then we point m2 at m
+                    unifyTau(tau1, ty2, left, right, direction) *>
+                      writeMeta(m2, tau1)
                   } else {
                     // m.existential == false && m2.existential == true
                     // we need to point m at m2
                     writeMeta(m, meta2)
                   }
                 case None =>
-                  // Both m and m2 are not set. We just point one at the other
-                  // by convention point to the smaller item which
-                  // definitely prevents cycles.
-                  if (cmp > 0) writeMeta(m, meta2)
+                  // Both m and m2 are not set. We just point one at the other:
+                  // the deeper one points at the shallower one, and at the
+                  // same level by convention we point to the smaller item
+                  // which definitely prevents cycles.
+                  val mPointsAtM2 =
+                    (m.level > m2.level) || ((m.level == m2.level) && (cmp > 0))
+                  if (mPointsAtM2) writeMeta(m, meta2)
                   else {
                     // since we checked above we know that
                     // m.id != m2.id, so it is safe to write without
@@ -1412,12 +1478,14 @@ object Infer {
             )
           }
         case nonMeta =>
+          val m = ty1.toMeta
           // we have a non-meta, but inside of it (TyApply) we may have
           // metas. Let's go ahead and zonk them now to minimize nesting
-          // metas inside metas.
-          zonkType(nonMeta)
+          // metas inside metas. This also lowers the metas from deeper
+          // scopes, which m's solution can't refer to.
+          Type.Tau
+            .zonkMeta(nonMeta)(zonkToLevel(m.level))
             .flatMap { nm2 =>
-              val m = ty1.toMeta
               val tvs2 = Type.metaTvs(nm2 :: Nil)
               if (tvs2(m)) fail(Error.UnexpectedMeta(m, nonMeta, left, right))
               else {
@@ -1430,7 +1498,7 @@ object Infer {
                       // may instantiate it with. We only allow the concrete
                       // kind to be <= the meta kind (variance can be widened
                       // upward/forgotten, but not made more specific).
-                      writeMeta(m, nonMeta)
+                      writeMeta(m, nm2)
                     } else {
                       fail(
                         Error.KindMismatch(
@@ -1557,12 +1625,19 @@ object Infer {
     /** Allocate a new Meta variable which will point to a Tau (no forall
       * anywhere) type
       */
-    def newMetaType0(kind: Kind, existential: Boolean): Infer[Type.TyMeta] =
+    def newMetaAt(
+        kind: Kind,
+        existential: Boolean,
+        level: Int
+    ): Infer[Type.TyMeta] =
       for {
         id <- nextId
         ref <- emptyRef
-        meta = Type.Meta(kind, id, existential, ref)
+        meta = Type.Meta(kind, id, existential, level, ref)
       } yield Type.TyMeta(meta)
+
+    def newMetaType0(kind: Kind, existential: Boolean): Infer[Type.TyMeta] =
+      GetEnv.flatMap(env => newMetaAt(kind, existential, env.level))
 
     def newMetaType(kind: Kind): Infer[Type.TyMeta] =
       newMetaType0(kind, existential = false)
@@ -1620,41 +1695,17 @@ object Infer {
             }
       }
 
-    def checkEscapeMetas[A](
-        metas: List[Type.TyMeta],
-        declared: Type,
-        envTpes: Infer[List[Type]],
-        a: A,
-        onErr: NonEmptyList[Type] => Error
-    )(
-        fn: (A, NonEmptyList[Type.TyMeta]) => Infer[A]
-    ): Infer[A] =
-      metas match {
-        case Nil            => pure(a)
-        case nel @ (h :: t) =>
-          envTpes
-            .flatMap(tail => getExistentialMetas(declared :: tail))
-            .flatMap { escTvs =>
-              // if the escaped set is empty, then filter(Set.empty) == Nil
-              val badList =
-                if (escTvs.isEmpty) Nil
-                else nel.filter(tm => escTvs(tm.toMeta))
-
-              NonEmptyList.fromList(badList) match {
-                case None =>
-                  fn(a, NonEmptyList(h, t))
-                case Some(badTvs) => fail(onErr(badTvs))
-              }
-            }
-      }
-
     /** Skolemize declared, run fn on its rho, then check that none of the
-      * skolems or existential metas escaped into declared or envTpes.
+      * skolems escaped into declared or envTpes.
       *
-      * The escape checks see only the metas fn solved before its Infer
+      * The escape check sees only the metas fn solved before its Infer
       * returned, so fn returns a pure coercion: it can't put off inference
       * work until the coercion is applied. checkSigma has to check a term
-      * before the escape checks, so it runs them itself.
+      * before the escape check, so it runs it itself.
+      *
+      * The existential metas of declared get a scope of their own (see
+      * Type.Meta), so they can't escape: unifying one with a meta from
+      * outside solves it to that meta.
       */
     def subsUpper(
         declared: Type,
@@ -1666,18 +1717,14 @@ object Infer {
         onErr: NonEmptyList[Type] => Error
     ): Infer[TypedExpr.Coerce] =
       for {
-        (skols, metas, rho) <- skolemize(declared, region)
+        outer <- currentLevel
+        (skols, metas, rho) <- skolemize(declared, region, outer + 1)
         // metas are existentials introduced from covariant positions in declared;
-        // callers decide whether to quantify them, we only ensure they don't escape.
-        coerce <- fn(rho)
+        // callers decide whether to quantify them.
+        coerce <- if (metas.isEmpty) fn(rho) else Deeper(fn(rho))
         // if there are no skolem variables, we can shortcut here, because empty.filter(fn) == empty
-        resSkols <- checkEscapeSkols(skols, declared, envTpes, coerce, onErr) {
+        res <- checkEscapeSkols(skols, declared, envTpes, coerce, onErr) {
           (coerce, nel) => coerce.andThen(unskolemize(nel))
-        }
-        res <- checkEscapeMetas(metas, declared, envTpes, resSkols, onErr) {
-          (coerce, _) =>
-            // TODO maybe this function should go ahead and quantify
-            pure(coerce)
         }
       } yield res
 
@@ -1810,25 +1857,51 @@ object Infer {
       * checking. If all constrained branches agree on a tau, choose it;
       * otherwise fall back to a fresh existential skolem to represent "some
       * witness".
+      *
+      * A branch can give an unbound meta from outside m's scope as the
+      * witness: the type of something in scope there, such as a lambda
+      * argument the branch returns. That meta is the same in every branch, so
+      * the other branches' witnesses are unified with it instead.
       */
     def unifyExistential(
         m: Type.Meta,
         values: List[(Type.Tau, Region)]
     ): Infer[Unit] = {
-      def loop(values: List[(Type.Tau, Region)]): Infer[Unit] =
-        values match {
-          case (Type.TyMeta(m1), r1) :: tail =>
+      // the witness a branch gave, following solved metas, or None if the
+      // branch left it unconstrained: an unbound meta from m's scope or a
+      // deeper one gives no information about the witness.
+      def resolve(t: Type.Tau): Infer[Option[Type.Tau]] =
+        t match {
+          case Type.TyMeta(m1) =>
             readMeta(m1).flatMap {
-              case Some(tau1) => loop((tau1, r1) :: tail)
-              // Unconstrained meta from a branch: no information about the
-              // witness, so it should not constrain the merged result.
-              case None => loop(tail)
+              case Some(tau1) => resolve(tau1)
+              case None       => pure(if (m1.level < m.level) Some(t) else None)
             }
-          case (h, _) :: Nil =>
+          case _ => pure(Some(t))
+        }
+
+      def isOuterMeta(t: Type.Tau): Boolean =
+        t match {
+          case Type.TyMeta(m1) => m1.level < m.level
+          case _               => false
+        }
+
+      // h is a witness from a branch, and rest the ones from later branches
+      def merge(
+          h: Type.Tau,
+          hRegion: Region,
+          rest: List[(Type.Tau, Region)]
+      ): Infer[Unit] =
+        rest match {
+          case Nil =>
             // if we get here, all of them are the same, we can write that
             writeMeta(m, h)
-          case (h1, _) :: (tail @ ((h2, _) :: _)) =>
-            if (h1 === h2) loop(tail)
+          case (h2, r2) :: tail =>
+            if (h === h2) merge(h2, r2, tail)
+            else if (isOuterMeta(h) || isOuterMeta(h2))
+              // a witness from outside m's scope is the same in every branch
+              unifyTau(h, h2, hRegion, r2, Error.Direction.ExpectRight) *>
+                merge(h2, r2, tail)
             else {
               // there are at least two distinct values, make a new meta skolem
               // Once we see disagreement, the merged result must be an
@@ -1844,10 +1917,14 @@ object Infer {
                 writeMeta(m, tpe)
               }
             }
-          case Nil => unit
         }
 
-      loop(values)
+      values
+        .traverseFilter { case (t, r) => resolve(t).map(_.map((_, r))) }
+        .flatMap {
+          case Nil            => unit
+          case (h, r) :: tail => merge(h, r, tail)
+        }
     }
 
     /** This idea here is that each branch may solve a different value of a
@@ -1866,7 +1943,8 @@ object Infer {
           s.get(m).map((_, region))
         }
 
-        // despite the name, this can't fail
+        // this only fails when a branch's witness is a meta from outside m's
+        // scope that can't unify with another branch's witness
         unifyExistential(m, toUnify)
       }
 
@@ -3554,36 +3632,44 @@ object Infer {
       }
 
     /** Check t against the sigma type tpe: skolemize tpe, check t against the
-      * resulting rho, then check that none of the skolems or existential metas
-      * escaped into the environment.
+      * resulting rho, then check that none of the skolems escaped into the
+      * environment.
       *
-      * The escape checks have to come after t is checked, because checking t
+      * The escape check has to come after t is checked, because checking t
       * can solve a meta in the environment to one of them. In
       * `x -> (x: forall a. a -> a)` the lambda argument x has a meta type, and
       * checking x against `sk -> sk` solves that meta to `sk -> sk`, so the
       * lambda's type would mention the skolem.
+      *
+      * The existential metas can't escape: t is checked in a scope of their
+      * own (see Type.Meta). In `x -> (x: exists a. a)` checking x against the
+      * existential meta solves that meta to x's meta, which becomes the
+      * hidden witness, and the lambda gets `forall b. b -> exists a. a`.
       */
     def checkSigma[A: HasRegion](t: Expr[A], tpe: Type): Infer[TypedExpr[A]] = {
       val regionT = region(t)
       val onErr: NonEmptyList[Type] => Error =
         Error.NotPolymorphicEnough(tpe, t, _, regionT)
       for {
-        (skols, metas, rho) <- skolemize(tpe, regionT)
-        te <- checkRho(t, rho)
-        // quantifyMetas writes the unsolved existential metas, after which the
-        // environment no longer refers to them, so look for them first
-        _ <- checkEscapeMetas(metas, tpe, envTypes, (), onErr) { (u, _) =>
-          pure(u)
-        }
+        outer <- currentLevel
+        (skols, metas, rho) <- skolemize(tpe, regionT, outer + 1)
         res <-
           if (tpe == rho) {
             // there was nothing to skolemize, so we don't need to zonk here
-            pure(te)
+            checkRho(t, rho)
           } else {
+            val checked =
+              for {
+                te <- checkRho(t, rho)
+                // we need to zonk before we unskolemize because some of the
+                // metas could be skolems
+                zte <- zonkTypedExpr(te)
+                // quantifyMetas binds the metas, so it runs in their scope
+                qte <- quantifyMetas(metas, rho)(zte)
+              } yield qte
+
             for {
-              // we need to zonk before we unskolemize because some of the metas could be skolems
-              zte <- zonkTypedExpr(te)
-              qte <- quantifyMetas(metas, rho)(zte)
+              qte <- if (metas.isEmpty) checked else Deeper(checked)
               res <- checkEscapeSkols(skols, tpe, envTypes, qte, onErr) {
                 (qte, nel) => unskolemize(nel)(qte)
               }

@@ -1626,7 +1626,7 @@ object Type {
       case ((tpe, locals), rec) => tpe match {
         case TyVar(b @ Var.Bound(_)) => Eval.now(locals.get(b).fold(unbound(b))(known))
         case TyVar(Var.Skolem(_, k, _, _)) => Eval.now(known(k))
-        case TyMeta(Meta(k, _, _, _)) => Eval.now(known(k))
+        case TyMeta(Meta(k, _, _, _, _)) => Eval.now(known(k))
         case tc @ TyConst(_) => Eval.now(const(tc))
         case ap @ TyApply(left, right) =>
           Eval.defer(rec((left, locals))).flatMap { lk =>
@@ -2019,10 +2019,21 @@ object Type {
       case None      => Nil
     }
 
+  /** A type that inference solves by writing ref.
+    *
+    * level counts the existential scopes that enclosed inference when the meta
+    * was made: checking against a type with an existential to skolemize opens
+    * one, and its existential metas are made inside it. Inference keeps every
+    * meta's solution free of metas from a deeper level: solving a meta first
+    * lowers the deeper metas in its solution to its level. The types in a
+    * scope's environment were made outside it, so they can't refer to the
+    * existential metas it binds.
+    */
   case class Meta(
       kind: Kind,
       id: Long,
       existential: Boolean,
+      level: Int,
       ref: Ref[Option[Type.Tau]]
   )
 
@@ -2275,7 +2286,13 @@ object Type {
           // the ideal solution is to better static type information
           // to have fully inferred types with no skolems or metas
           TyMeta(
-            Meta(Kind.Type, l, opt.isDefined, RefSpace.constRef(Option.empty))
+            Meta(
+              Kind.Type,
+              l,
+              opt.isDefined,
+              level = 0,
+              RefSpace.constRef(Option.empty)
+            )
           )
         }
 
@@ -2324,7 +2341,7 @@ object Type {
           val dol = "$"
           val ex = if (e) "e" else ""
           Some(Doc.text(s"$dol$n$dol$i$ex"))
-        case TyMeta(Meta(_, i, ex, _)) =>
+        case TyMeta(Meta(_, i, ex, _, _)) =>
           // TODO Kind and if it is existential
           val exstr = if (ex) "e" else ""
           Some(Doc.text(s"?$exstr$i"))

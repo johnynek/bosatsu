@@ -1910,10 +1910,126 @@ def main(x):
     assertOnlyTypeErrors("""#
 main = x -> _ -> (x: forall a. a -> a)
 """)
-    // an existential meta escapes the same way: x's meta is solved to a type
-    // that refers to it
-    assertOnlyTypeErrors("""#
+  }
+
+  test("a lambda argument checked against an existential is its witness") {
+    // The existential meta is made in a scope inside the one x's meta is
+    // made in, so unifying them solves the existential meta to x's meta, not
+    // the other way around. x's type is then the hidden witness, and it
+    // generalizes.
+    parseProgram(
+      """#
+main = x -> (x: exists a. a)
+""",
+      "forall b. b -> (exists a. a)"
+    )
+    // x's meta is solved to List[c], and c has to be lowered out of the
+    // existential's scope: it is solved to a meta from x's scope
+    parseProgram(
+      """#
 main = x -> (x: exists a. List[a])
+""",
+      "forall b. List[b] -> (exists a. List[a])"
+    )
+    parseProgram(
+      """#
+def main(x) -> exists a. a: x
+""",
+      "forall b. b -> (exists a. a)"
+    )
+    // an annotated let checks its right hand side the same way
+    parseProgram(
+      """#
+def main(x):
+  (y: exists a. List[a]) = x
+  y
+""",
+      "forall b. List[b] -> (exists a. List[a])"
+    )
+    // the second check sees x's meta solved by the first one, and only the
+    // metas of x's scope are in its solution
+    parseProgram(
+      """#
+def main(x):
+  (y: exists a. List[a]) = x
+  (z: exists b. List[b]) = x
+  (y, z)
+""",
+      "forall c. exists a, b. List[c] -> (List[a], List[b])"
+    )
+    // the witness is x's type, which a later use can still solve
+    parseProgram(
+      """#
+def main(x):
+  (_: exists a. a) = x
+  x.add(1)
+""",
+      "Int -> Int"
+    )
+    // a function argument checked against an existential parameter
+    parseProgram(
+      """#
+def f(_: exists a. List[a]) -> Int: 1
+def main(x): f(x)
+""",
+      "forall b. List[b] -> Int"
+    )
+    // [1] solves the existential meta to Int, and x's meta gets that
+    // solution, in either order: x's meta can't refer to the existential
+    // meta even once it is solved
+    parseProgram(
+      """#
+main = x -> ((x, [1]): exists a. (List[a], List[a]))
+""",
+      "List[Int] -> (exists a. (List[a], List[a]))"
+    )
+    parseProgram(
+      """#
+main = x -> (([1], x): exists a. (List[a], List[a]))
+""",
+      "List[Int] -> (exists a. (List[a], List[a]))"
+    )
+    // the metas of f's type made inside the existential's scope are lowered
+    // when f's meta is solved to a function type
+    parseProgram(
+      """#
+def main(f): (f([]): exists a. a)
+""",
+      "forall b, c. (List[b] -> c) -> (exists a. a)"
+    )
+  }
+
+  test("match branches that give a lambda argument as the witness agree") {
+    // One function returns both branches, so both have the same witness.
+    // A branch returning x makes it x's type, and the other branches have
+    // to agree with it.
+    parseProgram(
+      """#
+main = x -> ((n -> x if eq_Int(n, 0) else 1): exists a. Int -> a)
+""",
+      "Int -> (exists a. Int -> a)"
+    )
+    parseProgram(
+      """#
+main = x -> ((n -> 1 if eq_Int(n, 0) else x): exists a. Int -> a)
+""",
+      "Int -> (exists a. Int -> a)"
+    )
+    parseProgram(
+      """#
+def main(x, y): ((n -> x if eq_Int(n, 0) else y): exists a. Int -> a)
+""",
+      "forall c. (c, c) -> (exists a. Int -> a)"
+    )
+    parseProgram(
+      """#
+main = x -> ((n -> x if eq_Int(n, 0) else x): exists a. Int -> a)
+""",
+      "forall c. c -> (exists a. Int -> a)"
+    )
+    // x would have to be List[x]
+    parseProgramIllTyped("""#
+main = x -> ((n -> [x] if eq_Int(n, 0) else x): exists a. Int -> a)
 """)
   }
 
@@ -2756,7 +2872,7 @@ def pass_thru(f: Prog[exists a. a, Foo, Foo]) -> Prog[exists a. a, Foo, Foo]:
     val infer: Infer[Option[Type.Tau]] =
       for {
         ref <- Infer.lift(RefSpace.newRef[Option[Type.Tau]](None))
-        meta = Type.Meta(Kind.Type, 9999L, existential = false, ref)
+        meta = Type.Meta(Kind.Type, 9999L, existential = false, level = 0, ref)
         tmeta = Type.TyMeta(meta)
         _ <- Infer
           .substitutionCheck(tmeta, Type.IntType, emptyRegion, emptyRegion)
@@ -2772,7 +2888,7 @@ def pass_thru(f: Prog[exists a. a, Foo, Foo]) -> Prog[exists a. a, Foo, Foo]:
     val infer: Infer[Option[Type.Tau]] =
       for {
         ref <- Infer.lift(RefSpace.newRef[Option[Type.Tau]](None))
-        meta = Type.Meta(Kind.Type, 10000L, existential = false, ref)
+        meta = Type.Meta(Kind.Type, 10000L, existential = false, level = 0, ref)
         tmeta = Type.TyMeta(meta)
         _ <- Infer.substitutionCheck(
           tmeta,
@@ -2805,7 +2921,7 @@ def pass_thru(f: Prog[exists a. a, Foo, Foo]) -> Prog[exists a. a, Foo, Foo]:
     val infer: Infer[Unit] =
       for {
         ref <- Infer.lift(RefSpace.newRef[Option[Type.Tau]](None))
-        meta = Type.Meta(Kind.Type, 20000L, existential = false, ref)
+        meta = Type.Meta(Kind.Type, 20000L, existential = false, level = 0, ref)
         tmeta = Type.TyMeta(meta)
         t1 = Type.TyApply(boxTy, tmeta)
         t2 = Type.TyApply(boxTy, nonTauRho)
@@ -2836,7 +2952,7 @@ def pass_thru(f: Prog[exists a. a, Foo, Foo]) -> Prog[exists a. a, Foo, Foo]:
     val infer: Infer[Unit] =
       for {
         ref <- Infer.lift(RefSpace.newRef[Option[Type.Tau]](None))
-        meta = Type.Meta(Kind.Type, 20001L, existential = false, ref)
+        meta = Type.Meta(Kind.Type, 20001L, existential = false, level = 0, ref)
         tmeta = Type.TyMeta(meta)
         t1 = Type.TyApply(boxTy, nonTauRho)
         t2 = Type.TyApply(boxTy, tmeta)
