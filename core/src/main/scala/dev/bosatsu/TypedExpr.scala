@@ -85,8 +85,10 @@ sealed abstract class TypedExpr[+T] { self: Product =>
         args.foldMap(_.size)
       case Match(a, branches, _) =>
         a.size + branches.foldMap { branch =>
-          branch.foldGuardExpr(0) { case (_, guardExpr) => guardExpr.size } +
-            branch.expr.size
+          // a MatchGuard counts both its argument and its inner guard
+          branch.foldGuardExpr(branch.expr.size) { (acc, guardExpr) =>
+            acc + guardExpr.size
+          }
         }
     }
 
@@ -1017,6 +1019,20 @@ object TypedExpr {
           guardOpt.fold(withArg)(innerFn(withArg, _))
       }
 
+    /** Like foldExpr, but fn sees the expressions in reverse: a MatchGuard's
+      * inner guard before its argument. Pushing them onto a stack this way
+      * leaves them to pop in foldExpr's order, the order traverse visits them.
+      */
+    def foldExprReverse[T, A](guard: BranchGuard[T], init: A)(
+        fn: (A, TypedExpr[T]) => A
+    ): A =
+      guard match {
+        case BoolGuard(expr) =>
+          fn(init, expr)
+        case MatchGuard(arg, _, guardOpt) =>
+          fn(guardOpt.fold(init)(fn(init, _)), arg)
+      }
+
     def iterator[T](guard: BranchGuard[T]): Iterator[TypedExpr[T]] =
       guard match {
         case BoolGuard(expr) => Iterator.single(expr)
@@ -1133,6 +1149,15 @@ object TypedExpr {
       guardNode match {
         case None        => init
         case Some(guard) => BranchGuard.foldExpr(guard, init)(fn)
+      }
+
+    // foldGuardExpr in reverse, for pushing the guard expressions onto a stack
+    inline def foldGuardExprReverse[A](init: A)(
+        inline fn: (A, TypedExpr[T]) => A
+    ): A =
+      guardNode match {
+        case None        => init
+        case Some(guard) => BranchGuard.foldExprReverse(guard, init)(fn)
       }
 
     inline def foldGuardExprScoped[A](init: A)(
@@ -1986,8 +2011,8 @@ object TypedExpr {
               while (revBranches.hasNext) {
                 val branch = revBranches.next()
                 work = Visit(branch.expr, ctx) :: work
-                branch.guardExprIterator.toList.reverseIterator.foreach { guard =>
-                  work = Visit(guard, ctx) :: work
+                work = branch.foldGuardExprReverse(work) { (stack, guard) =>
+                  Visit(guard, ctx) :: stack
                 }
               }
               work = Visit(arg, ctx) :: work
@@ -3154,8 +3179,10 @@ object TypedExpr {
                   while (revBranches.hasNext) {
                     val branch = revBranches.next()
                     work = Visit(branch.expr) :: work
-                    branch.guardExprIterator.foreach { guard =>
-                      work = Visit(guard) :: work
+                    // traverse visits a MatchGuard's argument before its
+                    // inner guard, so the argument goes on top
+                    work = branch.foldGuardExprReverse(work) { (stack, guard) =>
+                      Visit(guard) :: stack
                     }
                   }
                   work = Visit(arg) :: work
