@@ -1,9 +1,10 @@
 package dev.bosatsu
 
 import dev.bosatsu.Identifier.{Constructor, Name}
-import dev.bosatsu.codegen.clang.{Code, RuntimeIdent}
 import scala.compiletime.testing.{typeCheckErrors, typeChecks}
 
+// The compile-time checks of Predef names. ReservedNamesTest checks the other
+// built-in names, at test time.
 class CheckedNamesTest extends munit.FunSuite {
 
   private val predefSource =
@@ -48,63 +49,26 @@ class CheckedNamesTest extends munit.FunSuite {
     )
   }
 
-  test("an external compiles only if its package declares it external") {
+  test("a Predef external compiles only if Predef declares it external") {
     assertEquals(
       PredefName.external("add"),
       (PackageName.PredefName, Name("add"))
     )
     assertEquals(
-      ReservedPackage.Prog.external("pure"),
-      (PackageName.parts("Bosatsu", "Prog"), Name("pure"))
-    )
-    // `external empty_Bytes: Bytes` declares an external value
-    assert(typeChecks("""ReservedPackage.IoBytes.external("empty_Bytes")"""))
-    assertEquals(
-      typeCheckErrors("""ReservedPackage.Prog.external("puer")""")
-        .map(_.message),
+      typeCheckErrors("""PredefName.external("ad")""").map(_.message),
       List(
-        "`puer` is not one of the external declarations of Bosatsu/Prog in test_workspace/Prog.bosatsu. Did you mean `pure`?"
+        s"`ad` is not one of the external declarations of Bosatsu/Predef in $predefSource. Did you mean `add`?"
       )
     )
-    // map is defined in Bosatsu, not external
+    // concat is defined in Bosatsu, not external
     assertEquals(
-      typeCheckErrors("""ReservedPackage.Prog.external("map")""").length,
+      typeCheckErrors("""PredefName.external("concat")""").length,
       1
     )
     // an external of another package
     assertEquals(
       typeCheckErrors("""PredefName.external("pure")""").length,
       1
-    )
-  }
-
-  test("the reserved package names match their sources") {
-    assertEquals(
-      ReservedPackage.Prog.name,
-      PackageName.parts("Bosatsu", "Prog")
-    )
-    assertEquals(
-      ReservedPackage.Array.name,
-      PackageName.parts("Bosatsu", "Collection", "Array")
-    )
-    assertEquals(
-      typeCheckErrors(
-        """CheckedNames.packageName("test_workspace/Prog.bosatsu", "Bosatsu/Prgo")"""
-      ).map(_.message),
-      List(
-        "`Bosatsu/Prgo` is not the package of test_workspace/Prog.bosatsu, which is `Bosatsu/Prog`"
-      )
-    )
-  }
-
-  test("a C runtime identifier compiles only if a header names it") {
-    assertEquals(RuntimeIdent("bsts_integer_cmp"), Code.Ident("bsts_integer_cmp"))
-    assert(typeChecks("""RuntimeIdent("BSTS_NAT_0")"""))
-    assertEquals(
-      typeCheckErrors("""RuntimeIdent("bsts_integer_cpm")""").map(_.message),
-      List(
-        "`bsts_integer_cpm` is not one of the identifiers in the c_runtime/*.h headers. Did you mean `bsts_integer_cmp`?"
-      )
     )
   }
 

@@ -61,9 +61,21 @@ ThisBuild / scmInfo := Some(
 // whose last pass is cached. That cache key covers the suite's classes and
 // everything they depend on, classpath resources and test options, but not
 // files read at runtime, so these are hashed into every suite's key: a change
-// to any of them reruns the tests.
+// to any of them reruns the tests. Besides these, testDataDigest hashes every
+// c_runtime/*.h header. ReservedNamesTest checks the built-in names the
+// compiler spells out against the headers and the test_workspace sources,
+// and it scans the JS-only sources for those names, which the JVM tests'
+// classpath doesn't cover.
 lazy val testDataPaths =
-  List("test_workspace", ".github/workflows", "bosatsu_libs.json")
+  List(
+    "test_workspace",
+    ".github/workflows",
+    "bosatsu_libs.json",
+    "core/.js/src/main/scala"
+  )
+
+def cRuntimeHeaders(root: File): Seq[String] =
+  ((root / "c_runtime") * "*.h").get().flatMap(IO.relativize(root, _))
 
 lazy val testDataDigest =
   taskKey[Digest]("Hash of the repo files that tests read while they run")
@@ -99,41 +111,31 @@ def repoFilesDigest(root: File, paths: Seq[String]): Digest = {
   Digest.sha256Hash(sha.digest())
 }
 
-ThisBuild / testDataDigest := Def.uncached(
-  repoFilesDigest((ThisBuild / baseDirectory).value, testDataPaths)
-)
+ThisBuild / testDataDigest := Def.uncached {
+  val root = (ThisBuild / baseDirectory).value
+  repoFilesDigest(root, testDataPaths ++ cRuntimeHeaders(root))
+}
 
 // Repo files that core's main code reads at compile time, through the macros
-// in base: the Predef source, which it embeds and checks Predef names against,
-// the sources of the other reserved packages whose names it checks, and every
-// c_runtime/*.h header, which it checks C runtime names against. Neither
-// layer of incremental compilation sees a file a macro reads: sbt 2 caches a
-// compile by its sources, classpath and options, and zinc recompiles only
-// sources whose own text or dependencies changed. So core hashes these files
-// into its extraIncOptions, which are in both the cache key and zinc's setup:
-// editing one misses the cache and makes zinc recompile all of core main.
+// in base: the Predef source, which it embeds and checks Predef names
+// against. Neither layer of incremental compilation sees a file a macro reads:
+// sbt 2 caches a compile by its sources, classpath and options, and zinc
+// recompiles only sources whose own text or dependencies changed. So core
+// hashes these files into its extraIncOptions, which are in both the cache
+// key and zinc's setup: editing one misses the cache and makes zinc recompile
+// all of core main. Keep this list short, since each edit costs that
+// recompile. The other built-in names are checked by ReservedNamesTest, which
+// reads its files at test time (see testDataPaths).
 lazy val coreMacroInputPaths = List(
-  "core/src/main/resources/bosatsu/predef.bosatsu",
-  "test_workspace/Prog.bosatsu",
-  "test_workspace/Int64.bosatsu",
-  "test_workspace/Float64.bosatsu",
-  "test_workspace/Bosatsu/Lazy.bosatsu",
-  "test_workspace/Bosatsu/Eval.bosatsu",
-  "test_workspace/Bosatsu/IO/Core.bosatsu",
-  "test_workspace/Bosatsu/IO/Bytes.bosatsu",
-  "test_workspace/Bosatsu/Collection/Array.bosatsu",
-  "test_workspace/Bosatsu/Json.bosatsu"
+  "core/src/main/resources/bosatsu/predef.bosatsu"
 )
 
 lazy val coreMacroInputDigest =
   taskKey[Digest]("Hash of the repo files that core's macros read at compile time")
 
-ThisBuild / coreMacroInputDigest := Def.uncached {
-  val root = (ThisBuild / baseDirectory).value
-  val headers =
-    ((root / "c_runtime") * "*.h").get().flatMap(IO.relativize(root, _))
-  repoFilesDigest(root, coreMacroInputPaths ++ headers)
-}
+ThisBuild / coreMacroInputDigest := Def.uncached(
+  repoFilesDigest((ThisBuild / baseDirectory).value, coreMacroInputPaths)
+)
 
 lazy val coreMacroInputOption = "bosatsu.coreMacroInputs"
 

@@ -3,126 +3,66 @@ package dev.bosatsu
 import dev.bosatsu.Identifier.{Bindable, Constructor, Name}
 
 /** The reserved packages besides Predef that the compiler names, one
-  * definition each. Their sources are in test_workspace, and each package name,
-  * and each of its names that the compiler spells out, is checked against that
-  * source when the compiler is compiled (see [[CheckedNames]]). Each argument
-  * must be a string literal.
+  * definition each. Their sources are in test_workspace.
+  *
+  * Unlike Predef's names (see [[PredefName]]), these are not checked when the
+  * compiler is compiled: reading these sources then would make every edit to
+  * them recompile all of core. `ReservedNamesTest` checks them instead. It
+  * checks each package name against its source's `package` line. It also
+  * checks each name passed to `external`, `value` or `typeName`, and each
+  * registered external, against what the source declares. The test finds those
+  * names by scanning the compiler's sources, so pass each one as a string
+  * literal.
   */
 object ReservedPackage {
-  private inline def checkedName(
-      inline source: String,
-      inline name: String
-  ): PackageName =
-    Parser.unsafeParse(
-      PackageName.parser,
-      CheckedNames.packageName(source, name)
-    )
-
-  object Prog {
-    inline val source = "test_workspace/Prog.bosatsu"
-    val name: PackageName = checkedName(source, "Bosatsu/Prog")
+  sealed abstract class Reserved(val source: String, packageName: String) {
+    val name: PackageName = Parser.unsafeParse(PackageName.parser, packageName)
 
     /** An external of this package, as the key [[Externals]] registers its
       * implementation under
       */
-    inline def external(inline n: String): (PackageName, Bindable) =
-      (name, Name(CheckedNames.external(source, n)))
+    def external(n: String): (PackageName, Bindable) = (name, Name(n))
 
-    inline def typeName(inline n: String): TypeName =
-      TypeName(Constructor(CheckedNames.exportedType(source, n)))
+    /** A value in this package's export list */
+    def value(n: String): Name = Name(n)
+
+    /** A type in this package's export list */
+    def typeName(n: String): TypeName = TypeName(Constructor(n))
   }
 
-  object Int64 {
-    inline val source = "test_workspace/Int64.bosatsu"
-    val name: PackageName = checkedName(source, "Bosatsu/Num/Int64")
+  object Prog extends Reserved("test_workspace/Prog.bosatsu", "Bosatsu/Prog")
 
-    inline def external(inline n: String): (PackageName, Bindable) =
-      (name, Name(CheckedNames.external(source, n)))
+  object Int64
+      extends Reserved("test_workspace/Int64.bosatsu", "Bosatsu/Num/Int64")
 
-    inline def value(inline n: String): Name =
-      Name(CheckedNames.exportedValue(source, n))
+  object Float64
+      extends Reserved("test_workspace/Float64.bosatsu", "Bosatsu/Num/Float64")
 
-    inline def typeName(inline n: String): TypeName =
-      TypeName(Constructor(CheckedNames.exportedType(source, n)))
-  }
+  object Lazy
+      extends Reserved("test_workspace/Bosatsu/Lazy.bosatsu", "Bosatsu/Lazy")
 
-  object Float64 {
-    inline val source = "test_workspace/Float64.bosatsu"
-    val name: PackageName = checkedName(source, "Bosatsu/Num/Float64")
+  object Eval
+      extends Reserved("test_workspace/Bosatsu/Eval.bosatsu", "Bosatsu/Eval")
 
-    inline def external(inline n: String): (PackageName, Bindable) =
-      (name, Name(CheckedNames.external(source, n)))
+  object IoCore
+      extends Reserved("test_workspace/Bosatsu/IO/Core.bosatsu", "Bosatsu/IO/Core")
 
-    inline def value(inline n: String): Name =
-      Name(CheckedNames.exportedValue(source, n))
-  }
+  object IoBytes
+      extends Reserved(
+        "test_workspace/Bosatsu/IO/Bytes.bosatsu",
+        "Bosatsu/IO/Bytes"
+      )
 
-  object Lazy {
-    inline val source = "test_workspace/Bosatsu/Lazy.bosatsu"
-    val name: PackageName = checkedName(source, "Bosatsu/Lazy")
+  object Array
+      extends Reserved(
+        "test_workspace/Bosatsu/Collection/Array.bosatsu",
+        "Bosatsu/Collection/Array"
+      )
 
-    inline def external(inline n: String): (PackageName, Bindable) =
-      (name, Name(CheckedNames.external(source, n)))
+  object Json
+      extends Reserved("test_workspace/Bosatsu/Json.bosatsu", "Bosatsu/Json")
 
-    inline def value(inline n: String): Name =
-      Name(CheckedNames.exportedValue(source, n))
-
-    inline def typeName(inline n: String): TypeName =
-      TypeName(Constructor(CheckedNames.exportedType(source, n)))
-  }
-
-  object Eval {
-    inline val source = "test_workspace/Bosatsu/Eval.bosatsu"
-    val name: PackageName = checkedName(source, "Bosatsu/Eval")
-
-    inline def external(inline n: String): (PackageName, Bindable) =
-      (name, Name(CheckedNames.external(source, n)))
-
-    inline def value(inline n: String): Name =
-      Name(CheckedNames.exportedValue(source, n))
-
-    inline def typeName(inline n: String): TypeName =
-      TypeName(Constructor(CheckedNames.exportedType(source, n)))
-  }
-
-  object IoCore {
-    inline val source = "test_workspace/Bosatsu/IO/Core.bosatsu"
-    val name: PackageName = checkedName(source, "Bosatsu/IO/Core")
-
-    inline def external(inline n: String): (PackageName, Bindable) =
-      (name, Name(CheckedNames.external(source, n)))
-  }
-
-  object IoBytes {
-    inline val source = "test_workspace/Bosatsu/IO/Bytes.bosatsu"
-    val name: PackageName = checkedName(source, "Bosatsu/IO/Bytes")
-
-    inline def external(inline n: String): (PackageName, Bindable) =
-      (name, Name(CheckedNames.external(source, n)))
-
-    inline def typeName(inline n: String): TypeName =
-      TypeName(Constructor(CheckedNames.exportedType(source, n)))
-  }
-
-  object Array {
-    inline val source = "test_workspace/Bosatsu/Collection/Array.bosatsu"
-    val name: PackageName = checkedName(source, "Bosatsu/Collection/Array")
-
-    inline def external(inline n: String): (PackageName, Bindable) =
-      (name, Name(CheckedNames.external(source, n)))
-
-    inline def value(inline n: String): Name =
-      Name(CheckedNames.exportedValue(source, n))
-
-    inline def typeName(inline n: String): TypeName =
-      TypeName(Constructor(CheckedNames.exportedType(source, n)))
-  }
-
-  object Json {
-    inline val source = "test_workspace/Bosatsu/Json.bosatsu"
-    val name: PackageName = checkedName(source, "Bosatsu/Json")
-
-    inline def typeName(inline n: String): TypeName =
-      TypeName(Constructor(CheckedNames.exportedType(source, n)))
-  }
+  /** Every reserved package above */
+  val all: List[Reserved] =
+    List(Prog, Int64, Float64, Lazy, Eval, IoCore, IoBytes, Array, Json)
 }

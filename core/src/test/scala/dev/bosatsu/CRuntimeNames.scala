@@ -1,8 +1,7 @@
 package dev.bosatsu
 
-/** The identifiers in C source, which the C code generator's runtime names are
-  * checked against when the compiler is compiled (see
-  * [[CheckedNames.cRuntime]]).
+/** The identifiers in C source, which `ReservedNamesTest` checks the C code
+  * generator's runtime names against.
   */
 object CRuntimeNames {
   private def isIdentStart(c: Char): Boolean =

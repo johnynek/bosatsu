@@ -1,19 +1,21 @@
 package dev.bosatsu
 
-import java.io.File
 import scala.quoted.{Expr, Quotes}
 
-/** Checks, when the compiler is compiled, the built-in names it spells out
-  * against the files that define them: the Bosatsu sources of Predef and the
-  * other reserved packages, and the C runtime headers.
+/** Checks, when the compiler is compiled, the Predef names it spells out
+  * against the Predef source.
   *
   * Each check takes string literals and expands to the name itself, so it
   * costs nothing at runtime. A name the file doesn't define is a compile error
   * that says which name and which list it was checked against, instead of a
   * failure when some program reaches it.
   *
-  * The files are read while core compiles, so build.sbt lists them in
-  * `coreMacroInputPaths`: that way, editing one recompiles core.
+  * The file is read while core compiles, so build.sbt lists it in
+  * `coreMacroInputPaths`: that way, editing it recompiles core. Core embeds
+  * the Predef source anyway, so that recompile is needed regardless. Use these
+  * only for files that build.sbt tracks. The other reserved packages and the C
+  * runtime headers are checked by a test instead (`ReservedNamesTest`), so
+  * that editing them doesn't recompile core.
   */
 object CheckedNames {
 
@@ -34,16 +36,6 @@ object CheckedNames {
   /** `name`, which the source at `path` declares `external` */
   inline def external(inline path: String, inline name: String): String =
     ${ externalImpl('path, 'name) }
-
-  /** `name`, which is the package of the source at `path` */
-  inline def packageName(inline path: String, inline name: String): String =
-    ${ packageNameImpl('path, 'name) }
-
-  /** `name`, an identifier in one of the C runtime's headers, the `.h` files
-    * in c_runtime
-    */
-  inline def cRuntime(inline name: String): String =
-    ${ cRuntimeImpl('name) }
 
   def exportedValueImpl(path: Expr[String], name: Expr[String])(using
       Quotes
@@ -66,51 +58,6 @@ object CheckedNames {
       Quotes
   ): Expr[String] =
     checkSourceName(path, name, "external declarations")(_.externals)
-
-  def packageNameImpl(pathExpr: Expr[String], nameExpr: Expr[String])(using
-      quotes: Quotes
-  ): Expr[String] = {
-    import quotes.reflect.report
-
-    val path = literal(pathExpr, "source path")
-    val name = literal(nameExpr, "package name")
-    val declared = sourceNames(path, pathExpr).packageName
-    if (declared == name) Expr(name)
-    else
-      report.errorAndAbort(
-        s"`$name` is not the package of $path, which is `$declared`",
-        nameExpr
-      )
-  }
-
-  def cRuntimeImpl(nameExpr: Expr[String])(using
-      quotes: Quotes
-  ): Expr[String] = {
-    import quotes.reflect.report
-
-    val name = literal(nameExpr, "C identifier")
-    val dirPath = "c_runtime"
-    val headers = Macro
-      .repoFile(dirPath)
-      .flatMap(dir => Option(dir.listFiles()))
-      .fold(List.empty[File])(_.toList)
-      .filter(f => f.isFile && f.getName.endsWith(".h"))
-      .sortBy(_.getName)
-    val idents =
-      headers.iterator.flatMap(h => CRuntimeNames.identifiers(Macro.readFile(h))).toSet
-    if (!idents.exists(_.startsWith("bsts_"))) {
-      // a scan that finds nothing must not quietly reject every name
-      report.errorAndAbort(
-        s"found no bsts_ identifiers in $dirPath/*.h (${headers.size} headers), so the scan for `$name` is broken",
-        nameExpr
-      )
-    } else if (idents(name)) Expr(name)
-    else
-      report.errorAndAbort(
-        notFound(name, s"the identifiers in the $dirPath/*.h headers", idents),
-        nameExpr
-      )
-  }
 
   private def literal(expr: Expr[String], what: String)(using
       quotes: Quotes
@@ -157,7 +104,10 @@ object CheckedNames {
       )
   }
 
-  private def notFound(
+  /** The message for a `name` that isn't one of `known`, with the nearest
+    * known names as suggestions
+    */
+  private[bosatsu] def notFound(
       name: String,
       listDescription: String,
       known: Iterable[String]
