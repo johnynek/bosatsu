@@ -530,7 +530,8 @@ object Infer {
         * In check mode the expected rho is usually in weak prenex form, but
         * not always: checkApply checks an application against its annotation
         * without skolemizing it, so a function result can still have a
-        * forall. subsCheckFn handles that case.
+        * forall, which subsCheckFn handles, or rho can be an alias of a
+        * forall, which subsCheckRho handles.
         */
       def instSigma(sigma: Type, r: Region): Infer[FunctionK[TypedExpr, R]]
 
@@ -1051,8 +1052,9 @@ object Infer {
      * It need not be: an annotation that checkApply checks against without
      * skolemizing it, or the widest branch type widenBranches checks each
      * branch against, can keep a forall in a function result, and
-     * subsCheckFn handles that. An alias at the head of rho must still expand
-     * to a Rho, as the alias normalization in subsCheckRho2 assumes.
+     * subsCheckFn handles that. Nor need rho be a Rho once the alias at its
+     * head is expanded, as for (e: Poly) with type Poly = forall a. a -> a,
+     * and subsCheckAliasExpansion handles that.
      */
     def subsCheckRho(
         t: Type,
@@ -1066,11 +1068,22 @@ object Infer {
           subsInstantiate(TypedExpr.Domain.RhoDom)(t, rho, left, right) match {
             case Some(inf) => inf
             case None      =>
-              // Rule SPEC
-              for {
-                faRho <- instantiate(t)
-                coerce <- subsCheckRho2(faRho, rho, left, right, direction)
-              } yield coerce
+              GetEnv.flatMap { env =>
+                env.normalizeAliasHead(rho) match {
+                  case sigma: Type.ForAll =>
+                    // rho is an alias of a ForAll, which we must skolemize
+                    // before we instantiate t. Instantiating t first, as SPEC
+                    // does, makes metas older than the skolems, and solving
+                    // them to a skolem then fails the escape check.
+                    subsCheckAliasExpansion(t, sigma, rho, left, right, direction)
+                  case _ =>
+                    // Rule SPEC
+                    for {
+                      faRho <- instantiate(t)
+                      coerce <- subsCheckRho2(faRho, rho, left, right, direction)
+                    } yield coerce
+                }
+              }
           }
         // for existential lower bounds, we skolemize the existentials
         // then verify they don't escape after inference and unskolemize
@@ -1078,6 +1091,27 @@ object Infer {
         case (rhot: Type.Rho, rho) =>
           subsCheckRho2(rhot, rho, left, right, direction)
       }
+
+    /*
+     * Check t1 <:< rho1 and coerce to rho, where t1 and rho1 are t and rho
+     * with the aliases at their heads expanded, and one of them is a ForAll:
+     * an alias is transparent, so `type Poly = forall a. a -> a` is spelled
+     * as a Rho but stands for a sigma type. The sigma rule skolemizes the
+     * expected side before it instantiates the other (DEEP-SKOL). We then
+     * widen to rho to keep its alias spelling, as for an alias of a Rho.
+     */
+    private def subsCheckAliasExpansion(
+        t1: Type,
+        rho1: Type,
+        rho: Type.Rho,
+        left: Region,
+        right: Region,
+        direction: Error.Direction
+    ): Infer[TypedExpr.CoerceRho] =
+      for {
+        coerce <- subsCheck(t1, rho1, left, right, direction)
+        kinds <- checkedKinds
+      } yield coerce.andThen(TypedExpr.coerceRho(rho, kinds))
 
     // this is only safe when the type is already correct and a Rho
     // which it is in subsCheckRho2 because the types match exactly
@@ -1103,28 +1137,24 @@ object Infer {
       } else
         normalizeAliasPair(t, rho).flatMap { case (t1, rho1) =>
           if ((t1 ne t) || (rho1 ne rho)) {
-            for {
-              tRho <- assertRho(
-                t1,
-                s"subsCheckRho2 alias normalization left($t, $rho, $left, $right)",
-                left
-              )
-              rhoRho <- assertRho(
-                rho1,
-                s"subsCheckRho2 alias normalization right($t, $rho, $left, $right)",
-                right
-              )
-              coerce <- subsCheckRho2(tRho, rhoRho, left, right, direction)
-              kinds <- checkedKinds
-            } yield {
-              if (rhoRho eq rho) coerce
-              else {
-                val widenToAlias = new FunctionK[TypedExpr.Rho, TypedExpr.Rho] {
-                  def apply[A](te: TypedExpr.Rho[A]): TypedExpr.Rho[A] =
-                    TypedExpr.coerceRho(rho, kinds)(te)
+            (t1, rho1) match {
+              case (tRho: Type.Rho, rhoRho: Type.Rho) =>
+                for {
+                  coerce <- subsCheckRho2(tRho, rhoRho, left, right, direction)
+                  kinds <- checkedKinds
+                } yield {
+                  if (rhoRho eq rho) coerce
+                  else {
+                    val widenToAlias =
+                      new FunctionK[TypedExpr.Rho, TypedExpr.Rho] {
+                        def apply[A](te: TypedExpr.Rho[A]): TypedExpr.Rho[A] =
+                          TypedExpr.coerceRho(rho, kinds)(te)
+                      }
+                    coerce.andThen(widenToAlias)
+                  }
                 }
-                coerce.andThen(widenToAlias)
-              }
+              case _ =>
+                subsCheckAliasExpansion(t1, rho1, rho, left, right, direction)
             }
           } else
             (t, rho) match {
