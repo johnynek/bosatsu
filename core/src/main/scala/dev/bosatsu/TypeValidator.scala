@@ -989,7 +989,10 @@ object TypeValidator {
         ): Either[String, (List[Type], Type, Map[Type.Var.Bound, Kind])] =
           if (remaining <= 0) Right((accRev.reverse, currentFnType, accKinds))
           else {
-            val (foralls0, exists0, rho0) = Type.splitQuantifiers(currentFnType)
+            // aliases are transparent, so the function type can be spelled
+            // as an alias of one, or of a forall of one: expand them first
+            val (foralls0, exists0, rho0) =
+              Type.splitQuantifiers(normalizeType(currentFnType))
             val avoid = accKinds.keySet ++ inScopeKinds.keySet
             val quantUnshadowed = Type
               .quantify(foralls0, exists0, rho0) match {

@@ -4928,4 +4928,22 @@ main = (q("x"), q(2))
       Tuple(Str("x"), VInt(2))
     )
   }
+
+  test("values of an alias of a forall type evaluate polymorphically") {
+    evalBothPipelines(
+      """
+type Poly = forall a. a -> a
+type Q = Int -> Poly
+
+(id: Poly) = x -> x
+def both(f: Poly) -> (Int, String): (f(1), f("s"))
+(q: Q) = _ -> id
+struct Box(f: Poly)
+
+main = match Box(q(0)):
+  case Box(f): (both(f), f(3), q(1)(4))
+""",
+      Tuple(Tuple(VInt(1), Str("s")), VInt(3), VInt(4))
+    )
+  }
 }
